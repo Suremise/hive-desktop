@@ -159,6 +159,7 @@
   "git.setup.notRepo": "{project} 不是 git 仓库",
   "git.setup.withoutGit": "没有 git 时，智能体在项目文件夹中工作，Hive 也无法为它提供工作树、合并或 Git 视图。",
   "git.state": "{state, select, merge {合并中} rebase {变基中} cherrypick {拣选中} revert {还原中} other {二分查找中}}",
+  "git.status.aheadBehind": "↑{ahead, number} ↓{behind, number}",
   "git.status.noUpstream": "无上游",
   "git.statusBar.tip": "所选项目的 Git 分支",
   "git.switch.button": "切换",

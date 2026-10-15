@@ -639,6 +639,10 @@
     "defaultMessage": "{state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}",
     "description": "What git has in progress in the project folder, in the status bar and the Git tab (badge), lower case: \"main · merging\"."
   },
+  "git.status.aheadBehind": {
+    "defaultMessage": "↑{ahead, number} ↓{behind, number}",
+    "description": "Status bar and Git → Branches & remotes: how many commits a branch is ahead of the remote branch it tracks (↑, to push) and behind it (↓, to pull), \"↑2 ↓0\". Keep the arrows and the order."
+  },
   "git.status.noUpstream": {
     "defaultMessage": "no upstream",
     "description": "Status bar, after the branch: it tracks no remote branch (\"main · no upstream\")."

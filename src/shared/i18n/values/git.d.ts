@@ -161,6 +161,7 @@ interface HiveMessageValues {
   'git.setup.notRepo': { project: string | number }
   'git.setup.withoutGit': undefined
   'git.state': { state: string }
+  'git.status.aheadBehind': { ahead: number; behind: number }
   'git.status.noUpstream': undefined
   'git.statusBar.tip': undefined
   'git.switch.button': undefined

@@ -159,6 +159,7 @@
   "git.setup.notRepo": "Le projet {project} n’est pas un dépôt git",
   "git.setup.withoutGit": "Sans git, les agents travaillent dans le dossier du projet, et Hive n’a ni worktrees, ni fusion, ni vue Git pour lui.",
   "git.state": "{state, select, merge {fusion en cours} rebase {rebase en cours} cherrypick {cherry-pick en cours} revert {revert en cours} other {bisect en cours}}",
+  "git.status.aheadBehind": "↑{ahead, number} ↓{behind, number}",
   "git.status.noUpstream": "sans branche amont",
   "git.statusBar.tip": "Branche git du projet sélectionné",
   "git.switch.button": "Basculer",

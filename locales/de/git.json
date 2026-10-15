@@ -159,6 +159,7 @@
   "git.setup.notRepo": "{project} ist kein Git-Repository",
   "git.setup.withoutGit": "Ohne git arbeiten Agenten im Projektordner, und Hive hat dafür keine Worktrees, kein Mergen und keine Git-Ansicht.",
   "git.state": "{state, select, merge {Merge läuft} rebase {Rebase läuft} cherrypick {Cherry-Pick läuft} revert {Revert läuft} other {Bisect läuft}}",
+  "git.status.aheadBehind": "↑{ahead, number} ↓{behind, number}",
   "git.status.noUpstream": "kein Upstream",
   "git.statusBar.tip": "Git-Branch des ausgewählten Projekts",
   "git.switch.button": "Wechseln",

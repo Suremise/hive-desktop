@@ -159,6 +159,7 @@
   "git.setup.notRepo": "{project}はgitリポジトリではありません",
   "git.setup.withoutGit": "gitがない場合、エージェントはプロジェクトのフォルダーで作業し、Hiveのワークツリー、マージ、Gitビューは使えません。",
   "git.state": "{state, select, merge {マージ中} rebase {リベース中} cherrypick {チェリーピック中} revert {リバート中} other {bisect中}}",
+  "git.status.aheadBehind": "↑{ahead, number} ↓{behind, number}",
   "git.status.noUpstream": "追跡先なし",
   "git.statusBar.tip": "選択中のプロジェクトのGitブランチ",
   "git.switch.button": "切り替え",

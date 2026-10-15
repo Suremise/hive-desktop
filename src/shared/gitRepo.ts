@@ -146,6 +146,7 @@ const M = {
   state: msg({ id: 'git.state', defaultMessage: '{state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}', description: 'What git has in progress in the project folder, in the status bar and the Git tab (badge), lower case: "main · merging".' }),
   detachedAt: msg({ id: 'git.head.detachedAt', defaultMessage: 'detached at {commit}', description: 'What the project folder has checked out when HEAD is detached. {commit} is a short commit hash. Lower case: also in the status bar ("detached at abc1234 · rebasing").' }),
   noCommitsYet: msg({ id: 'git.head.noCommits', defaultMessage: 'no commits yet', description: "What the project folder has checked out in a repository with no commit yet. Lower case: also in the status bar." }),
+  aheadBehind: msg({ id: 'git.status.aheadBehind', defaultMessage: '↑{ahead, number} ↓{behind, number}', description: 'Status bar and Git → Branches & remotes: how many commits a branch is ahead of the remote branch it tracks (↑, to push) and behind it (↓, to pull), "↑2 ↓0". Keep the arrows and the order.' }),
   upstreamGone: msg({ id: 'git.upstream.gone', defaultMessage: 'upstream gone', description: 'In place of the ahead/behind counts: the remote branch a branch tracked was deleted on the remote.' }),
   parentRepo: msg({ id: 'git.parentRepo', defaultMessage: "This project is inside the git repository in {folder}, so the Git view only shows it: Hive changes only a project's own repository.", description: "Banner in the Git tab of a project whose folder is inside another repository (a workspace kept in git). {folder} is that repository's folder." }),
   noUpstream: msg({ id: 'git.status.noUpstream', defaultMessage: 'no upstream', description: 'Status bar, after the branch: it tracks no remote branch ("main · no upstream").' }),
@@ -236,7 +237,7 @@ export function headText(s: Pick<GitRepoSummary, 'branch' | 'head'>): string {
 
 /** ↑2 ↓0, or "upstream gone". */
 export function aheadBehindText(u: Pick<GitUpstream, 'ahead' | 'behind' | 'gone'>): string {
-  return u.gone ? tr(M.upstreamGone) : `↑${u.ahead} ↓${u.behind}`
+  return u.gone ? tr(M.upstreamGone) : tr(M.aheadBehind, { ahead: u.ahead, behind: u.behind })
 }
 
 /** Why the Git view doesn't change a folder inside another repository (`parentRepo`), or null. */
