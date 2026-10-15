@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}、ラウンド{round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · レーンの終了時：{where}",
-  "board.lane.more": "ほか{n}件：{cards}",
   "board.lane.notOnBoard": "#{card} · ボードにありません",
   "board.lane.reviewFailed": "#{card}：レビュー不合格（ラウンド{round}）：ラウンド{next}を待っています",
   "board.lane.reviewerGist": "レビュアー：{gist}",

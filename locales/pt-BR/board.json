@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}, rodada {round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · {where}, quando a raia terminou",
-  "board.lane.more": "mais {n}: {cards}",
   "board.lane.notOnBoard": "#{card} · fora do quadro",
   "board.lane.reviewFailed": "#{card}: revisão reprovada (rodada {round}): aguardando a rodada {next}",
   "board.lane.reviewerGist": "Revisor: {gist}",

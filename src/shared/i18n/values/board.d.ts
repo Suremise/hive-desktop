@@ -296,7 +296,7 @@ interface HiveMessageValues {
   'board.lane.inRound': { where: string | number; round: string | number }
   'board.lane.label': { card: string | number; title: string | number; where: string | number }
   'board.lane.labelWhenEnded': { card: string | number; title: string | number; where: string | number }
-  'board.lane.more': { n: string | number; cards: string | number }
+  'board.lane.more': { n: number; cards: string | number }
   'board.lane.notOnBoard': { card: string | number }
   'board.lane.reviewFailed': { card: string | number; round: string | number; next: string | number }
   'board.lane.reviewerGist': { gist: string | number }

@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}, runda {round}",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · {where}, gdy tor się skończył",
-  "board.lane.more": "Jeszcze {n}: {cards}",
   "board.lane.notOnBoard": "#{card} · nie ma jej na tablicy",
   "board.lane.reviewFailed": "#{card}: recenzja nie przeszła (runda {round}): czeka na rundę {next}",
   "board.lane.reviewerGist": "Recenzent: {gist}",

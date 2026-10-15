@@ -289,7 +289,6 @@
   "board.lane.inRound": "{where}，第 {round} 轮",
   "board.lane.label": "#{card} {title} · {where}",
   "board.lane.labelWhenEnded": "#{card} {title} · 通道结束时位于：{where}",
-  "board.lane.more": "另外 {n} 张：{cards}",
   "board.lane.notOnBoard": "#{card} · 不在看板上",
   "board.lane.reviewFailed": "#{card}：评审未通过（第 {round} 轮）：等待第 {next} 轮",
   "board.lane.reviewerGist": "评审者：{gist}",

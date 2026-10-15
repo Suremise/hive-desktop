@@ -929,7 +929,7 @@
   },
   "agents.permission.dangerMessage": {
     "defaultMessage": "{where} will run every command, edit and network call without asking.",
-    "description": "The confirmation before choosing a no-guardrails permission mode. {where} is what will run in it: an agent's name, or \"New sessions of <project>\"."
+    "description": "The confirmation before choosing a no-guardrails permission mode. {where} is who will run in it: an agent's name, or \"The Assistant\"."
   },
   "agents.permission.dangerTitle": {
     "defaultMessage": "Use {mode}?",

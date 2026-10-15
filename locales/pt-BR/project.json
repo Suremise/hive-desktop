@@ -279,7 +279,6 @@
   "project.settings.rounds": "Rodadas",
   "project.settings.saveFailed": "Não foi possível salvar as configurações do projeto",
   "project.settings.search": "Pesquisar nas configurações do projeto {project}",
-  "project.settings.sessionsIn": "Sessões no projeto {project}",
   "project.settings.waitHours": "Espera (horas)",
   "project.settings.wake": "Acordar revisores e executores",
   "project.settings.warnOver": "Avisar quando uma transcrição passar de",

@@ -133,10 +133,11 @@ const M = {
   thisRepo: msg({ id: 'git.identity.thisRepo', defaultMessage: 'This repository', description: "Column of the commit identity table: this repository's own setting." }),
   global: msg({ id: 'git.identity.global', defaultMessage: 'Global', description: "Column of the commit identity table: the user's global git setting." }),
   commitsUse: msg({ id: 'git.identity.used', defaultMessage: 'Commits use', description: 'Column of the commit identity table: what git uses.' }),
-  name: msg({ id: 'git.identity.name', defaultMessage: 'Name', description: 'Row of the commit identity table, and a form field.' }),
+  name: msg({ id: 'git.identity.name', defaultMessage: 'Name', description: "Row of the commit identity table, and a field of the form that sets it: the commits' author name." }),
   email: msg({ id: 'git.identity.email', defaultMessage: 'Email', description: 'Row of the commit identity table, and a form field.' }),
   notSet: msg({ id: 'git.identity.notSet', defaultMessage: 'not set', description: 'In the commit identity table: no value there.' }),
-  addRemoteTitle: msg({ id: 'git.remotes.addTitle', defaultMessage: 'Add a remote', description: 'Title of the Add a remote form.' }),
+  remoteName: msg({ id: 'git.remotes.name', defaultMessage: 'Name', description: "Field of the Add a remote form: the remote's short name in git (origin, say)." }),
+  addRemoteTitle: msg({ id: 'git.remotes.addTitle',defaultMessage: 'Add a remote', description: 'Title of the Add a remote form.' }),
   addRemoteAbout: msg({ id: 'git.remotes.addAbout', defaultMessage: 'A repository to fetch from and push to: a URL (https://github.com/you/repo.git, git@github.com:you/repo.git) or a folder.', description: 'The Add a remote form. Keep the example URLs.' }),
   url: msg({ id: 'git.remotes.url', defaultMessage: 'URL', description: 'Field of the Add a remote form.' }),
   add: msg({ id: 'git.remotes.addButton', defaultMessage: 'Add', description: "The Add a remote form's button." }),
@@ -144,7 +145,8 @@ const M = {
   tagTitle: msg({ id: 'git.tags.title', defaultMessage: 'Tag {commit}', description: 'Title of the Create tag form. {commit} is the short hash of the commit checked out.' }),
   tagTheCommit: msg({ id: 'git.tags.titleNoCommit', defaultMessage: 'Tag the commit', description: 'Title of the Create tag form before the commit is known.' }),
   tagAbout: msg({ id: 'git.tags.about', defaultMessage: "{onBranch, select, yes {Tags the commit the project folder has checked out ({branch}). With a message, it's an annotated tag.} other {Tags the commit the project folder has checked out. With a message, it's an annotated tag.}}", description: 'The Create tag form. {branch} is the branch checked out ({onBranch} is no when HEAD is detached).' }),
-  message: msg({ id: 'git.tags.message', defaultMessage: 'Message', description: 'Field of the Create tag form.' }),
+  tagName: msg({ id: 'git.tags.name', defaultMessage: 'Name', description: "Field of the Create tag form: the new tag's name (v1.0.0, say)." }),
+  message: msg({ id: 'git.tags.message',defaultMessage: 'Message', description: 'Field of the Create tag form.' }),
   optional: msg({ id: 'git.tags.optional', defaultMessage: 'Optional', description: "Placeholder in the Create tag form's message box." }),
   pushItTo: msg({ id: 'git.tags.pushTo', defaultMessage: 'Push it to', description: 'Field of the Create tag form: the remote to push the tag to.' }),
   dontPush: msg({ id: 'git.tags.dontPush', defaultMessage: "Don't push", description: 'The first choice of the Create tag form\'s Push it to drop-down.' }),
@@ -786,7 +788,7 @@ function remoteForm(project: ProjectInfo): FormSpec {
     about: tr(M.addRemoteAbout),
     fields: [
       // i18n-ignore: git's usual name for a remote
-      { key: 'name', label: tr(M.name), initial: 'origin', placeholder: 'origin' },
+      { key: 'name', label: tr(M.remoteName), initial: 'origin', placeholder: 'origin' },
       // i18n-ignore: an example URL
       { key: 'url', label: tr(M.url), placeholder: 'https://github.com/you/repo.git' }
     ],
@@ -806,7 +808,7 @@ function tagForm(project: ProjectInfo, s: GitRepoSummary | null): FormSpec {
     about: tr(M.tagAbout, { onBranch: s?.branch ? 'yes' : 'no', branch: s?.branch ?? '' }),
     fields: [
       // i18n-ignore: an example version
-      { key: 'name', label: tr(M.name), placeholder: 'v1.0.0' },
+      { key: 'name', label: tr(M.tagName), placeholder: 'v1.0.0' },
       { key: 'message', label: tr(M.message), placeholder: tr(M.optional) },
       ...(remotes.length ? [{ key: 'push', label: tr(M.pushItTo), initial: '', options: [{ label: tr(M.dontPush), value: '' }, ...remotes.map((r) => ({ label: r, value: r }))] }] : [])
     ],

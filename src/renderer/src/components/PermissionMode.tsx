@@ -37,7 +37,7 @@ export async function confirmDangerousMode(provider: ProviderId, mode: Permissio
   const label = shownText(m.label, m.text?.label, tr)
   return confirm({
     title: tr(msg({ id: 'agents.permission.dangerTitle', defaultMessage: 'Use {mode}?', description: "Title of the confirmation before choosing a provider's no-guardrails permission mode ({mode}: its name, Bypass permissions, Full access…)." }), { mode: label }),
-    message: typeof where !== 'string' ? where.message : tr(msg({ id: 'agents.permission.dangerMessage', defaultMessage: '{where} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode. {where} is what will run in it: an agent's name, or \"New sessions of <project>\"." }), { where }),
+    message: typeof where !== 'string' ? where.message : tr(msg({ id: 'agents.permission.dangerMessage', defaultMessage: '{where} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode. {where} is who will run in it: an agent's name, or \"The Assistant\"." }), { where }),
     detail: tr(msg({ id: 'agents.permission.dangerDetail', defaultMessage: 'Only use this for disposable work where mistakes cannot do harm. {provider} may show its own warning the first time; answer it in the terminal.', description: "Under the confirmation before choosing a no-guardrails permission mode: the CLI ({provider}: its name) may ask itself too." }), { provider: name }),
     confirmLabel: tr(msg({ id: 'agents.permission.dangerConfirm', defaultMessage: 'Use {mode}', description: "Button: chooses the no-guardrails permission mode ({mode}: its name)." }), { mode: label }),
     danger: true
