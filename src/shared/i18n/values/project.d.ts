@@ -240,9 +240,9 @@ interface HiveMessageValues {
   'project.overview.turnedOff': undefined
   'project.overview.updated': { when: string | number }
   'project.period.all': undefined
-  'project.period.month': undefined
+  'project.period.month': { days: number }
   'project.period.today': undefined
-  'project.period.week': undefined
+  'project.period.week': { days: number }
   'project.refresh': undefined
   'project.retry': undefined
   'project.running.context': { used: string | number }
@@ -319,6 +319,5 @@ interface HiveMessageValues {
   'project.tab.skills': undefined
   'project.tab.tasks': undefined
   'project.tab.templates': undefined
-  'project.tabs.errorLabel': undefined
   'project.tabs.tip': { tab: string | number; key: string | number }
 }

@@ -40,9 +40,11 @@ const NO_PREFS: Record<string, boolean> = {}
 /** Branches whose open or folded state is remembered per project (the most recently changed). */
 
 /** Why a bulk action passed over a session, in a few words. */
+/** A skip reason as a select's key, which can't have a dash: 'in-use' is inUse. */
+const skipKey = (reason: SessionSkipReason): string => (reason === 'in-use' ? 'inUse' : reason)
+
 function skipText(reason: SessionSkipReason): string {
-  // A select's key can't have a dash: 'in-use' is inUse.
-  const key = reason === 'in-use' ? 'inUse' : reason
+  const key = skipKey(reason)
   return tr(msg({ id: 'sessions.bulk.skipReason', defaultMessage: '{reason, select, live {running} inUse {in use} reading {being read by Hive} open {open in another Hive window} external {started outside Hive} other {failed}}', description: 'Why archiving, unarchiving or deleting passed over a session, in a few words (lower case): it is running, its files are in use, Hive is reading it, another Hive window has it open, it was started outside Hive, or it failed (other).' }), { reason: key })
 }
 
@@ -256,7 +258,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     if (!list.length) return
     const what = countText({ sessions: list.filter((s) => !s.sub).length, subs: list.filter((s) => !!s.sub).length })
     const running = list.filter((s) => isLive(s.id)).length
-    const skipNote = tr(msg({ id: 'sessions.bulk.skipNote', defaultMessage: '{running, plural, =0 {Running sessions are skipped, and} one {# running now is skipped, as are} other {# running now are skipped, as are}} any whose files are in use; the result says which.', description: "In the confirmation before archiving or deleting many sessions: running sessions ({running} of them now; none: a general note) and any whose files are in use are passed over, and the result lists them." }), { running })
+    const skipNote = tr(msg({ id: 'sessions.bulk.skipNote', defaultMessage: '{running, plural, =0 {Running sessions are skipped, and so are any whose files are in use; the result says which.} one {# running now is skipped, as are any whose files are in use; the result says which.} other {# running now are skipped, as are any whose files are in use; the result says which.}}', description: "In the confirmation before archiving or deleting many sessions: running sessions ({running} of them now; none: a general note) and any whose files are in use are passed over, and the result lists them." }), { running })
     const where = { what, branch: branchName(n) }
     const ok =
       action === 'unarchive' ||
@@ -671,12 +673,12 @@ function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: 
   const n = r.done.length
   const head = { action, n }
   const closed = closedView ? tr(msg({ id: 'sessions.bulk.closedView', defaultMessage: 'The transcript you were reading was one of them: it was closed first.', description: 'In the report of archiving or deleting many sessions: the transcript open in the tab was one of them, so it was closed.' })) : undefined
-  const skipped = [...before.map((s) => ({ id: s.item.id, why: cleanupSkipText(s.reason), message: undefined as string | undefined })), ...r.skipped.map((s) => ({ id: s.id, why: skipText(s.reason), message: s.message }))]
+  const skipped = [...before.map((s) => ({ id: s.item.id, key: s.reason as string, why: cleanupSkipText(s.reason), message: undefined as string | undefined })), ...r.skipped.map((s) => ({ id: s.id, key: skipKey(s.reason), why: skipText(s.reason), message: s.message }))]
   if (!skipped.length) return notify('success', tr(msg({ id: 'sessions.bulk.done', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.', description: "A notification's title: how many sessions were archived, unarchived or deleted." }), head), closed)
   const reasons = new Map<string, number>()
-  for (const s of skipped) reasons.set(s.why, (reasons.get(s.why) ?? 0) + 1)
+  for (const s of skipped) reasons.set(s.key, (reasons.get(s.key) ?? 0) + 1)
   const why = fmt.list(
-    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n, number} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: k })),
+    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: "{reason, select, live {{n, plural, one {# running} other {# running}}} inUse {{n, plural, one {# in use} other {# in use}}} reading {{n, plural, one {# being read by Hive} other {# being read by Hive}}} open {{n, plural, one {# open in another Hive window} other {# open in other Hive windows}}} external {{n, plural, one {# started outside Hive} other {# started outside Hive}}} shown {{n, plural, one {# open here} other {# open here}}} current {{n, plural, one {# current Assistant conversation} other {# current Assistant conversations}}} other {{n, plural, one {# failed} other {# failed}}}}", description: 'How many sessions were passed over for one reason, listed after "n skipped:" ("2 running, 1 in use"). {reason} picks why: running, files in use, Hive is reading it, open in another Hive window, started outside Hive, open in this tab, the Hive Assistant\'s current conversation, or it failed (other).' }), { n: v, reason: k })),
     'unit'
   )
   const shown = skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${s.why}${s.message ? ` (${s.message})` : ''}`)

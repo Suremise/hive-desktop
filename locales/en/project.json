@@ -956,16 +956,16 @@
     "description": "A period of the usage figures: everything recorded."
   },
   "project.period.month": {
-    "defaultMessage": "30 days",
-    "description": "A period of the usage figures: the last thirty days."
+    "defaultMessage": "{days, plural, one {# day} other {# days}}",
+    "description": "A period of the usage figures: the last thirty days ({days} is 30), today included."
   },
   "project.period.today": {
     "defaultMessage": "Today",
     "description": "A period of the usage figures (Overview tabs, the Assistant)."
   },
   "project.period.week": {
-    "defaultMessage": "7 days",
-    "description": "A period of the usage figures: the last seven days."
+    "defaultMessage": "{days, plural, one {# day} other {# days}}",
+    "description": "A period of the usage figures: the last seven days ({days} is 7), today included."
   },
   "project.refresh": {
     "defaultMessage": "Refresh",
@@ -1148,7 +1148,7 @@
     "description": "Tooltip on the add-from-file button of the Local group."
   },
   "project.skills.assistantOnly": {
-    "defaultMessage": "{count, plural, one {1 Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it.} other {# Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.}}",
+    "defaultMessage": "{count, plural, one {# Hive skill is for the Hive Assistant only, so it isn't listed: this project's agents don't get it.} other {# Hive skills are for the Hive Assistant only, so they aren't listed: this project's agents don't get them.}}",
     "description": "Under the Hive skills, when some are for the Hive Assistant alone."
   },
   "project.skills.delete": {
@@ -1270,10 +1270,6 @@
   "project.tab.templates": {
     "defaultMessage": "Templates",
     "description": "A project's tab: templates of agents and cards."
-  },
-  "project.tabs.errorLabel": {
-    "defaultMessage": "This tab",
-    "description": "What failed, in the message shown when a project tab crashes (\"This tab hit a problem\")."
   },
   "project.tabs.tip": {
     "defaultMessage": "{tab} ({key})",

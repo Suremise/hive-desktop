@@ -197,7 +197,7 @@ interface HiveMessageValues {
   'shell.error.stopBackground': undefined
   'shell.error.switchModes': undefined
   'shell.errorBoundary.logs': undefined
-  'shell.errorBoundary.named': { view: string | number }
+  'shell.errorBoundary.named': { view: string }
   'shell.errorBoundary.reload': undefined
   'shell.errorBoundary.save': { n: number }
   'shell.errorBoundary.saveFailed': { why: string | number }
@@ -256,7 +256,7 @@ interface HiveMessageValues {
   'shell.quit.stopping.watching': undefined
   'shell.quit.stopping.working': undefined
   'shell.quit.stoppingColumn': undefined
-  'shell.quit.stops': { how: string; windows: string | number; busy: string; n: number; all: string; everywhere: string }
+  'shell.quit.stops': { how: string; busy: string; n: number; windows: number }
   'shell.quit.title': { how: string; windows: string | number }
   'shell.quit.unsaved': { n: number }
   'shell.quit.when': { action: string; working: number }
@@ -363,7 +363,4 @@ interface HiveMessageValues {
   'shell.titlebar.pin': undefined
   'shell.titlebar.pinTip': { on: string }
   'shell.toast.dismiss': undefined
-  'shell.view.assistant': undefined
-  'shell.view.devConsole': undefined
-  'shell.view.progress': undefined
 }

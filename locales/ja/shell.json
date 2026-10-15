@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "バックグラウンドのセッションを停止できませんでした",
   "shell.error.switchModes": "権限モードを切り替えられませんでした",
   "shell.errorBoundary.logs": "ログを開く",
-  "shell.errorBoundary.named": "{view}で問題が発生したため、表示できませんでした。",
   "shell.errorBoundary.reload": "ウィンドウを再読み込み",
   "shell.errorBoundary.save": "{n, plural, other {未保存のファイル#件を保存}}",
   "shell.errorBoundary.saveFailed": "保存できませんでした：{why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "再開するまでカードループが一時停止します",
   "shell.quit.stopping.working": "中断されます",
   "shell.quit.stoppingColumn": "停止すると",
-  "shell.quit.stops": "{how, select, workspace {ワークスペースを閉じると、} switch {ワークスペースを切り替えると、このワークスペースの} window {このウィンドウを閉じると、このワークスペースの} allWindows {終了すると{windows}個のウィンドウがすべて閉じ、} other {終了すると、}}{everywhere, select, yes {すべてのワークスペースの} other {}}{busy, select, yes {{n, plural, other {{all, select, yes {セッション{n}件すべて} other {セッション{n}件}}}}} other {{n, plural, other {実行中のセッション#件}}}}が停止します。",
   "shell.quit.title": "{how, select, workspace {このワークスペースを閉じますか？} switch {ワークスペースを切り替えますか？} window {このウィンドウを閉じますか？} allWindows {Hiveを終了して、{windows}個のウィンドウをすべて閉じますか？} other {Hiveを終了しますか？}}",
   "shell.quit.unsaved": "{n, plural, other {#件のファイルに未保存の変更があります。}}",
   "shell.quit.when": "{working, plural, other {エージェントの完了後に}}{action, select, saveAndClose {保存して閉じる} closeWorkspace {ワークスペースを閉じる} switchWorkspace {ワークスペースを切り替え} closeWindow {ウィンドウを閉じる} saveAndQuit {保存して終了} other {終了}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "ワークスペースかプロジェクトが別のフォルダーに移動したときに、古い場所を指したままのものを修復します",
   "shell.titlebar.pin": "常に手前に表示",
   "shell.titlebar.pinTip": "{on, select, yes {常に手前に表示（オン）} other {常に手前に表示（オフ）}}",
-  "shell.toast.dismiss": "閉じる",
-  "shell.view.assistant": "アシスタント",
-  "shell.view.devConsole": "開発者コンソール",
-  "shell.view.progress": "進捗パネル"
+  "shell.toast.dismiss": "閉じる"
 }

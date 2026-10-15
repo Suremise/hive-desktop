@@ -10,26 +10,29 @@ import { dayOffset, localDay, usageFrom } from './usageDays'
 export type Period = 'today' | 'week' | 'month' | 'all'
 const M = {
   today: msg({ id: 'project.period.today', defaultMessage: 'Today', description: 'A period of the usage figures (Overview tabs, the Assistant).' }),
-  week: msg({ id: 'project.period.week', defaultMessage: '7 days', description: 'A period of the usage figures: the last seven days.' }),
-  month: msg({ id: 'project.period.month', defaultMessage: '30 days', description: 'A period of the usage figures: the last thirty days.' }),
+  week: msg({ id: 'project.period.week', defaultMessage: '{days, plural, one {# day} other {# days}}', description: 'A period of the usage figures: the last seven days ({days} is 7), today included.' }),
+  month: msg({ id: 'project.period.month', defaultMessage: '{days, plural, one {# day} other {# days}}', description: 'A period of the usage figures: the last thirty days ({days} is 30), today included.' }),
   all: msg({ id: 'project.period.all', defaultMessage: 'All time', description: 'A period of the usage figures: everything recorded.' }),
   unknown: msg({ id: 'project.cost.unknown', defaultMessage: 'Unknown', description: 'A cost Hive cannot work out: no price is known for the model.' }),
   belowCent: msg({ id: 'project.cost.belowCent', defaultMessage: '< {cent}', description: 'A cost under one cent. {cent} is one cent in dollars, such as "$0.01".' }),
   other: msg({ id: 'project.chart.other', defaultMessage: 'Other ({count})', description: 'In the usage chart by project: the projects not shown on their own. {count} is how many.' })
 }
 
+/** How many calendar days the week and month periods take, today included. */
+const PERIOD_DAYS = { week: 7, month: 30 }
+
 /** The periods, with their labels in the window's language when read (a getter: each render reads it again). */
 export const PERIODS: { value: Period; readonly label: string }[] = [
   { value: 'today', get label() { return tr(M.today) } },
-  { value: 'week', get label() { return tr(M.week) } },
-  { value: 'month', get label() { return tr(M.month) } },
+  { value: 'week', get label() { return tr(M.week, { days: PERIOD_DAYS.week }) } },
+  { value: 'month', get label() { return tr(M.month, { days: PERIOD_DAYS.month }) } },
   { value: 'all', get label() { return tr(M.all) } }
 ]
 
 /** A period's first local day (calendar days: "7 days" is today and the six before); null for all time. */
 export function periodFrom(p: Period, now: number): string | null {
   if (p === 'all') return null
-  return dayOffset(now, p === 'today' ? 0 : p === 'week' ? -6 : -29)
+  return dayOffset(now, p === 'today' ? 0 : 1 - PERIOD_DAYS[p])
 }
 
 /** Sessions with activity in a period (on or after its first day). */

@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "Could not stop the background session",
   "shell.error.switchModes": "Could not switch permission modes",
   "shell.errorBoundary.logs": "Open Logs",
-  "shell.errorBoundary.named": "{view} ran into a problem and couldn't be shown.",
   "shell.errorBoundary.reload": "Reload Window",
   "shell.errorBoundary.save": "{n, plural, one {Save # Unsaved File} other {Save # Unsaved Files}}",
   "shell.errorBoundary.saveFailed": "Couldn't save: {why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "Its card loop pauses until it is resumed",
   "shell.quit.stopping.working": "Will be interrupted",
   "shell.quit.stoppingColumn": "Stopping it",
-  "shell.quit.stops": "{how, select, workspace {Closing the workspace stops its} switch {Switching workspace stops this workspace's} window {Closing this window stops this workspace's} allWindows {Quitting closes all {windows} windows and stops} other {Quitting stops}} {busy, select, yes {{n, plural, one {session} other {{all, select, yes {all {n} sessions} other {{n} sessions}}}}} other {{n, plural, one {running session} other {# running sessions}}}}{everywhere, select, yes {, in every workspace} other {}}.",
   "shell.quit.title": "{how, select, workspace {Close this workspace?} switch {Switch workspace?} window {Close this window?} allWindows {Quit Hive and close all {windows} windows?} other {Quit Hive?}}",
   "shell.quit.unsaved": "{n, plural, one {# file has unsaved changes.} other {# files have unsaved changes.}}",
   "shell.quit.when": "{action, select, saveAndClose {Save and close} closeWorkspace {Close workspace} switchWorkspace {Switch workspace} closeWindow {Close window} saveAndQuit {Save and quit} other {Quit}} when {working, plural, one {the agent finishes} other {agents finish}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "The workspace or a project moved to another folder: repair what still points to the old one",
   "shell.titlebar.pin": "Always on Top",
   "shell.titlebar.pinTip": "{on, select, yes {Always on Top (on)} other {Always on Top (off)}}",
-  "shell.toast.dismiss": "Dismiss",
-  "shell.view.assistant": "The Assistant",
-  "shell.view.devConsole": "The developer console",
-  "shell.view.progress": "The Progress panel"
+  "shell.toast.dismiss": "Dismiss"
 }

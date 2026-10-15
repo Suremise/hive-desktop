@@ -64,12 +64,17 @@ describe('commands', () => {
 describe('the sentences built from parts are whole messages, and read as before in English', () => {
   it('the quit dialog', () => {
     const stops = m('shell.quit.stops')
-    const say = (how: string, busy: boolean, n: number, all: boolean, everywhere = false, windows = 1): string => tr(stops, { how, windows, busy: busy ? 'yes' : 'no', n, all: all ? 'yes' : 'no', everywhere: everywhere ? 'yes' : 'no' })
-    expect(say('app', true, 2, true)).toBe('Quitting stops all 2 sessions.')
-    expect(say('app', false, 1, true)).toBe('Quitting stops running session.')
-    expect(say('workspace', false, 3, false)).toBe('Closing the workspace stops its 3 running sessions.')
-    expect(say('window', true, 1, false)).toBe("Closing this window stops this workspace's session.")
-    expect(say('allWindows', false, 4, true, true, 3)).toBe('Quitting closes all 3 windows and stops 4 running sessions, in every workspace.')
+    // #911: a whole sentence for each case, not a subject and an object glued together.
+    const say = (how: string, busy: boolean, n: number, windows = 1): string => tr(stops, { how, windows, busy: busy ? 'yes' : 'no', n })
+    expect(say('app', true, 2)).toBe('Quitting stops all 2 sessions.')
+    expect(say('app', true, 1)).toBe('Quitting stops its session.')
+    expect(say('app', false, 1)).toBe('Quitting stops the running session.')
+    expect(say('workspace', false, 3)).toBe('Closing the workspace stops its 3 running sessions.')
+    expect(say('switch', true, 2)).toBe("Switching workspace stops this workspace's 2 sessions.")
+    expect(say('window', true, 1)).toBe("Closing this window stops this workspace's session.")
+    expect(say('allWindows', false, 4, 3)).toBe('Quitting closes all 3 windows and stops 4 running sessions, in every workspace.')
+    expect(tr(m('shell.errorBoundary.named'), { view: 'progress' })).toBe("The Progress panel ran into a problem and couldn't be shown.")
+    expect(tr(m('shell.errorBoundary.named'), { view: 'hive' })).toBe("Hive ran into a problem and couldn't be shown.")
     expect(tr(m('shell.quit.busy'), { n: 1 })).toBe('An agent is in the middle of something.')
     expect(tr(m('shell.quit.title'), { how: 'allWindows', windows: 2 })).toBe('Quit Hive and close all 2 windows?')
     expect(tr(m('shell.quit.now'), { action: 'saveAndQuit' })).toBe('Save and quit now')

@@ -27,7 +27,7 @@ interface HiveMessageValues {
   'settings.advanced.claudeFooter.title': { mode: string | number }
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.title': undefined
-  'settings.advanced.codex.hooks.timeoutSeconds.desc': undefined
+  'settings.advanced.codex.hooks.timeoutSeconds.desc': { most: number }
   'settings.advanced.codex.hooks.timeoutSeconds.title': undefined
   'settings.advanced.codex.mcp.toolTimeoutSeconds.desc': undefined
   'settings.advanced.codex.mcp.toolTimeoutSeconds.title': undefined
@@ -51,7 +51,7 @@ interface HiveMessageValues {
   'settings.advanced.codex.turnScreen.working.title': undefined
   'settings.advanced.codexPermissions.desc': { label: string | number; mode: string | number }
   'settings.advanced.codexPermissions.title': { label: string | number }
-  'settings.advanced.copilot.exit.graceSeconds.desc': undefined
+  'settings.advanced.copilot.exit.graceSeconds.desc': { took: number }
   'settings.advanced.copilot.exit.graceSeconds.title': undefined
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title': undefined
@@ -172,7 +172,7 @@ interface HiveMessageValues {
   'settings.agentApi.viewers.tip': undefined
   'settings.agentApi.viewers.title': undefined
   'settings.agents.backgroundTaskMinutes.desc': undefined
-  'settings.agents.backgroundTaskMinutes.tip': undefined
+  'settings.agents.backgroundTaskMinutes.tip': { min: number; max: number }
   'settings.agents.backgroundTaskMinutes.title': undefined
   'settings.agents.fileLocks.desc': undefined
   'settings.agents.fileLocks.tip': undefined
@@ -712,7 +712,7 @@ interface HiveMessageValues {
   'settings.sessions.usageCacheClear.tip': undefined
   'settings.sessions.usageCacheClear.title': undefined
   'settings.sessions.usageCacheSize.desc': undefined
-  'settings.sessions.usageCacheSize.tip': undefined
+  'settings.sessions.usageCacheSize.tip': { min: number; max: number }
   'settings.sessions.usageCacheSize.title': undefined
   'settings.token.copied': undefined
   'settings.token.copy': undefined
