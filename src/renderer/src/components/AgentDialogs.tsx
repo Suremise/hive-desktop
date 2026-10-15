@@ -142,7 +142,9 @@ export function Overrides({
   const p = providerDescriptor(provider)
   const pc = projectProviderConfig(project.config, provider)
   const g = providerSettings(settings, provider)
-  const projectModel = effectiveModelLabel(provider, pc.model, g.defaultModel, info)
+  // The model's name alone: inherited() already says it is the project's (or the default), so "Default (Opus 5.5)",
+  // not "Default (Opus 5.5 (default))" (#892).
+  const projectModel = effectiveModelLabel(provider, (pc.model && pc.model !== 'inherit' ? pc.model : '') || g.defaultModel || cliDefault || undefined, '', info)
   const projectPermission = modeName(provider, pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode)
   const modes = offeredModes(provider, settings)
   // What would run: the choice here, else what it inherits.

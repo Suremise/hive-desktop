@@ -1,4 +1,4 @@
-import { Children, useCallback, useEffect, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 import {
@@ -658,6 +658,8 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 <Icon name="warning" /> {w}
               </div>
             ))}
+            {/* In a narrow column the table scrolls sideways in its own box rather than run under the panel beside it (#886). */}
+            <div className="git-identity-wrap">
             <table className="kv git-identity" data-git-identity="">
               <tbody>
                 <tr>
@@ -667,7 +669,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                   <td className="faint">{tr(M.commitsUse)}</td>
                 </tr>
                 {(['name', 'email'] as const).map((k) => (
-                  <tr key={k}>
+                  <tr key={k} className={`identity-${k}`}>
                     <td>{tr(k === 'name' ? M.name : M.email)}</td>
                     <td>{info.identity.local[k] ?? <span className="faint">{tr(M.notSet)}</span>}</td>
                     <td>{info.identity.global[k] ?? <span className="faint">{tr(M.notSet)}</span>}</td>
@@ -678,6 +680,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 ))}
               </tbody>
             </table>
+            </div>
             {form && <GitForm make={form.make} onClose={() => setForm(null)} />}
           </div>
         )
@@ -750,7 +753,7 @@ function GitForm({ make, onClose }: { make: () => FormSpec; onClose: () => void 
         </>
       }
     >
-      {spec.about && <p className="hint">{spec.about}</p>}
+      {spec.about && <p className="hint">{gitCommandsWhole(spec.about)}</p>}
       <div className="agent-form git-form">
         {spec.fields.map((f, i) => (
           <FormRow key={f.key} field={f} value={values[f.key]} first={i === 0} onChange={(v) => setValues((x) => ({ ...x, [f.key]: v }))} onEnter={() => void submit()} />
@@ -758,6 +761,19 @@ function GitForm({ make, onClose }: { make: () => FormSpec; onClose: () => void 
       </div>
       {problem && Object.values(values).some((v) => v.trim()) && <div className="field-error">{problem}</div>}
     </Modal>
+  )
+}
+
+/** A form's hint with each git command in it ("git config --local") kept on one line, never split after a dash (#890). */
+function gitCommandsWhole(text: string): ReactNode {
+  return text.split(/(\bgit(?: --?[\w-]+| [a-z][\w-]*)+)/).map((part, i) =>
+    i % 2 ? (
+      <span key={i} className="git-command">
+        {part}
+      </span>
+    ) : (
+      part
+    )
   )
 }
 

@@ -95,8 +95,8 @@ export function PersonaList() {
           <div key={p.id} className={cx(/* i18n-ignore: class names */ 'row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} data-persona={p.id} onClick={() => set({ selectedPersona: p.path, assistantSection: 'personas' })}>
             <span className="persona-icon">{p.icon || '🐝'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="label">
-                {personaName(p)}
+              <div className="label with-badges">
+                <span className="row-name">{personaName(p)}</span>
                 {p.id === inUse && p.bundled !== 'missing' && <span className="badge success">{tr(M.inUseBadge)}</span>}
                 {p.id === byDefault && <span className="badge">{tr(M.defaultBadge)}</span>}
               </div>
