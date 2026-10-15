@@ -3315,6 +3315,29 @@ p.hint {
   font-size: 12px;
   color: var(--fg);
 }
+/* An attachment's size, bottom-left, opposite its time (#900). */
+.image-grid .thumb-caption.thumb-size {
+  right: auto;
+  left: 6px;
+}
+/* Where a day's attachments start, in a group that spans days (#900): its day, then a thin line across the grid. */
+.image-grid .attachment-day {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.image-grid .attachment-day:not(:first-child) {
+  margin-top: 6px;
+}
+.image-grid .attachment-day::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
 .attachment-filters {
   display: flex;
   flex-wrap: wrap;

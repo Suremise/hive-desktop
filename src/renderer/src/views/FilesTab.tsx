@@ -2,8 +2,8 @@ import { Children, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { AttachmentContent, FileEntry, ProjectInfo, SessionAttachment, SessionAttachmentGroup } from '@shared/types'
 import { ATTACHMENT_KIND_ICON, ATTACHMENT_KINDS, attachmentLabel, type AttachmentKind } from '@shared/attachments'
 import { providerDescriptor } from '@shared/providers'
-import { formatDateTime, formatTime } from '@shared/dates'
-import { msg, tr, tRich, type Msg } from '@shared/i18n'
+import { daysAgo, formatDateTime, formatLongDay, formatShortDay, formatTime } from '@shared/dates'
+import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { attachFiles } from '../attach'
@@ -99,7 +99,7 @@ const M = {
   unnamedGroup: msg({ id: 'files.attachments.unnamed', defaultMessage: '{host, select, assistant {Conversation {id}} other {Session {id}}}', description: 'A session without a name, in the Attachments tab. {id} is the start of its id.' }),
   runningBadge: msg({ id: 'files.attachments.runningBadge', defaultMessage: 'Running', description: "Badge beside a session's name in the Attachments tab: it is running now." }),
   archivedBadge: msg({ id: 'files.attachments.archivedBadge', defaultMessage: 'archived', description: "Badge beside an archived session's name in the Attachments tab." }),
-  groupCount: msg({ id: 'files.attachments.groupCount', defaultMessage: '{count, plural, one {# attachment} other {# attachments}} · last {when}', description: "Beside a session's name in the Attachments tab. {when} is how long ago the newest was added, such as \"5 min ago\"." }),
+  groupSpan: msg({ id: 'files.attachments.groupSpan', defaultMessage: '{count, plural, one {# attachment} other {# attachments}} · {days, select, one {{from}} other {{from} – {to}}}', description: "Beside a session's name in the Attachments tab: how many, and the days they were added. {from} and {to} are days, such as \"9 Oct\", \"yesterday\" or \"today\"; {days} is one when they were all added on one day." }),
   groupDelete: msg({ id: 'files.attachments.groupDelete', defaultMessage: "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}", description: "Tooltip on a session's delete button in the Attachments tab." }),
   attachmentsLoadTarget: msg({ id: 'files.attachments.loadTarget', defaultMessage: 'the attachments', description: 'What could not be loaded when the Attachments tab first opened: shown in "Could not load {what}: {error}", with Retry.' }),
   attachmentsRefreshTarget: msg({ id: 'files.attachments.refreshTarget', defaultMessage: 'the attachments', description: 'What could not be refreshed while the attachments shown stay on screen: shown in "Could not refresh {what}; last updated …", with Retry.' }),
@@ -216,13 +216,18 @@ type Goto = { rel: string; line?: number; col?: number; nonce: number }
 const copyText = (text: string): void => void navigator.clipboard.writeText(text)
 
 function fileIcon(e: FileEntry, open: boolean): string {
-  if (e.isDir) return open ? 'folder-opened' : 'folder'
-  const n = e.name.toLowerCase()
+  return e.isDir ? (open ? 'folder-opened' : 'folder') : fileNameIcon(e.name)
+}
+
+/** A file's icon by its name: its type's, or a plain file's. */
+function fileNameIcon(name: string): string {
+  const n = name.toLowerCase()
   if (IMAGE_EXT.test(n) || /\.(svg|ico)$/.test(n)) return 'file-media'
   if (n.endsWith('.md')) return 'markdown'
   if (n.endsWith('.json')) return 'json'
   if (/\.(zip|7z|gz|tar|rar)$/.test(n)) return 'file-zip'
   if (/\.(pdf)$/.test(n)) return 'file-pdf'
+  if (/\.(txt|log)$/.test(n)) return 'file-text'
   if (/\.(ts|tsx|js|jsx|mjs|cjs|py|cs|go|rs|java|c|cpp|h|css|scss|html|sh|ps1|yml|yaml|toml|xml|sql)$/.test(n)) return 'file-code'
   return 'file'
 }
@@ -958,6 +963,13 @@ function FileDetails({
 
 const attachmentTime = (a: SessionAttachment): string => formatDateTime(a.modified)
 
+/** A day in a group's span: "today", "yesterday", or "9 Oct". */
+const spanDay = (t: number): string => {
+  const ago = daysAgo(t)
+  return ago === 0 || ago === 1 ? fmt.day(-ago) : formatShortDay(t)
+}
+const dayKey = (iso: string): string => new Date(iso).toDateString()
+
 /**
  * A project's Attachments tab, and the Hive Assistant's Attachments (`assistant`: its home's .hive/attachments, grouped by
  * conversation): what was pasted or dropped into sessions, with filters by kind. Clicking a group's name opens that
@@ -1077,7 +1089,11 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
   const current = groups.filter((g) => !g.archived)
   const archived = groups.filter((g) => g.archived)
   const renderGroup = (g: SessionAttachmentGroup): React.ReactNode => {
-    const n = (all.find((x) => x.sessionId === g.sessionId)?.attachments ?? g.attachments).length
+    // The count and span are of the whole session's attachments, whatever the filter shows.
+    const whole = all.find((x) => x.sessionId === g.sessionId)?.attachments ?? g.attachments
+    const times = whole.map((a) => new Date(a.modified).getTime())
+    const [first, last] = [Math.min(...times), Math.max(...times)]
+    const oneDay = daysAgo(first, new Date(last)) === 0
     return (
       <section key={g.sessionId} className="image-group">
         <div className="image-group-head">
@@ -1090,14 +1106,20 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
           {owner.agents.some((a) => a.live?.sessionId === g.sessionId) && <span className="badge accent">{tr(M.runningBadge)}</span>}
           {g.archived && <span className="badge">{tr(M.archivedBadge)}</span>}
           <span className="faint">
-            {tr(M.groupCount, { count: n, when: timeAgo(g.attachments[0].modified) })}
+            {tr(M.groupSpan, { count: whole.length, days: oneDay ? 'one' : 'more', from: spanDay(first), to: spanDay(last) })}
           </span>
           <IconButton icon="trash" title={tr(M.groupDelete, { host })} action="delete-attachments" disabled={owner.agents.some((a) => a.live?.sessionId === g.sessionId)} onClick={() => void removeGroup(g)} />
         </div>
         <div className="image-grid">
-          {g.attachments.map((a) => {
+          {g.attachments.flatMap((a, i) => {
+            // A group that spans days has a divider where each day's attachments start (newest first).
+            const day = !oneDay && (i === 0 || dayKey(a.modified) !== dayKey(g.attachments[i - 1].modified)) ? (
+              <div key={`day-${dayKey(a.modified)}`} className="attachment-day">
+                {formatLongDay(a.modified)}
+              </div>
+            ) : null
             const label = g.provider ? attachmentLabel(a.kind, providerDescriptor(g.provider).capabilities.attachments, providerDescriptor(g.provider).name) : null
-            return (
+            const tile = (
               <Tooltip key={a.path} content={`${a.name} · ${attachmentTime(a)} · ${formatBytes(a.size)}${label ? `\n${label.detail}` : ''}`}>
                 <div
                   className={cx('thumb', a.kind !== 'image' && 'file')}
@@ -1115,14 +1137,16 @@ export function AttachmentsTab({ project: owner, assistant = false }: { project:
                     <img src={imageUrl(a.path)} loading="lazy" alt={a.name} draggable={false} />
                   ) : (
                     <>
-                      <Icon name={ATTACHMENT_KIND_ICON[a.kind]} />
+                      <Icon name={fileNameIcon(a.name)} />
                       <span className="thumb-name">{shownName(a.name)}</span>
                     </>
                   )}
+                  <span className="thumb-caption thumb-size">{formatBytes(a.size)}</span>
                   <span className="thumb-caption">{formatTime(a.modified)}</span>
                 </div>
               </Tooltip>
             )
+            return day ? [day, tile] : [tile]
           })}
         </div>
       </section>
@@ -1231,7 +1255,7 @@ function AttachmentViewer({
   return (
     <Modal
       title={`${attachmentTime(attachment)} · ${shownName(attachment.name)}`}
-      icon={ATTACHMENT_KIND_ICON[attachment.kind]}
+      icon={fileNameIcon(attachment.name)}
       onClose={onClose}
       wide
       // Sized to what it shows, with its own controls: it stays put (#133).
@@ -1307,8 +1331,8 @@ function AttachmentFrame({ host, attachment }: { host: string; attachment: Sessi
   let body: React.ReactNode
   if (fromDisk) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={null} />
   else if (failed) body = none('warning', tr(M.readFailed, { error: failed }))
-  else if (attachment.kind === 'file' || content?.kind === 'binary') body = none(ATTACHMENT_KIND_ICON[attachment.kind], tr(M.noPreview))
-  else if (content?.kind === 'too-large') body = none(ATTACHMENT_KIND_ICON[attachment.kind], tr(M.tooLarge))
+  else if (attachment.kind === 'file' || content?.kind === 'binary') body = none(fileNameIcon(attachment.name), tr(M.noPreview))
+  else if (content?.kind === 'too-large') body = none(fileNameIcon(attachment.name), tr(M.tooLarge))
   else if (content) body = <ReadOnlyPreview root={host} abs={attachment.path} name={attachment.name} text={content.text} />
   else body = none('loading', tr(M.loading))
   return (

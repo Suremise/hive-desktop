@@ -10,7 +10,6 @@
   "files.attachments.desc": "粘贴或拖放到此项目智能体会话中的文件，按会话分组。",
   "files.attachments.descAssistant": "粘贴或拖放到助手中的文件，按对话分组。",
   "files.attachments.filters": "显示",
-  "files.attachments.groupCount": "{count, plural, other {# 个附件}} · 最近添加：{when}",
   "files.attachments.groupDelete": "{host, select, assistant {删除此对话的附件…} other {删除此会话的附件…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {无论筛选器显示什么，它的所有附件都会被删除。} other {}}{host, select, assistant {对话记录会保留，其中仍会提到这些附件的路径。} other {会话记录会保留，其中仍会提到这些附件的路径。}}可以从回收站恢复它们。",
   "files.attachments.groupDeleteFailed": "无法删除附件",

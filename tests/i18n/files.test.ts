@@ -106,7 +106,8 @@ describe('the sentences once built by hand read as before, in English', () => {
   it("a session's attachments, and the Assistant's conversations'", () => {
     expect(tr(m('files.attachments.total'), { host: 'project', total: 5, groups: 1 })).toBe('5 in 1 session')
     expect(tr(m('files.attachments.total'), { host: 'assistant', total: 5, groups: 2 })).toBe('5 in 2 conversations')
-    expect(tr(m('files.attachments.groupCount'), { count: 1, when: '5m ago' })).toBe('1 attachment · last 5m ago')
+    expect(tr(m('files.attachments.groupSpan'), { count: 1, days: 'one', from: 'today', to: 'today' })).toBe('1 attachment · today')
+    expect(tr(m('files.attachments.groupSpan'), { count: 71, days: 'more', from: 'Oct 9', to: 'today' })).toBe('71 attachments · Oct 9 – today')
     expect(tr(m('files.attachments.groupDeleteTitle'), { count: 1 })).toBe('Move 1 attachment to the Recycle Bin?')
     expect(tr(m('files.attachments.groupDeleteMessage'), { count: 1, name: 'Fix' })).toBe('Move the attachment of "Fix" to the Recycle Bin?')
     expect(tr(m('files.attachments.groupDeleteMessage'), { count: 3, name: 'Fix' })).toBe('Move all 3 attachments of "Fix" to the Recycle Bin?')

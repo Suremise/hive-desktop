@@ -16,6 +16,9 @@
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
 
+### Attachments
+- **Easier to scan.** Files that aren't images show their type's icon (Markdown, JSON, PDF, zip, code, text) instead of one icon for all, every tile shows its size, and a session's heading shows the days its attachments were added ("Oct 9 – today"), with a divider where each day starts (#900).
+
 ### Sessions
 - **Clean up old sessions in one go.** The Sessions tab's new Clean Up Old Sessions… button archives (the default) or deletes every session last active more than 24 hours, 7 days or 30 days ago. The dialog says how many will go before you confirm; running sessions, the one you're reading, the Hive Assistant's current conversation and any in use are always left alone, and the result says which (#895).
 
