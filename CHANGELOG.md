@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.8.0 — 16 October 2026
 
 Hive now speaks eight languages. This release also cleans up old sessions in one go, makes attachments easier to scan, runs a workspace's MCP servers only in the projects that need them, fits narrow windows better, and keeps **Sign in** in view in Agent Setup for new Copilot users.
 
