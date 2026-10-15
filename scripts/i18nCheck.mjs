@@ -3,7 +3,9 @@
 //   - an extra key: an id the English catalogue doesn't have (renamed or removed in the code);
 //   - a message that isn't valid ICU, or whose structure differs from the English: a placeholder renamed or dropped
 //     ({name} → {nazwa}), a plural without `other`, a tag that isn't the English's;
-//   - a file that isn't an object of texts, or a message filed under another area's file.
+//   - a file that isn't an object of texts, or a message filed under another area's file;
+//   - a control character (U+0000–U+001F, U+007F) in a translation, but for a line break where the English has one, or
+//     a lone surrogate: formatjs verify lets both through, and the window shows them as ▯ (#888).
 // It runs `formatjs verify --source-locale en --extra-keys --structural-equality` (without --missing-keys) once per
 // language, over every area's English (locales/en/<area>.json) and that language's files (locales/<code>/<area>.json).
 // Where FormatJS's CLI has no native binding (Windows on Arm), or with --js, the same checks run here with FormatJS's
@@ -35,8 +37,27 @@ export function englishMessages(root = ROOT) {
   return out
 }
 
-/** A language's translations, every area merged, and what's wrong with its files themselves (not an object, not text, a message in another area's file). */
-export function readLanguage(root, code) {
+const codePoint = (ch) => `U+${ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+
+/**
+ * What's wrong with a translation's characters, which formatjs verify lets through (#888: a `\1` a heredoc made U+0001,
+ * shown as ▯): a control character (U+0000–U+001F, U+007F), but for a line break where the English has one, and a lone
+ * surrogate (half of a pair, from an escape in the JSON).
+ */
+export function characterProblems(text, english = '') {
+  const problems = []
+  const controls = [...new Set(text.match(/[\u0000-\u001f\u007f]/g) ?? [])]
+  const breaks = controls.includes('\n') && !english.includes('\n')
+  const others = controls.filter((ch) => ch !== '\n')
+  if (others.length) problems.push(`has a control character (${others.map(codePoint).join(', ')})`)
+  if (breaks) problems.push("has a line break (U+000A) the English hasn't")
+  const lone = [...new Set(text.match(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g) ?? [])]
+  if (lone.length) problems.push(`has a lone surrogate (${lone.map(codePoint).join(', ')})`)
+  return problems
+}
+
+/** A language's translations, every area merged, and what's wrong with its files themselves (not an object, not text, a message in another area's file, a control character). */
+export function readLanguage(root, code, english = englishMessages(root)) {
   const messages = {}
   const problems = []
   const dir = join(root, 'locales', code)
@@ -56,7 +77,10 @@ export function readLanguage(root, code) {
     for (const [id, text] of Object.entries(data)) {
       if (typeof text !== 'string') problems.push(`${code}/${f}: ${id} is not text`)
       else if (areaOf(id) !== area) problems.push(`${code}/${f}: ${id} belongs in ${code}/${areaOf(id)}.json`)
-      else messages[id] = text
+      else {
+        for (const p of characterProblems(text, english[id])) problems.push(`${code}/${f}: ${id} ${p}`)
+        messages[id] = text
+      }
     }
   }
   return { messages, problems }
@@ -100,7 +124,7 @@ export function checkTranslations(root = ROOT, { js = !hasNativeCli() } = {}) {
   const english = englishMessages(root)
   const results = {}
   for (const code of translatedLanguages(root)) {
-    const { messages, problems } = readLanguage(root, code)
+    const { messages, problems } = readLanguage(root, code, english)
     results[code] = [...problems, ...(js ? verifyWithJs(english, messages) : verifyWithCli(code, english, messages))]
   }
   return { results, engine: js ? 'js' : 'cli' }

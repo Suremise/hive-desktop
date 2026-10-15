@@ -65,7 +65,8 @@ Say a German button reads badly.
    npm run i18n:coverage    # informational: how much of each language is done, and what is outdated
    ```
    `i18n:check` fails on a translation that would show wrong: a renamed or missing placeholder, broken ICU, a plural
-   without `other`, a tag that isn't the English's, an id the English doesn't have, invalid JSON. It never fails on a
+   without `other`, a tag that isn't the English's, an id the English doesn't have, invalid JSON, a control character
+   (a stray byte from a scripted edit; a line break only where the English has one). It never fails on a
    missing translation. The unit tests read the translations from the files rather than expecting their words, so a
    wording change needs no change to a test.
 5. **Record what you translated from.** If `i18n:coverage` listed the message as **outdated** (its English changed
