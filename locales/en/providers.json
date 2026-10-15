@@ -272,8 +272,8 @@
     "description": "Why a settings file can't be read, after \"can't be read:\" in another message: it doesn't exist."
   },
   "providers.settings.noValue": {
-    "defaultMessage": "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '<file or JSON>'), or remove it in Agent Settings or Settings → Claude Code.",
-    "description": "Starting a Claude Code agent is refused: its extra arguments end with --settings and nothing after it. Keep --settings and <file or JSON> as they are; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them."
+    "defaultMessage": "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '''<file or JSON>'''), or remove it in Agent Settings or Settings → Claude Code.",
+    "description": "Starting a Claude Code agent is refused: its extra arguments end with --settings and nothing after it. Keep --settings as it is, and the straight quotes around <file or JSON>: each three apostrophes show one (ICU); the words file or JSON may be translated; \"Agent Settings\" and \"Settings → Claude Code\" are where to change it, as Hive shows them."
   },
   "providers.settings.notAFile": {
     "defaultMessage": "it isn't a file",

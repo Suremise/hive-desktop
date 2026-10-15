@@ -50,7 +50,7 @@ describe("a --settings in a Claude Code agent's arguments (#330)", () => {
 
   it('refuses a --settings given no value rather than dropping it (#361)', async () => {
     writeFileSync(join(base, 'ok.json'), JSON.stringify({ env: { A: '1' } }))
-    const message = 'The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.'
+    const message = "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '<file or JSON>'), or remove it in Agent Settings or Settings → Claude Code."
     // Both forms: at the end of the arguments, and with = but nothing after it.
     await expect(userSettings(['--verbose', '--settings'], base)).rejects.toThrow(message)
     await expect(userSettings(['--settings='], base)).rejects.toThrow(message)

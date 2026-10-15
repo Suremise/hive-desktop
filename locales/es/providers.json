@@ -67,7 +67,7 @@
   "providers.readiness.update": "Ya está disponible {provider} {version}.",
   "providers.settings.hooksOff": "{source, select, inline {El --settings de Argumentos adicionales} other {El archivo de configuración {file} (--settings en Argumentos adicionales)}} desactiva todos los hooks (disableAllHooks), que Hive necesita para el estado del agente, los bloqueos de archivos y la línea de estado. Quítalo en Configuración del agente o en Configuración → Claude Code.",
   "providers.settings.noFile": "no existe ese archivo",
-  "providers.settings.noValue": "El último --settings de Argumentos adicionales no tiene valor. Dale un archivo de configuración o JSON en línea (--settings '<file or JSON>'), o quítalo en Configuración del agente o en Configuración → Claude Code.",
+  "providers.settings.noValue": "El último --settings de Argumentos adicionales no tiene valor. Dale un archivo de configuración o JSON en línea (--settings '''<file or JSON>'''), o quítalo en Configuración del agente o en Configuración → Claude Code.",
   "providers.settings.notAFile": "no es un archivo",
   "providers.settings.notJson": "El archivo de configuración {file} (--settings en Argumentos adicionales) no es JSON válido ({why}). Corrígelo o quítalo en Configuración del agente o en Configuración → Claude Code.",
   "providers.settings.notList": "{source, select, inline {El --settings de Argumentos adicionales} other {El archivo de configuración {file} (--settings en Argumentos adicionales)}} da a {key} un valor que no es una lista, lo que impide que los hooks de Hive lleguen a él. Conviértelo en una lista ([ … ]) o quítalo en Configuración del agente o en Configuración → Claude Code.",
