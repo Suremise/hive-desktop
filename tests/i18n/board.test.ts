@@ -4,7 +4,7 @@ import { join, resolve } from 'path'
 import { fmt, setLanguage, tr } from '../../src/shared/i18n'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
 import { COLUMN_TEXT, TASK_COLUMNS, archiveBatchLabel, archiveBatchText, columnLabel, columnName, durationText, notWatchingReason, reviewStalled, reviewVerdictWaitReason, reviewWaitReason, stalledReason } from '../../src/shared/tasks'
-import { runDetails, runStateWord, runStatusLine, runWords, shortDuration, stripRuns, stripSummary } from '../../src/shared/progress'
+import { agentChoices, runAgentName, runDetails, runStateWord, runStatusLine, runWords, shortDuration, stripRuns, stripSummary } from '../../src/shared/progress'
 import { cardSegment, fitSegments, frozenSegment } from '../../src/shared/laneBar'
 import { branchSummary, inbox, inboxName, inboxStateText, type InboxItem } from '../../src/shared/inbox'
 import { cardCostLine, partCost, partTokens, type CardCost, type CostPart } from '../../src/shared/cardCosts'
@@ -206,5 +206,24 @@ describe('the board area', () => {
     expect(columnLabel('hold')).toBe('On Hold')
     expect(runWords(run({ title: 'e2e', total: 12, step: 4, state: 'stale' }))).toBe('e2e 4/12 · stopped reporting')
     expect(shortDuration(65 * 60_000)).toBe('1 h 5 min')
+  })
+})
+
+describe("a run's name in the Progress panel (#872)", () => {
+  it("shows Hive's stored names for a script and a nameless agent in the window's language, and other names as given", () => {
+    const script = run({ source: 'api', agentName: 'Script', defaultName: 'script', agentId: null, projectPath: null })
+    const nameless = run({ source: 'agent', agentName: 'Agent', defaultName: 'agent', agentId: 'a-1', projectPath: 'C:\\ws\\alpha' })
+    const named = run({ source: 'agent', agentName: 'Script', agentId: 'a-2', projectPath: 'C:\\ws\\alpha' })
+    const namedAgent = run({ source: 'agent', agentName: 'Agent', agentId: 'a-3', projectPath: 'C:\\ws\\alpha' })
+    const assistant = run({ source: 'assistant', agentName: 'Agent', agentId: null, projectPath: null })
+    const all = [script, nameless, named, namedAgent, assistant]
+    expect(all.map((r) => runAgentName(r, tr))).toEqual(['Script', 'Agent', 'Script', 'Agent', 'Agent'])
+    setLanguage('de', { 'board.progress.script': 'Skript', 'board.progress.anAgent': 'Ein Agent' })
+    // Only the names Hive gave (defaultName) are translated: agents called "Script" or "Agent", and the Assistant's own name, stay as they are.
+    expect(all.map((r) => runAgentName(r, tr))).toEqual(['Skript', 'Ein Agent', 'Script', 'Agent', 'Agent'])
+    expect(runDetails(script, null, script.startedAt, tr).find((d) => d.text.startsWith('Skript'))).toBeTruthy()
+    expect(agentChoices([nameless, named, namedAgent], 'c:\\ws\\alpha', tr).map((c) => c.label)).toEqual(['Agent', 'Ein Agent', 'Script'])
+    // The stored name, which the Agent API and hive-progress give agents, is unchanged.
+    expect([script.agentName, nameless.agentName]).toEqual(['Script', 'Agent'])
   })
 })

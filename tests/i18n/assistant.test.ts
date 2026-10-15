@@ -4,7 +4,8 @@ import { join, resolve } from 'path'
 import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
 import { setLanguage, setProblemReporter, tr, type Msg } from '../../src/shared/i18n'
-import { readTemplate, templateLimitText } from '../../src/shared/templates'
+import { isAgentTemplate, readTemplate, shownProblem, templateLimitText } from '../../src/shared/templates'
+import { englishText, shownText, type Text } from '../../src/shared/advanced'
 import { oldWorktreesNotice, templateAgentParts, templateLoadDetail, templateLoadView } from '../../src/shared/templateLoad'
 import { findSecretWarnings } from '../../src/main/mcpSecrets'
 import { LEVEL_NAME } from '../../src/main/assistantControl'
@@ -93,14 +94,27 @@ describe('the assistant area', () => {
 })
 
 describe('what Hive works out in shared code is in the language when it is worked out', () => {
-  it("a template file's problems", () => {
-    expect(readTemplate('nope')).toBe("It isn't a Hive agent template.")
-    expect(readTemplate({ version: 1, name: 'T', agents: [{ name: 'A', provider: 42 }] })).toBe("A's coding agent isn't one Hive can use (none).")
-    expect(readTemplate({ version: 1, name: 'T', agents: [{ name: 'A', provider: 'claude-code', effort: 'x y' }] })).toBe("A's effort isn't one Hive can use.")
-    expect(templateLimitText(24, 12)).toBe('It has 24 agents, and this project can have up to 12 (Settings → Advanced → Agents per project).')
+  it("a template file's problems: text, in the language shown when shown, English for the log (#870)", () => {
+    const problem = (raw: unknown): Text => {
+      const t = readTemplate(raw)
+      if (isAgentTemplate(t)) throw new Error('it read a template')
+      return t
+    }
+    const cases: [Text, string][] = [
+      [problem('nope'), "It isn't a Hive agent template."],
+      [problem({ version: 1, name: 'T', agents: [{ name: 'A', provider: 42 }] }), "A's coding agent isn't one Hive can use (none)."],
+      [problem({ version: 1, name: 'T', agents: [{ name: 'A', provider: 'claude-code', effort: 'x y' }] }), "A's effort isn't one Hive can use."],
+      [templateLimitText(24, 12), 'It has 24 agents, and this project can have up to 12 (Settings → Advanced → Agents per project).']
+    ]
+    for (const [t, english] of cases) expect(shownText(t)).toBe(english)
+    const empty = problem({ version: 1, name: 'T', agents: [] })
+    // The same text follows a change of language: a listed template's problem too.
     setLanguage(PSEUDO_LANGUAGE, {})
-    expect(readTemplate('nope')).toMatch(/^\[Íţ íšñ'ţ/)
-    expect(readTemplate({ version: 1, name: 'T', agents: [] })).toMatch(/^\[Íţ ĥáš ñö áĝéñţš/)
+    expect(shownText(cases[0][0])).toMatch(/^\[Íţ íšñ'ţ/)
+    expect(shownText(empty)).toMatch(/^\[Íţ ĥáš ñö áĝéñţš/)
+    expect(shownProblem({ problem: englishText(empty), problemText: empty })).toMatch(/^\[Íţ ĥáš ñö áĝéñţš/)
+    expect(shownProblem({ problem: 'Stored English' })).toBe('Stored English')
+    for (const [t, english] of cases) expect(englishText(t)).toBe(english)
   })
 
   it("an MCP server's literal secrets", () => {

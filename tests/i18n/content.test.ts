@@ -5,7 +5,7 @@
 // (`problemText`, `errorText`). A template's load plan is the window's: its reasons are in its language, and what a
 // missing provider's problem is (`problem`) is a key the window matches, never its words. Agent-facing content stays
 // English: a new SKILL.md, a new server's definition, the Assistant's instructions.
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
@@ -26,7 +26,7 @@ const personas = await import('../../src/main/personas')
 const templates = await import('../../src/main/templates')
 const { switchMode } = await import('../../src/main/assistantMode')
 const { shownError, windowError } = await import('../../src/main/hiveError')
-const { apiErrorReply } = await import('../../src/main/servers')
+const { apiErrorReply, handOverFailedToast, handoverCreatedToast } = await import('../../src/main/servers')
 
 const ROOT = resolve(__dirname, '../..')
 const EN = JSON.parse(readFileSync(join(ROOT, 'locales/en/content.json'), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
@@ -52,7 +52,12 @@ const GERMAN: Record<string, string> = {
   'content.templates.provider': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren)} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter)} other {{provider} ist nicht installiert (Agent-Einrichtung)}}',
   'content.templates.neededBy': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren), gebraucht von {agents}.} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von {agents}.} other {{provider} ist nicht installiert (Agent-Einrichtung), gebraucht von {agents}.}}',
   'content.templates.cantLoad': 'Die Vorlage kann noch nicht geladen werden:',
-  'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.'
+  'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.',
+  'content.templates.cantUse': '„{name}“ kann nicht verwendet werden: {problem}',
+  'assistant.template.noAgents': 'Sie hat keine Agenten.',
+  'content.notes.handoverCreated': 'Übergabe erstellt',
+  'content.notes.openHandover': 'Öffnen',
+  'session.handOver.apiFailed': 'Übergabe an {agent} nicht möglich'
 }
 
 const wsPath = join(base, 'ws')
@@ -202,6 +207,31 @@ describe("a template's load plan is the window's", () => {
   })
 })
 
+describe("a template file's problem: English for the log, the window's text beside it (#870)", () => {
+  it("lists a damaged template with its problem in English and as text, and refuses it in English with the window's text", async () => {
+    const file = join(wsPath, '.hive', 'templates', 'empty.json')
+    writeFileSync(file, JSON.stringify({ version: 1, name: 'Empty', savedAt: '', layout: 'auto', agents: [] }))
+    try {
+      setLanguage('de', GERMAN)
+      const entry = (await run(() => templates.listAllTemplates())).find((t) => t.file === 'empty.json')!
+      expect(entry.problem).toBe('It has no agents.')
+      expect(shownText(entry.problemText!)).toBe('Sie hat keine Agenten.')
+      // The listed text follows a change of language without the list being read again.
+      setLanguage('en', {})
+      expect(shownText(entry.problemText!)).toBe('It has no agents.')
+      setLanguage('de', GERMAN)
+      const used = await caught(() => templates.templatePlan(proj, 'workspace', 'empty.json'))
+      expect(used.message).toBe(`"Empty" can't be used: It has no agents.`)
+      expect(shownError(used)).toBe('„Empty“ kann nicht verwendet werden: Sie hat keine Agenten.')
+      const imported = await caught(() => templates.readImport(file))
+      expect(imported.message).toBe('It has no agents.')
+      expect(shownError(imported)).toBe('Sie hat keine Agenten.')
+    } finally {
+      rmSync(file, { force: true })
+    }
+  })
+})
+
 describe("lists in the language's way, never joined with English commas", () => {
   it("lists a template's agents in the window's language, in the plan and its refusal, and English in the refusal's message", async () => {
     writeFileSync(join(wsPath, '.hive', 'templates', 'crew.json'), JSON.stringify({ version: 1, name: 'Crew', savedAt: '', layout: 'auto', agents: ['Builder', 'Reviewer', 'Tester'].map((name) => ({ name, provider: 'claude-code', worktree: false })) }))
@@ -235,5 +265,24 @@ describe("the Assistant's instructions stay English", () => {
     const told = await run(() => personas.assistantInstructions('tester'))
     expect(told.personaText.startsWith('# Your mode: Tester\n\n')).toBe(true)
     expect(told.text).toContain('You are the Hive Assistant')
+  })
+})
+
+describe("the Agent API's own notices are the window's (#867)", () => {
+  it("tells of a handover an agent saved and a hand-over that failed in the window's language, the error's text too", async () => {
+    setLanguage('de', GERMAN)
+    const created = handoverCreatedToast('beta', 'Where things stand', 'handovers/x.md')
+    expect(created.title).toBe('Übergabe erstellt')
+    expect(created.message).toBe('beta: Where things stand')
+    expect(created.actions).toEqual([{ label: 'Öffnen', command: 'notes.open', args: ['handovers/x.md'] }])
+    const e = await caught(() => notes.createNote('  ', false))
+    const failed = handOverFailedToast(proj, 'Reviewer', e)
+    expect(failed.title).toBe('Übergabe an Reviewer nicht möglich')
+    expect(failed.message).toBe('Ein Name ist nötig')
+    // Readers of the error itself (the Assistant's activity, the log) keep its English.
+    expect(e.message).toBe('Name is required')
+    setLanguage('en', {})
+    expect(handoverCreatedToast('', 'Plan', 'handovers/y.md')).toMatchObject({ title: 'Handover created', message: 'Plan', actions: [{ label: 'Open' }] })
+    expect(handOverFailedToast(proj, 'Reviewer', e)).toMatchObject({ title: 'Could not hand over to Reviewer', message: 'Name is required' })
   })
 })

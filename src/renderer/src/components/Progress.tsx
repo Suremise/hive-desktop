@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
+import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runAgentName, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
 import { durationText } from '@shared/tasks'
 import type { MergeSlotInfo, ProgressRun } from '@shared/types'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
@@ -42,7 +42,7 @@ function whyNotShown(s: StoreState, r: ProgressRun): string | null {
   if (r.source === 'api') return tr(msg({ id: 'board.progress.scriptRun', defaultMessage: 'A script reported it, not an agent: there is no agent to show.', description: "Why a Progress panel run's agent can't be shown: a script reported the run." }))
   const p = r.projectPath ? findProject(s, r.projectPath) : null
   if (!p) return tr(msg({ id: 'board.progress.projectGone', defaultMessage: 'Its project is no longer in this workspace.', description: "Why a Progress panel run's agent can't be shown: its project was removed from the workspace." }))
-  if (!r.agentId || !p.agents.some((a) => a.id === r.agentId)) return tr(msg({ id: 'board.progress.agentGone', defaultMessage: '{agent} has been removed from {project}.', description: "Why a Progress panel run's agent can't be shown: the agent ({agent}) was removed from its project ({project})." }), { agent: r.agentName, project: p.name })
+  if (!r.agentId || !p.agents.some((a) => a.id === r.agentId)) return tr(msg({ id: 'board.progress.agentGone', defaultMessage: '{agent} has been removed from {project}.', description: "Why a Progress panel run's agent can't be shown: the agent ({agent}) was removed from its project ({project})." }), { agent: runAgentName(r, tr), project: p.name })
   return null
 }
 
@@ -53,7 +53,7 @@ function whyNotShown(s: StoreState, r: ProgressRun): string | null {
 function showRunAgent(r: ProgressRun): void {
   const s = get()
   const why = whyNotShown(s, r)
-  if (why) return void notify('info', tr(msg({ id: 'board.progress.cantShow', defaultMessage: "Can't show {agent}", description: "A notification's title: the agent ({agent}) that ran a Progress panel run can't be shown. Its message says why." }), { agent: r.agentName }), why)
+  if (why) return void notify('info', tr(msg({ id: 'board.progress.cantShow', defaultMessage: "Can't show {agent}", description: "A notification's title: the agent ({agent}) that ran a Progress panel run can't be shown. Its message says why." }), { agent: runAgentName(r, tr) }), why)
   if (r.source === 'assistant') {
     setAssistantOpen(true)
     return flashPane(projectKey(s.workspace!.assistant!.path, 'assistant'))
@@ -68,7 +68,7 @@ function showRunAgent(r: ProgressRun): void {
 const showLabel = (r: ProgressRun): string =>
   r.source === 'assistant'
     ? tr(msg({ id: 'board.progress.showAssistant', defaultMessage: 'Show the Assistant, which ran {run}', description: "Accessible name of the button showing the Hive Assistant, which ran a Progress panel run ({run}: the run's title)." }), { run: r.title })
-    : tr(msg({ id: 'board.progress.showAgent', defaultMessage: 'Show {agent}, which ran {run}', description: "Accessible name of the button showing the agent ({agent}) that ran a Progress panel run ({run}: the run's title)." }), { agent: r.agentName, run: r.title })
+    : tr(msg({ id: 'board.progress.showAgent', defaultMessage: 'Show {agent}, which ran {run}', description: "Accessible name of the button showing the agent ({agent}) that ran a Progress panel run ({run}: the run's title)." }), { agent: runAgentName(r, tr), run: r.title })
 
 /** This window's runs, loaded when its workspace changes (events keep them current). */
 function useProgressRuns(): ProgressRun[] {
@@ -115,7 +115,7 @@ export function ProgressPanel() {
   const choices = filterChoices(runs, nameOf, tr)
   const filter = activeFilter(runs, chosen)
   const shown = filterRuns(runs, filter)
-  const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${shown[0]?.agentName ?? ''}` : ''}`
+  const filterName = filter === SHOW_ALL ? null : `${choices.find((c) => c.value === filter.project)?.label ?? ''}${filter.agent ? ` · ${(shown[0] ? runAgentName(shown[0], tr) : '')}` : ''}`
   if (!open) return <ProgressRail runs={shown.filter((r) => inStrip(r, now))} filtered={filterName ? { name: filterName, all: runs.filter((r) => inStrip(r, now)).length } : null} />
   const listed = shown.filter((r) => isListed(r, now))
   // The merges and lanes of the project (and agent) the runs are filtered to, or of every project (#810).
@@ -131,7 +131,7 @@ export function ProgressPanel() {
   }
   // Recent: the newest few, and Show all for the rest Hive keeps (#352).
   const recent = shown.filter((r) => isRecent(r, now))
-  const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project) : []
+  const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project, tr) : []
   const kb = commandKeybinding('progress.toggle')
   const toggle = (id: string): void => setDetail((d) => (d === id ? null : id))
 
@@ -323,7 +323,7 @@ function RunWho({ run: r, project }: { run: ProgressRun; project: string | null 
   return (
     <>
       {r.source === 'assistant' ? <AssistantMark /> : r.provider ? <ProviderIcon provider={r.provider} /> : <Icon name="terminal" />}
-      <span className="progress-agent">{r.agentName}</span>
+      <span className="progress-agent">{runAgentName(r, tr)}</span>
       {project && <span className="faint progress-project">{project}</span>}
     </>
   )
@@ -341,7 +341,7 @@ function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: num
   }, [open])
   const took = r.finishedAt !== null ? durationText(r.finishedAt - r.startedAt, tr) : ''
   const icon = r.state === 'passed' ? 'pass' : r.state === 'failed' ? 'error' : r.state === 'stopped' ? 'circle-slash' : 'warning'
-  const values = { agent: r.agentName, run: r.title, state: runStateWord(r, tr) }
+  const values = { agent: runAgentName(r, tr), run: r.title, state: runStateWord(r, tr) }
   const hover = took
     ? tr(msg({ id: 'board.progress.recentHoverTook', defaultMessage: '{agent}: {run} {state} ({took})', description: "Tooltip of a run under the Progress panel's Recent: its agent, its title ({run}), its state in a few words ({state}: failed, stopped reporting…) and how long it took ({took}: 4 min)." }), { ...values, took })
     : tr(msg({ id: 'board.progress.recentHover', defaultMessage: '{agent}: {run} {state}', description: "Tooltip of a run under the Progress panel's Recent: its agent, its title ({run}) and its state in a few words ({state}: failed, stopped reporting…)." }), values)
@@ -354,7 +354,7 @@ function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: num
         }}
       >
         <Tooltip block content={`${hover}${r.summary ? `\n${r.summary}` : ''}`}>
-          <Icon name={icon} /> <span className="progress-recent-text">{r.agentName} · {r.title}</span>
+          <Icon name={icon} /> <span className="progress-recent-text">{runAgentName(r, tr)} · {r.title}</span>
           <span className="faint progress-recent-took">{took}</span>
         </Tooltip>
         <DetailsToggle run={r} open={open} onToggle={onToggle} />
@@ -473,7 +473,7 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
         const f = fractionDone(r)
         const look = barLook(r)
         return (
-          <Tooltip key={r.id} content={look === 'waiting' ? tr(msg({ id: 'board.progress.miniWaiting', defaultMessage: '{agent}: {run} (waiting)', description: "Tooltip of a run's small bar on the folded Progress strip: its agent, its title ({run}), and that it is waiting (for a test slot, say)." }), { agent: r.agentName, run: r.title }) : f !== null ? `${r.agentName}: ${r.title} (${fmt.number(Math.round(f * 100) / 100, { style: 'percent' })})` : `${r.agentName}: ${r.title}`}>
+          <Tooltip key={r.id} content={look === 'waiting' ? tr(msg({ id: 'board.progress.miniWaiting', defaultMessage: '{agent}: {run} (waiting)', description: "Tooltip of a run's small bar on the folded Progress strip: its agent, its title ({run}), and that it is waiting (for a test slot, say)." }), { agent: runAgentName(r, tr), run: r.title }) : f !== null ? `${runAgentName(r, tr)}: ${r.title} (${fmt.number(Math.round(f * 100) / 100, { style: 'percent' })})` : `${runAgentName(r, tr)}: ${r.title}`}>
             <span className={cx('progress-mini', r.state, look === 'moving' && 'indeterminate', look === 'waiting' && 'waiting')} data-run={r.id}>
               <span style={{ height: `${look === 'steps' ? Math.max(4, Math.round(f! * 100)) : look === 'moving' ? 40 : 100}%` }} />
             </span>
@@ -487,7 +487,7 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
               <div>{tr(msg({ id: 'board.progress.moreRuns', defaultMessage: '{n, number} more:', description: "Heading of the folded Progress strip's +N tooltip: the runs without a bar of their own ({n} of them) are listed under it." }), { n: more.length })}</div>
               {more.slice(0, MORE_LISTED).map((r) => (
                 <div key={r.id}>
-                  {r.agentName}: {r.title} ({r.waiting && r.state === 'running' ? tr(WAITING) : runStateWord(r, tr)})
+                  {runAgentName(r, tr)}: {r.title} ({r.waiting && r.state === 'running' ? tr(WAITING) : runStateWord(r, tr)})
                 </div>
               ))}
               {more.length > MORE_LISTED && <div className="faint">{tr(msg({ id: 'board.progress.moreOthers', defaultMessage: 'and {n, number} others: open the panel to see them', description: "The last line of the folded Progress strip's +N tooltip, after the runs it lists: how many more there are ({n})." }), { n: more.length - MORE_LISTED })}</div>}

@@ -259,9 +259,17 @@
     "defaultMessage": "{agent} is watching it",
     "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change."
   },
+  "board.busy.watchingUnnamed": {
+    "defaultMessage": "An agent is watching it",
+    "description": "Why Archive All skips a card (listed in its dialog): an agent (whose name isn't known) waits for it to change."
+  },
   "board.busy.working": {
     "defaultMessage": "{agent} is working on it",
     "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it."
+  },
+  "board.busy.workingUnnamed": {
+    "defaultMessage": "Its agent is working on it",
+    "description": "Why Archive All skips a card (listed in its dialog): its agent (whose name isn't known) is working on it."
   },
   "board.card.archive": {
     "defaultMessage": "Archive",
@@ -1375,6 +1383,10 @@
     "defaultMessage": "All projects",
     "description": "A choice of the Progress panel's project filter: every project's runs."
   },
+  "board.progress.anAgent": {
+    "defaultMessage": "Agent",
+    "description": "Who ran a run in the Progress panel when Hive doesn't have the agent's name (an older record)."
+  },
   "board.progress.cantShow": {
     "defaultMessage": "Can't show {agent}",
     "description": "A notification's title: the agent ({agent}) that ran a Progress panel run can't be shown. Its message says why."
@@ -1486,6 +1498,10 @@
   "board.progress.region": {
     "defaultMessage": "Progress",
     "description": "Accessible name of the Progress panel (long runs agents report: tests, builds)."
+  },
+  "board.progress.script": {
+    "defaultMessage": "Script",
+    "description": "Who ran a run in the Progress panel when a script (a program calling Hive's Agent API) ran it, not an agent."
   },
   "board.progress.scriptRun": {
     "defaultMessage": "A script reported it, not an agent: there is no agent to show.",

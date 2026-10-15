@@ -56,7 +56,6 @@ interface HiveMessageValues {
   'service.gitRepo.addFailed': { remote: string | number; why: string | number }
   'service.gitRepo.added': { remote: string | number }
   'service.gitRepo.alreadyOn': { branch: string | number }
-  'service.gitRepo.asShown': { problem: string | number }
   'service.gitRepo.badName': { kind: string; hasName: string; name: string | number }
   'service.gitRepo.chooseRemote': undefined
   'service.gitRepo.command': { command: string | number; why: string | number }

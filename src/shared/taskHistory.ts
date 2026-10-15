@@ -51,7 +51,12 @@ export const HISTORY = {
   archivedRemoved: msg({ id: 'tasks.history.archivedRemoved', defaultMessage: 'Archived: {project} was removed from Hive', description: "A line in a card's history: the card was archived because the user removed its project {project} (its folder name) from Hive." }),
   restored: msg({ id: 'tasks.history.restored', defaultMessage: 'Brought back: {project} was restored', description: "A line in a card's history: the card came back onto the board because the user restored its project {project} (its folder name)." }),
   imported: msg({ id: 'tasks.history.imported', defaultMessage: 'Brought back with {project} (it was #{was})', description: "A line in a card's history: the card came back with its removed project {project} (its folder name), under a new number; {was} was its number before." }),
-  repaired: msg({ id: 'tasks.history.repaired', defaultMessage: 'Project: {from} → {to} (renamed or moved)', description: "A line in a card's history, by Repair: the card was given to the project {to}, the new name of its project {from} (folder names), which was renamed or moved." })
+  repaired: msg({ id: 'tasks.history.repaired', defaultMessage: 'Project: {from} → {to} (renamed or moved)', description: "A line in a card's history, by Repair: the card was given to the project {to}, the new name of its project {from} (folder names), which was renamed or moved." }),
+  // Lines and a comment Hive writes from outside the board service (#866): the same English as before, word for word.
+  loopWake: msg({ id: 'tasks.history.loopWake', defaultMessage: 'Woke {agent} {kind, select, review {to review it} other {with its verdict}} (a loop wake)', description: "A line in a card's history: in a card loop, Hive woke the agent {agent} (its name), as the card arrived in Review for it to review (review), or with its review's verdict (other). \"Card loop\" and \"loop wake\" are Hive's terms." }),
+  decisionsTold: msg({ id: 'tasks.history.decisionsTold', defaultMessage: 'Told {agent} of {count, plural, one {# new decision} other {# new decisions}}', description: "A line in a card's history: Hive told the agent {agent} (its name) of {count} decisions the user recorded on the card since it last read them." }),
+  watchEnded: msg({ id: 'tasks.history.watchEnded', defaultMessage: "Ended {watcher}'s watch on it: {why, select, blocked {the card is blocked} reviewer {{agent} reviews it} reviewTaken {its review was taken from it} reassigned {reassigned to {agent}} unassigned {reassigned to no agent} other {{why}}}", description: "A line in a card's history: Hive stopped the agent {watcher} (its name) waiting for the card to change, because the card is blocked, another agent ({agent}) now reviews it, the review it waited for was taken from it, or the card was given to another agent ({agent}) or to none ({why}, select: translate each)." }),
+  safeguardStop: msg({ id: 'tasks.history.safeguardStop', defaultMessage: '**{agent}, after a safeguard stop:** {stops, plural, =0 {} other {A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =1 {} other { (# this session)}}. }}It now runs on {to} instead of {from} (since {since}).{state, select, asks { Its CLI asks what to do about it.} idle { Idle after the stop: give it a nudge.} other {}}{hasTools, select, yes { Before it, its last tool calls: {tools}.} other {}}{hasHelp, select, yes { {help}} other {}}', description: "A comment Hive writes on the cards an agent works on, after its CLI's safety classifier stopped a response and the agent moved to another model. {agent}: the agent's name, in bold (keep the ** marks). Then, when it stopped any ({stops}: how many this session), on which model ({model}: its name; none: leave that branch empty) and when ({time}: \"15:12\"); the model it runs on now ({to}) instead of the old one ({from}) since a time ({since}); whether its CLI asks what to do (asks) or it sits idle (idle); its last tool calls before the stop ({tools}: tool names, keep them); and what to do about it in that CLI ({help}: its own sentence, already translated). Only names, never what was stopped." })
 }
 
 /**
@@ -64,10 +69,51 @@ export const BY_TEXT: Record<string, Msg> = {
   Repair: msg({ id: 'tasks.by.repair', defaultMessage: 'Repair', description: "Who made a change on a card (beside a history line): Hive's Repair, which gave cards of a renamed or moved project back to it. Short." })
 }
 
+/** Why Archive All leaves a card on the board (#351): who is on it now. The window's text only (the board's dialog and main's check). */
+export const BUSY = {
+  working: msg({ id: 'board.busy.working', defaultMessage: '{agent} is working on it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it." }),
+  workingUnnamed: msg({ id: 'board.busy.workingUnnamed', defaultMessage: 'Its agent is working on it', description: "Why Archive All skips a card (listed in its dialog): its agent (whose name isn't known) is working on it." }),
+  reviewing: msg({ id: 'board.busy.reviewing', defaultMessage: '{agent} is reviewing it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is reviewing it." }),
+  assistantWatching: msg({ id: 'board.busy.assistantWatching', defaultMessage: 'The Assistant is watching it', description: 'Why Archive All skips a card (listed in its dialog): the Hive Assistant waits for it to change.' }),
+  watching: msg({ id: 'board.busy.watching', defaultMessage: '{agent} is watching it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change." }),
+  watchingUnnamed: msg({ id: 'board.busy.watchingUnnamed', defaultMessage: 'An agent is watching it', description: "Why Archive All skips a card (listed in its dialog): an agent (whose name isn't known) waits for it to change." })
+}
+
 const BY_ID = new Map<string, Msg>(Object.values(HISTORY).map((m) => [m.id, m]))
 
 /** The message a stored line names, by its id: null for an id this Hive doesn't know (a record from a newer one). */
 export const storedMessage = (s: StoredText | undefined): Msg | null => (s ? (BY_ID.get(s.id) ?? null) : null)
+
+/** How deep messages within a stored line's values go: Hive nests one (a CLI's sentence); more is a damaged file. */
+const MAX_NESTED = 3
+
+/**
+ * A stored line's text, by `format` (the window's language, or English): its message with its values, a value that is a
+ * message of its own formatted first, found by `more` when it isn't the history's (a CLI's sentence: providerMessage).
+ * Null when this Hive doesn't know a message it names (a record from a newer one), or the record isn't one (a card file
+ * edited by hand: an id that isn't text, values that aren't an object of text, numbers and messages): the window then
+ * shows the stored English.
+ */
+export function storedLineText(s: unknown, format: (m: Msg, values?: Record<string, string | number>) => string, more: (id: string) => Msg | null = () => null, depth = 0): string | null {
+  if (!isRecord(s) || typeof s.id !== 'string' || depth > MAX_NESTED) return null
+  const m = BY_ID.get(s.id) ?? more(s.id)
+  if (!m) return null
+  if (s.values === undefined) return format(m)
+  if (!isRecord(s.values)) return null
+  const values: Record<string, string | number> = {}
+  for (const [k, v] of Object.entries(s.values)) {
+    if (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))) values[k] = v
+    else {
+      const t = storedLineText(v, format, more, depth + 1)
+      if (t === null) return null
+      values[k] = t
+    }
+  }
+  return format(m, values)
+}
+
+/** An object, not null or a list. */
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /** A message and its values as they are kept in a card's file: its id and values, never its English. */
 export function storedText<Id extends string>(m: Msg<Id>, ...values: MessageArgs<Id>): StoredText {

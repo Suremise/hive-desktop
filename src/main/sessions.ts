@@ -55,7 +55,7 @@ import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, remov
 import { createLogger, hookJournal, userText } from './logger'
 import { COMPACTING_TEXT } from '../shared/runtime'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, startupScreen, startupWatched, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
-import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
+import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardComment, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
 import { Compaction } from './compaction'
 import { lastTitle } from './terminalTitle'
@@ -2837,7 +2837,6 @@ class SessionManager {
     const d = l.adapter.descriptor
     const label = this.label(st)
     const { from, to } = next.switched
-    const said = safeguardText(next, d.modelLabel)
     this.notify(
       st.projectPath,
       withValues(msg({ id: 'session.notice.safeguardSwitch', defaultMessage: '{agent} now runs on {model}', description: "A notification's title: after its CLI's safety classifier stopped a response, the agent runs on another model. {agent} is the agent, {model} the model's name." }), { agent: label, model: d.modelLabel(to) }),
@@ -2847,10 +2846,10 @@ class SessionManager {
       st.agentId
     )
     log.info(`${userText(label)}: its model changed after a safeguard stop (${from} → ${to})`)
-    // On the card it works on too, so whoever reads the card knows (only the event and tool names, never what was stopped).
+    // On the card it works on too, so whoever reads the card knows (only the event and tool names, never what was stopped):
+    // English for agents, the window's language in the card (#866).
     if (!workspace.isAssistantHome(st.projectPath))
-      // i18n-ignore: a comment on the agent's cards, which agents read too (English, as card history is)
-      void commentOnDoingCards(workspaceOf(st.projectPath), st.projectPath, st.agentId, `**${st.agentName}, after a safeguard stop:** ${said}${d.safeguardHelp ? ` ${d.safeguardHelp}` : ''}`).catch((e) => log.warn('safeguard: could not note the switch on its cards', e))
+      void commentOnDoingCards(workspaceOf(st.projectPath), st.projectPath, st.agentId, safeguardComment({ ...next, switched: next.switched }, st.agentName ?? st.agentId, d.modelLabel, d.text?.safeguardHelp ?? null)).catch((e) => log.warn('safeguard: could not note the switch on its cards', e))
   }
 
   /**

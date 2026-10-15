@@ -268,7 +268,7 @@ export function runDetails(r: ProgressRun, project: string | null, now: number, 
       : tr(msg({ id: 'board.details.tookTotal', defaultMessage: '{took}{expected, select, none {} other { · expected about {expected}}}', description: "How long a finished run took, in its details (Progress panel): {took} (\"4 min\"), then about how long runs like it take ({expected}, a duration, or none when unknown: keep that branch empty)." }), { took: ran, expected })
   const out: RunDetail[] = [{ label: tr(msg({ id: 'board.details.run', defaultMessage: 'Run', description: "A label in a run's details (Progress panel): the run's title follows." })), text: r.title }]
   if (r.command) out.push({ label: tr(msg({ id: 'board.details.command', defaultMessage: 'Command', description: "A label in a run's details (Progress panel): the command it ran follows." })), text: r.command, code: true })
-  out.push({ label: tr(msg({ id: 'board.details.agent', defaultMessage: 'Agent', description: "A label in a run's details (Progress panel): the agent that ran it (and its project) follows." })), text: `${r.agentName}${project ? ` · ${project}` : ''}` })
+  out.push({ label: tr(msg({ id: 'board.details.agent', defaultMessage: 'Agent', description: "A label in a run's details (Progress panel): the agent that ran it (and its project) follows." })), text: `${runAgentName(r, tr)}${project ? ` · ${project}` : ''}` })
   if (r.provider) out.push({ label: tr(msg({ id: 'board.details.provider', defaultMessage: 'Provider', description: "A label in a run's details (Progress panel): the agent's CLI follows (Claude Code, Codex…)." })), text: providerName(r.provider) })
   out.push({ label: tr(msg({ id: 'board.details.started', defaultMessage: 'Started', description: "A label in a run's details (Progress panel): a date and time follows." })), text: formatDateTime(r.startedAt) })
   if (r.finishedAt !== null) out.push({ label: tr(msg({ id: 'board.details.ended', defaultMessage: 'Ended', description: "A label in a run's details (Progress panel): a date and time follows." })), text: formatDateTime(r.finishedAt) })
@@ -278,6 +278,17 @@ export function runDetails(r: ProgressRun, project: string | null, now: number, 
   if (r.exitCode !== null) out.push({ label: tr(msg({ id: 'board.details.exitCode', defaultMessage: 'Exit code', description: "A label in a run's details (Progress panel): its command's exit code follows (a number)." })), text: String(r.exitCode) })
   if (r.logPath) out.push({ label: tr(msg({ id: 'board.details.log', defaultMessage: 'Log', description: "A label in a run's details (Progress panel): the path of its log file follows." })), text: r.logPath, code: true })
   return out
+}
+
+/**
+ * Who ran a run, as the window shows it (#872): a name Hive gave it (`defaultName`: "Script" for a script, "Agent" for
+ * a kept run with no name) in the window's language; a name an agent or the Assistant has stays as it is, "Agent"
+ * too. The stored name stays English: agents read it through the Agent API and hive-progress.
+ */
+export function runAgentName(r: Pick<ProgressRun, 'agentName' | 'defaultName'>, tr: Tr): string {
+  if (r.defaultName === 'script') return tr(msg({ id: 'board.progress.script', defaultMessage: 'Script', description: "Who ran a run in the Progress panel when a script (a program calling Hive's Agent API) ran it, not an agent." }))
+  if (r.defaultName === 'agent') return tr(msg({ id: 'board.progress.anAgent', defaultMessage: 'Agent', description: "Who ran a run in the Progress panel when Hive doesn't have the agent's name (an older record)." }))
+  return r.agentName
 }
 
 /** A run's details as plain text for pasting (Copy details, #251): a "Label: text" line for each, then its summary. */
@@ -310,10 +321,10 @@ export function filterChoices(runs: readonly ProgressRun[], nameOf: (projectPath
   return out
 }
 
-/** The agents with runs in a project, for the agent filter (named as their runs name them). */
-export function agentChoices(runs: readonly ProgressRun[], project: string): { value: string; label: string }[] {
+/** The agents with runs in a project, for the agent filter (named as their runs name them, runAgentName). */
+export function agentChoices(runs: readonly ProgressRun[], project: string, tr: Tr): { value: string; label: string }[] {
   const seen = new Map<string, string>()
-  for (const r of runs) if (projectOf(r) === project && !seen.has(agentOf(r))) seen.set(agentOf(r), r.agentName)
+  for (const r of runs) if (projectOf(r) === project && !seen.has(agentOf(r))) seen.set(agentOf(r), runAgentName(r, tr))
   return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
 }
 
