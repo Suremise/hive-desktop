@@ -810,6 +810,8 @@ export interface AdvancedState {
   file: string
   /** Why advanced.json couldn't be read as it is now (not JSON, not an object): Hive keeps what it read before. */
   fileError: string | null
+  /** `fileError` as the window shows it (#850); `fileError` is its English. */
+  fileErrorText?: Text | null
   /** The overrides in advanced.json, as written (an invalid one too: it falls back to the default). */
   values: Record<string, unknown>
   /** For a CLI-facing override: the CLI version it was made for. */
@@ -902,19 +904,27 @@ export function advancedFileText(values: Record<string, unknown>, madeFor: Recor
   return `${JSON.stringify({ format: ADVANCED_FORMAT, values: sorted(values), madeFor: sorted(madeFor) }, null, 2)}\n`
 }
 
+/** Why advanced.json can't be used (#850): Settings shows it in its language (AdvancedState.fileErrorText), the log and the Assistant's tools in English. */
+const FILE_PROBLEM = {
+  notJson: msg({ id: 'service.advanced.notJson', defaultMessage: "advanced.json isn't valid JSON: {error}", description: "Above Settings → Advanced's list: Hive's advanced settings file (advanced.json, a file name: keep it) can't be read as JSON; {error} is the JSON reader's own words (English)." }),
+  notObject: msg({ id: 'service.advanced.notObject', defaultMessage: 'advanced.json should hold an object: {example}.', description: "Above Settings → Advanced's list: advanced.json (a file name: keep it) holds JSON that isn't an object; {example} is what it should look like (JSON: keep it)." }),
+  newer: msg({ id: 'service.advanced.newer', defaultMessage: 'advanced.json is from a newer Hive (format {format}): this one reads format {supported}.', description: "Above Settings → Advanced's list: advanced.json (a file name: keep it) was written by a newer version of Hive, in a format ({format}) this one can't read ({supported} is the one it reads)." }),
+  notValues: msg({ id: 'service.advanced.notValues', defaultMessage: 'advanced.json\'s "values" should be an object of setting → value.', description: "Above Settings → Advanced's list: the \"values\" field of advanced.json (keep both as they are) isn't a set of settings and their values." })
+}
+const fileProblem = (t: Text): { error: string; errorText: Text } => ({ error: englishText(t), errorText: t })
+
 /** advanced.json read: its overrides and versions, or why it can't be used (then Hive keeps what it had). */
-export function parseAdvancedFile(text: string): { values: Record<string, unknown>; madeFor: Record<string, MadeFor>; unknown: string[] } | { error: string } {
+export function parseAdvancedFile(text: string): { values: Record<string, unknown>; madeFor: Record<string, MadeFor>; unknown: string[] } | { error: string; errorText: Text } {
   let raw: unknown
   try {
     raw = JSON.parse(text)
   } catch (e) {
-    // These reach Settings as text, through the main process's AdvancedState.fileError (#793: E10f makes it a message).
-    return { error: `advanced.json isn't valid JSON: ${(e as Error).message}` } // i18n-ignore: main's AdvancedState.fileError, text until E10f
+    return fileProblem(withValues(FILE_PROBLEM.notJson, { error: (e as Error).message }))
   }
-  if (!isPlainObject(raw)) return { error: 'advanced.json should hold an object: { "format": 1, "values": { … } }.' } // i18n-ignore: main's AdvancedState.fileError, text until E10f
-  if (typeof raw.format === 'number' && raw.format > ADVANCED_FORMAT) return { error: `advanced.json is from a newer Hive (format ${raw.format}): this one reads format ${ADVANCED_FORMAT}.` } // i18n-ignore: main's AdvancedState.fileError, text until E10f
+  if (!isPlainObject(raw)) return fileProblem(withValues(FILE_PROBLEM.notObject, { example: '{ "format": 1, "values": { … } }' }))
+  if (typeof raw.format === 'number' && raw.format > ADVANCED_FORMAT) return fileProblem(withValues(FILE_PROBLEM.newer, { format: raw.format, supported: ADVANCED_FORMAT }))
   const values = raw.values === undefined ? {} : raw.values
-  if (!isPlainObject(values)) return { error: 'advanced.json\'s "values" should be an object of setting → value.' } // i18n-ignore: main's AdvancedState.fileError, text until E10f
+  if (!isPlainObject(values)) return fileProblem(FILE_PROBLEM.notValues)
   const madeFor: Record<string, MadeFor> = {}
   if (isPlainObject(raw.madeFor))
     for (const [k, m] of Object.entries(raw.madeFor)) if (isPlainObject(m) && k in values) madeFor[k] = { version: typeof m.version === 'string' ? m.version : null, value: m.value }

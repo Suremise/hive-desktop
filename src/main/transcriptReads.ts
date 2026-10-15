@@ -32,7 +32,7 @@ const views = new Map<string, { window: number; key: string }>()
 const MAX_VIEWS = 200
 
 export function setViewing(window: number, view: string, projectPath: string | null, sessionId: string | null): void {
-  if (typeof view !== 'string' || view.length > 64) throw new Error('view: a short id')
+  if (typeof view !== 'string' || view.length > 64) throw new Error('view: a short id') // i18n-ignore: a call's argument refused, which no person sees (the window always sends one)
   const k = `${window}:${view}`
   views.delete(k)
   if (projectPath && sessionId) views.set(k, { window, key: key(projectPath, sessionId) })

@@ -1,0 +1,239 @@
+// #849 (E10e): the `content` area, the services behind the workspace's content: MCP servers, skills, shared notes,
+// agent templates, the Assistant's modes. Refusals are HiveErrors: the Agent API and every reader of `.message` get the
+// English exactly as before, the window (IPC) its language. What a skill's header or an MCP server's definition has
+// wrong is kept English (`problem`, `error`: agents and launches read them) with the window's text beside it
+// (`problemText`, `errorText`). A template's load plan is the window's: its reasons are in its language, and what a
+// missing provider's problem is (`problem`) is a key the window matches, never its words. Agent-facing content stays
+// English: a new SKILL.md, a new server's definition, the Assistant's instructions.
+import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { join, resolve } from 'path'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import * as electron from 'electron'
+import { tempDir } from '../tempDir'
+
+const base = tempDir('hive-i18n-content-')
+;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+
+const { setLanguage } = await import('../../src/shared/i18n')
+const { englishText, shownText } = await import('../../src/shared/advanced')
+const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../../src/main/workspace')
+const { config } = await import('../../src/main/config')
+const { providerService } = await import('../../src/main/providerService')
+const mcp = await import('../../src/main/mcp')
+const skills = await import('../../src/main/skills')
+const notes = await import('../../src/main/notes')
+const personas = await import('../../src/main/personas')
+const templates = await import('../../src/main/templates')
+const { switchMode } = await import('../../src/main/assistantMode')
+const { shownError, windowError } = await import('../../src/main/hiveError')
+const { apiErrorReply } = await import('../../src/main/servers')
+
+const ROOT = resolve(__dirname, '../..')
+const EN = JSON.parse(readFileSync(join(ROOT, 'locales/en/content.json'), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
+const FILES = ['assistantMode.ts', 'mcp.ts', 'notes.ts', 'personas.ts', 'skills.ts', 'templates.ts']
+
+/** A German translation of some of the area's messages, as a language file gives them (the rest stays English). */
+const GERMAN: Record<string, string> = {
+  'content.mode.unknown': 'In diesem Arbeitsbereich gibt es keinen Modus „{mode}“.',
+  'content.persona.badName': 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.',
+  'content.notes.nameRequired': 'Ein Name ist nötig',
+  'content.notes.outside': 'Der Pfad liegt außerhalb des Ordners der geteilten Notizen',
+  'content.skill.badName': 'Skill-Namen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen).',
+  'content.skill.audience': '{kind, select, text {sein Publikum ist „{audience}“, nicht agents, assistant oder all} empty {sein Publikum ist leer, nicht agents, assistant oder all} list {sein Publikum ist eine Liste, nicht agents, assistant oder all} other {sein Publikum ist ein {type}, nicht agents, assistant oder all}}',
+  'content.skill.notClosed': 'sein Kopf ist nicht geschlossen (keine Zeile mit --- danach)',
+  'content.mcp.badName': 'Servernamen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen). „hive“ ist vergeben.',
+  'content.mcp.listNotObject': 'Die Definition muss ein JSON-Objekt sein',
+  'content.mcp.notObject': 'Die Definition muss ein JSON-Objekt sein, wie in {path}.',
+  'content.mcp.runs': 'Startet: {command}',
+  'content.mcp.env': 'Umgebung: {items}',
+  'content.mcp.set': '{name} (gesetzt)',
+  'mcp.error.invalidName': 'Ungültiger Servername',
+  'content.templates.noFile': 'Diese Datei ist nicht da.',
+  'content.templates.provider': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren)} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter)} other {{provider} ist nicht installiert (Agent-Einrichtung)}}',
+  'content.templates.neededBy': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren), gebraucht von {agents}.} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von {agents}.} other {{provider} ist nicht installiert (Agent-Einrichtung), gebraucht von {agents}.}}',
+  'content.templates.cantLoad': 'Die Vorlage kann noch nicht geladen werden:',
+  'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.'
+}
+
+const wsPath = join(base, 'ws')
+const proj = join(wsPath, 'beta')
+let w: ReturnType<typeof createWorkspaceService>
+const run = <T>(fn: () => T | Promise<T>): Promise<T> => inWorkspace(w, async () => fn())
+
+beforeAll(async () => {
+  mkdirSync(join(proj, '.hive'), { recursive: true })
+  writeFileSync(join(proj, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [] }))
+  w = createWorkspaceService()
+  await w.open(wsPath)
+  // A template with an agent for Claude Code, kept in the workspace.
+  mkdirSync(join(wsPath, '.hive', 'templates'), { recursive: true })
+  writeFileSync(join(wsPath, '.hive', 'templates', 'pair.json'), JSON.stringify({ version: 1, name: 'Pair', savedAt: '', layout: 'auto', agents: [{ name: 'Builder', provider: 'claude-code', worktree: false }] }))
+  providerService.info = ((id: string) => ({ provider: id, found: true })) as never
+})
+afterAll(() => disposeWorkspaceService(w))
+afterEach(() => {
+  setLanguage('en', {})
+  config.settings.providers['claude-code'].enabled = true
+})
+
+/** What a call threw. */
+async function caught(p: () => unknown): Promise<Error> {
+  try {
+    await run(p)
+  } catch (e) {
+    return e as Error
+  }
+  throw new Error('it did not throw')
+}
+
+describe('the content area', () => {
+  it('every message is of the content area, with a note for translators, and its six files have no text left to convert', () => {
+    expect(Object.keys(EN).length).toBeGreaterThan(80)
+    for (const [id, m] of Object.entries(EN)) {
+      expect(id).toMatch(/^content\./)
+      expect(m.description.length, id).toBeGreaterThan(10)
+    }
+    for (const f of FILES) expect(() => readFileSync(join(ROOT, 'i18n/allow', `src__main__${f}.json`)), f).toThrow()
+  })
+})
+
+describe('refusals: English for agents and the log as before, the window in its language', () => {
+  it('says each in English with the status it always had, and in German to the window', async () => {
+    setLanguage('de', GERMAN)
+    const cases: [Error, string, number, string | null][] = [
+      [await caught(() => switchMode('nope')), 'There is no mode "nope" in this workspace.', 404, 'In diesem Arbeitsbereich gibt es keinen Modus „nope“.'],
+      [await caught(() => personas.createPersona('!!!')), 'Give the mode a name with letters or numbers.', 400, 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.'],
+      [await caught(() => notes.createNote('  ', false)), 'Name is required', 400, 'Ein Name ist nötig'],
+      [await caught(() => notes.createNote('../outside.md', false)), 'Path is outside the shared notes folder', 500, 'Der Pfad liegt außerhalb des Ordners der geteilten Notizen'],
+      [await caught(() => skills.createSkill('no spaces allowed', '')), 'Skill names may contain letters, numbers, "-" and "_" (max 64 characters).', 400, 'Skill-Namen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen).'],
+      [await caught(() => mcp.createMcp('hive')), 'Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.', 400, 'Servernamen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen). „hive“ ist vergeben.'],
+      [await caught(() => mcp.readMcp('../x')), 'Invalid server name', 500, 'Ungültiger Servername'],
+      [await caught(() => mcp.checkMcpDef([])), 'The definition must be a JSON object, as in .hive/mcp/<name>.json.', 500, 'Die Definition muss ein JSON-Objekt sein, wie in .hive/mcp/<name>.json.'],
+      [await caught(() => mcp.checkMcpDef({ command: 'x', args: [1] })), '"args" must be a list of strings.', 500, null],
+      [await caught(() => templates.readImport(join(base, 'no-such.json'))), "That file isn't there.", 404, 'Diese Datei ist nicht da.'],
+      [await caught(() => templates.templatePlan(proj, 'workspace', 'pair.json', undefined, [''])), 'Enter a name for each of its agents.', 400, 'Gib jedem ihrer Agenten einen Namen.']
+    ]
+    for (const [e, english, status, german] of cases) {
+      expect(e.message).toBe(english)
+      expect(apiErrorReply(e).body.error).toBe(english)
+      expect(apiErrorReply(e).status, english).toBe(status)
+      expect((windowError(e) as Error).message).toBe(german ?? english)
+      expect(shownError(e)).toBe(german ?? english)
+    }
+  })
+})
+
+describe("a skill's header problem: English for agents, the window's text beside it", () => {
+  it('keeps problem English and gives problemText for the window', () => {
+    setLanguage('de', GERMAN)
+    const audience = skills.parseSkillFrontmatter('---\nname: a\nmetadata:\n  audience: assitant\n---\n')
+    expect(audience.problem).toBe('its audience is "assitant", not agents, assistant or all')
+    expect(shownText(audience.problemText!)).toBe('sein Publikum ist „assitant“, nicht agents, assistant oder all')
+    expect(englishText(audience.problemText!)).toBe(audience.problem)
+    const open = skills.parseSkillFrontmatter('---\nname: a\n\n# no closing line\n')
+    expect(open.problem).toBe("its header isn't closed (no line with --- after it)")
+    expect(shownText(open.problemText!)).toBe('sein Kopf ist nicht geschlossen (keine Zeile mit --- danach)')
+    for (const [yaml, kind] of [['[x]', 'a list'], ['3', 'a number'], ['', 'empty']]) {
+      const p = skills.parseSkillFrontmatter(`---\nname: a\nmetadata:\n  audience: ${yaml}\n---\n`)
+      expect(p.problem).toBe(`its audience is ${kind}, not agents, assistant or all`)
+    }
+  })
+
+  it("lists a Hive skill with a broken header with both, and a new skill's SKILL.md stays English", async () => {
+    setLanguage('de', GERMAN)
+    const made = await run(() => skills.createSkill('fresh', ''))
+    const text = readFileSync(join(made.path, 'SKILL.md'), 'utf8')
+    expect(text).toContain('description: Describe when the agent should use this skill.')
+    expect(text).toContain('Write the instructions the agent should follow when this skill applies.')
+    writeFileSync(join(made.path, 'SKILL.md'), '---\nname: fresh\nmetadata:\n  audience: assitant\n---\n')
+    const listed = (await run(() => skills.hiveSkills())).find((s) => s.name === 'fresh')!
+    expect(listed.problem).toBe('its audience is "assitant", not agents, assistant or all')
+    expect(shownText(listed.problemText!)).toBe('sein Publikum ist „assitant“, nicht agents, assistant oder all')
+  })
+})
+
+describe("MCP servers: a definition's error English for the Agent API, the window's text beside it", () => {
+  it("gives errorText for Hive's words only, and what a server runs in the window's language", async () => {
+    setLanguage('de', GERMAN)
+    mkdirSync(join(wsPath, '.hive', 'mcp'), { recursive: true })
+    writeFileSync(join(wsPath, '.hive', 'mcp', 'list.json'), '[1, 2]')
+    writeFileSync(join(wsPath, '.hive', 'mcp', 'broken.json'), '{ not json')
+    const listed = await run(() => mcp.listMcp())
+    const list = listed.find((m) => m.name === 'list')!
+    expect(list.error).toBe('Definition must be a JSON object')
+    expect(shownText(list.errorText!)).toBe('Die Definition muss ein JSON-Objekt sein')
+    // JSON's reader's words stay as it gave them, with no text of Hive's beside them.
+    const broken = listed.find((m) => m.name === 'broken')!
+    expect(broken.error).toMatch(/JSON/)
+    expect(broken.errorText).toBeUndefined()
+    expect(mcp.mcpRuns({ command: 'npx', args: ['-y', 'pkg'], env: { TOKEN: 'abc', REF: '${REF}' } })).toEqual(['Startet: npx -y pkg', 'Umgebung: TOKEN (gesetzt), REF=${REF}'])
+    setLanguage('en', {})
+    expect(mcp.mcpRuns({ url: 'https://x.test', type: 'http', cwd: 'C:/s', headers: { A: 'b' } })).toEqual(['Connects to: https://x.test (http)', 'In: C:/s', 'Headers: A (set)'])
+  })
+
+  it("writes a new server's definition in English", async () => {
+    setLanguage('de', GERMAN)
+    const made = await run(() => mcp.createMcp('fresh'))
+    expect(JSON.parse(readFileSync(made.path, 'utf8')).description).toBe('Describe what this server provides.')
+  })
+})
+
+describe("a template's load plan is the window's", () => {
+  it("says why it can't load in the window's language, with the problem as a key, and its refusal in English for the log", async () => {
+    setLanguage('de', GERMAN)
+    config.settings.providers['claude-code'].enabled = false
+    const plan = await run(() => templates.templatePlan(proj, 'workspace', 'pair.json'))
+    expect(plan.missing).toEqual([{ provider: 'claude-code', reason: 'Claude Code ist ausgeschaltet (Einstellungen → Anbieter)', agents: ['Builder'], problem: 'off' }])
+    expect(plan.blocked).toEqual(['Claude Code ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von Builder.'])
+    const e = await caught(() => templates.loadTemplate(proj, 'workspace', 'pair.json', []))
+    expect(e.message).toBe("The template can't be loaded yet:\n• Claude Code is turned off (Settings → Providers), needed by Builder.")
+    expect(shownError(e)).toBe('Die Vorlage kann noch nicht geladen werden:\n• Claude Code ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von Builder.')
+    // Not installed, and a coding agent this Hive doesn't know: each its own key.
+    config.settings.providers['claude-code'].enabled = true
+    providerService.info = ((id: string) => ({ provider: id, found: false })) as never
+    try {
+      expect((await run(() => templates.templatePlan(proj, 'workspace', 'pair.json'))).missing[0]).toMatchObject({ problem: 'notInstalled', reason: 'Claude Code ist nicht installiert (Agent-Einrichtung)' })
+    } finally {
+      providerService.info = ((id: string) => ({ provider: id, found: true })) as never
+    }
+    writeFileSync(join(wsPath, '.hive', 'templates', 'later.json'), JSON.stringify({ version: 1, name: 'Later', savedAt: '', layout: 'auto', agents: [{ name: 'G', provider: 'gemini', worktree: false }] }))
+    setLanguage('en', {})
+    expect((await run(() => templates.templatePlan(proj, 'workspace', 'later.json'))).missing[0]).toMatchObject({ problem: 'unknown', reason: 'This Hive doesn\'t know the coding agent "gemini" (update Hive)' })
+  })
+})
+
+describe("lists in the language's way, never joined with English commas", () => {
+  it("lists a template's agents in the window's language, in the plan and its refusal, and English in the refusal's message", async () => {
+    writeFileSync(join(wsPath, '.hive', 'templates', 'crew.json'), JSON.stringify({ version: 1, name: 'Crew', savedAt: '', layout: 'auto', agents: ['Builder', 'Reviewer', 'Tester'].map((name) => ({ name, provider: 'claude-code', worktree: false })) }))
+    config.settings.providers['claude-code'].enabled = false
+    setLanguage('de', GERMAN)
+    expect((await run(() => templates.templatePlan(proj, 'workspace', 'crew.json'))).blocked).toEqual(['Claude Code ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von Builder, Reviewer und Tester.'])
+    const e = await caught(() => templates.loadTemplate(proj, 'workspace', 'crew.json', []))
+    expect(e.message).toBe("The template can't be loaded yet:\n• Claude Code is turned off (Settings → Providers), needed by Builder, Reviewer and Tester.")
+    expect(shownError(e)).toBe('Die Vorlage kann noch nicht geladen werden:\n• Claude Code ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von Builder, Reviewer und Tester.')
+    // A language with no translation yet still lists in its own way.
+    setLanguage('ja', {})
+    expect((await run(() => templates.templatePlan(proj, 'workspace', 'crew.json'))).blocked).toEqual(['Claude Code is turned off (Settings → Providers), needed by Builder、Reviewer、Tester.'])
+    expect(shownError(await caught(() => templates.loadTemplate(proj, 'workspace', 'crew.json', [])))).toContain('needed by Builder、Reviewer、Tester.')
+  })
+
+  it("lists an MCP server's variables and headers in the window's language", () => {
+    const def = { command: 'node', env: { TOKEN: 'abc', REF: '${REF}' }, headers: { A: 'b', B: 'c' } }
+    setLanguage('de', GERMAN)
+    expect(mcp.mcpRuns(def)).toEqual(['Startet: node', 'Umgebung: TOKEN (gesetzt), REF=${REF}', 'Headers: A (gesetzt), B (gesetzt)'])
+    setLanguage('ja', {})
+    expect(mcp.mcpRuns(def)).toEqual(['Runs: node', 'Environment: TOKEN (set) REF=${REF}', 'Headers: A (set) B (set)'])
+    setLanguage('en', {})
+    expect(mcp.mcpRuns(def)).toEqual(['Runs: node', 'Environment: TOKEN (set), REF=${REF}', 'Headers: A (set), B (set)'])
+  })
+})
+
+describe("the Assistant's instructions stay English", () => {
+  it("puts a mode's name under an English heading whatever language Hive shows", async () => {
+    setLanguage('de', GERMAN)
+    await run(() => personas.createPersona('Tester'))
+    const told = await run(() => personas.assistantInstructions('tester'))
+    expect(told.personaText.startsWith('# Your mode: Tester\n\n')).toBe(true)
+    expect(told.text).toContain('You are the Hive Assistant')
+  })
+})

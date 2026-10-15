@@ -132,7 +132,7 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   // (each provider lists its variables), nor Hive's own HIVE_ variables. User configuration is kept.
   const sessionVars = new Set(allProviders().flatMap((p) => p.envToStrip))
   for (const k of Object.keys(env)) if (sessionVars.has(k) || (k.startsWith('HIVE_') && !SESSION_SETTINGS.has(k))) delete env[k]
-  env.TERM_PROGRAM = 'Hive'
+  env.TERM_PROGRAM = 'Hive' // i18n-ignore: an environment variable's value, which programs in the terminal read
   env.COLORTERM = 'truecolor'
   return { ...env, ...extra }
 }
@@ -144,6 +144,7 @@ export function forLog(arg: string): string {
 }
 
 export function spawnPty(key: string, opts: SpawnOptions): IPty {
+  // i18n-ignore: a guard for Hive's own code (callers refuse a second start first, in their own words); the key is internal
   if (entries.has(key)) throw new Error(`A process is already running for ${key}`)
   log.info(`spawn ${userText(key)}: ${opts.file} ${JSON.stringify(argsForLog(opts.args.map(forLog)))}`)
   const size = startSize(key)
@@ -178,6 +179,7 @@ export function spawnPty(key: string, opts: SpawnOptions): IPty {
   if (track)
     whenPid(proc, (pid) => {
       log.info(`started ${userText(key)}: process ${pid}`)
+      // i18n-ignore: the launch gate's reason, printed in the terminal by its script in English (launchGate.ts, CLI-facing)
       const word: Promise<GateWord> = pid ? track(pid, exited.signal) : Promise.resolve({ go: false, reason: 'Hive never learned the id of the process it started' })
       gate?.open(word)
     })

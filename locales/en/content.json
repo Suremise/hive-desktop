@@ -1,0 +1,450 @@
+{
+  "content.mcp.badArgs": {
+    "defaultMessage": "\"args\" must be a list of strings.",
+    "description": "An error adding an MCP server from a file: its definition's \"args\" field (keep it as it is) isn't a list of text."
+  },
+  "content.mcp.badCommand": {
+    "defaultMessage": "\"command\" must be the program to run.",
+    "description": "An error adding an MCP server from a file: its definition's \"command\" field (keep it as it is) is empty or not text."
+  },
+  "content.mcp.badCwd": {
+    "defaultMessage": "\"cwd\" must be a folder.",
+    "description": "An error adding an MCP server from a file: its definition's \"cwd\" field (keep it as it is) isn't text."
+  },
+  "content.mcp.badName": {
+    "defaultMessage": "Server names may contain letters, numbers, \"-\" and \"_\" (max 64 characters). \"hive\" is reserved.",
+    "description": "An error adding an MCP server: its name has a character a server name can't have, is too long, or is hive (Hive's own server: keep it)."
+  },
+  "content.mcp.badRecord": {
+    "defaultMessage": "\"{field}\" must be an object of strings.",
+    "description": "An error adding an MCP server from a file: its definition's {field} field (env or headers, as it is) isn't a set of names with text values."
+  },
+  "content.mcp.badUrl": {
+    "defaultMessage": "\"url\" must be an http:// or https:// address.",
+    "description": "An error adding an MCP server from a file: its definition's \"url\" field (keep it as it is) isn't a web address."
+  },
+  "content.mcp.changed": {
+    "defaultMessage": "{name} has changed since it was shown to you. Check what it runs and enable it again.",
+    "description": "An error turning an MCP server on: its definition ({name} is the server) changed after Hive showed what it runs, so it stays off until checked again."
+  },
+  "content.mcp.chooseFile": {
+    "defaultMessage": "Choose a .json definition or a .zip of a server folder.",
+    "description": "An error adding an MCP server from a file that is neither a .json definition nor a .zip."
+  },
+  "content.mcp.connects": {
+    "defaultMessage": "Connects to: {url}",
+    "description": "What an MCP server connects to, shown before it is turned on: {url} is its address."
+  },
+  "content.mcp.connectsType": {
+    "defaultMessage": "Connects to: {url} ({type})",
+    "description": "What an MCP server connects to, shown before it is turned on: {url} is its address, {type} its transport (http or sse, as the definition says it)."
+  },
+  "content.mcp.env": {
+    "defaultMessage": "Environment: {items}",
+    "description": "An MCP server's environment variables, shown before it is turned on: {items} lists them, each NAME=${VAR} (a reference, as it is) or \"NAME (set)\"."
+  },
+  "content.mcp.exists": {
+    "defaultMessage": "A server named \"{name}\" already exists",
+    "description": "An error making a new MCP server: the workspace has one called {name}."
+  },
+  "content.mcp.folder": {
+    "defaultMessage": "In: {folder}",
+    "description": "The folder an MCP server runs in, shown before it is turned on."
+  },
+  "content.mcp.headers": {
+    "defaultMessage": "Headers: {items}",
+    "description": "An MCP server's HTTP headers, shown before it is turned on: {items} lists them, each Name=${VAR} (a reference, as it is) or \"Name (set)\"."
+  },
+  "content.mcp.jsonLarge": {
+    "defaultMessage": "The .json is too large for an MCP server definition (over {mb} MB).",
+    "description": "An error adding an MCP server from a .json file over {mb} MB."
+  },
+  "content.mcp.listNoCommand": {
+    "defaultMessage": "Definition needs a \"command\" (stdio) or a \"url\" (http/sse)",
+    "description": "Why an MCP server in the workspace can't be used: its definition has neither of the two fields that say what it is. Keep \"command\", \"url\", stdio, http and sse as they are."
+  },
+  "content.mcp.listNotObject": {
+    "defaultMessage": "Definition must be a JSON object",
+    "description": "Why an MCP server in the workspace can't be used: its definition file (.hive/mcp/<name>.json) holds JSON that isn't an object."
+  },
+  "content.mcp.noCommand": {
+    "defaultMessage": "The definition needs a \"command\" (a server Hive starts) or a \"url\" (an http or sse server).",
+    "description": "An error adding an MCP server from a file whose definition has neither field that says what it is. Keep \"command\", \"url\", http and sse as they are."
+  },
+  "content.mcp.notJson": {
+    "defaultMessage": "{file} isn't valid JSON ({reason}).",
+    "description": "An error adding an MCP server from a file: its definition {file} can't be read as JSON. {reason} is the JSON reader's own words (English)."
+  },
+  "content.mcp.notObject": {
+    "defaultMessage": "The definition must be a JSON object, as in {path}.",
+    "description": "An error adding an MCP server from a file whose definition holds JSON that isn't an object. {path} is where a workspace keeps one (.hive/mcp/<name>.json)."
+  },
+  "content.mcp.runs": {
+    "defaultMessage": "Runs: {command}",
+    "description": "What an MCP server runs, shown before it is turned on: {command} is its command line, as it is."
+  },
+  "content.mcp.set": {
+    "defaultMessage": "{name} (set)",
+    "description": "An environment variable or header ({name}) an MCP server's definition gives a value of its own, not shown (it may be a secret)."
+  },
+  "content.mcp.taken": {
+    "defaultMessage": "A server named \"{name}\" already exists: choose another name, or replace it.",
+    "description": "An error adding an MCP server from a file under the name {name}, which a server of the workspace has."
+  },
+  "content.mcp.zipFileLarge": {
+    "defaultMessage": "The .zip is too large for an MCP server (over {mb} MB).",
+    "description": "An error adding an MCP server from a .zip file over {mb} MB."
+  },
+  "content.mcp.zipLarge": {
+    "defaultMessage": "The .zip is too large for an MCP server (over {mb} MB unpacked).",
+    "description": "An error adding an MCP server from a .zip: its files take more than {mb} MB unpacked."
+  },
+  "content.mcp.zipLink": {
+    "defaultMessage": "The .zip has a link, which Hive doesn't unpack: {path}",
+    "description": "An error adding an MCP server from a .zip with a symbolic link in it ({path}), which could point outside its folder."
+  },
+  "content.mcp.zipNoDefinition": {
+    "defaultMessage": "No {files} found. A server .zip has its definition at its top level, or inside one folder.",
+    "description": "An error adding an MCP server from a .zip without a definition where Hive looks. {files} are the file names it looks for, joined with \"or\"."
+  },
+  "content.mcp.zipTooMany": {
+    "defaultMessage": "The .zip has too many files for an MCP server (over {max}).",
+    "description": "An error adding an MCP server from a .zip with more than {max} files."
+  },
+  "content.mcp.zipUnreadable": {
+    "defaultMessage": "The .zip can't be read: it has no list of its files.",
+    "description": "An error adding an MCP server from a .zip that isn't one (no central directory: the list of its files)."
+  },
+  "content.mcp.zipUnsafe": {
+    "defaultMessage": "The .zip has a file with an unsafe path: {path}",
+    "description": "An error adding an MCP server from a .zip: a file's path ({path}) would land outside its folder, or Windows can't have it."
+  },
+  "content.mode.noAssistant": {
+    "defaultMessage": "The Assistant has no settings in this workspace.",
+    "description": "An error switching the Hive Assistant's mode: the workspace's Assistant settings are missing."
+  },
+  "content.mode.unknown": {
+    "defaultMessage": "There is no mode \"{mode}\" in this workspace.",
+    "description": "An error switching the Hive Assistant's mode: the workspace has no mode (a persona file) called {mode}."
+  },
+  "content.notes.badName": {
+    "defaultMessage": "Invalid name",
+    "description": "An error renaming a shared note: the new name is empty or has a character Windows can't have in a name (such as / or :)."
+  },
+  "content.notes.closed": {
+    "defaultMessage": "The workspace was closed or switched: nothing was changed.",
+    "description": "An error: the workspace closed, or another opened in its window, while a handover was being renamed; nothing changed."
+  },
+  "content.notes.deleteRoot": {
+    "defaultMessage": "Cannot delete the shared folder itself",
+    "description": "An error: the shared notes folder itself (.hive/shared) can't be deleted, only what is in it."
+  },
+  "content.notes.exists": {
+    "defaultMessage": "\"{name}\" already exists",
+    "description": "An error making or renaming a shared note or folder: one called {name} is already there."
+  },
+  "content.notes.nameRequired": {
+    "defaultMessage": "Name is required",
+    "description": "An error making a shared note or folder with no name."
+  },
+  "content.notes.outside": {
+    "defaultMessage": "Path is outside the shared notes folder",
+    "description": "An error: a shared note's path leads out of the workspace's shared notes folder (.hive/shared)."
+  },
+  "content.persona.badName": {
+    "defaultMessage": "Give the mode a name with letters or numbers.",
+    "description": "An error making a new mode for the Hive Assistant: its name has no letters or numbers to name its file after."
+  },
+  "content.persona.exists": {
+    "defaultMessage": "There is already a mode called \"{mode}\".",
+    "description": "An error making a new mode for the Hive Assistant: the workspace already has one called {mode}."
+  },
+  "content.persona.invalid": {
+    "defaultMessage": "Invalid mode",
+    "description": "An error deleting a mode of the Hive Assistant: its id isn't one Hive could have made."
+  },
+  "content.persona.notBundled": {
+    "defaultMessage": "\"{mode}\" isn't one of Hive's modes.",
+    "description": "An error restoring a mode Hive ships: Hive ships no mode called {mode}."
+  },
+  "content.skill.audience": {
+    "defaultMessage": "{kind, select, text {its audience is \"{audience}\", not agents, assistant or all} empty {its audience is empty, not agents, assistant or all} list {its audience is a list, not agents, assistant or all} other {its audience is a {type}, not agents, assistant or all}}",
+    "description": "Why nobody gets a Hive skill: its header's metadata.audience isn't agents, assistant or all (keep those three words, which the header must say). {kind} is what it is instead: text ({audience} is the text), empty, a list, or another YAML value ({type}: number, boolean or object, as YAML names them). It starts in lower case (it follows a colon)."
+  },
+  "content.skill.badName": {
+    "defaultMessage": "Skill names may contain letters, numbers, \"-\" and \"_\" (max 64 characters).",
+    "description": "An error adding a skill: its name has a character a skill's name can't have, or is too long."
+  },
+  "content.skill.cantCopyName": {
+    "defaultMessage": "\"{name}\" can't be a Hive skill name: use letters, numbers, \"-\" and \"_\" (rename the folder first).",
+    "description": "An error copying a skill into the workspace: its folder's name {name} can't be a Hive skill's name."
+  },
+  "content.skill.cantDelete": {
+    "defaultMessage": "Only Hive skills and a project's local skills can be deleted in Hive.",
+    "description": "An error deleting a skill Hive doesn't manage (a CLI's own, from the user's profile or a plugin)."
+  },
+  "content.skill.chooseFile": {
+    "defaultMessage": "Choose a .md file or a .zip.",
+    "description": "An error adding a skill from a file that is neither Markdown (.md) nor a .zip."
+  },
+  "content.skill.copyExists": {
+    "defaultMessage": "The workspace already has a skill named \"{name}\"",
+    "description": "An error copying a skill into the workspace: it has one called {name} already."
+  },
+  "content.skill.exists": {
+    "defaultMessage": "A skill named \"{name}\" already exists in {folder}",
+    "description": "An error adding a skill: the skills folder {folder} (relative to the workspace) already has one called {name}."
+  },
+  "content.skill.isCopy": {
+    "defaultMessage": "That's Hive's own copy of a workspace skill; delete the skill in the workspace instead.",
+    "description": "An error deleting a skill in a project's folder that is Hive's copy of a workspace skill (Hive puts it there for a coding agent)."
+  },
+  "content.skill.metadata": {
+    "defaultMessage": "its metadata isn't a set of fields (metadata:, then audience: … indented under it)",
+    "description": "Why nobody gets a Hive skill: the metadata field of its SKILL.md header isn't a set of fields. Keep metadata: and audience: as they are. It starts in lower case (it follows a colon)."
+  },
+  "content.skill.noLocalFolder": {
+    "defaultMessage": "{cli} has no project skills folder.",
+    "description": "An error adding a project's own skill for a coding agent CLI ({cli}: \"Codex\") that reads no skills from a project's folder."
+  },
+  "content.skill.noTarget": {
+    "defaultMessage": "No place to add the skill to.",
+    "description": "An error adding a skill with no place chosen for it (the workspace, or a project for a coding agent)."
+  },
+  "content.skill.notBundled": {
+    "defaultMessage": "\"{name}\" isn't one of Hive's bundled skills.",
+    "description": "An error restoring a skill Hive ships: Hive ships no skill called {name}."
+  },
+  "content.skill.notClosed": {
+    "defaultMessage": "its header isn't closed (no line with --- after it)",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header (front matter) starts with a --- line but no --- line ends it. Keep ---. It starts in lower case (it follows a colon)."
+  },
+  "content.skill.notClosedWithin": {
+    "defaultMessage": "its header isn't closed within its first {kb} KB",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header (front matter, between --- lines) doesn't end within its first {kb} KB. It follows \"Nobody gets this skill until its header is fixed:\", so it starts in lower case."
+  },
+  "content.skill.notFields": {
+    "defaultMessage": "its header isn't a list of fields (name: …, description: …)",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header is YAML but not a set of fields. Keep name: and description: as they are. It starts in lower case (it follows a colon)."
+  },
+  "content.skill.notSkill": {
+    "defaultMessage": "Not a skill folder (no SKILL.md)",
+    "description": "An error copying a skill into the workspace: its folder has no SKILL.md (a file name: keep it)."
+  },
+  "content.skill.yaml": {
+    "defaultMessage": "its header isn't valid YAML ({reason})",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header can't be read as YAML. {reason} is the YAML reader's own words (English). It starts in lower case (it follows a colon)."
+  },
+  "content.skill.yamlAt": {
+    "defaultMessage": "its header isn't valid YAML (line {line}: {reason})",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header can't be read as YAML. {line} is the line of the file, {reason} the YAML reader's own words (English). It starts in lower case (it follows a colon)."
+  },
+  "content.skill.zipNoSkill": {
+    "defaultMessage": "No SKILL.md found. A skill .zip has SKILL.md at its top level, or inside one folder.",
+    "description": "An error adding a skill from a .zip that has no SKILL.md where Hive looks. Keep SKILL.md as it is: it is a file name."
+  },
+  "content.skill.zipTooLarge": {
+    "defaultMessage": "The .zip is too large for a skill (over {mb} MB unpacked).",
+    "description": "An error adding a skill from a .zip: its files take more than {mb} MB unpacked."
+  },
+  "content.skill.zipTooMany": {
+    "defaultMessage": "The .zip has too many files for a skill (over {max}).",
+    "description": "An error adding a skill from a .zip: it has more than {max} files."
+  },
+  "content.skill.zipUnsafe": {
+    "defaultMessage": "The .zip has a file with an unsafe path: {path}",
+    "description": "An error adding a skill from a .zip: a file's path ({path}) would land outside the skill's folder."
+  },
+  "content.templates.agentGone": {
+    "defaultMessage": "That agent is no longer in the template.",
+    "description": "An error adding one agent from a template: the template no longer has it (edited meanwhile)."
+  },
+  "content.templates.asShown": {
+    "defaultMessage": "{problem}",
+    "description": "A template's problem, said in the window's language already (why it isn't one Hive can use). Keep it as {problem} alone."
+  },
+  "content.templates.bullet": {
+    "defaultMessage": "• {item}",
+    "description": "A line of a list of reasons: a bullet, then the reason {item}."
+  },
+  "content.templates.cantCheck": {
+    "defaultMessage": "Hive couldn't check {branch} ({error})",
+    "description": "Why a template's agent gets a new worktree: git couldn't read the state of the one of its name, on {branch}; {error} is why (often git's own words)."
+  },
+  "content.templates.cantLoad": {
+    "defaultMessage": "The template can't be loaded yet:",
+    "description": "An error loading a template, above the list of what stops it (each line a reason)."
+  },
+  "content.templates.cantUse": {
+    "defaultMessage": "\"{name}\" can't be used: {problem}",
+    "description": "An error: the template {name} can't be used; {problem} says why (a sentence)."
+  },
+  "content.templates.changedSince": {
+    "defaultMessage": "The project's agents changed since you looked: open the template again.",
+    "description": "An error loading a template: the project's agents changed after the Load template dialog showed them."
+  },
+  "content.templates.changedWhile": {
+    "defaultMessage": "The project's agents changed while the template was loading: nothing was changed. Open the template again.",
+    "description": "An error loading a template: the project's agents changed while it loaded, so nothing changed."
+  },
+  "content.templates.checkFailed": {
+    "defaultMessage": "Hive couldn't check {agent}'s worktree ({folder}): {error}",
+    "description": "Why a template can't be loaded: git couldn't tell whether the worktree {folder} of the agent {agent} it would remove has uncommitted work; {error} is why (often git's own words)."
+  },
+  "content.templates.dirty": {
+    "defaultMessage": "{branch} has {n, plural, one {# uncommitted file} other {# uncommitted files}}",
+    "description": "Why a template's agent gets a new worktree: the one of its name, on {branch}, has work not committed. A clause."
+  },
+  "content.templates.editedMeanwhile": {
+    "defaultMessage": "\"{name}\" changed since you started editing it (saved again meanwhile): nothing was saved. Close the editor to see it as it is now.",
+    "description": "An error saving an edited template: it was saved again elsewhere after the editor opened it."
+  },
+  "content.templates.enterName": {
+    "defaultMessage": "Enter a name for the template.",
+    "description": "An error saving or renaming a template with no name."
+  },
+  "content.templates.failed": {
+    "defaultMessage": "Nothing was changed: {error}",
+    "description": "An error loading a template: making its agents failed, so nothing changed; {error} is why (often git's own words)."
+  },
+  "content.templates.gitBroken": {
+    "defaultMessage": "{problem}, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own: fix git (Agent Setup), or edit the template to put them in the project folder.",
+    "description": "Why a template can't be loaded: git can't run ({problem}: \"Git isn't installed (or isn't on Hive's PATH)\"), so its {count} agents with worktrees of their own ({names}) can't have them. Agent Setup is a Help window."
+  },
+  "content.templates.gone": {
+    "defaultMessage": "That template is no longer there.",
+    "description": "An error: the template was deleted or renamed meanwhile."
+  },
+  "content.templates.importNotJson": {
+    "defaultMessage": "It isn't a Hive agent template (not JSON).",
+    "description": "An error importing a template: the file isn't JSON."
+  },
+  "content.templates.importTooLarge": {
+    "defaultMessage": "It isn't a Hive agent template (over {kb} KB).",
+    "description": "An error importing a template: the file is larger than {kb} KB, more than any template."
+  },
+  "content.templates.inUse": {
+    "defaultMessage": "another agent works in {branch}'s worktree",
+    "description": "Why a template's agent gets a new worktree: another agent works in the one of its name, on {branch}. A clause, lower case."
+  },
+  "content.templates.inUseNow": {
+    "defaultMessage": "an agent works in it now",
+    "description": "Why a worktree the user chose to remove with a template's load was kept: one of the new agents works in it. A clause, lower case."
+  },
+  "content.templates.loading": {
+    "defaultMessage": "A template is already being loaded into this project.",
+    "description": "An error loading a template while another load into the same project is under way."
+  },
+  "content.templates.nameEach": {
+    "defaultMessage": "Enter a name for each of its agents.",
+    "description": "An error loading a template: a name given for one of its agents is empty."
+  },
+  "content.templates.nameEachTooLong": {
+    "defaultMessage": "A name is at most {max} characters for each of its agents.",
+    "description": "An error loading a template: a name given for one of its agents is longer than {max} characters."
+  },
+  "content.templates.nameTaken": {
+    "defaultMessage": "There is already a template called \"{name}\" there.",
+    "description": "An error renaming or editing a template: another template where it is kept (the workspace or a project) is called {name}."
+  },
+  "content.templates.nameTooLong": {
+    "defaultMessage": "A template's name is at most {max} characters.",
+    "description": "An error saving or renaming a template whose name is longer than {max} characters."
+  },
+  "content.templates.namesChanged": {
+    "defaultMessage": "The names given for its agents no longer match the template: open it again.",
+    "description": "An error loading a template: the names chosen for its agents in the Load template dialog no longer fit it (it was edited meanwhile)."
+  },
+  "content.templates.neededBy": {
+    "defaultMessage": "{problem, select, unknown {This Hive doesn't know the coding agent \"{provider}\" (update Hive), needed by {agents}.} off {{provider} is turned off (Settings → Providers), needed by {agents}.} other {{provider} isn't installed (Agent Setup), needed by {agents}.}}",
+    "description": "Why a template can't be loaded: a coding agent CLI its agents {agents} (their names, listed in the language's way: \"Builder and Reviewer\") need. {problem} and {provider} as in the reason without the agents."
+  },
+  "content.templates.needsIt": {
+    "defaultMessage": "{problem, select, unknown {This Hive doesn't know the coding agent \"{provider}\" (update Hive): {agent} needs it.} off {{provider} is turned off (Settings → Providers): {agent} needs it.} other {{provider} isn't installed (Agent Setup): {agent} needs it.}}",
+    "description": "An error adding one agent from a template: the coding agent CLI it needs. {agent} is its name; {problem} and {provider} as in the reason a template can't be loaded."
+  },
+  "content.templates.noAgents": {
+    "defaultMessage": "This project has no agents to save.",
+    "description": "An error saving a project's agents as a template: it has none."
+  },
+  "content.templates.noBranch": {
+    "defaultMessage": "its worktree is on no branch, not {branch}",
+    "description": "Why a template's agent gets a new worktree: the one of its name has no branch checked out (a detached HEAD), not its own {branch}. A clause, lower case."
+  },
+  "content.templates.noFile": {
+    "defaultMessage": "That file isn't there.",
+    "description": "An error importing a template: the file chosen is gone."
+  },
+  "content.templates.noWorkspace": {
+    "defaultMessage": "Open a workspace first.",
+    "description": "An error: the workspace's templates need a workspace open."
+  },
+  "content.templates.notChecked": {
+    "defaultMessage": "not checked",
+    "description": "Why a worktree the template's load would leave can't be removed with it: Hive couldn't check it. A clause, lower case."
+  },
+  "content.templates.notListed": {
+    "defaultMessage": "git doesn't list {folder} as a worktree any more",
+    "description": "Why a template's agent gets a new worktree, not the one of its name: git no longer lists that folder as a worktree. A clause, lower case."
+  },
+  "content.templates.notOnBranch": {
+    "defaultMessage": "{project} isn't on a branch (a detached HEAD, or no commit yet), so its worktree {count, plural, one {agent} other {agents}} ({names}) have nothing to branch from. Check out a branch or make a first commit, or edit the template to put them in the project folder.",
+    "description": "Why a template can't be loaded into the project {project}: it has no branch checked out, so the template's {count} agents with worktrees of their own ({names}) have no branch to start theirs from."
+  },
+  "content.templates.notRepo": {
+    "defaultMessage": "{project} isn't a git repository, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own. Make it a repository with a first commit, or edit the template to put them in the project folder.",
+    "description": "Why a template can't be loaded into the project {project}: it isn't a git repository, so the template's {count} agents with worktrees of their own ({names}) can't have them."
+  },
+  "content.templates.nothing": {
+    "defaultMessage": "{problem} Nothing was changed.",
+    "description": "An error loading a template, nothing changed: {problem} is why, a sentence of its own (how many agents a project can have)."
+  },
+  "content.templates.otherBranch": {
+    "defaultMessage": "its worktree is on {current}, not {branch}",
+    "description": "Why a template's agent gets a new worktree: the one of its name has another branch checked out ({current}) than its own ({branch}). A clause, lower case."
+  },
+  "content.templates.provider": {
+    "defaultMessage": "{problem, select, unknown {This Hive doesn't know the coding agent \"{provider}\" (update Hive)} off {{provider} is turned off (Settings → Providers)} other {{provider} isn't installed (Agent Setup)}}",
+    "description": "Why a template can't be loaded: a coding agent CLI it needs. {problem} is why: unknown ({provider} is the id the template gives, which this version of Hive doesn't know), off (turned off in Settings → Providers), or not installed (Agent Setup is a Help window). {provider} is otherwise its name (\"Codex\")."
+  },
+  "content.templates.removing": {
+    "defaultMessage": "A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.",
+    "description": "An error loading a template: a worktree one of its agents would work in again was removed while it loaded, so nothing changed."
+  },
+  "content.templates.running": {
+    "defaultMessage": "{agent} is running or starting: stop it first.",
+    "description": "Why a template can't be loaded: the agent {agent} it would replace is running."
+  },
+  "content.templates.scope": {
+    "defaultMessage": "Unknown scope \"{scope}\": workspace or project.",
+    "description": "An error: where a template is kept must be workspace or project (keep those two words: they are the values to use)."
+  },
+  "content.templates.several": {
+    "defaultMessage": "several clean worktrees could be its ({branches})",
+    "description": "Why a template's agent gets a new worktree: more than one unused worktree made for its name could be its own ({branches}: their branches, listed in the language's way), so Hive takes none. A clause, lower case."
+  },
+  "content.templates.started": {
+    "defaultMessage": "An agent started meanwhile: nothing was changed. Stop it first.",
+    "description": "An error loading a template: one of the project's agents started while it loaded, so nothing changed."
+  },
+  "content.templates.taken": {
+    "defaultMessage": "{names} {count, plural, one {is already an agent} other {are already agents}} in {projects}: agent names are unique across the workspace, so rename {count, plural, one {it} other {them}}.",
+    "description": "Why a template can't be loaded: agents of other projects ({projects}) have its agents' names {names} ({count} of them). {names} and {projects} are lists, in the language's way (\"B1 and R1\")."
+  },
+  "content.templates.takenNothing": {
+    "defaultMessage": "{names} {count, plural, one {is already an agent} other {are already agents}} in {projects}: agent names are unique across the workspace, so rename {count, plural, one {it} other {them}}. Nothing was changed.",
+    "description": "An error loading a template: agents of other projects ({projects}) took its agents' names {names} ({count} of them) while it loaded, so nothing changed. {names} and {projects} are lists, in the language's way (\"B1 and R1\")."
+  },
+  "content.templates.twice": {
+    "defaultMessage": "Two of its agents would be called \"{name}\".",
+    "description": "An error loading a template: the names given for its agents call two of them {name}."
+  },
+  "content.templates.uncommitted": {
+    "defaultMessage": "{agent} has uncommitted work in its worktree ({folder}): commit or discard it first.",
+    "description": "Why a template can't be loaded: the worktree {folder} of the agent {agent} it would replace has work not committed."
+  },
+  "content.templates.unreadable": {
+    "defaultMessage": "It couldn't be read.",
+    "description": "Why a template can't be used: its file couldn't be read."
+  }
+}

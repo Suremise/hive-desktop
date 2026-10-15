@@ -6,7 +6,8 @@ import { autoProviderPending, isProviderEnabled, providerSettings, setInstalledC
 import { shownInstallInfo, toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
 import type { KeySteps } from './providers/types'
-import { onLanguageChange } from '../shared/i18n'
+import { msg, onLanguageChange, tr } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { config } from './config'
 import { refreshPath } from './freshPath'
 import { emit, toast } from './events'
@@ -15,6 +16,17 @@ import { childEnv, hasPty, killPty, spawnPty, startSize, writePty } from './ptyH
 import { KeyGate } from './taskKeys'
 import { KeysStopped, PickNotFound, typeKeySteps } from './keySteps'
 import { compareTested, noteSelectedCli, testedVersion } from './testedClis'
+
+/** Why Hive stopped typing into a setup task (KeysStopped's reason, English for the log), and how the window says it (#850). */
+const STOPPED = { closed: 'its terminal closed', busy: 'it stayed busy for 30 seconds' } // i18n-ignore: the log's words; the toast says them with STOPPED_TEXT
+const STOPPED_TEXT = {
+  closed: msg({ id: 'service.providers.stoppedClosed', defaultMessage: 'its terminal closed', description: "Why Hive stopped typing a coding agent CLI's setup keys: its terminal closed. A clause, lower case (it follows \"as\")." }),
+  busy: msg({ id: 'service.providers.stoppedBusy', defaultMessage: 'it stayed busy for 30 seconds', description: "Why Hive stopped typing a coding agent CLI's setup keys: it stayed busy for 30 seconds. A clause, lower case (it follows \"as\")." })
+}
+const stoppedText = (why: string): string => (why === STOPPED.closed ? tr(STOPPED_TEXT.closed) : why === STOPPED.busy ? tr(STOPPED_TEXT.busy) : why)
+
+/** A CLI task's name in the window (its toasts): "Codex install", "Claude Code sign-in". */
+const TASK = msg({ id: 'service.providers.task', defaultMessage: '{task, select, install {{cli} install} update {{cli} update} login {{cli} sign-in} other {{cli} setup}}', description: "A coding agent CLI's task Hive runs in a terminal, as its notifications name it: {cli} is the CLI (\"Codex\"), {task} which task (install, update, sign-in, or another setup)." })
 
 const log = createLogger('providers')
 /** How many models' default efforts are kept per provider (observeDefaultEffort). */
@@ -167,8 +179,8 @@ class ProviderService {
   /** detected(), refusing when Hive is still looking: what calls it would otherwise commit to a guess (#506). */
   async settle(id?: ProviderId): Promise<void> {
     if (await this.detected(id)) return
-    const name = id ? provider(id).descriptor.name : 'the coding agent CLIs'
-    throw new Error(`Hive is still looking for ${name}. Try again in a moment.`)
+    if (!id) throw hiveError(msg({ id: 'service.providers.stillLookingAll', defaultMessage: 'Hive is still looking for the coding agent CLIs. Try again in a moment.', description: "An error: Hive hasn't finished finding the coding agent CLIs installed (it does when it starts), so it can't choose one yet." }))
+    throw hiveError(msg({ id: 'service.providers.stillLooking', defaultMessage: 'Hive is still looking for {cli}. Try again in a moment.', description: "An error: Hive hasn't finished finding the coding agent CLI {cli} (\"Codex\"), so it can't use it yet." }), { cli: provider(id).descriptor.name })
   }
 
   /**
@@ -242,7 +254,7 @@ class ProviderService {
     return next
   }
 
-  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; busyScreen?: (screen: string) => boolean; done?: () => boolean }): string {
+  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; busyScreen?: (screen: string) => boolean; done?: () => boolean }, shown: () => string = () => label): string {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
@@ -279,8 +291,8 @@ class ProviderService {
           // or queued, and the 30-second start above mustn't type into one either.
           ready: async () => {
             for (const t0 = Date.now(); !settled() && hasPty(key) && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 200))
-            if (!hasPty(key)) return 'its terminal closed'
-            return settled() ? true : 'it stayed busy for 30 seconds'
+            if (!hasPty(key)) return STOPPED.closed
+            return settled() ? true : STOPPED.busy
           }
         })
       } catch (e) {
@@ -288,10 +300,10 @@ class ProviderService {
         // stays open for the user to do it.
         if (e instanceof PickNotFound) {
           log.warn(`${label}: couldn't find ${e.what}`)
-          toast('warning', `${label}: Hive couldn't find ${e.what}. Do it in the terminal, or update Hive.`)
+          toast('warning', tr(msg({ id: 'service.providers.pickNotFound', defaultMessage: "{task}: Hive couldn't find {item}. Do it in the terminal, or update Hive.", description: "A notification: Hive types the keys of a coding agent CLI's task ({task}: \"Codex setup\") into its terminal, and couldn't find the menu item {item} (the CLI's own words) on its screen." }), { task: shown(), item: e.what }))
         } else if (e instanceof KeysStopped) {
           log.warn(`${label}: stopped typing: ${e.why}`)
-          if (hasPty(key)) toast('warning', `${label}: Hive stopped typing into it, as ${e.why}. Finish it in the terminal.`)
+          if (hasPty(key)) toast('warning', tr(msg({ id: 'service.providers.keysStopped', defaultMessage: '{task}: Hive stopped typing into it, as {why}. Finish it in the terminal.', description: "A notification: Hive stopped typing the keys of a coding agent CLI's task ({task}: \"Codex setup\") into its terminal; {why} says why (a clause: \"its terminal closed\")." }), { task: shown(), why: stoppedText(e.why) }))
         } else throw e
       } finally {
         gate?.dispose()
@@ -321,8 +333,8 @@ class ProviderService {
       onExit: (code) => {
         if (watch) clearInterval(watch)
         gate?.dispose()
-        if (code === 0 || finished) toast('success', `${label} finished`)
-        else toast('warning', `${label} exited with code ${code}`)
+        if (code === 0 || finished) toast('success', tr(msg({ id: 'service.providers.taskDone', defaultMessage: '{task} finished', description: "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended well." }), { task: shown() }))
+        else toast('warning', tr(msg({ id: 'service.providers.taskFailed', defaultMessage: '{task} exited with code {code}', description: "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended with the exit code {code}." }), { task: shown(), code: String(code) }))
         if (task === 'login' && code === 0) this.signedIn(id)
         void this.refresh(id, true)
       }
@@ -335,23 +347,25 @@ class ProviderService {
     const adapter = provider(id)
     const name = adapter.descriptor.name
     const info = this.info(id)
+    // The task's name: English for the log, in the window's language when its toasts say it.
+    const shown = (): string => tr(TASK, { task, cli: name })
     if (task === 'install') {
       const cmd = adapter.installCommand()
-      return this.runTask(id, task, cmd.file, cmd.args, `${name} install`)
+      return this.runTask(id, task, cmd.file, cmd.args, `${name} install`, undefined, shown) // i18n-ignore: the task's name in the log
     }
-    if (!info.path) throw new Error(`${name} is not installed.`)
+    if (!info.path) throw hiveError(msg({ id: 'service.providers.notInstalled', defaultMessage: '{cli} is not installed.', description: 'An error running a coding agent CLI\'s task (update, sign-in, setup): the CLI {cli} ("Codex") is not installed.' }), { cli: name })
     if (task === 'update') {
-      if (this.liveSessionCount(id) > 0) throw new Error(`Stop all running ${name} agents before updating it.`)
+      if (this.liveSessionCount(id) > 0) throw hiveError(msg({ id: 'service.providers.stopFirst', defaultMessage: 'Stop all running {cli} agents before updating it.', description: 'An error updating the coding agent CLI {cli} ("Codex") while agents run it.' }), { cli: name }, { kind: 'conflict' })
       const cmd = adapter.updateCommand(info.path)
-      return this.runTask(id, task, cmd.file, cmd.args, `${name} update`)
+      return this.runTask(id, task, cmd.file, cmd.args, `${name} update`, undefined, shown) // i18n-ignore: the task's name in the log
     }
     if (task === 'login') {
       const cmd = adapter.loginCommand(info.path)
-      return this.runTask(id, task, cmd.file, cmd.args, `${name} sign-in`)
+      return this.runTask(id, task, cmd.file, cmd.args, `${name} sign-in`, undefined, shown) // i18n-ignore: the task's name in the log
     }
-    if (!adapter.setupCommand) throw new Error(`${name} has no setup task.`)
+    if (!adapter.setupCommand) throw hiveError(msg({ id: 'service.providers.noSetup', defaultMessage: '{cli} has no setup task.', description: 'An error: the coding agent CLI {cli} ("Codex") has no setup task for Hive to run.' }), { cli: name })
     const cmd = adapter.setupCommand(info.path)
-    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, busyTitle: cmd.busyTitle, busyScreen: cmd.busyScreen, done: cmd.done } : undefined)
+    return this.runTask(id, task, cmd.file, cmd.args, `${name} setup`, cmd.keys ? { keys: cmd.keys, ready: cmd.readyPattern, busyTitle: cmd.busyTitle, busyScreen: cmd.busyScreen, done: cmd.done } : undefined, shown)
   }
 }
 

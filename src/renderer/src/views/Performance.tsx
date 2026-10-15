@@ -6,6 +6,7 @@ import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEm
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
 import { formatDateTime, formatWeekdayTime } from '@shared/dates'
+import { shownText } from '@shared/advanced'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
 import { CellLines, DataTable, type DataColumn } from '../components/DataTable'
@@ -309,8 +310,8 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
             <details className="perf-limits">
               <summary>What isn’t measured</summary>
               <ul>
-                {report.notMeasured.map((m) => (
-                  <li key={m}>{m}</li>
+                {report.notMeasured.map((m, i) => (
+                  <li key={m}>{report.notMeasuredText?.[i] ? shownText(report.notMeasuredText[i]) : m}</li>
                 ))}
                 <li>This page reads through Hive’s window, not the Agent API: refreshing it adds nothing to these numbers.</li>
               </ul>
@@ -351,8 +352,8 @@ function Coverage({ report }: { report: MetricsReport }) {
       </p>
       {report.filters.notFiltered.length > 0 && (
         <ul className="perf-notes">
-          {report.filters.notFiltered.map((n) => (
-            <li key={n}>{n}</li>
+          {report.filters.notFiltered.map((n, i) => (
+            <li key={n}>{report.filters.notFilteredText?.[i] ? shownText(report.filters.notFilteredText[i]) : n}</li>
           ))}
         </ul>
       )}

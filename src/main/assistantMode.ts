@@ -1,6 +1,8 @@
 import { ASSISTANT_AGENT_ID, assistantPersona, modeMessage, modeSummary } from '../shared/assistant'
 import { projectAgents } from '../shared/defaults'
 import { config } from './config'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { readPersona } from './personas'
 import { sessions } from './sessions'
@@ -32,14 +34,14 @@ const switches = new Map<string, number>()
 const revision = (key: string): number => switches.get(key) ?? 0
 
 /** Hive's own deliveries come from it. */
-const HIVE = { kind: 'hive', name: 'Hive' } as const
+const HIVE = { kind: 'hive', name: 'Hive' } as const // i18n-ignore: the product's name, as a delivery's sender
 
 /**
  * The mode notices' part in their deliveries (#649): offered only while no newer switch has begun since it was made (one
  * made before it is cancelled); received, its conversation records the mode it was given.
  */
 registerSource('mode', {
-  refresh: async (r, host) => (r.meta?.rev === revision(host.toLowerCase()) ? null : { cancel: 'a newer mode was chosen' }),
+  refresh: async (r, host) => (r.meta?.rev === revision(host.toLowerCase()) ? null : { cancel: 'a newer mode was chosen' }), // i18n-ignore: why a delivery was cancelled, for the log
   holds: (r, host) => r.meta?.rev === revision(host.toLowerCase()),
   received: (r, host) => {
     const persona = r.meta?.persona
@@ -62,7 +64,7 @@ export async function switchMode(personaId: string, save = true): Promise<'told'
   switches.set(key, rev)
   const current = (): boolean => revision(key) === rev
   const persona = await readPersona(personaId)
-  if (!persona) throw new Error(`There is no mode "${personaId}" in this workspace.`)
+  if (!persona) throw hiveError(msg({ id: 'content.mode.unknown', defaultMessage: 'There is no mode "{mode}" in this workspace.', description: "An error switching the Hive Assistant's mode: the workspace has no mode (a persona file) called {mode}." }), { mode: personaId }, { kind: 'notFound' })
   if (!current()) return 'saved'
   // save=false: the choice is already saved (Assistant Settings, which can also choose "the default").
   if (save) {
@@ -74,7 +76,7 @@ export async function switchMode(personaId: string, save = true): Promise<'told'
         return {}
       }
       const agents = projectAgents(cfg)
-      if (!agents.some((a) => a.id === AGENT)) throw new Error('The Assistant has no settings in this workspace.')
+      if (!agents.some((a) => a.id === AGENT)) throw hiveError(msg({ id: 'content.mode.noAssistant', defaultMessage: 'The Assistant has no settings in this workspace.', description: "An error switching the Hive Assistant's mode: the workspace's Assistant settings are missing." }))
       return { agents: agents.map((a) => (a.id === AGENT ? { ...a, persona: personaId } : a)) }
     })
     if (overtaken) return 'saved'

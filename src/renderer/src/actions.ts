@@ -7,6 +7,7 @@ import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, prov
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { eachAgent, sessionsToArchive, type BatchResult } from '@shared/startAll'
 import { serverOnIn } from '@shared/agentMcp'
+import { shownText } from '@shared/advanced'
 import { fmt, tr } from '@shared/i18n'
 import { msg } from '@shared/i18n/msg'
 import type { McpServerInfo, McpTurnOn, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
@@ -775,6 +776,9 @@ export async function setMcpServerInProject(target: Pick<ProjectInfo, 'path' | '
   return !!done
 }
 
+/** Why a workspace MCP server can't be used, in the window's language (#849): Hive's own words, else the JSON reader's as it gave them. */
+export const mcpErrorText = (server: Pick<McpServerInfo, 'error' | 'errorText'>): string | undefined => (server.errorText ? shownText(server.errorText) : server.error)
+
 /**
  * Where a workspace MCP server is on (#713), in words, from the projects as the window has them: "On in all projects
  * (not in mcp)", "On in Amberlight" or "Not on in any project".
@@ -1026,9 +1030,9 @@ export async function loadTemplate(path: string, entry: Pick<TemplateEntry, 'sco
   const plan = await attempt(tr(msg({ id: 'actions.template.readFailed', defaultMessage: 'Could not read the template', description: "An error's title: reading a template failed." })), () => call('templates:plan', path, entry.scope, entry.file, from))
   if (!plan) return
   if (plan.blocked.length) {
-    // Main's reasons are English (its errors are converted with the service errors, E10): matched, never shown here.
-    const fix = plan.missing.find((m) => /isn't installed/.test(m.reason))?.provider ?? null // i18n-ignore: matches main's English reason
-    const off = plan.missing.some((m) => /turned off/.test(m.reason)) // i18n-ignore: matches main's English reason
+    // What each missing provider's problem is (#849), never its reason's words, which are in the window's language.
+    const fix = plan.missing.find((m) => m.problem === 'notInstalled')?.provider ?? null
+    const off = plan.missing.some((m) => m.problem === 'off')
     const where = project(path)?.name
     const choice = await choose({
       title: tr(msg({ id: 'actions.template.blockedTitle', defaultMessage: 'Can\'t load "{name}" yet', description: "Title of the message when a template ({name}) can't be loaded now (an agent runs, a provider is off…)." }), { name: plan.name }),

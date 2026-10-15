@@ -1,5 +1,7 @@
 import { randomUUID, randomBytes } from 'crypto'
-import { onLanguageChange } from '../shared/i18n'
+import { msg, onLanguageChange, tr } from '../shared/i18n'
+import { englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { capturedText, hiveError, HiveError, shownError } from './hiveError'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -9,7 +11,7 @@ import { BrowserWindow, Notification, app, clipboard } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
 import { assistantTools } from '../shared/assistantTools'
-import { COMPACTING_MESSAGE, HIVE_DIR, isCompacting, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
+import { HIVE_DIR, isCompacting, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, defaultProviderPending, extraArgsProblem, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings, splitArgs, tasksWillWake } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
@@ -50,6 +52,7 @@ import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
 import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
+import { COMPACTING_TEXT } from '../shared/runtime'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, startupScreen, startupWatched, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
 import { memoModel, memoTools, memoTurn, noteSafeguard, safeguardText, seenInTurn, withScreenStops, type GuardTurns, type SafeguardEvent, type ScreenStop } from '../shared/safeguards'
 import { admit, describe as describeTurn, endRunning, expectInjected, heard, newLedger, openCalls, reconciles, silentFor, unheardStop, type ScreenReading, type TurnLedger } from './turnLedger'
@@ -60,10 +63,11 @@ import type { DeliveryHooks, NewDelivery } from './deliveries'
 import { readyFor } from './readiness'
 import { NOTICE_PREFIX } from '../shared/doorbell'
 import { FinishBatcher, finishedApiTitle, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
+import type { SlotNote } from './mergeSlots'
 import { commentOnDoingCards, recordCards } from './cardSessions'
 import { listMcp, toLaunchDef } from './mcp'
 import { agentGetsMcp, serverOnIn } from '../shared/agentMcp'
-import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, trackingProblem, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
+import { launchEnded, leftoversOf, noteUntracked, settleLeftovers, STOPPED_BEFORE_START, trackingProblemText, trackingReady, trackLaunch, type TrackResult } from './agentProcesses'
 import type { GateWord } from './launchGate'
 import { leftoversSummary, processCount } from '../shared/agentProcesses'
 import { childEnv, killPty, refreshPty, spawnPty, startSize, writePty } from './ptyHost'
@@ -92,6 +96,52 @@ import { attachmentsDir, freeName, ownAttachmentsFolder } from './attachmentsFol
 import { attachmentKind } from '../shared/attachments'
 
 const log = createLogger('sessions')
+
+/**
+ * Hive's own words for sessions (#847, E10c of #677): errors (HiveErrors, in the window's language through IPC and in
+ * English for the Agent API), statuses (LiveSessionState.statusText beside the English statusMessage), notices (a
+ * translated title with its English for the Agent API's stream) and toasts. Text agents read (prompts Hive types, lock
+ * replies, deliveries), the log and the developer console stay English.
+ */
+const M = {
+  noSession: msg({ id: 'session.error.noSession', defaultMessage: 'No session is running for this agent.', description: "An action on an agent's session is refused: the agent isn't running." }),
+  stoppedBeforeStart: msg({ id: 'session.error.stoppedBeforeStart', defaultMessage: 'The agent was stopped before it had started.', description: "Starting an agent failed: it was stopped (or its workspace closed) while it was starting." }),
+  stoppedBeforePrompt: msg({ id: 'session.error.stoppedBeforePrompt', defaultMessage: 'The agent stopped before the prompt was sent.', description: 'Typing a prompt into an agent failed: it stopped or restarted meanwhile.' }),
+  typingBusy: msg({ id: 'session.error.typingBusy', defaultMessage: 'Hive is already typing a prompt into this agent; it is busy.', description: 'An action on an agent is refused: Hive is typing a prompt into it now.' }),
+  inUseElsewhere: msg({ id: 'session.error.inUseElsewhere', defaultMessage: 'Another program has its transcript open. Close it, then try again.', description: "Archiving or deleting a session is refused: another program holds its transcript file open." }),
+  stopFirst: msg({ id: 'session.error.stopFirst', defaultMessage: '{action, select, archive {Stop the session before you archive it.} unarchive {Stop the session before you unarchive it.} other {Stop the session before you delete it.}}', description: 'Archiving, unarchiving or deleting a session is refused while it runs. {action} says which.' }),
+  sessionRunning: msg({ id: 'session.error.running', defaultMessage: 'The session is running.', description: "Clean Up… is refused for a session: it is running." }),
+  handOverBusy: msg({ id: 'session.handOver.busy', defaultMessage: '{agent} is busy. Hand over once it has finished.', description: "Hand Over to… is refused: the agent named is working. {agent} is the agent's name." }),
+  switchEnded: msg({ id: 'session.mode.ended', defaultMessage: 'The session ended before Hive could switch it to {mode}.', description: "Switching a running agent's permission mode failed: its session ended. {mode} is the mode's name." }),
+  needsInput: msg({ id: 'session.notice.needsInput', defaultMessage: '{agent} needs your input', description: "A notification's title: an agent waits for the user. {agent} is the agent (\"hive · B1\", or the project when it has one agent)." }),
+  finished: msg({ id: 'session.notice.finished', defaultMessage: '{agent} finished', description: "A notification's title: an agent's turn has ended. {agent} is the agent (\"hive · B1\", or the project when it has one agent)." }),
+  longConversation: msg({ id: 'session.notice.longConversation', defaultMessage: '{agent}: long conversation', description: "A notice's title: an agent's transcript has grown past the size set in Settings → Sessions. {agent} is the agent." })
+}
+
+/**
+ * Sets an agent's status message (#845): Hive's own as text (its English in `statusMessage`, which agents read and Hive
+ * compares, and `statusText`, which the window shows in its language), the CLI's words as they came, or null to clear it.
+ */
+function setStatus(st: LiveSessionState, text: TextPart | null): void {
+  st.statusMessage = text === null ? undefined : englishText(text)
+  st.statusText = text === null || typeof text === 'string' || typeof text === 'number' ? undefined : text
+}
+
+/** An agent's place at the merge slot as the window shows it (LiveSessionState.mergeSlotText); `mergeSlot` is its English (shared/mergeSlot.ts). */
+function slotNoteText(note: SlotNote): Text {
+  if ('holding' in note) return withValues(msg({ id: 'session.mergeSlot.holding', defaultMessage: 'Merging into {branch} (merge slot)', description: "An agent's status while it holds the project's merge slot. {branch} is the branch it merges into." }), { branch: note.holding })
+  const h = note.waitingFor
+  if (!h) return msg({ id: 'session.mergeSlot.waiting', defaultMessage: 'Waiting for the merge slot', description: "An agent's status while it waits for the project's merge slot." })
+  if (h.kind === 'user') return msg({ id: 'session.mergeSlot.waitingForYou', defaultMessage: 'Waiting for the merge slot (you are merging)', description: "An agent's status while it waits for the merge slot the user holds (merging from Hive's Merge dialog)." })
+  const cards = h.cards.map((n) => `#${n}`).join(', ')
+  if (h.taken)
+    return cards
+      ? withValues(msg({ id: 'session.mergeSlot.waitingMergingCards', defaultMessage: 'Waiting for the merge slot ({agent} is merging {cards})', description: "An agent's status while it waits for the merge slot another agent holds. {agent} is that agent's name, {cards} the cards it merges (\"#305, #306\")." }), { agent: h.name, cards })
+      : withValues(msg({ id: 'session.mergeSlot.waitingMerging', defaultMessage: 'Waiting for the merge slot ({agent} is merging)', description: "An agent's status while it waits for the merge slot another agent holds. {agent} is that agent's name." }), { agent: h.name })
+  return cards
+    ? withValues(msg({ id: 'session.mergeSlot.waitingNextCards', defaultMessage: 'Waiting for the merge slot ({agent} is next to merge {cards})', description: "An agent's status while it waits for the merge slot, which another agent is next to take. {agent} is that agent's name, {cards} the cards it merges (\"#305, #306\")." }), { agent: h.name, cards })
+    : withValues(msg({ id: 'session.mergeSlot.waitingNext', defaultMessage: 'Waiting for the merge slot ({agent} is next to merge)', description: "An agent's status while it waits for the merge slot, which another agent is next to take. {agent} is that agent's name." }), { agent: h.name })
+}
 
 /** A handover in the shared notes: its path there, when it changed, and the session that wrote it (from its header). */
 export interface HandoverRef {
@@ -350,6 +400,7 @@ function lockKey(abs: string): string {
 /** What Hive types to tell an agent it may make the locked edits the user allowed. */
 function goAheadPrompt(cwd: string, paths: string[]): string {
   const files = paths.map((p) => placeRelative(cwd, p) || basename(p)).join(', ')
+  // i18n-ignore: typed to the agent (agent-facing text stays English)
   return `The user allowed you to edit ${files} while the other agent works on ${paths.length > 1 ? 'them' : 'it'}. Go ahead with the ${paths.length > 1 ? 'edits' : 'edit'}.`
 }
 
@@ -429,7 +480,7 @@ async function typeInto(key: string, text: string, still: () => boolean = () => 
   const CHUNK = 8
   for (let i = 0; i < text.length; i += CHUNK) {
     // The agent stopped or restarted meanwhile: the rest mustn't reach the new process.
-    if (!still()) throw new Error('The agent stopped before the prompt was sent.')
+    if (!still()) throw hiveError(M.stoppedBeforePrompt)
     writePty(key, text.slice(i, i + CHUNK))
     if (i + CHUNK < text.length) await new Promise((r) => setTimeout(r, 10))
   }
@@ -457,12 +508,12 @@ const liveId = (projectPath: string, agentId: string): string => `${projectPath.
 const SESSION_WRITING_MS = 5000
 
 /** A session left alone by archive or delete, and why (SessionBulkResult's reasons). */
-export class SessionInUse extends Error {
+export class SessionInUse extends HiveError {
   constructor(
     readonly reason: SessionSkipReason,
-    message: string
+    text: Text
   ) {
-    super(message)
+    super(text)
   }
 }
 
@@ -472,7 +523,7 @@ async function inUseOnFail(fn: () => Promise<void>): Promise<void> {
   try {
     await fn()
   } catch (e) {
-    if (isInUse(e)) throw new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
+    if (isInUse(e)) throw new SessionInUse('in-use', M.inUseElsewhere)
     throw e
   }
 }
@@ -532,7 +583,7 @@ export async function deliveredSkillSizes(adapter: ProviderAdapter, ctx: LaunchC
       const head = await headerOf(join(copy, 'SKILL.md'), parseSkillFrontmatter)
       const size = await treeSignature(copy)
       // No header, or one that couldn't be read as a skill's (invalid YAML, a key twice, an unknown audience): unknown.
-      if (!head || head.problem) throw new Error('no readable SKILL.md header')
+      if (!head || head.problem) throw new Error('no readable SKILL.md header') // i18n-ignore: caught just below (counted as unmeasured), never shown
       catalog += utf8Bytes(head.name ?? name) + utf8Bytes(head.description ?? '')
       bytes += size.bytes
     } catch {
@@ -553,10 +604,11 @@ const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
 const SIGN_IN_RECHECK_MS = 60_000
 /** The status message of an agent stopped by a refused sign-in once its CLI is signed in again (#309). */
-const SIGNED_IN_AGAIN = 'Stopped while signed out'
+const SIGNED_IN_AGAIN = msg({ id: 'session.status.signedInAgain', defaultMessage: 'Stopped while signed out', description: "An agent's status once its CLI is signed in again: its turn stopped while the CLI's sign-in had expired, and Resume carries it on." })
 /** What Resume (n) types into such an agent. */
 /** Hive's own deliveries come from it (#649). */
-const HIVE_SENDER = { kind: 'hive', name: 'Hive' } as const
+const HIVE_SENDER = { kind: 'hive', name: 'Hive' } as const // i18n-ignore: the sender's name in deliveries, which agents read
+// i18n-ignore: typed to the agent (agent-facing text stays English)
 const CARRY_ON_PROMPT = 'Your last turn stopped because your sign-in had expired. It is renewed now: carry on where you left off.'
 
 class SessionManager {
@@ -589,7 +641,7 @@ class SessionManager {
     cancel: (host: string, source: string, ref: string | null, why: string) => Promise<number>
   } | null = null
   private delivery(): NonNullable<SessionManager['deliveries']> {
-    if (!this.deliveries) throw new Error("Hive's delivery service isn't running.")
+    if (!this.deliveries) throw hiveError(msg({ id: 'session.error.noDeliveries', defaultMessage: "Hive's delivery service isn't running.", description: "Giving an agent a message failed: the part of Hive that delivers them hasn't started (or has stopped)." }))
     return this.deliveries
   }
   hookUrl = ''
@@ -700,7 +752,14 @@ class SessionManager {
     if (!st) return
     const label = this.label(st)
     const which = cards.map((n) => `#${n}`).join(', ')
-    this.notify(projectPath, `${label} isn't watching ${which}`, `Its turn ended without a card watch, so nothing wakes it when ${cards.length === 1 ? 'the card changes' : 'they change'}. Show it and ask it to carry on.`, 'waiting', st.agentName, agentId)
+    this.notify(
+      projectPath,
+      withValues(msg({ id: 'session.notice.notWatching', defaultMessage: "{agent} isn't watching {cards}", description: "A notification's title: an agent working through cards in a loop ended its turn without watching them. {agent} is the agent; {cards} the cards (\"#12, #13\")." }), { agent: label, cards: which }),
+      withValues(msg({ id: 'session.notice.notWatchingBody', defaultMessage: '{n, plural, one {Its turn ended without a card watch, so nothing wakes it when the card changes. Show it and ask it to carry on.} other {Its turn ended without a card watch, so nothing wakes it when they change. Show it and ask it to carry on.}}', description: "The notification that an agent in a card loop isn't watching its cards. {n} is how many cards." }), { n: cards.length }),
+      'waiting',
+      st.agentName,
+      agentId
+    )
   }
 
   /** A watch began or ended: the agent's status follows (watching, or finished again). */
@@ -712,11 +771,16 @@ class SessionManager {
   /** Called when an agent's launch ends (its exit, or a start given up): the merge slot releases its hold (#350). */
   readonly onLaunchEnded = new Set<(projectPath: string, agentId: string, runId: string) => void>()
 
-  /** The agent's place at the merge slot, shown with its status (only for this launch: a newer one has its own). */
-  setMergeSlotNote(projectPath: string, agentId: string, runId: string, text: string | null): void {
+  /**
+   * The agent's place at the merge slot, shown with its status (only for this launch: a newer one has its own): holding it
+   * to merge into a branch, or waiting behind its holder. `mergeSlot` is its English (agents read it), `mergeSlotText` the
+   * window's (#845).
+   */
+  setMergeSlotNote(projectPath: string, agentId: string, runId: string, text: string | null, about?: SlotNote): void {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l || l.state.runId !== runId || (l.state.mergeSlot ?? null) === text) return
     l.state.mergeSlot = text ?? undefined
+    l.state.mergeSlotText = text !== null && about ? slotNoteText(about) : undefined
     this.emitState(l.state)
   }
 
@@ -766,7 +830,8 @@ class SessionManager {
   async soleAgent(projectPath: string): Promise<string> {
     const agents = projectAgents(await workspace.projectConfig(projectPath))
     if (agents.length === 1) return agents[0].id
-    throw new Error(agents.length ? 'This project has several agents: choose which one.' : 'This project has no agents yet. Add one first.')
+    if (agents.length) throw hiveError(msg({ id: 'session.error.severalAgents', defaultMessage: 'This project has several agents: choose which one.', description: "An action that names no agent is refused: the project has more than one." }), undefined, { kind: 'invalid' })
+    throw hiveError(msg({ id: 'session.error.noAgents', defaultMessage: 'This project has no agents yet. Add one first.', description: 'An action on an agent is refused: the project has none.' }), undefined, { kind: 'conflict' })
   }
 
   liveCount(provider?: ProviderId): number {
@@ -792,7 +857,7 @@ class SessionManager {
     const cfg = await workspace.projectConfig(projectPath)
     const agents = projectAgents(cfg)
     const agent = agents.find((a) => a.id === agentId)
-    if (!agent) throw new Error('That agent no longer exists.')
+    if (!agent) throw hiveError(msg({ id: 'session.error.agentGone', defaultMessage: 'That agent no longer exists.', description: 'An action on an agent is refused: it was removed meanwhile.' }), undefined, { kind: 'notFound' })
     return { agent, cfg, count: agents.length }
   }
 
@@ -974,10 +1039,10 @@ class SessionManager {
     const id = liveId(projectPath, agentId)
     // Checked and reserved before anything is awaited: a double click, or the UI and the Agent API at
     // once, must not start the agent twice (the second start would orphan the first process).
-    if (this.live.has(id) || this.starting.has(id)) throw new Error('This agent is already running or starting. Stop it first.')
+    if (this.live.has(id) || this.starting.has(id)) throw hiveError(msg({ id: 'session.start.alreadyRunning', defaultMessage: 'This agent is already running or starting. Stop it first.', description: 'Starting an agent is refused: it runs, or is starting, already.' }), undefined, { kind: 'conflict' })
     // Two terminals on one conversation would both append to its transcript.
-    if (opts.resumeId && [...this.starting.values()].some((p) => p.resumeId === opts.resumeId)) throw new Error('This conversation is already being opened in another agent.')
-    if (opts.resumeId && this.cleaning.has(`${projectPath.toLowerCase()}|${opts.resumeId.toLowerCase()}`)) throw new Error("Hive is archiving, deleting or cleaning up this session's files. Try again in a moment.")
+    if (opts.resumeId && [...this.starting.values()].some((p) => p.resumeId === opts.resumeId)) throw hiveError(msg({ id: 'session.start.beingOpened', defaultMessage: 'This conversation is already being opened in another agent.', description: 'Resuming a conversation is refused: another agent is starting on it now.' }), undefined, { kind: 'conflict' })
+    if (opts.resumeId && this.cleaning.has(`${projectPath.toLowerCase()}|${opts.resumeId.toLowerCase()}`)) throw hiveError(msg({ id: 'session.start.cleaning', defaultMessage: "Hive is archiving, deleting or cleaning up this session's files. Try again in a moment.", description: "Resuming a conversation is refused for a moment: Hive is moving or removing its files." }))
     const pending: PendingStart = { projectPath, resumeId: opts.resumeId, cancelled: false, done: Promise.resolve() }
     this.starting.set(id, pending)
     const run = this.startReserved(projectPath, agentId, id, opts)
@@ -994,20 +1059,20 @@ class SessionManager {
    * project (it is being removed, or a template is replacing its agents), or while its workspace's move is being repaired.
    */
   private assertStartsAllowed(projectPath: string): void {
-    if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error("Hive is stopping this workspace's agents, so none can start now.")
-    if (workspaceFor(projectPath)?.repairingMove) throw new Error('Hive is repairing this moved workspace: start the agent when Repair has finished.')
+    if (this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(msg({ id: 'session.start.closing', defaultMessage: "Hive is stopping this workspace's agents, so none can start now.", description: 'Starting an agent is refused: Hive is quitting, or its workspace is closing.' }))
+    if (workspaceFor(projectPath)?.repairingMove) throw hiveError(msg({ id: 'session.start.repairing', defaultMessage: 'Hive is repairing this moved workspace: start the agent when Repair has finished.', description: "Starting an agent is refused while Repair… fixes a moved workspace's paths." }))
     const why = this.fenced.get(resolve(projectPath).toLowerCase())?.at(-1)
-    if (why) throw new Error(`${why}, so its agents can't start now.`)
+    if (why) throw hiveError(msg({ id: 'session.start.fenced', defaultMessage: "{why}, so its agents can't start now.", description: "Starting an agent is refused while something changes its project. {why} says what, as a sentence without its full stop (\"This project is being removed\")." }), { why })
   }
 
   /** Projects (lower-cased paths) whose agents may not start, and why (one entry for each fence on it). */
-  private fenced = new Map<string, string[]>()
+  private fenced = new Map<string, TextPart[]>()
 
   /**
    * Keeps the project's agents from starting until the function returned is called: nothing may run in it while it is
    * being removed, or while a template replaces its agents (#126). Fences can overlap; each lifts its own.
    */
-  fenceStarts(projectPath: string, why = 'This project is being removed'): () => void {
+  fenceStarts(projectPath: string, why: TextPart = msg({ id: 'session.start.removing', defaultMessage: 'This project is being removed', description: "Why an agent can't start (followed by \", so its agents can't start now.\")." })): () => void {
     const key = resolve(projectPath).toLowerCase()
     this.fenced.set(key, [...(this.fenced.get(key) ?? []), why])
     let lifted = false
@@ -1033,15 +1098,18 @@ class SessionManager {
 
   /** Throws if the start was cancelled while it awaited something (the agent stopped, its workspace closed). */
   private assertStarting(id: string): void {
-    if (this.starting.get(id)?.cancelled) throw new Error('The agent was stopped before it had started.')
+    if (this.starting.get(id)?.cancelled) throw hiveError(M.stoppedBeforeStart)
   }
 
   private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void }): Promise<LiveSessionState> {
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
     this.assertStarting(id)
-    if (this.live.has(id)) throw new Error(count > 1 ? `${agent.name} is already running. Stop it first.` : 'A session is already running for this project. Stop it first.')
+    if (this.live.has(id))
+      throw count > 1
+        ? hiveError(msg({ id: 'session.start.agentRunning', defaultMessage: '{agent} is already running. Stop it first.', description: "Starting an agent is refused: it runs already. {agent} is the agent's name." }), { agent: agent.name }, { kind: 'conflict' })
+        : hiveError(msg({ id: 'session.start.projectRunning', defaultMessage: 'A session is already running for this project. Stop it first.', description: "Starting a project's only agent is refused: it runs already." }), undefined, { kind: 'conflict' })
     const holder = opts.resumeId ? this.projectStates(projectPath).find((s) => s.sessionId === opts.resumeId) : undefined
-    if (holder) throw new Error(`This conversation is already open in ${holder.agentName ?? 'another agent'}. An agent can only resume a session no other agent is running.`)
+    if (holder) throw hiveError(msg({ id: 'session.start.openIn', defaultMessage: 'This conversation is already open in {agent}. An agent can only resume a session no other agent is running.', description: "Resuming a conversation is refused: another agent is running it. {agent} is that agent's name." }), { agent: holder.agentName ?? msg({ id: 'session.start.anotherAgent', defaultMessage: 'another agent', description: "Stands for an agent whose name isn't known, in the middle of a sentence (\"This conversation is already open in another agent.\")." }) }, { kind: 'conflict' })
     const assistant = workspace.isAssistantHome(projectPath)
     const existing = opts.resumeId ? (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === opts.resumeId) : undefined
     this.assertStarting(id)
@@ -1060,23 +1128,23 @@ class SessionManager {
     this.assertStarting(id)
     const adapter = providerAdapter(providerId)
     const name = adapter.descriptor.name
-    const runs = opts.resumeId ? 'to resume this conversation' : `to run ${agent.name}`
-    if (!isProviderEnabled(config.settings, providerId)) throw new Error(`${name} is turned off. Turn it on in Settings → Providers ${runs}.`)
+    const resuming = opts.resumeId ? 'yes' : 'no'
+    if (!isProviderEnabled(config.settings, providerId)) throw hiveError(msg({ id: 'session.start.providerOff', defaultMessage: '{provider} is turned off. {resuming, select, yes {Turn it on in Settings → Providers to resume this conversation.} other {Turn it on in Settings → Providers to run {agent}.}}', description: "Starting an agent is refused: its coding agent is turned off in Settings → Providers. {provider} is the coding agent's name (Claude Code), {agent} the agent's; {resuming} says whether it resumes a conversation." }), { provider: name, resuming, agent: agent.name }, { kind: 'conflict' })
     const info = providerService.info(providerId)
-    if (!info.found || !info.path) throw new Error(`${name} is required ${runs}. Install it from Help → Agent Setup.`)
+    if (!info.found || !info.path) throw hiveError(msg({ id: 'session.start.providerMissing', defaultMessage: '{resuming, select, yes {{provider} is required to resume this conversation. Install it from Help → Agent Setup.} other {{provider} is required to run {agent}. Install it from Help → Agent Setup.}}', description: "Starting an agent is refused: its coding agent's CLI isn't installed. {provider} is the coding agent's name (Claude Code), {agent} the agent's; {resuming} says whether it resumes a conversation. Help → Agent Setup is a menu command." }), { provider: name, resuming, agent: agent.name })
     await workspace.ensureProject(projectPath)
     // The Assistant works in the workspace folder, where it can read every project.
     const cwd = assistant ? workspaceOf(projectPath).path! : (agent.worktree?.path ?? projectPath)
-    if (!existsSync(cwd)) throw new Error(`${agent.name}'s worktree folder is missing: ${cwd}. Start ${agent.name} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.`)
+    if (!existsSync(cwd)) throw hiveError(msg({ id: 'session.start.worktreeMissing', defaultMessage: "{agent}'s worktree folder is missing: {folder}. Start {agent} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.", description: "Starting an agent is refused: its git worktree's folder is gone. {agent} is the agent's name, {folder} the folder's path. Repair… is a command." }), { agent: agent.name, folder: cwd })
 
-    if (existing?.archived) throw new Error('This session is archived. Unarchive it before resuming.')
+    if (existing?.archived) throw hiveError(msg({ id: 'session.start.archived', defaultMessage: 'This session is archived. Unarchive it before resuming.', description: 'Resuming an archived session is refused (Sessions tab: Unarchive).' }), undefined, { kind: 'conflict' })
     // A sub-session (a Codex guardian review, say) is not a conversation: never resumed (#239).
     const sub = opts.resumeId ? (existing ? await this.recordSub(projectPath, existing) : (await adapter.listSessions(cwd).catch(() => [])).find((e) => e.id === opts.resumeId)?.sub) : undefined
-    if (sub) throw new Error(`That session is a ${sub.kind} ${name} ran for another session, not a conversation: it can't be resumed.`)
+    if (sub) throw hiveError(msg({ id: 'session.start.subSession', defaultMessage: "That session is a {kind} {provider} ran for another session, not a conversation: it can't be resumed.", description: "Resuming a session is refused: the coding agent ran it for another session (a guardian review). {kind} is the coding agent's name for it, as it came; {provider} the coding agent's name (Codex)." }), { kind: sub.kind, provider: name }, { kind: 'conflict' })
     this.assertStarting(id)
     // By real paths (#455): the worktree's stored path may have changed form (an 8.3 short name, a junction) since.
     if (opts.resumeId && existing && !samePlace(existing.cwd ?? projectPath, cwd)) {
-      throw new Error(`This session ran in ${existing.cwd ?? projectPath}. Resume it with the agent that works in that folder.`)
+      throw hiveError(msg({ id: 'session.start.otherFolder', defaultMessage: 'This session ran in {folder}. Resume it with the agent that works in that folder.', description: "Resuming a session is refused: it ran in another folder (another agent's worktree). {folder} is that folder's path." }), { folder: existing.cwd ?? projectPath }, { kind: 'conflict' })
     }
     // Providers that choose their own session id report it once started (see the start hook).
     const sessionId = opts.resumeId ?? (adapter.descriptor.capabilities.fixedSessionId ? randomUUID() : '')
@@ -1120,12 +1188,12 @@ class SessionManager {
     if (agent.worktree && agent.needsSetup && setup && !opts.skipSetup) {
       // The worktree's setup command runs in the agent's terminal first, then the agent starts there.
       state.settingUp = true
-      state.statusMessage = `Setting up the worktree: ${setup}`
+      setStatus(state, withValues(msg({ id: 'session.status.settingUp', defaultMessage: 'Setting up the worktree: {command}', description: "An agent's status while the project's worktree setup command runs in its terminal. {command} is that command, as written." }), { command: setup }))
       const sh = shellCommand(setup)
       try {
         const tracked = await this.trackingReady()
         // The same last check as before an agent's own launch.
-        if (this.starting.get(id)?.cancelled || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
+        if (this.starting.get(id)?.cancelled || this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(M.stoppedBeforeStart)
         opts.allowed?.()
         spawnPty(key, {
           file: sh.file,
@@ -1185,20 +1253,27 @@ class SessionManager {
       void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
       emit({ type: 'session-status', state: { ...l.state, status: 'stopped', settingUp: false, runtime: { ...l.state.runtime!, lifecycle: 'stopped' } } })
-      if (agent && !l.stopRequested) toast('error', `${basename(projectPath)} · ${agent.name}: setup failed`, `The setup command exited with code ${code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.`, undefined, projectPath)
+      if (agent && !l.stopRequested)
+        toast(
+          'error',
+          tr(msg({ id: 'session.setup.failedTitle', defaultMessage: '{project} · {agent}: setup failed', description: "A notice's title: the worktree setup command failed for an agent. {project} is the project, {agent} the agent." }), { project: basename(projectPath), agent: agent.name }),
+          tr(msg({ id: 'session.setup.failed', defaultMessage: "The setup command exited with code {code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.", description: "The notice that a worktree setup command failed. {code} is its exit code." }), { code: String(code) }),
+          undefined,
+          projectPath
+        )
       workspaceOf(projectPath).scheduleRefresh()
       return
     }
     await workspace.updateAgent(projectPath, agentId, { needsSetup: false }).catch(() => undefined)
     l.state.settingUp = false
-    l.state.statusMessage = undefined
+    setStatus(l.state, null)
     try {
       await this.launch(projectPath, { ...agent, needsSetup: false }, launch)
     } catch (e) {
       void this.afterLaunch(l.state.runId, this.label(l.state))
       this.forget(id)
       emit({ type: 'session-status', state: { ...l.state, status: 'stopped', runtime: { ...l.state.runtime!, lifecycle: 'stopped' } } })
-      toast('error', `Could not start ${agent.name}`, (e as Error).message, undefined, projectPath)
+      toast('error', tr(msg({ id: 'session.start.couldNot', defaultMessage: 'Could not start {agent}', description: "A notice's title: an agent failed to start after its worktree setup. {agent} is the agent's name; the error follows." }), { agent: agent.name }), shownError(e), undefined, projectPath)
     }
   }
 
@@ -1212,7 +1287,7 @@ class SessionManager {
     const metrics = metricsHandle(workspaceOf(projectPath))
     const { sessionId } = opts
     const info = providerService.info(adapter.id)
-    if (!info.path) throw new Error(`${adapter.descriptor.name} is required to run sessions.`)
+    if (!info.path) throw hiveError(msg({ id: 'session.start.cliRequired', defaultMessage: '{provider} is required to run sessions.', description: "Starting an agent failed: its coding agent's CLI wasn't found. {provider} is the coding agent's name." }), { provider: adapter.descriptor.name }, { kind: 'conflict' })
 
     let resume = opts.resume
     if (resume) {
@@ -1238,8 +1313,11 @@ class SessionManager {
 
     const eff = await this.effective(projectPath, pinProvider(agent, state.provider))
     // Extra arguments saved before Settings refused a bare "--" (#523) stop the launch before anything changes.
-    const argsProblem = extraArgsProblem(eff.extraArgs)
-    if (argsProblem) throw new Error(`${argsProblem} Fix it in ${workspace.isAssistantHome(projectPath) ? 'Settings → Assistant' : `Project Settings or Settings → ${adapter.descriptor.name}`}.`)
+    const argsProblem = capturedText((t) => extraArgsProblem(eff.extraArgs, t))
+    if (argsProblem)
+      throw workspace.isAssistantHome(projectPath)
+        ? hiveError(msg({ id: 'session.start.argsAssistant', defaultMessage: '{problem} Fix it in Settings → Assistant.', description: "Starting the Assistant is refused: its extra arguments are wrong. {problem} says why, as a sentence." }), { problem: argsProblem })
+        : hiveError(msg({ id: 'session.start.args', defaultMessage: '{problem} Fix it in Project Settings or Settings → {provider}.', description: "Starting an agent is refused: its extra arguments are wrong. {problem} says why, as a sentence; {provider} is the coding agent's name (its Settings section)." }), { problem: argsProblem, provider: adapter.descriptor.name })
     l.configuredMode = eff.permissionMode
     let mode = eff.permissionMode
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
@@ -1299,8 +1377,8 @@ class SessionManager {
     const tracked = await this.trackingReady()
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
-    if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw new Error('The agent was stopped before it had started.')
-    if (!isProviderEnabled(config.settings, adapter.id)) throw new Error(`${adapter.descriptor.name} was turned off while ${agent.name} was starting.`)
+    if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(M.stoppedBeforeStart)
+    if (!isProviderEnabled(config.settings, adapter.id)) throw hiveError(msg({ id: 'session.start.turnedOff', defaultMessage: '{provider} was turned off while {agent} was starting.', description: "Starting an agent failed: its coding agent was turned off in Settings meanwhile. {provider} is the coding agent's name, {agent} the agent's." }), { provider: adapter.descriptor.name, agent: agent.name })
     l.startAllowed?.()
     const cmd = adapter.buildCommand(info.path, ctx)
     // What the user should know about this launch: once per agent, folder and notice while Hive runs.
@@ -1322,6 +1400,7 @@ class SessionManager {
     l.ledger = newLedger()
     // What it was given: Hive's guidance revision and each skill as delivered (the Agent API's project status shows
     // them). A skill not delivered as asked (kept old copy, failed copy) leaves it needing a restart.
+    // i18n-ignore: what the Agent API's project status says of a skill (agent-facing text stays English)
     const notGiven = Object.fromEntries(Object.entries(eff.skillProblems).map(([name, why]) => [name, { revision: null, problem: `nobody gets it: ${why}`, lasting: true as const }]))
     const record = launchRecord(eff.skillHashes, { ...delivered, ...notGiven })
     state.launchSignature = this.signature({ ...eff, skillHashes: record.settled })
@@ -1545,12 +1624,14 @@ class SessionManager {
     const id = liveId(projectPath, agentId)
     const key = this.key(projectPath, agentId)
     const check = (l: LiveSession | undefined): LiveSession => {
-      if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
-      if (l.compacting) throw new Error('This session is already compacting.')
-      if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
+      if (!l || l.state.settingUp) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
+      if (l.compacting) throw hiveError(msg({ id: 'session.compact.already', defaultMessage: 'This session is already compacting.', description: 'Compact is refused: the conversation is being compacted already.' }))
+      if (this.delivering.has(key)) throw hiveError(M.typingBusy, undefined, { kind: 'conflict' })
       // Watching its cards (its turn has ended) may compact: the watch stays.
       if (l.state.status !== 'ready' && l.state.status !== 'finished' && l.state.status !== 'watching') {
-        throw new Error(l.state.status === 'waiting' ? 'The agent is waiting for your answer. Compact after it has finished.' : 'The agent is busy. Compact once it has finished.')
+        throw l.state.status === 'waiting'
+          ? hiveError(msg({ id: 'session.compact.waiting', defaultMessage: 'The agent is waiting for your answer. Compact after it has finished.', description: 'Compact is refused: the agent waits for the user.' }))
+          : hiveError(msg({ id: 'session.compact.busy', defaultMessage: 'The agent is busy. Compact once it has finished.', description: 'Compact is refused: the agent is working.' }), undefined, { kind: 'conflict' })
       }
       return l
     }
@@ -1558,7 +1639,7 @@ class SessionManager {
     const src = await this.liveTranscript(l)
     const before = src ? ((await this.usageFor(src, l.state.sessionId, l.state.provider))?.compactions.length ?? 0) : 0
     // Again: a second Compact or a prompt may have come meanwhile (one at a time, only while idle).
-    if (this.live.get(id) !== l) throw new Error('No session is running for this agent.')
+    if (this.live.get(id) !== l) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
     check(l)
     // Reserved while Hive types the command (a long focus takes a while), so nothing else is typed or compacted
     // meanwhile; Compaction's limits run from its submission.
@@ -1574,7 +1655,7 @@ class SessionManager {
     l.compacting = c
     this.fact(l.state, { maintenance: 'compacting' })
     l.state.status = 'working'
-    l.state.statusMessage = COMPACTING_MESSAGE
+    setStatus(l.state, COMPACTING_TEXT)
     this.delivering.add(key)
     this.fact(l.state, { composer: 'held' })
     this.emitState(l.state)
@@ -1583,7 +1664,7 @@ class SessionManager {
     const same = (): boolean => this.live.get(id) === l && l.state.runId === runId && l.compacting === c
     const pause = async (ms: number): Promise<void> => {
       await new Promise((r) => setTimeout(r, ms))
-      if (!same()) throw new Error('The agent stopped before Compact was sent.')
+      if (!same()) throw hiveError(msg({ id: 'session.compact.stopped', defaultMessage: 'The agent stopped before Compact was sent.', description: 'Compact failed: the agent stopped or restarted while Hive typed the command.' }))
     }
     try {
       writePty(key, '\x15')
@@ -1620,6 +1701,7 @@ class SessionManager {
     const asks = l.titleAttention(title)
     if (asks === !!l.titleRead) return
     l.titleRead = asks
+    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'title', provider: l.state.provider, raw: { title }, made: { asksYou: asks }, summary: `terminal title: ${asks ? 'asks you' : 'asks nobody'}` }))
     // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
     // first records the session) holds back a prompt and an ask that came before the title (#254).
@@ -1642,6 +1724,7 @@ class SessionManager {
     const seen = startupScreen(s, l.modeTail.replace(/\s+/g, ' '), l.adapter)
     if (seen && seen !== 'ready') {
       const asked = seen.asked
+      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked }, made: { status: 'waiting', trust: asked.includes('trust') }, safe: { made: { status: true } }, summary: 'terminal: asks something before it starts; waiting' }))
       if (l.state.status !== 'starting') log.info(`${userText(this.label(l.state))}: asks something before it starts, after its prompt showed (it was ready): waiting`)
       l.askedAtStart = true
@@ -1649,10 +1732,14 @@ class SessionManager {
       this.fact(l.state, { attention: 'waiting' })
       l.state.status = 'waiting'
       l.state.unseen = true
-      l.state.statusMessage = asked.includes('trust') ? 'Asks whether to trust this folder' : 'Asks something before it starts'
-      this.notify(l.state.projectPath, `${this.label(l.state)} needs your input`, l.state.statusMessage, 'waiting', undefined, l.state.agentId)
+      const asks = asked.includes('trust')
+        ? msg({ id: 'session.status.asksTrust', defaultMessage: 'Asks whether to trust this folder', description: "An agent's status: its CLI asks, before it starts, whether to trust the project's folder." })
+        : msg({ id: 'session.status.asksAtStart', defaultMessage: 'Asks something before it starts', description: "An agent's status: its CLI asks the user something before it starts." })
+      setStatus(l.state, asks)
+      this.notify(l.state.projectPath, withValues(M.needsInput, { agent: this.label(l.state) }), asks, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (seen === 'ready') {
+      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: l.modeTail.replace(/\s+/g, ' ').slice(-200) }, made: { status: 'ready' }, safe: { made: { status: true } }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       this.fact(l.state, { lifecycle: 'running' })
@@ -1667,6 +1754,7 @@ class SessionManager {
    */
   private recognisePrompt(l: LiveSession, data: string): void {
     if (!l.recognition.output(data)) return
+    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'prompt shown', provider: l.state.provider, made: { recognised: 'prompt' }, safe: { made: { recognised: true } }, summary: 'terminal: its prompt recognised' }))
   }
 
@@ -1675,7 +1763,7 @@ class SessionManager {
     if (!l.askedAtStart) return
     l.askedAtStart = false
     l.startupDone = true
-    l.state.statusMessage = undefined
+    setStatus(l.state, null)
     this.fact(l.state, { attention: null })
   }
 
@@ -1718,9 +1806,11 @@ class SessionManager {
     const text = screen.text()
     // The first footer recognised this launch, whatever the mode was before (#638's contract marker).
     const first = l.recognition.footerOf(text, l.launchMode)
+    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     if (first) devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer seen', provider: l.state.provider, raw: { footer: first }, made: { recognised: 'footer', permissionMode: first }, safe: { raw: { footer: true }, made: { recognised: true, permissionMode: true } }, summary: `terminal footer recognised: mode ${first}` }))
     const mode = l.adapter.footerMode(text, l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
+      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
@@ -1736,22 +1826,22 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
-    if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
+    if (!l || l.state.settingUp) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
     const st = l.state
     const p = st.provider
     const name = l.adapter.descriptor.name
     if (st.permissionMode === mode) return { ok: true }
-    if (!modeAllowed(p, mode, config.settings)) throw new Error(`${permissionLabel(p, mode)} is turned off in Settings → ${name}.`)
+    if (!modeAllowed(p, mode, config.settings)) throw hiveError(msg({ id: 'session.mode.off', defaultMessage: '{mode} is turned off in Settings → {provider}.', description: "Switching an agent's permission mode is refused: that mode is turned off. {mode} is the mode's name; {provider} the coding agent's (its Settings section)." }), { mode: permissionLabel(p, mode, tr), provider: name }, { kind: 'conflict' })
     const how = l.adapter.descriptor.capabilities.liveModeSwitch
     if (how === 'none' || !l.adapter.canSwitchLive(mode, st.permissionMode, l.launchMode)) {
-      return { ok: false, restart: true, message: `${permissionLabel(p, mode)} can't be switched to inside a running session. Restart the session in that mode; the conversation continues.` }
+      return { ok: false, restart: true, message: tr(msg({ id: 'session.mode.restart', defaultMessage: "{mode} can't be switched to inside a running session. Restart the session in that mode; the conversation continues.", description: "Switching an agent's permission mode needs a restart. {mode} is the mode's name." }), { mode: permissionLabel(p, mode, tr) }) }
     }
-    if (st.status === 'waiting') throw new Error('The agent is asking you something. Answer it first, then switch the mode.')
-    if (st.status === 'starting') throw new Error('The session is still starting. Try again in a moment.')
+    if (st.status === 'waiting') throw hiveError(msg({ id: 'session.mode.asking', defaultMessage: 'The agent is asking you something. Answer it first, then switch the mode.', description: "Switching an agent's permission mode is refused: it waits for the user's answer." }))
+    if (st.status === 'starting') throw hiveError(msg({ id: 'session.mode.starting', defaultMessage: 'The session is still starting. Try again in a moment.', description: "Switching an agent's permission mode is refused for a moment: it is starting." }))
     const key = this.key(projectPath, agentId)
     // The composer is reserved while the keys go in (#649), as for a line Hive types: none is typed into the menu, nor
     // the keys into a line.
-    if (this.delivering.has(key)) throw new Error('Hive is typing a line into this agent. Switch the mode in a moment.')
+    if (this.delivering.has(key)) throw hiveError(msg({ id: 'session.mode.typing', defaultMessage: 'Hive is typing a line into this agent. Switch the mode in a moment.', description: "Switching an agent's permission mode is refused for a moment: Hive is typing into its terminal." }))
     this.delivering.add(key)
     try {
       return await this.switchModeKeys(l, mode, how)
@@ -1769,7 +1859,7 @@ class SessionManager {
     const key = this.key(st.projectPath, st.agentId)
     if (how === 'menu' && l.adapter.modeMenuKeys) {
       // The CLI's own menu (Codex: /permissions). Only while idle: typed into a working agent it would queue.
-      if (st.status === 'working') throw new Error(`${name} is working. Switch the mode once it has finished.`)
+      if (st.status === 'working') throw hiveError(msg({ id: 'session.mode.working', defaultMessage: '{provider} is working. Switch the mode once it has finished.', description: "Switching an agent's permission mode is refused while it works. {provider} is the coding agent's name." }), { provider: name })
       const before = st.permissionMode
       st.modeSwitching = mode
       l.switchTail = ''
@@ -1785,6 +1875,12 @@ class SessionManager {
         if (same()) this.emitState(st)
         return { ok: false, message }
       }
+      // Why the keys stopped, as the window says it (KeysStopped carries the English, for the log).
+      let stoppedWhy: Text | null = null
+      const stop = (text: Text): string => {
+        stoppedWhy = text
+        return englishText(text)
+      }
       try {
         await typeKeySteps(l.adapter.modeMenuKeys(mode), {
           write: (keys) => writePty(key, keys),
@@ -1793,10 +1889,10 @@ class SessionManager {
           // busy (its status, or its screen holding what was typed); busy, it waits, at most 30 seconds.
           ready: async () => {
             for (const t0 = Date.now(); ; await new Promise((r) => setTimeout(r, 200))) {
-              if (!same()) return 'its session ended'
-              if (asking()) return `${name} is asking you something`
+              if (!same()) return stop(msg({ id: 'session.mode.why.ended', defaultMessage: 'its session ended', description: "Why Hive stopped switching an agent's permission mode (a clause: \"Hive didn't switch to Auto, as its session ended.\")." }))
+              if (asking()) return stop(withValues(msg({ id: 'session.mode.why.asking', defaultMessage: '{provider} is asking you something', description: "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name." }), { provider: name }))
               if (st.status !== 'working' && !l.adapter.busyScreen?.(l.screen?.text() ?? '')) return true
-              if (Date.now() - t0 >= 30_000) return `${name} stayed busy for 30 seconds`
+              if (Date.now() - t0 >= 30_000) return stop(withValues(msg({ id: 'session.mode.why.busy', defaultMessage: '{provider} stayed busy for 30 seconds', description: "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name." }), { provider: name }))
             }
           }
         })
@@ -1804,19 +1900,19 @@ class SessionManager {
         if (e instanceof KeysStopped) {
           // Nothing more typed, nothing chosen: what went in already may still be in its input.
           log.warn(`${userText(this.label(st))}: ${name}: stopped switching to ${mode}: ${e.why}`)
-          return notSwitched(`Hive didn't switch to ${permissionLabel(p, mode)}, as ${e.why}. Check its terminal, or switch there.`)
+          return notSwitched(tr(msg({ id: 'session.mode.stopped', defaultMessage: "Hive didn't switch to {mode}, as {why}. Check its terminal, or switch there.", description: "Switching an agent's permission mode stopped part-way. {mode} is the mode's name; {why} says why, as a clause." }), { mode: permissionLabel(p, mode, tr), why: stoppedWhy ? shownText(stoppedWhy) : e.why }))
         }
         if (!(e instanceof PickNotFound)) throw e
         // The menu doesn't show the mode (another CLI version): closed again, nothing chosen, nothing assumed. Escape
         // goes only into this session, and not over a question it asks meanwhile.
         if (same() && !asking()) writePty(key, '\x1b')
         log.warn(`${userText(this.label(st))}: ${name}: couldn't find ${e.what}`)
-        return notSwitched(`Hive couldn't find ${e.what}, so it didn't switch to ${permissionLabel(p, mode)}. Check its terminal, or switch there.`)
+        return notSwitched(tr(msg({ id: 'session.mode.notFound', defaultMessage: "Hive couldn't find {what}, so it didn't switch to {mode}. Check its terminal, or switch there.", description: "Switching an agent's permission mode failed: the CLI's menu didn't show what Hive looked for. {what} names it, in the CLI's words; {mode} is the mode's name." }), { what: e.what, mode: permissionLabel(p, mode, tr) }))
       }
-      if (!same()) return notSwitched(`The session ended before Hive could switch it to ${permissionLabel(p, mode)}.`)
+      if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)
-      if (!same()) return notSwitched(`The session ended before Hive could switch it to ${permissionLabel(p, mode)}.`)
+      if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
       if (!src || !l.adapter.transcriptDetails) {
         // Nothing to read yet (no message sent): shown as asked; the first turn's settings correct it.
         st.modeSwitching = undefined
@@ -1839,7 +1935,7 @@ class SessionManager {
       }
       if (!same()) {
         st.permissionMode = before
-        return notSwitched(`The session ended before ${name} confirmed switching to ${permissionLabel(p, mode)}.`)
+        return notSwitched(tr(msg({ id: 'session.mode.endedUnconfirmed', defaultMessage: 'The session ended before {provider} confirmed switching to {mode}.', description: "Switching an agent's permission mode failed: its session ended first. {provider} is the coding agent's name, {mode} the mode's." }), { provider: name, mode: permissionLabel(p, mode, tr) }))
       }
       l.switchTail = undefined
       st.modeSwitching = undefined
@@ -1847,7 +1943,7 @@ class SessionManager {
         st.permissionMode = before
         this.emitState(st)
         log.warn(`${userText(this.label(st))}: ${name} didn't confirm switching to ${mode}`)
-        return { ok: false, message: `${name} didn't confirm switching to ${permissionLabel(p, mode)}. Check its terminal, or use /permissions there.` }
+        return { ok: false, message: tr(msg({ id: 'session.mode.unconfirmed', defaultMessage: "{provider} didn't confirm switching to {mode}. Check its terminal, or use /permissions there.", description: "Switching an agent's permission mode may have failed: the CLI didn't confirm it. {provider} is the coding agent's name, {mode} the mode's; /permissions is the CLI's command." }), { provider: name, mode: permissionLabel(p, mode, tr) }) }
       }
       this.emitState(st)
       log.info(`${userText(this.label(st))}: switched to ${mode} with the mode menu (confirmed)`)
@@ -1872,7 +1968,10 @@ class SessionManager {
       if (st.permissionMode && seen.has(st.permissionMode)) break
     }
     log.warn(`${userText(this.label(st))}: ${name} didn't reach ${mode} with Shift+Tab (now ${st.permissionMode ?? 'unknown'})`)
-    return { ok: false, restart: true, message: `${name} didn't offer ${permissionLabel(p, mode)} with Shift+Tab (it is now in ${st.permissionMode ? permissionLabel(p, st.permissionMode) : 'an unknown mode'}). Restart the session in that mode instead.` }
+    const now = st.permissionMode
+      ? tr(msg({ id: 'session.mode.notOfferedIn', defaultMessage: "{provider} didn't offer {mode} with Shift+Tab (it is now in {now}). Restart the session in that mode instead.", description: "Switching an agent's permission mode with Shift+Tab failed. {provider} is the coding agent's name, {mode} the mode asked for, {now} the mode it is in." }), { provider: name, mode: permissionLabel(p, mode, tr), now: permissionLabel(p, st.permissionMode, tr) })
+      : tr(msg({ id: 'session.mode.notOffered', defaultMessage: "{provider} didn't offer {mode} with Shift+Tab (it is now in an unknown mode). Restart the session in that mode instead.", description: "Switching an agent's permission mode with Shift+Tab failed, and Hive can't tell which mode it is in. {provider} is the coding agent's name, {mode} the mode asked for." }), { provider: name, mode: permissionLabel(p, mode, tr) })
+    return { ok: false, restart: true, message: now }
   }
 
   /** Waits for an agent's live status to satisfy `test`, or gives up after `ms`. */
@@ -1905,8 +2004,10 @@ class SessionManager {
     l.state.untakenLine = { since: new Date().toISOString(), text: text.replace(/\s+/g, ' ').trim().slice(0, 160) }
     this.emitState(l.state)
     const label = this.label(l.state)
-    const what = retried ? 'Hive typed it and pressed Enter twice, but its CLI wasn\'t reading its input.' : 'Hive typed it, but couldn\'t press Enter again (the agent was busy, or you were typing there).'
-    this.notify(projectPath, `${label} hasn't taken a line Hive typed`, `${what} Show it, click its terminal and press Enter.`, 'waiting', l.state.agentName, agentId)
+    const body = retried
+      ? msg({ id: 'session.notice.untakenRetried', defaultMessage: "Hive typed it and pressed Enter twice, but its CLI wasn't reading its input. Show it, click its terminal and press Enter.", description: "The notification that an agent's CLI didn't take a line Hive typed into it." })
+      : msg({ id: 'session.notice.untaken', defaultMessage: "Hive typed it, but couldn't press Enter again (the agent was busy, or you were typing there). Show it, click its terminal and press Enter.", description: "The notification that an agent's CLI didn't take a line Hive typed into it." })
+    this.notify(projectPath, withValues(msg({ id: 'session.notice.untakenTitle', defaultMessage: "{agent} hasn't taken a line Hive typed", description: "A notification's title: an agent's CLI didn't take a line Hive typed into it (a wake, a message). {agent} is the agent." }), { agent: label }), body, 'waiting', l.state.agentName, agentId)
   }
 
   /**
@@ -2019,17 +2120,17 @@ class SessionManager {
     const key = this.key(projectPath, agentId)
     const l = this.live.get(liveId(projectPath, agentId))
     const runId = l?.state.runId
-    if (this.delivering.has(key)) throw new Error('Hive is already typing a prompt into this agent; it is busy.')
+    if (this.delivering.has(key)) throw hiveError(M.typingBusy, undefined, { kind: 'conflict' })
     // A line typed before isn't taken yet (#430): typing more would clear it, or be lost behind it.
     const waiting = (): void => {
-      if (this.lineBlocked(this.live.get(liveId(projectPath, agentId)))) throw new Error("Its CLI hasn't taken the line Hive typed before; nothing more is typed until it does.")
+      if (this.lineBlocked(this.live.get(liveId(projectPath, agentId)))) throw hiveError(msg({ id: 'session.prompt.untaken', defaultMessage: "Its CLI hasn't taken the line Hive typed before; nothing more is typed until it does.", description: "Typing into an agent is refused: its CLI hasn't taken the line Hive typed before." }))
     }
     waiting()
     this.delivering.add(key)
     this.noteComposer(l, key)
     const same = (): boolean => !!runId && this.live.get(liveId(projectPath, agentId))?.state.runId === runId
     const check = (): void => {
-      if (!same()) throw new Error('The agent stopped before the prompt was sent.')
+      if (!same()) throw hiveError(M.stoppedBeforePrompt)
       waiting()
       guard?.()
     }
@@ -2055,6 +2156,7 @@ class SessionManager {
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
       sent = { at: Date.now(), prompts: before, from: since }
+      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
       devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
@@ -2098,7 +2200,7 @@ class SessionManager {
     projectPath = workspace.assertProject(projectPath)
     // To itself: the agent carries on in a new conversation (a long transcript made short again).
     const self = fromAgentId === toAgentId
-    if (!this.hiveMcp(projectPath)) throw new Error('Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.')
+    if (!this.hiveMcp(projectPath)) throw hiveError(msg({ id: 'session.handOver.noTools', defaultMessage: 'Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.', description: 'Hand Over to… is refused: agents need Hive\'s tools to write and read a handover. "Provide Hive tools to sessions" is a setting in Settings → Agent API: keep its name as Hive shows it.' }))
     const { agent: to } = await this.agentDef(projectPath, toAgentId)
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
     const source = this.live.get(liveId(projectPath, fromAgentId))?.state ?? null
@@ -2106,15 +2208,23 @@ class SessionManager {
     // The handover the target reads, by name: a newer one appearing meanwhile isn't the one meant.
     let handover = ''
     if (opts.handover) {
-      if (!source) throw new Error(`${from.name} isn't running. Resume it to write a handover, or hand over the latest handover.`)
-      if (source.status !== 'ready' && source.status !== 'finished') throw new Error(`${from.name} is busy. Hand over once it has finished.`)
+      if (!source) throw hiveError(msg({ id: 'session.handOver.notRunning', defaultMessage: "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.", description: "Hand Over to… with a new handover is refused: the agent handing over isn't running. {agent} is its name." }), { agent: from.name })
+      if (source.status !== 'ready' && source.status !== 'finished') throw hiveError(M.handOverBusy, { agent: from.name }, { kind: 'conflict' })
       // Proof, not status: the target starts only once a handover newer than this one exists, written in the
       // source's own conversation (its header's Session, which Hive writes), not by another agent meanwhile.
       // Among the newest few, since another agent may write one after the source does.
       const known = new Map((await this.recentHandovers(projectPath, 20)).map((h) => [h.relPath, h.modified]))
       const want = source.sessionId
       const isNew = (h: HandoverRef): boolean => (!known.has(h.relPath) || h.modified > known.get(h.relPath)!) && (!want || h.session === want)
-      toast('info', `${from.name} is writing a handover`, self ? 'It continues from it in a new conversation when it\'s done.' : `${to.name} continues from it when it's done.`, undefined, projectPath)
+      toast(
+        'info',
+        tr(msg({ id: 'session.handOver.writing', defaultMessage: '{agent} is writing a handover', description: "A notice's title: an agent writes a handover of its work (Hand Over to…). {agent} is its name." }), { agent: from.name }),
+        self
+          ? tr(msg({ id: 'session.handOver.self', defaultMessage: "It continues from it in a new conversation when it's done.", description: 'The notice that an agent writes a handover to itself (Hand Over to… the same agent).' }))
+          : tr(msg({ id: 'session.handOver.other', defaultMessage: "{agent} continues from it when it's done.", description: "The notice that an agent writes a handover for another. {agent} is the other agent's name." }), { agent: to.name }),
+        undefined,
+        projectPath
+      )
       // A handover delivery (#649), given now or not at all.
       await this.delivery().now(projectPath, {
         agentId: fromAgentId,
@@ -2122,6 +2232,7 @@ class SessionManager {
         conversation: source.sessionId || null,
         kind: 'handover',
         from: HIVE_SENDER,
+        // i18n-ignore: typed to the agent (agent-facing text stays English)
         body: `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`,
         need: 'free'
       })
@@ -2135,30 +2246,31 @@ class SessionManager {
           break
         }
         const st = this.live.get(liveId(projectPath, fromAgentId))?.state
-        if (!st) throw new Error(`${from.name} stopped before writing a handover.`)
-        if (st.status === 'waiting') throw new Error(`${from.name} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.`)
+        if (!st) throw hiveError(msg({ id: 'session.handOver.stopped', defaultMessage: '{agent} stopped before writing a handover.', description: "Hand Over to… failed: the agent handing over stopped. {agent} is its name." }), { agent: from.name })
+        if (st.status === 'waiting') throw hiveError(msg({ id: 'session.handOver.asking', defaultMessage: '{agent} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.', description: "Hand Over to… stopped: the agent handing over waits for the user. {agent} is its name." }), { agent: from.name })
         // Finished without one (the file can land a moment after the turn ends): give it 20 seconds.
         idleSince = st.status === 'finished' || st.status === 'ready' ? idleSince || Date.now() : 0
-        if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw new Error(`${from.name} finished without writing a handover. Ask it to write one, then hand over again without a new handover.`)
-        if (Date.now() - t0 > 15 * 60_000) throw new Error(`${from.name} didn't write its handover in 15 minutes.`)
+        if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw hiveError(msg({ id: 'session.handOver.noneWritten', defaultMessage: '{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.', description: "Hand Over to… failed: the agent finished its turn without writing a handover. {agent} is its name." }), { agent: from.name })
+        if (Date.now() - t0 > 15 * 60_000) throw hiveError(msg({ id: 'session.handOver.slow', defaultMessage: "{agent} didn't write its handover in 15 minutes.", description: "Hand Over to… gave up waiting for the handover. {agent} is the agent's name." }), { agent: from.name })
       }
     }
     if (!handover) {
       handover = (await this.latestHandover(projectPath))?.relPath ?? ''
-      if (!handover) throw new Error(`There is no handover for ${basename(projectPath)} yet. Hand over with a new handover instead.`)
+      if (!handover) throw hiveError(msg({ id: 'session.handOver.none', defaultMessage: 'There is no handover for {project} yet. Hand over with a new handover instead.', description: "Hand Over to… with the latest handover is refused: the project has none. {project} is its name." }), { project: basename(projectPath) }, { kind: 'conflict' })
     }
     // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below.
-    if (self && this.live.has(liveId(projectPath, fromAgentId)) && !(await this.endConversation(projectPath, fromAgentId))) throw new Error(`${from.name} didn't stop. Stop it, then start it and ask it to read the handover "${handover}".`)
+    if (self && this.live.has(liveId(projectPath, fromAgentId)) && !(await this.endConversation(projectPath, fromAgentId))) throw hiveError(msg({ id: 'session.handOver.didntStop', defaultMessage: '{agent} didn\'t stop. Stop it, then start it and ask it to read the handover "{handover}".', description: "Handing over to the same agent failed: it didn't stop to start a new conversation. {agent} is its name, {handover} the handover's path in the shared notes." }), { agent: from.name, handover })
     // The target: started fresh when idle, or given the message in its running session.
     let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
-    if (target && target.status !== 'ready' && target.status !== 'finished') throw new Error(`${to.name} is busy. Hand over once it has finished.`)
+    if (target && target.status !== 'ready' && target.status !== 'finished') throw hiveError(M.handOverBusy, { agent: to.name }, { kind: 'conflict' })
     if (!target) {
       await this.start(projectPath, { agentId: toAgentId })
       // Minutes, not seconds: the CLI may first ask something (e.g. whether to trust the folder).
       target = await this.waitStatus(projectPath, toAgentId, (s) => !s || s.status === 'ready', 5 * 60_000).catch(() => null)
-      if (!target) throw new Error(`${to.name} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.`)
+      if (!target) throw hiveError(msg({ id: 'session.handOver.notReady', defaultMessage: "{agent} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.", description: "Hand Over to… failed: the agent taking over didn't start in time. {agent} is its name." }), { agent: to.name })
       await new Promise((r) => setTimeout(r, 1500))
     }
+    // i18n-ignore: typed to the agent (agent-facing text stays English)
     await this.delivery().now(projectPath, { agentId: toAgentId, agentName: to.name, kind: 'handover', from: HIVE_SENDER, body: `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.`, need: 'free' })
     // Link the sessions once the target's id is known (Codex reports it with the first prompt).
     const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
@@ -2176,10 +2288,10 @@ class SessionManager {
   async newConversation(projectPath: string, agentId: string, prompt: string, allowed?: () => void): Promise<LiveSessionState> {
     projectPath = workspace.assertProject(projectPath)
     const now = this.agentNow(projectPath, agentId)
-    if (!now) throw new Error("It isn't running.")
-    if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw new Error('It has just been given a prompt that its CLI has not taken yet.')
+    if (!now) throw hiveError(msg({ id: 'session.newConversation.notRunning', defaultMessage: "It isn't running.", description: 'Giving an agent a task in a new conversation is refused: it isn\'t running.' }))
+    if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw hiveError(msg({ id: 'session.newConversation.pending', defaultMessage: 'It has just been given a prompt that its CLI has not taken yet.', description: "Giving an agent a task in a new conversation is refused: a prompt Hive typed hasn't been taken yet." }))
     allowed?.()
-    if (!(await this.endConversation(projectPath, agentId))) throw new Error("It didn't stop, so no new conversation was started.")
+    if (!(await this.endConversation(projectPath, agentId))) throw hiveError(msg({ id: 'session.newConversation.didntStop', defaultMessage: "It didn't stop, so no new conversation was started.", description: "Giving an agent a task in a new conversation failed: it didn't stop." }))
     allowed?.()
     return this.start(projectPath, { agentId, prompt, allowed })
   }
@@ -2194,12 +2306,12 @@ class SessionManager {
   async setPlanMode(projectPath: string, agentId: string, on: boolean): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
-    if (!l || l.state.settingUp) throw new Error('No session is running for this agent.')
-    if (!l.adapter.planToggleKey) throw new Error(`${l.adapter.descriptor.name} has no Plan mode toggle.`)
-    if (l.state.status === 'waiting') throw new Error('The agent is asking you something. Answer it first.')
+    if (!l || l.state.settingUp) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
+    if (!l.adapter.planToggleKey) throw hiveError(msg({ id: 'session.plan.noToggle', defaultMessage: '{provider} has no Plan mode toggle.', description: "Turning Plan mode on or off is refused: the coding agent has no such toggle. {provider} is its name." }), { provider: l.adapter.descriptor.name })
+    if (l.state.status === 'waiting') throw hiveError(msg({ id: 'session.plan.asking', defaultMessage: 'The agent is asking you something. Answer it first.', description: 'Turning Plan mode on or off is refused: the agent waits for the user.' }))
     if (!!l.state.planMode === on) return
     // Not into a line Hive is typing (#649: the composer is reserved meanwhile).
-    if (this.delivering.has(this.key(projectPath, agentId))) throw new Error('Hive is typing a line into this agent. Try again in a moment.')
+    if (this.delivering.has(this.key(projectPath, agentId))) throw hiveError(msg({ id: 'session.plan.typing', defaultMessage: 'Hive is typing a line into this agent. Try again in a moment.', description: 'Turning Plan mode on or off is refused for a moment: Hive is typing into the terminal.' }))
     writePty(this.key(projectPath, agentId), l.adapter.planToggleKey)
     l.state.planMode = on
     this.emitState(l.state)
@@ -2210,7 +2322,7 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     const id = liveId(projectPath, agentId)
     const l = this.live.get(id)
-    if (!l) throw new Error('No session is running for this agent.')
+    if (!l) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
     const { sessionId, sessionName } = l.state
     // A session nobody has typed in yet has no conversation (its transcript, if any, holds no messages,
     // and the CLI answers "no conversation found" to --resume): start a new one in the mode instead.
@@ -2240,7 +2352,7 @@ class SessionManager {
       return
     }
     l.offeredMode = mode
-    this.modeOffers.set(liveId(l.state.projectPath, l.state.agentId), { label: this.label(l.state), mode: permissionLabel(l.state.provider, mode) })
+    this.modeOffers.set(liveId(l.state.projectPath, l.state.agentId), { label: this.label(l.state), mode: permissionLabel(l.state.provider, mode, tr) })
     if (this.modeOfferTimer) clearTimeout(this.modeOfferTimer)
     this.modeOfferTimer = setTimeout(() => {
       this.modeOfferTimer = null
@@ -2248,12 +2360,13 @@ class SessionManager {
       this.modeOffers.clear()
       if (!offers.length) return
       const modes = [...new Set(offers.map((o) => o.mode))]
-      const who = offers.length === 1 ? offers[0].label : `${offers.length} running agents (${offers.map((o) => o.label).join(', ')})`
       toast(
         'info',
-        `Permission mode changed to ${modes.join(' / ')}`,
-        `Switch ${who} now? Otherwise the new mode applies from ${offers.length === 1 ? 'its' : 'their'} next session.`,
-        [{ label: 'Switch Now', command: 'session.applyPermissionModes' }]
+        tr(msg({ id: 'session.modeOffer.title', defaultMessage: 'Permission mode changed to {modes}', description: "A notice's title: the permission mode in Settings changed for running agents. {modes} is the new mode's name (several joined by \" / \")." }), { modes: modes.join(' / ') }),
+        offers.length === 1
+          ? tr(msg({ id: 'session.modeOffer.one', defaultMessage: 'Switch {agent} now? Otherwise the new mode applies from its next session.', description: 'The notice that the permission mode setting changed for a running agent. {agent} is the agent.' }), { agent: offers[0].label })
+          : tr(msg({ id: 'session.modeOffer.many', defaultMessage: '{n, plural, other {Switch # running agents ({agents}) now? Otherwise the new mode applies from their next session.}}', description: 'The notice that the permission mode setting changed for running agents. {n} is how many (2 or more), {agents} lists them.' }), { n: offers.length, agents: offers.map((o) => o.label).join(', ') }),
+        [{ label: tr(msg({ id: 'session.modeOffer.switch', defaultMessage: 'Switch Now', description: "A notice's button: switches the running agents to the new permission mode now." })), command: 'session.applyPermissionModes' }]
       )
     }, 400)
   }
@@ -2273,10 +2386,10 @@ class SessionManager {
       if (mode === st.permissionMode) continue
       try {
         const r = await this.setPermissionMode(st.projectPath, st.agentId, mode)
-        if (r.ok) switched.push(`${this.label(st)} → ${permissionLabel(st.provider, mode)}`)
+        if (r.ok) switched.push(`${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}`)
         else skipped.push(`${this.label(st)}: ${r.message}`)
       } catch (e) {
-        skipped.push(`${this.label(st)}: ${(e as Error).message}`)
+        skipped.push(`${this.label(st)}: ${shownError(e)}`)
       }
     }
     return { switched, skipped }
@@ -2289,7 +2402,7 @@ class SessionManager {
     const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
     const adapter = providerAdapter((await this.resumeProvider(projectPath, sessionId, rec)) ?? agentLaunchSettings(agent, cfg, config.settings).provider)
     const info = providerService.info(adapter.id)
-    if (!adapter.stopBackgroundJob || !info.path) throw new Error(`${adapter.descriptor.name} can't stop background sessions.`)
+    if (!adapter.stopBackgroundJob || !info.path) throw hiveError(msg({ id: 'session.background.cantStop', defaultMessage: "{provider} can't stop background sessions.", description: "Stop It and Resume is refused: the coding agent can't stop its background service's job. {provider} is its name." }), { provider: adapter.descriptor.name })
     await adapter.stopBackgroundJob(info.path, jobId)
     // The job lets go of the conversation as it exits.
     await new Promise((r) => setTimeout(r, 1500))
@@ -2312,9 +2425,9 @@ class SessionManager {
     if (l && job) {
       toast(
         'warning',
-        `${this.label(l.state)}: the session is running in the background`,
-        `${l.adapter.descriptor.name} moved this conversation into its background service (job ${job}), so it can't be opened here until that job is stopped. The conversation is kept.`,
-        [{ label: 'Stop It and Resume', command: 'session.stopBackgroundAndResume', args: [projectPath, agentId, job, sessionId] }],
+        tr(msg({ id: 'session.background.title', defaultMessage: '{agent}: the session is running in the background', description: "A notice's title: the coding agent runs this conversation as a background job, so Hive can't open it. {agent} is the agent." }), { agent: this.label(l.state) }),
+        tr(msg({ id: 'session.background.body', defaultMessage: "{provider} moved this conversation into its background service (job {job}), so it can't be opened here until that job is stopped. The conversation is kept.", description: "The notice that a conversation runs as a background job. {provider} is the coding agent's name, {job} the job's id." }), { provider: l.adapter.descriptor.name, job }),
+        [{ label: tr(msg({ id: 'session.background.stopAndResume', defaultMessage: 'Stop It and Resume', description: "A notice's button: stops the coding agent's background job, then resumes the conversation in the agent." })), command: 'session.stopBackgroundAndResume', args: [projectPath, agentId, job, sessionId] }],
         projectPath
       )
     }
@@ -2358,6 +2471,7 @@ class SessionManager {
       }
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
+    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'exit', name: 'exit', provider: l?.state.provider, raw: { exitCode: code }, made: { failedStart: !!failure, stopRequested: !!l?.stopRequested }, summary: `exited with code ${code}${failure ? ' before it started' : ''}` }))
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
@@ -2374,20 +2488,21 @@ class SessionManager {
    */
   private launchWord(r: TrackResult): GateWord {
     if (r.tracked) return { go: true }
-    if (r.reason === 'it was stopped before it started') return { go: false, reason: r.reason }
-    this.untracked(r.reason)
+    // The gate's script prints its reason in English (launchGate.ts).
+    if (r.reason === STOPPED_BEFORE_START) return { go: false, reason: r.reason }
+    this.untracked(r.text ?? r.reason)
     return { go: true }
   }
 
   /** Whether a launch can go through its gate, its processes tracked (#507); when not, said once (untracked). */
   private async trackingReady(): Promise<boolean> {
     const ok = await trackingReady()
-    if (!ok && process.platform === 'win32') this.untracked(trackingProblem())
+    if (!ok && process.platform === 'win32') this.untracked(trackingProblemText())
     return ok
   }
 
   /** Agents' processes can't be tracked (#507): said once a Hive run (noteUntracked); agents start all the same. */
-  private untracked(reason: string | null): void {
+  private untracked(reason: TextPart | null): void {
     noteUntracked(reason)
   }
 
@@ -2399,26 +2514,29 @@ class SessionManager {
     let left = await launchEnded(runId)
     if (!left) return
     // Those it couldn't end stay listed, and are offered as below.
-    let failure = ''
+    let failed = false
     if (config.settings.agents.leftoverProcesses === 'end') {
       try {
         await settleLeftovers(left.projectPath, left.agentId, 'end')
         return
       } catch {
-        failure = ` Hive couldn't end ${left.processes.length + left.more === 1 ? 'it' : 'them'} by itself.`
+        failed = true
         left = leftoversOf(left.projectPath, left.agentId)
       }
     }
     if (this.shuttingDown) return
     const n = left.processes.length + left.more
     if (!n) return
+    const summary = leftoversSummary(left, undefined, tr)
     toast(
       'warning',
-      `${label} left ${processCount(n)} running`,
-      `${leftoversSummary(left)}. ${n === 1 ? 'It was' : 'They were'} started by the agent and may hold the project's folder or ports.${failure}`,
+      tr(msg({ id: 'session.leftovers.title', defaultMessage: '{agent} left {processes} running', description: "A notice's title: an agent's processes still run after it stopped. {agent} is the agent; {processes} how many (\"2 processes\")." }), { agent: label, processes: processCount(n, tr) }),
+      failed
+        ? tr(msg({ id: 'session.leftovers.notEndedBody', defaultMessage: "{processes}. {n, plural, one {It was started by the agent and may hold the project's folder or ports. Hive couldn't end it by itself.} other {They were started by the agent and may hold the project's folder or ports. Hive couldn't end them by itself.}}", description: "The notice of processes an agent left running, which Hive tried to end and couldn't. {processes} lists them (\"node serve.js, 4 × tail -f …\"); {n} is how many." }), { processes: summary, n })
+        : tr(msg({ id: 'session.leftovers.body', defaultMessage: "{processes}. {n, plural, one {It was started by the agent and may hold the project's folder or ports.} other {They were started by the agent and may hold the project's folder or ports.}}", description: "The notice of processes an agent left running. {processes} lists them (\"node serve.js, 4 × tail -f …\"); {n} is how many." }), { processes: summary, n }),
       [
-        { label: 'End Them', command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'end'] },
-        { label: 'Keep Running', command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'keep'] }
+        { label: tr(msg({ id: 'session.leftovers.end', defaultMessage: 'End Them', description: "A notice's button: ends the processes the agent left running." })), command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'end'] },
+        { label: tr(msg({ id: 'session.leftovers.keep', defaultMessage: 'Keep Running', description: "A notice's button: keeps the processes the agent left running, and stops listing them." })), command: 'session.settleLeftovers', args: [left.projectPath, left.agentId, 'keep'] }
       ],
       left.projectPath
     )
@@ -2719,10 +2837,18 @@ class SessionManager {
     const label = this.label(st)
     const { from, to } = next.switched
     const said = safeguardText(next, d.modelLabel)
-    this.notify(st.projectPath, `${label} now runs on ${d.modelLabel(to)}`, said, 'notice', undefined, st.agentId)
+    this.notify(
+      st.projectPath,
+      withValues(msg({ id: 'session.notice.safeguardSwitch', defaultMessage: '{agent} now runs on {model}', description: "A notification's title: after its CLI's safety classifier stopped a response, the agent runs on another model. {agent} is the agent, {model} the model's name." }), { agent: label, model: d.modelLabel(to) }),
+      safeguardText(next, d.modelLabel, tr),
+      'notice',
+      undefined,
+      st.agentId
+    )
     log.info(`${userText(label)}: its model changed after a safeguard stop (${from} → ${to})`)
     // On the card it works on too, so whoever reads the card knows (only the event and tool names, never what was stopped).
     if (!workspace.isAssistantHome(st.projectPath))
+      // i18n-ignore: a comment on the agent's cards, which agents read too (English, as card history is)
       void commentOnDoingCards(workspaceOf(st.projectPath), st.projectPath, st.agentId, `**${st.agentName}, after a safeguard stop:** ${said}${d.safeguardHelp ? ` ${d.safeguardHelp}` : ''}`).catch((e) => log.warn('safeguard: could not note the switch on its cards', e))
   }
 
@@ -2784,7 +2910,11 @@ class SessionManager {
     l.guardPromptAt = at
     const tools = st.safeguard.tools
     this.emitState(st)
-    return { ...ask, message: `A safety classifier stopped a response: ${l.adapter.descriptor.name} asks what to do${tools.length ? ` (its last tool calls: ${tools.join(', ')})` : ''}` }
+    const provider = l.adapter.descriptor.name
+    const text = tools.length
+      ? withValues(msg({ id: 'session.status.safeguardAsksTools', defaultMessage: 'A safety classifier stopped a response: {provider} asks what to do (its last tool calls: {tools})', description: "An agent's status: its CLI's safety classifier stopped a response, and the CLI asks the user what to do. {provider} is the coding agent's name; {tools} the names of its last tool calls, as they came." }), { provider, tools: tools.join(', ') })
+      : withValues(msg({ id: 'session.status.safeguardAsks', defaultMessage: 'A safety classifier stopped a response: {provider} asks what to do', description: "An agent's status: its CLI's safety classifier stopped a response, and the CLI asks the user what to do. {provider} is the coding agent's name." }), { provider })
+    return { ...ask, message: englishText(text), text }
   }
 
   /** A stop seen only on screen, added to its session's record (SessionRecord.screenStops) for Performance. */
@@ -2825,9 +2955,9 @@ class SessionManager {
             // Already told it waits: told again, now saying why (a notice, without a second chime).
             const ask = await this.safeguardPrompt(l, g.ask, g.at)
             l.waitingOn = ask
-            st.statusMessage = ask.message
+            setStatus(st, ask.text ?? ask.message)
             this.emitState(st)
-            this.notify(st.projectPath, `${this.label(st)} needs your input`, ask.message, 'notice', undefined, st.agentId)
+            this.notify(st.projectPath, withValues(M.needsInput, { agent: this.label(st) }), ask.text ?? ask.message, 'notice', undefined, st.agentId)
           }
         }
       }
@@ -2876,9 +3006,10 @@ class SessionManager {
         }
         else {
           st.status = 'finished'
-          st.statusMessage = dropped ? `Stopped counting its background tasks after ${taskMinutes()} minutes` : undefined
+          const stopped = dropped ? withValues(msg({ id: 'session.status.tasksDropped', defaultMessage: '{minutes, plural, one {Stopped counting its background tasks after # minute} other {Stopped counting its background tasks after # minutes}}', description: "An agent's status: Hive stopped counting the background tasks it started after the time limit in Settings. {minutes} is that limit." }), { minutes: taskMinutes() }) : null
+          setStatus(st, stopped)
           st.unseen = true
-          this.notify(st.projectPath, `${this.label(st)} finished`, st.statusMessage ?? 'Its background tasks have ended.', 'finished', st.agentName)
+          this.notify(st.projectPath, withValues(M.finished, { agent: this.label(st) }), stopped ?? msg({ id: 'session.notice.tasksEnded', defaultMessage: 'Its background tasks have ended.', description: "The notification that an agent finished once the background tasks it started ended." }), 'finished', st.agentName)
         }
         changed = true
       } else if (st.status === 'finished' && l.tasks?.size) {
@@ -2918,11 +3049,17 @@ class SessionManager {
     const label = this.label(st)
     const assistant = workspace.isAssistantHome(st.projectPath)
     const advice = assistant
-      ? 'Start a new conversation (⋯ → New Conversation) to keep things quick.'
-      : 'Hand it over to a new conversation (Hand Over to…) to keep things quick. Compacting doesn\'t shrink the file.'
+      ? msg({ id: 'session.long.adviceAssistant', defaultMessage: 'Start a new conversation (⋯ → New Conversation) to keep things quick.', description: "The notice that the Assistant's conversation is long: what to do. ⋯ → New Conversation is the Assistant's menu command." })
+      : msg({ id: 'session.long.advice', defaultMessage: "Hand it over to a new conversation (Hand Over to…) to keep things quick. Compacting doesn't shrink the file.", description: "The notice that an agent's conversation is long: what to do. Hand Over to… is a command." })
     log.info(`${userText(label)}: transcript is ${formatBytes(bytes)}, over ${limitMB} MB`)
-    toast('warning', `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}, which slows down the CLI and Hive. ${advice}`, assistant ? undefined : [{ label: 'Hand Over to…', command: 'session.handOverTo', args: [st.projectPath, st.agentId] }], st.projectPath)
-    this.notify(st.projectPath, `${label}: long conversation`, `Its transcript is ${formatBytes(bytes)}. ${advice}`, 'notice')
+    toast(
+      'warning',
+      tr(M.longConversation, { agent: label }),
+      tr(msg({ id: 'session.long.toast', defaultMessage: 'Its transcript is {size}, which slows down the CLI and Hive. {advice}', description: "The notice that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatBytes(bytes), advice: tr(advice) }),
+      assistant ? undefined : [{ label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverTo', args: [st.projectPath, st.agentId] }],
+      st.projectPath
+    )
+    this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(msg({ id: 'session.long.notice', defaultMessage: 'Its transcript is {size}. {advice}', description: "The notification that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatBytes(bytes), advice }), 'notice')
   }
 
   /**
@@ -3005,9 +3142,12 @@ class SessionManager {
     if (!waiting.length) return
     const d = providerAdapter(provider).descriptor
     const first = waiting[0]
-    const title = waiting.length === 1 ? `${this.label(first)} needs you to sign in to ${d.name}` : `${waiting.length} agents need you to sign in to ${d.name}`
+    const title =
+      waiting.length === 1
+        ? withValues(msg({ id: 'session.signIn.one', defaultMessage: '{agent} needs you to sign in to {provider}', description: "A notification's title: an agent's CLI sign-in has expired. {agent} is the agent, {provider} the coding agent's name." }), { agent: this.label(first), provider: d.name })
+        : withValues(msg({ id: 'session.signIn.many', defaultMessage: '{n, plural, other {# agents need you to sign in to {provider}}}', description: "A notification's title: the CLI sign-in of several agents has expired. {n} is how many (2 or more), {provider} the coding agent's name." }), { n: waiting.length, provider: d.name })
     log.info(`${d.name}: sign-in refused for ${waiting.length} agent(s)`)
-    this.notify(first.projectPath, title, `${d.name}'s sign-in has expired. ${d.signInHelp}`, 'waiting', undefined, first.agentId)
+    this.notify(first.projectPath, title, withValues(msg({ id: 'session.signIn.expired', defaultMessage: "{provider}'s sign-in has expired. {help}", description: "The notification that a CLI's sign-in has expired. {provider} is the coding agent's name; {help} says how to sign in again (a sentence or two)." }), { provider: d.name, help: d.text?.signInHelp ?? d.signInHelp }), 'waiting', undefined, first.agentId)
   }
 
   private endSignedOut(provider: ProviderId): boolean {
@@ -3031,12 +3171,21 @@ class SessionManager {
     for (const st of stopped) {
       this.fact(st, { lifecycle: 'running', attention: null })
       st.status = 'ready'
-      st.statusMessage = SIGNED_IN_AGAIN
+      setStatus(st, SIGNED_IN_AGAIN)
       this.emitState(st)
     }
     const name = providerAdapter(provider).descriptor.name
     log.info(`${name}: signed in again; ${stopped.length} agent(s) stopped meanwhile`)
-    if (stopped.length) toast('info', `Signed in to ${name} again`, `${stopped.length === 1 ? `${this.label(stopped[0])} stopped` : `${stopped.length} agents stopped`} while it was signed out: Resume in the project's header carries ${stopped.length === 1 ? 'it' : 'them'} on.`, undefined, stopped[0].projectPath)
+    if (stopped.length)
+      toast(
+        'info',
+        tr(msg({ id: 'session.signIn.again', defaultMessage: 'Signed in to {provider} again', description: "A notice's title: a coding agent's CLI is signed in again. {provider} is its name." }), { provider: name }),
+        stopped.length === 1
+          ? tr(msg({ id: 'session.signIn.againOne', defaultMessage: "{agent} stopped while it was signed out: Resume in the project's header carries it on.", description: "The notice that a CLI is signed in again. {agent} is the agent whose turn stopped; Resume is a button in the project's header." }), { agent: this.label(stopped[0]) })
+          : tr(msg({ id: 'session.signIn.againMany', defaultMessage: "{n, plural, other {# agents stopped while it was signed out: Resume in the project's header carries them on.}}", description: "The notice that a CLI is signed in again. {n} is how many agents' turns stopped (2 or more); Resume is a button in the project's header." }), { n: stopped.length }),
+        undefined,
+        stopped[0].projectPath
+      )
   }
 
   /**
@@ -3049,7 +3198,7 @@ class SessionManager {
       return st?.signIn && (st.status === 'ready' || st.status === 'finished' || st.status === 'signin') ? st : null
     }
     const st = stalled()
-    if (!st) throw new Error('It has already carried on.')
+    if (!st) throw hiveError(msg({ id: 'session.carryOn.already', defaultMessage: 'It has already carried on.', description: 'Resume is refused for an agent whose turn a refused sign-in stopped: it carried on by itself meanwhile.' }))
     // A control notice for this launch (#649), given now or not at all: never once it has carried on by itself.
     await this.delivery().now(projectPath, { agentId, kind: 'control', from: HIVE_SENDER, body: CARRY_ON_PROMPT, source: 'carry-on', ref: st.runId, need: 'stalled', forRun: st.runId }, () => !!stalled())
   }
@@ -3071,7 +3220,7 @@ class SessionManager {
     if (workspace.isAssistantHome(st.projectPath)) return ASSISTANT_NAME
     const project = basename(st.projectPath)
     const count = workspaceOf(st.projectPath).info()?.projects.find((p) => p.path.toLowerCase() === st.projectPath.toLowerCase())?.agents.length ?? 1
-    return count > 1 ? `${project} · ${st.agentName ?? 'Agent'}` : project
+    return count > 1 ? `${project} · ${st.agentName ?? 'Agent'}` : project // i18n-ignore: a fallback name, never seen (every launch has its agent's name)
   }
 
   /** A provider's status report (Claude Code's status line): the session's model, effort and cost, and the plan's limits. */
@@ -3080,6 +3229,7 @@ class SessionManager {
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
     const d = l.adapter.statusLine!(body)
+    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
     this.applyDetails(l, d)
   }
@@ -3187,9 +3337,10 @@ class SessionManager {
       const holder = held && held.liveId !== id ? this.live.get(held.liveId) : undefined
       if (!holder || now - held!.at >= LOCK_TTL_MS) continue
       const rel = placeRelative(holder.state.cwd, abs) || basename(abs)
-      const who = holder.state.agentName ?? 'Another agent'
+      const who = holder.state.agentName ?? 'Another agent' // i18n-ignore: in the lock's replies to the agent (agent-facing)
       log.info(`Lock: ${userText(l.state.agentName)} → ${userText(rel)} held by ${userText(who)} (${mode})`)
       if (mode === 'warn') {
+        // i18n-ignore: the lock's reply to the agent (agent-facing)
         return this.editAccepted(id, files, l.adapter.lockReply({ kind: 'warn', context: `Note: ${who} is also editing ${rel} right now. Check the file's current content before changing it, and keep your edit small.` }))
       }
       if (mode === 'ask' && !l.adapter.descriptor.capabilities.lockAsk) {
@@ -3198,13 +3349,21 @@ class SessionManager {
         if (this.lockAllowed.has(key)) continue
         if (!this.lockAsked.has(key)) {
           this.lockAsked.set(key, ++this.lockSeq)
-          toast('warning', `${this.label(l.state)} wants to edit ${rel}`, `${who} is editing it right now. Allow ${l.state.agentName ?? 'the agent'} to edit it too?`, [{ label: 'Allow', command: 'session.allowLockedEdit', args: [l.state.projectPath, l.state.agentId, abs] }], l.state.projectPath)
+          toast(
+            'warning',
+            tr(msg({ id: 'session.lock.title', defaultMessage: '{agent} wants to edit {file}', description: "A notice's title: an agent wants to edit a file another agent is editing (Hive's file locks, Ask me). {agent} is the agent, {file} the file's path in the project." }), { agent: this.label(l.state), file: rel }),
+            tr(msg({ id: 'session.lock.body', defaultMessage: '{holder} is editing it right now. Allow {agent} to edit it too?', description: "The notice that an agent wants to edit a file another agent is editing. {holder} is the agent editing it, {agent} the agent asking." }), { holder: holder.state.agentName ?? tr(msg({ id: 'session.lock.anotherAgent', defaultMessage: 'Another agent', description: "Stands for an agent whose name isn't known, at the start of a sentence (\"Another agent is editing it right now.\")." })), agent: l.state.agentName ?? tr(msg({ id: 'session.lock.theAgent', defaultMessage: 'the agent', description: "Stands for an agent whose name isn't known, in the middle of a sentence (\"Allow the agent to edit it too?\")." })) }),
+            [{ label: tr(msg({ id: 'session.lock.allow', defaultMessage: 'Allow', description: "A notice's button: lets the agent edit the file another agent is editing." })), command: 'session.allowLockedEdit', args: [l.state.projectPath, l.state.agentId, abs] }],
+            l.state.projectPath
+          )
         }
         return l.adapter.lockReply({
           kind: 'deny',
+          // i18n-ignore: the lock's reply to the agent (agent-facing)
           reason: `${who} is editing ${rel} right now (Hive file lock). Hive has asked the user whether you may edit it too. Stop and wait: don't work around this. When the user says go ahead, try the edit again.`
         })
       }
+      // i18n-ignore: the lock's reply to the agent, or its CLI's own question (agent- and CLI-facing)
       const reason = `${who} is editing ${rel} right now (Hive file lock). Work on something else, or wait until ${who} has finished its task, then try again.`
       return l.adapter.lockReply({ kind: mode === 'ask' ? 'ask' : 'deny', reason })
     }
@@ -3297,6 +3456,7 @@ class SessionManager {
       }
     // Its delivery, if it was given one, no longer holds: cancelled now, rather than at its next try.
     const l = this.live.get(id)
+    // i18n-ignore: a delivery's record, which agents and the log read
     if (had && l) void this.deliveries?.cancel(l.state.projectPath, 'go-ahead', l.state.runId, 'cancelled: the go-ahead was dropped').catch(() => undefined)
   }
 
@@ -3505,6 +3665,7 @@ class SessionManager {
     })
     this.noteTurn(l)
     if (hook.event.kind !== 'ignore' || ids.turn) {
+      // i18n-ignore: the log and the hook journal (English)
       const verdict = took.verdict === 'apply' ? (took.note ?? '') : took.verdict === 'stale' ? `stale: ${took.why}` : 'carried on by Hive'
       hookJournal(`run=${st.runId} seq=${ledger.seq} ${String(body.hook_event_name ?? '?').slice(0, 40)} turn=${ids.turn ?? '-'} call=${ids.call ?? '-'}${ids.sub ? ` sub=${ids.sub}` : ''}${ids.continued ? ' continued' : ''} ${before}→${st.status}${verdict ? ` (${verdict})` : ''}`)
     }
@@ -3535,7 +3696,9 @@ class SessionManager {
   private recordEnds(l: LiveSession): string | null {
     if (!l.ledger) return null
     const rec = l.turnRecord
+    // i18n-ignore: the log and the hook journal (English)
     if (rec && reconciles(l.ledger, rec.turn)) return `${l.adapter.descriptor.name} recorded the end of turn ${rec.turn} at ${rec.at}`
+    // i18n-ignore: the log and the hook journal (English)
     if (unheardStop(l.ledger, l.stopsAnswered ?? [])) return `${l.adapter.descriptor.name} recorded a Stop of its running turn answered at ${new Date(l.stopsAnswered!.at(-1)!).toISOString()} that never reached Hive`
     return null
   }
@@ -3592,6 +3755,7 @@ class SessionManager {
       const recorded = this.recordEnds(l)
       if (recorded) return this.endTurnFrom(id, l, 'transcript', recorded)
       const shown = this.screenTurn(l)
+      // i18n-ignore: the log and the hook journal (English)
       if (shown === 'idle') return this.endTurnFrom(id, l, 'screen', `${l.adapter.descriptor.name} is idle at its prompt on screen after ${howLong(silentFor(l.ledger!)!)} of silence${openCalls(l.ledger!) ? ' (a tool call still open)' : ''}`)
       // Visibly at work (a long reply, a long think, a tool running): heard, so not silent.
       if (shown === 'working') {
@@ -3623,7 +3787,7 @@ class SessionManager {
       // (the ledger's), a compaction (markedIdle ends Hive's own), a person asked.
       endRunning(l.ledger, 'user')
       this.fact(l.state, { maintenance: null, attention: null })
-      this.carryOut(id, l, markedIdle(this.statusInput(l)), 'Mark idle')
+      this.carryOut(id, l, markedIdle(this.statusInput(l)), 'Mark idle') // i18n-ignore: the cause, for the log
       this.noteTurn(l)
       log.info(`${userText(this.label(l.state))}: marked idle by the user (${before} → ${l.state.status})`)
       hookJournal(`run=${l.state.runId} seq=${l.ledger.seq} (no hook) marked idle by the user ${before}→${l.state.status}`)
@@ -3676,7 +3840,7 @@ class SessionManager {
           l.prompts = (l.prompts ?? 0) + 1
           if (workspace.isAssistantHome(st.projectPath)) this.onAssistantPrompt(st.projectPath)
           if (ev?.kind === 'prompt') this.noteUserReply(l, ev.text)
-          if (l.state.untakenLine) this.clearUntaken(l, 'its CLI took a prompt')
+          if (l.state.untakenLine) this.clearUntaken(l, 'its CLI took a prompt') // i18n-ignore: for the log
           break
         case 'compactBegan':
           l.compacting?.begin()
@@ -3687,18 +3851,24 @@ class SessionManager {
           break
         case 'autoCompact':
           // Compaction Hive started is already shown as "Compacting…".
-          toast('info', `${label}: compacting conversation`, `${l.adapter.descriptor.name} is summarising the context to free up space.`, undefined, st.projectPath)
+          toast(
+            'info',
+            tr(msg({ id: 'session.autoCompact.title', defaultMessage: '{agent}: compacting conversation', description: "A notice's title: an agent's CLI compacts its conversation by itself. {agent} is the agent." }), { agent: label }),
+            tr(msg({ id: 'session.autoCompact.body', defaultMessage: '{provider} is summarising the context to free up space.', description: "The notice that an agent's CLI compacts its conversation by itself. {provider} is the coding agent's name." }), { provider: l.adapter.descriptor.name }),
+            undefined,
+            st.projectPath
+          )
           break
         case 'notifyWaiting':
-          this.notify(st.projectPath, `${label} needs your input`, step.message || 'Waiting for your input', 'waiting', undefined, st.agentId)
+          this.notify(st.projectPath, withValues(M.needsInput, { agent: label }), step.messageText ?? (step.message || msg({ id: 'session.notice.waitingForInput', defaultMessage: 'Waiting for your input', description: "The notification that an agent waits for the user, when its CLI didn't say what for." })), 'waiting', undefined, st.agentId)
           break
         case 'notifyQuestion':
-          this.notify(st.projectPath, `${label} has a question for you`, step.question || 'It carries on working meanwhile.', 'waiting', undefined, st.agentId)
+          this.notify(st.projectPath, withValues(msg({ id: 'session.notice.question', defaultMessage: '{agent} has a question for you', description: "A notification's title: an agent asks something without stopping for it. {agent} is the agent." }), { agent: label }), step.question || msg({ id: 'session.notice.questionBody', defaultMessage: 'It carries on working meanwhile.', description: "The notification that an agent asks a question it doesn't stop for, when its CLI didn't say what." }), 'waiting', undefined, st.agentId)
           break
         case 'notifyFinished':
           // Watching its cards isn't finished: nothing for the user to look at.
           if (this.watchFor(st.projectPath, st.agentId)) break
-          this.notify(st.projectPath, `${label} finished`, (ev?.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || 'The agent has finished its task.', 'finished', st.agentName)
+          this.notify(st.projectPath, withValues(M.finished, { agent: label }), (ev?.kind === 'stop' && ev.lastMessage?.slice(0, 180)) || msg({ id: 'session.notice.finishedBody', defaultMessage: 'The agent has finished its task.', description: "The notification that an agent finished, when it left no last message to show." }), 'finished', st.agentName)
           break
         case 'releaseLocks':
           this.releaseLocks(id, arrived)
@@ -3717,7 +3887,12 @@ class SessionManager {
           break
         }
         case 'signedOut':
-          st.signIn = { message: (ev?.kind === 'signIn' && ev.message?.slice(0, 500)) || `${l.adapter.descriptor.name} isn't signed in.`, since: new Date().toISOString() }
+          {
+            const said = ev?.kind === 'signIn' && ev.message?.slice(0, 500)
+            // The CLI's own message, or Hive's (its English for agents, its text for the window).
+            const hive = said ? null : withValues(msg({ id: 'session.signIn.notSignedIn', defaultMessage: "{provider} isn't signed in.", description: "Why an agent's turn stopped, when its CLI didn't say: its sign-in was refused. {provider} is the coding agent's name." }), { provider: l.adapter.descriptor.name })
+            st.signIn = { message: said || englishText(hive!), since: new Date().toISOString(), ...(hive ? { messageText: hive } : {}) }
+          }
           this.signInLost(st.provider)
           break
         case 'turnEnded':
@@ -3743,6 +3918,7 @@ class SessionManager {
     if (step.actions.includes('turnEnded')) this.sendGoAheads(id, l)
     else if (step.actions.includes('releaseLocks')) this.dropGoAheads(id)
     // Why you were told an agent needs you, and when it no longer does (Help → Copy Diagnostics): never what was asked.
+    // i18n-ignore: the log (English)
     const told = step.actions.includes('notifyWaiting') ? 'waits for you' : step.actions.includes('notifyQuestion') ? 'asks a question' : needed && !asksYou(st) ? 'no longer needs you' : null
     if (told) log.debug(`${userText(label)}: ${told} (${cause})`)
   }
@@ -3841,9 +4017,13 @@ class SessionManager {
 
   /**
    * Tells the user (and for finished/waiting, the chime): a banner in the Hive window they are using, else a Windows
-   * notification (route()). A notice is a warning that needs no sound.
+   * notification (route()). A notice is a warning that needs no sound. Its title and body are formatted in the language
+   * Hive shows; the Agent API's stream gets the title in English (`apiTitle`, #796), and never the body.
    */
-  private notify(projectPath: string, title: string, body: string, kind: 'finished' | 'waiting' | 'notice', agentName?: string, agentId?: string): void {
+  private notify(projectPath: string, titleText: Text, bodyText: TextPart, kind: 'finished' | 'waiting' | 'notice', agentName?: string, agentId?: string): void {
+    const title = shownText(titleText)
+    const apiTitle = englishText(titleText)
+    const body = shownText(bodyText)
     if (kind !== 'notice') {
       // The window plays at most one chime every 2 seconds, so agents finishing together chime once.
       void this.effective(projectPath)
@@ -3859,10 +4039,11 @@ class SessionManager {
     // Finishes that come together are told in one notice ("3 agents finished in hive"); a question is told at once.
     if (kind === 'finished') {
       const assistant = workspace.isAssistantHome(projectPath)
-      this.finishes.add({ projectPath, project: assistant ? ASSISTANT_NAME : basename(projectPath), agent: assistant ? ASSISTANT_NAME : (agentName ?? 'Agent'), title, body })
+      // i18n-ignore: a fallback name, never seen (every agent that finishes has its name)
+      this.finishes.add({ projectPath, project: assistant ? ASSISTANT_NAME : basename(projectPath), agent: assistant ? ASSISTANT_NAME : (agentName ?? 'Agent'), title, apiTitle, body })
       return
     }
-    this.deliver(projectPath, title, body, kind, agentId)
+    this.deliver(projectPath, title, body, kind, agentId, apiTitle)
   }
 
   /** Where a notice about this project goes now: the settings, and the Hive window the user is using (noticeRoute). */
@@ -4033,7 +4214,13 @@ class SessionManager {
     this.warnedFormats.add(key)
     const name = providerDescriptor(provider).name
     log.warn(`${name} ${usage.cliVersion ?? ''}: a ${Math.round(size / 1024)} KB transcript showed no usage (${usage.sessionId})`)
-    toast('warning', `Hive may not fully understand this ${name} version`, `A ${name}${usage.cliVersion ? ` ${usage.cliVersion}` : ''} session with activity showed no token use, so the Overview and costs may be incomplete. A Hive update will fix it.`)
+    toast(
+      'warning',
+      tr(msg({ id: 'session.format.title', defaultMessage: 'Hive may not fully understand this {provider} version', description: "A notice's title: a coding agent's transcripts show no token use, so its format probably changed. {provider} is the coding agent's name." }), { provider: name }),
+      usage.cliVersion
+        ? tr(msg({ id: 'session.format.bodyVersion', defaultMessage: 'A {provider} {version} session with activity showed no token use, so the Overview and costs may be incomplete. A Hive update will fix it.', description: "The notice that a coding agent's transcripts show no token use. {provider} is the coding agent's name, {version} its version (\"2.1.299\")." }), { provider: name, version: usage.cliVersion })
+        : tr(msg({ id: 'session.format.body', defaultMessage: 'A {provider} session with activity showed no token use, so the Overview and costs may be incomplete. A Hive update will fix it.', description: "The notice that a coding agent's transcripts show no token use. {provider} is the coding agent's name." }), { provider: name })
+    )
   }
 
   /**
@@ -4101,7 +4288,7 @@ class SessionManager {
   private async attachTarget(projectPath: string, agentId?: string): Promise<LiveSession> {
     agentId ||= await this.soleAgent(projectPath)
     const l = this.live.get(liveId(projectPath, agentId))
-    if (!l) throw new Error('No session is running for this agent.')
+    if (!l) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
     return l
   }
 
@@ -4338,7 +4525,7 @@ class SessionManager {
   async archive(projectPath: string, sessionId: string, archived: boolean): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
     assertSessionId(sessionId)
-    if (!(await workspace.sessionsFile(projectPath)).sessions.some((s) => s.id === sessionId)) throw new Error('Only sessions Hive keeps can be archived: adopt it first.')
+    if (!(await workspace.sessionsFile(projectPath)).sessions.some((s) => s.id === sessionId)) throw hiveError(msg({ id: 'session.archive.notKept', defaultMessage: 'Only sessions Hive keeps can be archived: adopt it first.', description: "Archiving a session is refused: it was started outside Hive, so Hive has no copy of it (Adopt keeps one)." }))
     const action = archived ? 'archive' : 'unarchive'
     const active = this.backupPath(projectPath, sessionId)
     const arch = this.backupPath(projectPath, sessionId, true)
@@ -4389,8 +4576,8 @@ class SessionManager {
     return [...this.live.values()].some((l) => l.state.sessionId?.toLowerCase() === id) || [...this.starting.values()].some((p) => p.resumeId?.toLowerCase() === id)
   }
 
-  private assertNotLive(sessionId: string, action: string): void {
-    if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', `Stop the session before you ${action} it.`)
+  private assertNotLive(sessionId: string, action: 'archive' | 'unarchive' | 'delete'): void {
+    if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', withValues(M.stopFirst, { action }))
   }
 
   /** When Hive saw each session's CLI exit (its own sessions): their transcripts are finished. At most 500, the oldest go. */
@@ -4413,24 +4600,24 @@ class SessionManager {
    * of Hive's another program holds is found when it is moved (inUseOnFail).
    */
   private async inUse(projectPath: string, sessionId: string, opts: { writing: boolean }): Promise<SessionInUse | null> {
-    if (this.liveAnywhere(sessionId)) return new SessionInUse('live', 'It is running. Stop it first.')
-    if (beingRead(projectPath, sessionId)) return new SessionInUse('reading', 'Hive is reading its transcript (an export or a search). Try again in a moment.')
-    if (viewingWindows(projectPath, sessionId).length) return new SessionInUse('open', 'Its transcript is open in Hive. Close it, then try again.')
+    if (this.liveAnywhere(sessionId)) return new SessionInUse('live', msg({ id: 'session.inUse.running', defaultMessage: 'It is running. Stop it first.', description: 'A session is left alone (archive, delete): it is running.' }))
+    if (beingRead(projectPath, sessionId)) return new SessionInUse('reading', msg({ id: 'session.inUse.reading', defaultMessage: 'Hive is reading its transcript (an export or a search). Try again in a moment.', description: "A session is left alone (archive, delete) for a moment: Hive is reading its transcript." }))
+    if (viewingWindows(projectPath, sessionId).length) return new SessionInUse('open', msg({ id: 'session.inUse.open', defaultMessage: 'Its transcript is open in Hive. Close it, then try again.', description: "A session is left alone (archive, delete): its transcript is open in Hive's Sessions tab." }))
     const t = await this.providerTranscript(projectPath, sessionId).catch(() => null)
     if (!t) return null
-    if (await heldOpen(t.path)) return new SessionInUse('in-use', 'Another program has its transcript open. Close it, then try again.')
+    if (await heldOpen(t.path)) return new SessionInUse('in-use', M.inUseElsewhere)
     if (!opts.writing) return null
     const s = await stat(t.path).catch(() => null)
     if (s && Date.now() - s.mtimeMs < SESSION_WRITING_MS && !((this.exitedAt.get(sessionId) ?? 0) >= s.mtimeMs)) {
-      return new SessionInUse('in-use', 'Its CLI is still writing its transcript. Try again in a moment.')
+      return new SessionInUse('in-use', msg({ id: 'session.inUse.writing', defaultMessage: 'Its CLI is still writing its transcript. Try again in a moment.', description: "A session is left alone (archive, delete) for a moment: its coding agent is still writing its transcript." }))
     }
     return null
   }
 
-  private async assertFree(projectPath: string, sessionId: string, action: string): Promise<void> {
+  private async assertFree(projectPath: string, sessionId: string, action: 'archive' | 'unarchive' | 'delete'): Promise<void> {
     // Unarchiving moves only Hive's copy back: the CLI still writing its own transcript doesn't matter to it.
     const why = await this.inUse(projectPath, sessionId, { writing: action !== 'unarchive' })
-    if (why?.reason === 'live') throw new SessionInUse('live', `Stop the session before you ${action} it.`)
+    if (why?.reason === 'live') throw new SessionInUse('live', withValues(M.stopFirst, { action }))
     if (why) throw why
   }
 
@@ -4441,23 +4628,25 @@ class SessionManager {
    */
   async bulk(projectPath: string, action: SessionBulkAction, sessionIds: string[]): Promise<SessionBulkResult> {
     projectPath = workspace.assertSessionHost(projectPath)
+    // i18n-ignore: refusals no person sees (the window sends only these)
     if (action !== 'archive' && action !== 'unarchive' && action !== 'delete') throw new Error(`Unknown action: ${String(action)}`)
-    if (!Array.isArray(sessionIds)) throw new Error('sessionIds: a list of session ids')
+    if (!Array.isArray(sessionIds)) throw new Error('sessionIds: a list of session ids') // i18n-ignore: a refusal no person sees (the window sends a list)
     const out: SessionBulkResult = { done: [], skipped: [] }
     for (const id of [...new Set(sessionIds)]) {
       if (!isSessionId(id)) {
-        out.skipped.push({ id: String(id), reason: 'failed', message: 'Not a session id.' })
+        out.skipped.push({ id: String(id), reason: 'failed', message: tr(msg({ id: 'session.bulk.notAnId', defaultMessage: 'Not a session id.', description: "Why a session was left alone by Archive or Delete in the Sessions tab: its id isn't one." })) }) // i18n-ignore: a reason's key
         continue
       }
       try {
         if (action === 'delete') await this.deleteOne(projectPath, id)
         else if (!(await workspace.sessionsFile(projectPath)).sessions.some((s) => s.id === id)) {
-          out.skipped.push({ id, reason: 'external' })
+          out.skipped.push({ id, reason: 'external' }) // i18n-ignore: a reason's key, which the window words
           continue
         } else await this.archive(projectPath, id, action === 'archive')
         out.done.push(id)
       } catch (e) {
-        out.skipped.push(e instanceof SessionInUse ? { id, reason: e.reason } : { id, reason: 'failed', message: e instanceof Error ? e.message : String(e) })
+        // A failure's message in the window's language: bulk is the window's (session:bulk).
+        out.skipped.push(e instanceof SessionInUse ? { id, reason: e.reason } : { id, reason: 'failed', message: shownError(e) }) // i18n-ignore: a reason's key
       }
     }
     log.info(`Sessions: ${action} ${out.done.length}, skipped ${out.skipped.length} (${[...new Set(out.skipped.map((s) => s.reason))].join(', ') || 'none'}) in ${userText(projectPath)}`)
@@ -4493,8 +4682,8 @@ class SessionManager {
    */
   async whileCleaning<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
-    if (this.cleaning.has(k)) throw new Error("Clean Up is already removing this session's files.")
-    if (this.sessionOpen(projectPath, sessionId)) throw new Error('The session is running.')
+    if (this.cleaning.has(k)) throw hiveError(msg({ id: 'session.cleanUp.already', defaultMessage: "Clean Up is already removing this session's files.", description: 'Clean Up… is refused for a session: it is removing its files already.' }))
+    if (this.sessionOpen(projectPath, sessionId)) throw hiveError(M.sessionRunning)
     this.cleaning.add(k)
     try {
       return await fn()
@@ -4509,7 +4698,7 @@ class SessionManager {
    */
   whileStopped<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     return this.whileReserved(projectPath, sessionId, async () => {
-      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', 'It is running, and may attach more files. Stop it first.')
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', msg({ id: 'session.inUse.attaching', defaultMessage: 'It is running, and may attach more files. Stop it first.', description: "Removing a session's attachments is refused: it is running." }))
       return fn()
     })
   }
@@ -4517,7 +4706,7 @@ class SessionManager {
   /** Runs fn (an archive or delete) with the session reserved, as whileCleaning; one already reserved is in use. */
   private async whileReserved<T>(projectPath: string, sessionId: string, fn: () => Promise<T>): Promise<T> {
     const k = `${projectPath.toLowerCase()}|${sessionId.toLowerCase()}`
-    if (this.cleaning.has(k)) throw new SessionInUse('in-use', 'Hive is already archiving, deleting or cleaning up this session.')
+    if (this.cleaning.has(k)) throw new SessionInUse('in-use', msg({ id: 'session.inUse.reserved', defaultMessage: 'Hive is already archiving, deleting or cleaning up this session.', description: 'A session is left alone (archive, delete) for a moment: Hive is moving or removing its files already.' }))
     this.cleaning.add(k)
     try {
       return await fn()
@@ -4537,11 +4726,11 @@ class SessionManager {
    */
   private async assertCleanable(projectPath: string, sessionId: string, expected: string[]): Promise<void> {
     const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
-    if (!rec?.archived) throw new Error('The session is no longer archived.')
-    if (this.sessionOpen(projectPath, sessionId)) throw new Error('The session is running.')
+    if (!rec?.archived) throw hiveError(msg({ id: 'session.cleanUp.unarchived', defaultMessage: 'The session is no longer archived.', description: 'Clean Up… left a session alone: it was unarchived since the preview.' }))
+    if (this.sessionOpen(projectPath, sessionId)) throw hiveError(M.sessionRunning)
     const want = new Set(expected.map((e) => e.toLowerCase()))
     const has = this.backupFiles(projectPath, sessionId).map((b) => b.toLowerCase())
-    if (has.length !== want.size || !has.every((b) => want.has(b))) throw new Error("The session's copies changed since the preview.")
+    if (has.length !== want.size || !has.every((b) => want.has(b))) throw hiveError(msg({ id: 'session.cleanUp.changed', defaultMessage: "The session's copies changed since the preview.", description: "Clean Up… left a session alone: Hive's copies of its transcript changed since the preview." }))
   }
 
   /**
@@ -4556,9 +4745,9 @@ class SessionManager {
     await this.whileCleaning(projectPath, sessionId, () =>
       this.withBackupsLocked(projectPath, sessionId, async () => {
         await this.assertCleanable(projectPath, sessionId, expected)
-        if (!(await this.providerTranscript(projectPath, sessionId))) throw new Error("The CLI no longer has this session's transcript.")
+        if (!(await this.providerTranscript(projectPath, sessionId))) throw hiveError(msg({ id: 'session.cleanUp.cliGone', defaultMessage: "The CLI no longer has this session's transcript.", description: "Clean Up… kept a session's backups: the coding agent's own transcript is gone since the preview." }))
         const used = await this.usage(projectPath, sessionId).catch(() => null)
-        if (!used) throw new Error("Hive couldn't read what the session used, so its backups are kept.")
+        if (!used) throw hiveError(msg({ id: 'session.cleanUp.unreadBackups', defaultMessage: "Hive couldn't read what the session used, so its backups are kept.", description: "Clean Up… kept a session's backups: Hive couldn't read its usage, which the project's totals keep." }))
         await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: { ...used, lastPrompt: null, costUnreported: undefined } })
         await this.assertCleanable(projectPath, sessionId, expected)
         for (const b of this.backupFiles(projectPath, sessionId)) await trash(b)
@@ -4592,13 +4781,13 @@ class SessionManager {
         // Clean Up… (a session whose only copies are Hive's): only as the preview listed it, and only once what it used is saved.
         if (expected) {
           await this.assertCleanable(projectPath, sessionId, expected)
-          if (await this.providerTranscript(projectPath, sessionId)) throw new Error("The CLI has this session's transcript again.")
+          if (await this.providerTranscript(projectPath, sessionId)) throw hiveError(msg({ id: 'session.cleanUp.cliBack', defaultMessage: "The CLI has this session's transcript again.", description: "Clean Up… kept a session: the coding agent's own transcript is back since the preview." }))
         } else await this.assertFree(projectPath, sessionId, 'delete')
         // What it used stays in the project's totals: read, and saved on its record, before its copies go, so the
         // totals survive a failure partway (a record without a transcript counts its keptUsage).
         const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
         const used = rec ? await this.usage(projectPath, sessionId).catch(() => null) : null
-        if (expected && !used) throw new Error("Hive couldn't read what the session used, so it is kept.")
+        if (expected && !used) throw hiveError(msg({ id: 'session.cleanUp.unread', defaultMessage: "Hive couldn't read what the session used, so it is kept.", description: "Clean Up… kept a session: Hive couldn't read its usage, which the project's totals keep." }))
         const usage = used && { ...used, lastPrompt: null, costUnreported: undefined }
         if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
@@ -4712,7 +4901,7 @@ class SessionManager {
       ...(sub ? { sub } : {}),
       id: sessionId,
       agent: provider,
-      name: usage?.title ?? `Adopted session ${sessionId.slice(0, 8)}`,
+      name: usage?.title ?? `Adopted session ${sessionId.slice(0, 8)}`, // i18n-ignore: a session's stored name, which agents read and the user can rename
       titleAtRename: usage?.customTitle ?? null,
       createdAt: usage?.firstActivity ?? new Date().toISOString(),
       lastActiveAt: usage?.lastActivity ?? new Date().toISOString(),

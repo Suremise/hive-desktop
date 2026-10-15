@@ -17,6 +17,7 @@ const { providerService } = await import('../src/main/providerService')
 const { claudeCode } = await import('../src/main/providers/claude/adapter')
 const { hookStep } = await import('../src/main/hookStatus')
 const { stalledOnSignIn } = await import('../src/shared/resumeAll')
+const { englishText } = await import('../src/shared/advanced')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'alpha')
@@ -51,7 +52,8 @@ describe('an expired sign-in across agents', () => {
     w = createWorkspaceService()
     await w.open(wsPath)
     vi.spyOn(providerService, 'refresh').mockResolvedValue([])
-    s.notify = (...a: unknown[]) => void told.push(a)
+    // Its title as agents read it: notices carry their text (#847), shown in the window's language.
+    s.notify = (...a: unknown[]) => void told.push([a[0], englishText(a[1] as never), ...a.slice(2)])
   })
   afterAll(async () => {
     s.live.clear()

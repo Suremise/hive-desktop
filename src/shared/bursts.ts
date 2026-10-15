@@ -74,8 +74,9 @@ export interface Finish {
   /** The project's folder name, and the agent's name. */
   project: string
   agent: string
-  /** The notification it would get alone. */
+  /** The notification it would get alone; `apiTitle`, its title in English for the Agent API (#847), when `title` is translated. */
   title: string
+  apiTitle?: string
   body: string
 }
 
@@ -102,7 +103,7 @@ export function finishedNotice(items: readonly Finish[]): { title: string; body:
 
 /** That notification's title in English, whatever language Hive shows, for the Agent API (#796: agent-facing text stays English). */
 export function finishedApiTitle(items: readonly Finish[]): string {
-  return items.length === 1 ? items[0].title : groupTitle(items, (m, values) => englishText({ m, values: { ...values } }))
+  return items.length === 1 ? (items[0].apiTitle ?? items[0].title) : groupTitle(items, (m, values) => englishText({ m, values: { ...values } }))
 }
 
 /**

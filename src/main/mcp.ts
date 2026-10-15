@@ -2,17 +2,34 @@ import { basename, dirname, extname, join } from 'path'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { createHash } from 'crypto'
-import { tr } from '../shared/i18n'
+import { fmt, tr } from '../shared/i18n'
 import { msg } from '../shared/i18n/msg'
 import { unzipSync } from 'fflate'
 import type { McpFileServer, McpProjectServer, McpServerDef, McpServerInfo, McpShown, McpTurnOn } from '../shared/types'
 import { writeTextUnlessChanged } from './fsutil'
+import { HiveError, hiveError } from './hiveError'
 import { findSecretWarnings } from './mcpSecrets'
 import { allProviders } from './providers'
 import { workspace } from './workspace'
 import { trash } from './trash'
 
 export { findSecretWarnings }
+
+/** MCP servers' refusals and what a server runs, in the window's language (#849); the Agent API's list reads `error` in English. */
+const M = {
+  invalidName: msg({ id: 'mcp.error.invalidName', defaultMessage: 'Invalid server name', description: 'An error: an MCP server name Hive refuses.' }),
+  badName: msg({ id: 'content.mcp.badName', defaultMessage: 'Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.', description: 'An error adding an MCP server: its name has a character a server name can\'t have, is too long, or is hive (Hive\'s own server: keep it).' }),
+  exists: msg({ id: 'content.mcp.exists', defaultMessage: 'A server named "{name}" already exists', description: 'An error making a new MCP server: the workspace has one called {name}.' }),
+  notJson: msg({ id: 'content.mcp.notJson', defaultMessage: "{file} isn't valid JSON ({reason}).", description: "An error adding an MCP server from a file: its definition {file} can't be read as JSON. {reason} is the JSON reader's own words (English)." }),
+  runs: msg({ id: 'content.mcp.runs', defaultMessage: 'Runs: {command}', description: 'What an MCP server runs, shown before it is turned on: {command} is its command line, as it is.' }),
+  connects: msg({ id: 'content.mcp.connects', defaultMessage: 'Connects to: {url}', description: 'What an MCP server connects to, shown before it is turned on: {url} is its address.' }),
+  connectsType: msg({ id: 'content.mcp.connectsType', defaultMessage: 'Connects to: {url} ({type})', description: "What an MCP server connects to, shown before it is turned on: {url} is its address, {type} its transport (http or sse, as the definition says it)." }),
+  folder: msg({ id: 'content.mcp.folder', defaultMessage: 'In: {folder}', description: 'The folder an MCP server runs in, shown before it is turned on.' }),
+  env: msg({ id: 'content.mcp.env', defaultMessage: 'Environment: {items}', description: "An MCP server's environment variables, shown before it is turned on: {items} lists them, each NAME=${VAR} (a reference, as it is) or \"NAME (set)\"." }),
+  headers: msg({ id: 'content.mcp.headers', defaultMessage: 'Headers: {items}', description: "An MCP server's HTTP headers, shown before it is turned on: {items} lists them, each Name=${VAR} (a reference, as it is) or \"Name (set)\"." }),
+  set: msg({ id: 'content.mcp.set', defaultMessage: '{name} (set)', description: "An environment variable or header ({name}) an MCP server's definition gives a value of its own, not shown (it may be a secret)." }),
+  zipLarge: msg({ id: 'content.mcp.zipLarge', defaultMessage: 'The .zip is too large for an MCP server (over {mb} MB unpacked).', description: 'An error adding an MCP server from a .zip: its files take more than {mb} MB unpacked.' })
+}
 
 /** A whole `${VAR}` reference, shown as itself: what it holds comes from the environment when the server starts. */
 const ENV_REF = /^\$\{[^}]+\}$/
@@ -25,16 +42,16 @@ const ENV_REF = /^\$\{[^}]+\}$/
 export function mcpRuns(def: McpServerDef): string[] {
   const quoted = (a: string): string => (/[\s"]/.test(a) || !a ? JSON.stringify(a) : a)
   const out: string[] = []
-  if (typeof def.command === 'string') out.push(`Runs: ${[def.command, ...(Array.isArray(def.args) ? def.args : [])].map((a) => quoted(String(a))).join(' ')}`)
-  if (typeof def.url === 'string') out.push(`Connects to: ${def.url}${typeof def.type === 'string' ? ` (${def.type})` : ''}`)
-  if (typeof def.cwd === 'string') out.push(`In: ${def.cwd}`)
-  const named = (label: string, rec: unknown): void => {
+  if (typeof def.command === 'string') out.push(tr(M.runs, { command: [def.command, ...(Array.isArray(def.args) ? def.args : [])].map((a) => quoted(String(a))).join(' ') }))
+  if (typeof def.url === 'string') out.push(typeof def.type === 'string' ? tr(M.connectsType, { url: def.url, type: def.type }) : tr(M.connects, { url: def.url }))
+  if (typeof def.cwd === 'string') out.push(tr(M.folder, { folder: def.cwd }))
+  const named = (label: typeof M.env | typeof M.headers, rec: unknown): void => {
     if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return
-    const items = Object.entries(rec as Record<string, unknown>).map(([k, v]) => (typeof v === 'string' && ENV_REF.test(v.trim()) ? `${k}=${v.trim()}` : `${k} (set)`))
-    if (items.length) out.push(`${label}: ${items.join(', ')}`)
+    const items = Object.entries(rec as Record<string, unknown>).map(([k, v]) => (typeof v === 'string' && ENV_REF.test(v.trim()) ? `${k}=${v.trim()}` : tr(M.set, { name: k })))
+    if (items.length) out.push(tr(label, { items: fmt.list(items, 'unit') }))
   }
-  named('Environment', def.env)
-  named('Headers', def.headers)
+  named(M.env, def.env)
+  named(M.headers, def.headers)
   return out
 }
 
@@ -55,11 +72,12 @@ export async function listMcp(): Promise<McpServerInfo[]> {
       // Before the text: a revision never stands for newer text than what is shown.
       const revision = (await mcpRevision(path)) ?? undefined
       const def = JSON.parse(await readFile(path, 'utf8')) as McpServerDef
-      if (!def || typeof def !== 'object' || Array.isArray(def)) throw new Error('Definition must be a JSON object')
-      if (!def.command && !def.url) throw new Error('Definition needs a "command" (stdio) or a "url" (http/sse)')
+      if (!def || typeof def !== 'object' || Array.isArray(def)) throw hiveError(msg({ id: 'content.mcp.listNotObject', defaultMessage: 'Definition must be a JSON object', description: "Why an MCP server in the workspace can't be used: its definition file (.hive/mcp/<name>.json) holds JSON that isn't an object." }))
+      if (!def.command && !def.url) throw hiveError(msg({ id: 'content.mcp.listNoCommand', defaultMessage: 'Definition needs a "command" (stdio) or a "url" (http/sse)', description: "Why an MCP server in the workspace can't be used: its definition has neither of the two fields that say what it is. Keep \"command\", \"url\", stdio, http and sse as they are." }))
       out.push({ name, path, def, revision, globallyEnabled: enabled.has(name), secretWarnings: findSecretWarnings(def), runs: mcpRuns(def) })
     } catch (e) {
-      out.push({ name, path, def: null, error: (e as Error).message, globallyEnabled: enabled.has(name), secretWarnings: [], runs: [] })
+      // Hive's own words are text the window shows in its language; JSON's reader's stay as it gave them.
+      out.push({ name, path, def: null, error: (e as Error).message, ...(e instanceof HiveError ? { errorText: e.text } : {}), globallyEnabled: enabled.has(name), secretWarnings: [], runs: [] })
     }
   }
   return out
@@ -106,7 +124,7 @@ async function checkShown(name: string, expected: McpShown): Promise<void> {
   // The installation (a replace writes a new file, even with the same text and new code beside it) and the text.
   const revision = await mcpRevision(path)
   const now = await readFile(path, 'utf8').then((t) => JSON.parse(t) as unknown, () => null)
-  if (!now || !revision || revision !== expected.revision || JSON.stringify(now) !== JSON.stringify(expected.def)) throw new Error(`${name} has changed since it was shown to you. Check what it runs and enable it again.`)
+  if (!now || !revision || revision !== expected.revision || JSON.stringify(now) !== JSON.stringify(expected.def)) throw hiveError(msg({ id: 'content.mcp.changed', defaultMessage: '{name} has changed since it was shown to you. Check what it runs and enable it again.', description: 'An error turning an MCP server on: its definition ({name} is the server) changed after Hive showed what it runs, so it stays off until checked again.' }), { name }, { kind: 'conflict' })
 }
 
 /**
@@ -135,9 +153,9 @@ async function mcpRevision(path: string): Promise<string | null> {
  * all projects. Turning it on with `expected`: refused when the definition is no longer the one shown (checkShown).
  */
 export function setMcpProject(projectPath: string, name: string, enabled: boolean, expected?: McpShown): Promise<void> {
-  if (!validMcpName(name)) return Promise.reject(new Error(tr(msg({ id: 'mcp.error.invalidName', defaultMessage: 'Invalid server name', description: 'An error: an MCP server name Hive refuses.' }))))
+  if (!validMcpName(name)) return Promise.reject(hiveError(M.invalidName))
   return inTurn(async () => {
-    if (enabled && !existsSync(join(workspace.mcpDir, `${name}.json`))) throw new Error(tr(msg({ id: 'mcp.error.noServer', defaultMessage: 'The workspace has no MCP server named {name}.', description: 'An error turning a server on in a project. {name} is its name.' }), { name }))
+    if (enabled && !existsSync(join(workspace.mcpDir, `${name}.json`))) throw hiveError(msg({ id: 'mcp.error.noServer', defaultMessage: 'The workspace has no MCP server named {name}.', description: 'An error turning a server on in a project. {name} is its name.' }), { name }, { kind: 'notFound' })
     if (enabled && expected) await checkShown(name, expected)
     await setProjectNow(projectPath, name, enabled)
   })
@@ -192,39 +210,39 @@ export function validMcpName(name: string): boolean {
 }
 
 export async function createMcp(name: string): Promise<McpServerInfo> {
-  if (!validMcpName(name)) throw new Error('Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.')
+  if (!validMcpName(name)) throw hiveError(M.badName, undefined, { kind: 'invalid' })
   const path = join(workspace.mcpDir, `${name}.json`)
   const template: McpServerDef = {
-    description: 'Describe what this server provides.',
+    description: 'Describe what this server provides.', // i18n-ignore: a new definition file's text
     command: 'npx',
     args: ['-y', 'your-mcp-server-package'],
     env: { EXAMPLE_TOKEN: '${EXAMPLE_TOKEN}' }
   }
   // Off everywhere (#713): a template runs nothing until it is written and turned on.
   return inTurn(async () => {
-    if (existsSync(path)) throw new Error(`A server named "${name}" already exists`)
+    if (existsSync(path)) throw hiveError(M.exists, { name }, { kind: 'conflict' })
     await offEverywhere(name)
     await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx' }).catch((e: NodeJS.ErrnoException) => {
-      throw e.code === 'EEXIST' ? new Error(`A server named "${name}" already exists`) : e
+      throw e.code === 'EEXIST' ? hiveError(M.exists, { name }, { kind: 'conflict' }) : e
     })
     return (await listMcp()).find((m) => m.name === name)!
   })
 }
 
 export async function readMcp(name: string): Promise<string> {
-  if (!validMcpName(name)) throw new Error('Invalid server name')
+  if (!validMcpName(name)) throw hiveError(M.invalidName)
   return readFile(join(workspace.mcpDir, `${name}.json`), 'utf8')
 }
 
 export async function saveMcp(name: string, text: string, expected?: string): Promise<McpServerInfo> {
-  if (!validMcpName(name)) throw new Error('Invalid server name')
+  if (!validMcpName(name)) throw hiveError(M.invalidName)
   JSON.parse(text) // throws a useful message on invalid JSON
   await writeTextUnlessChanged(join(workspace.mcpDir, `${name}.json`), text.endsWith('\n') ? text : text + '\n', expected)
   return (await listMcp()).find((m) => m.name === name)!
 }
 
 export async function deleteMcp(name: string): Promise<void> {
-  if (!validMcpName(name)) throw new Error('Invalid server name')
+  if (!validMcpName(name)) throw hiveError(M.invalidName)
   return inTurn(async () => {
     // To the Recycle Bin, like files, skills, personas and sessions.
     const file = join(workspace.mcpDir, `${name}.json`)
@@ -275,17 +293,17 @@ const MCP_JSON_MAX_BYTES = 1024 * 1024
 
 /** A definition from a file, checked as launches need it, so a broken one is never added. */
 export function checkMcpDef(raw: unknown): McpServerDef {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('The definition must be a JSON object, as in .hive/mcp/<name>.json.')
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw hiveError(msg({ id: 'content.mcp.notObject', defaultMessage: 'The definition must be a JSON object, as in {path}.', description: "An error adding an MCP server from a file whose definition holds JSON that isn't an object. {path} is where a workspace keeps one (.hive/mcp/<name>.json)." }), { path: '.hive/mcp/<name>.json' })
   const def = raw as McpServerDef
-  if (typeof def.command !== 'string' && typeof def.url !== 'string') throw new Error('The definition needs a "command" (a server Hive starts) or a "url" (an http or sse server).')
-  if (def.command !== undefined && (typeof def.command !== 'string' || !def.command.trim())) throw new Error('"command" must be the program to run.')
-  if (def.url !== undefined && (typeof def.url !== 'string' || !/^https?:\/\//i.test(def.url))) throw new Error('"url" must be an http:// or https:// address.')
-  if (def.args !== undefined && (!Array.isArray(def.args) || def.args.some((a) => typeof a !== 'string'))) throw new Error('"args" must be a list of strings.')
+  if (typeof def.command !== 'string' && typeof def.url !== 'string') throw hiveError(msg({ id: 'content.mcp.noCommand', defaultMessage: 'The definition needs a "command" (a server Hive starts) or a "url" (an http or sse server).', description: 'An error adding an MCP server from a file whose definition has neither field that says what it is. Keep "command", "url", http and sse as they are.' }))
+  if (def.command !== undefined && (typeof def.command !== 'string' || !def.command.trim())) throw hiveError(msg({ id: 'content.mcp.badCommand', defaultMessage: '"command" must be the program to run.', description: 'An error adding an MCP server from a file: its definition\'s "command" field (keep it as it is) is empty or not text.' }))
+  if (def.url !== undefined && (typeof def.url !== 'string' || !/^https?:\/\//i.test(def.url))) throw hiveError(msg({ id: 'content.mcp.badUrl', defaultMessage: '"url" must be an http:// or https:// address.', description: 'An error adding an MCP server from a file: its definition\'s "url" field (keep it as it is) isn\'t a web address.' }))
+  if (def.args !== undefined && (!Array.isArray(def.args) || def.args.some((a) => typeof a !== 'string'))) throw hiveError(msg({ id: 'content.mcp.badArgs', defaultMessage: '"args" must be a list of strings.', description: 'An error adding an MCP server from a file: its definition\'s "args" field (keep it as it is) isn\'t a list of text.' }))
   for (const k of ['env', 'headers'] as const) {
     const v = def[k]
-    if (v !== undefined && (!v || typeof v !== 'object' || Array.isArray(v) || Object.values(v).some((x) => typeof x !== 'string'))) throw new Error(`"${k}" must be an object of strings.`)
+    if (v !== undefined && (!v || typeof v !== 'object' || Array.isArray(v) || Object.values(v).some((x) => typeof x !== 'string'))) throw hiveError(msg({ id: 'content.mcp.badRecord', defaultMessage: '"{field}" must be an object of strings.', description: 'An error adding an MCP server from a file: its definition\'s {field} field (env or headers, as it is) isn\'t a set of names with text values.' }), { field: k })
   }
-  if (def.cwd !== undefined && typeof def.cwd !== 'string') throw new Error('"cwd" must be a folder.')
+  if (def.cwd !== undefined && typeof def.cwd !== 'string') throw hiveError(msg({ id: 'content.mcp.badCwd', defaultMessage: '"cwd" must be a folder.', description: 'An error adding an MCP server from a file: its definition\'s "cwd" field (keep it as it is) isn\'t text.' }))
   return def
 }
 
@@ -304,7 +322,7 @@ export function zipLinks(data: Uint8Array): string[] {
       break
     }
   }
-  if (end < 0) throw new Error("The .zip can't be read: it has no list of its files.")
+  if (end < 0) throw hiveError(msg({ id: 'content.mcp.zipUnreadable', defaultMessage: "The .zip can't be read: it has no list of its files.", description: "An error adding an MCP server from a .zip that isn't one (no central directory: the list of its files)." }))
   const count = v.getUint16(end + 10, true)
   let at = v.getUint32(end + 16, true)
   const links: string[] = []
@@ -324,21 +342,21 @@ export function zipLinks(data: Uint8Array): string[] {
  */
 export function serverFromZip(data: Uint8Array): { def: McpServerDef; files: Map<string, Uint8Array>; folder: string | null } {
   const links = zipLinks(data)
-  if (links.length) throw new Error(`The .zip has a link, which Hive doesn't unpack: ${links[0]}`)
+  if (links.length) throw hiveError(msg({ id: 'content.mcp.zipLink', defaultMessage: "The .zip has a link, which Hive doesn't unpack: {path}", description: 'An error adding an MCP server from a .zip with a symbolic link in it ({path}), which could point outside its folder.' }), { path: links[0] })
   let total = 0
   const entries = unzipSync(data, {
     filter: (f) => {
       total += f.originalSize
-      if (total > MCP_ZIP_MAX_BYTES) throw new Error('The .zip is too large for an MCP server (over 200 MB unpacked).')
+      if (total > MCP_ZIP_MAX_BYTES) throw hiveError(M.zipLarge, { mb: MCP_ZIP_MAX_BYTES / 1024 / 1024 })
       return true
     }
   })
   const norm = (n: string): string => n.replace(/\\/g, '/')
   const names = Object.keys(entries).filter((n) => !norm(n).endsWith('/') && !/(^|\/)(__MACOSX|\.DS_Store)(\/|$)/.test(norm(n)))
-  if (names.length > MCP_ZIP_MAX_FILES) throw new Error(`The .zip has too many files for an MCP server (over ${MCP_ZIP_MAX_FILES}).`)
+  if (names.length > MCP_ZIP_MAX_FILES) throw hiveError(msg({ id: 'content.mcp.zipTooMany', defaultMessage: 'The .zip has too many files for an MCP server (over {max}).', description: 'An error adding an MCP server from a .zip with more than {max} files.' }), { max: MCP_ZIP_MAX_FILES })
   for (const n of names) {
     const rel = norm(n)
-    if (/^[a-z]:|^\//i.test(rel) || rel.split('/').some(unsafePart)) throw new Error(`The .zip has a file with an unsafe path: ${n}`)
+    if (/^[a-z]:|^\//i.test(rel) || rel.split('/').some(unsafePart)) throw hiveError(msg({ id: 'content.mcp.zipUnsafe', defaultMessage: 'The .zip has a file with an unsafe path: {path}', description: "An error adding an MCP server from a .zip: a file's path ({path}) would land outside its folder, or Windows can't have it." }), { path: n })
   }
   const at = (prefix: string): string | undefined => MCP_ZIP_DEFINITIONS.map((d) => prefix + d).find((d) => names.some((n) => norm(n) === d))
   let prefix = ''
@@ -348,7 +366,7 @@ export function serverFromZip(data: Uint8Array): { def: McpServerDef; files: Map
     const tops = new Set(names.map((n) => norm(n).split('/')[0]))
     const top = tops.size === 1 ? [...tops][0] : null
     found = top ? at(`${top}/`) : undefined
-    if (!top || !found) throw new Error(`No ${MCP_ZIP_DEFINITIONS.join(' or ')} found. A server .zip has its definition at its top level, or inside one folder.`)
+    if (!top || !found) throw hiveError(msg({ id: 'content.mcp.zipNoDefinition', defaultMessage: 'No {files} found. A server .zip has its definition at its top level, or inside one folder.', description: 'An error adding an MCP server from a .zip without a definition where Hive looks. {files} are the file names it looks for, joined with "or".' }), { files: { list: MCP_ZIP_DEFINITIONS, type: 'disjunction' } })
     prefix = `${top}/`
     folder = top
   }
@@ -357,7 +375,7 @@ export function serverFromZip(data: Uint8Array): { def: McpServerDef; files: Map
   try {
     raw = JSON.parse(new TextDecoder().decode(entries[defEntry]))
   } catch (e) {
-    throw new Error(`${found} isn't valid JSON (${(e as Error).message}).`, { cause: e })
+    throw hiveError(M.notJson, { file: found, reason: (e as Error).message }, { cause: e })
   }
   const def = checkMcpDef(raw)
   const files = new Map<string, Uint8Array>()
@@ -389,9 +407,12 @@ function retarget(def: McpServerDef, from: string, to: string): McpServerDef {
  */
 async function readServerFile(file: string): Promise<{ def: McpServerDef; files: Map<string, Uint8Array> | null; folder: string | null; name: string; hash: string }> {
   const ext = extname(file).toLowerCase()
-  if (ext !== '.json' && ext !== '.zip') throw new Error('Choose a .json definition or a .zip of a server folder.')
+  if (ext !== '.json' && ext !== '.zip') throw hiveError(msg({ id: 'content.mcp.chooseFile', defaultMessage: 'Choose a .json definition or a .zip of a server folder.', description: 'An error adding an MCP server from a file that is neither a .json definition nor a .zip.' }), undefined, { kind: 'invalid' })
   const max = ext === '.json' ? MCP_JSON_MAX_BYTES : MCP_ZIP_MAX_BYTES
-  const tooLarge = (): Error => (ext === '.json' ? new Error('The .json is too large for an MCP server definition (over 1 MB).') : new Error('The .zip is too large for an MCP server (over 200 MB).'))
+  const tooLarge = (): Error =>
+    ext === '.json'
+      ? hiveError(msg({ id: 'content.mcp.jsonLarge', defaultMessage: 'The .json is too large for an MCP server definition (over {mb} MB).', description: 'An error adding an MCP server from a .json file over {mb} MB.' }), { mb: MCP_JSON_MAX_BYTES / 1024 / 1024 })
+      : hiveError(msg({ id: 'content.mcp.zipFileLarge', defaultMessage: 'The .zip is too large for an MCP server (over {mb} MB).', description: 'An error adding an MCP server from a .zip file over {mb} MB.' }), { mb: MCP_ZIP_MAX_BYTES / 1024 / 1024 })
   if ((await stat(file)).size > max) throw tooLarge()
   const data = await readFile(file)
   // The stat is a snapshot: a file that grew after it is held to the limit by the bytes read.
@@ -402,7 +423,7 @@ async function readServerFile(file: string): Promise<{ def: McpServerDef; files:
     try {
       raw = JSON.parse(data.toString('utf8'))
     } catch (e) {
-      throw new Error(`${basename(file)} isn't valid JSON (${(e as Error).message}).`, { cause: e })
+      throw hiveError(M.notJson, { file: basename(file), reason: (e as Error).message }, { cause: e })
     }
     const stem = basename(file, ext)
     // The mcp repo's hive-mcp.example.json is named after its folder.
@@ -437,11 +458,11 @@ function serverExists(name: string, folder: boolean): boolean {
  * (inTurn): an enable waiting meanwhile was for the old definition, so it is refused (setMcpGlobal's expected).
  */
 export async function addMcpFromFile(file: string, name: string, replace = false, turnOn: McpTurnOn = 'none', shown?: string): Promise<McpServerInfo> {
-  if (!validMcpName(name)) throw new Error('Server names may contain letters, numbers, "-" and "_" (max 64 characters). "hive" is reserved.')
+  if (!validMcpName(name)) throw hiveError(M.badName, undefined, { kind: 'invalid' })
   const r = await readServerFile(file)
-  if ((turnOn !== 'none' || shown !== undefined) && r.hash !== shown) throw new Error(tr(msg({ id: 'mcp.error.fileChanged', defaultMessage: '{file} has changed since it was shown to you. Add it again to see what it runs.', description: 'An error adding an MCP server from a file that changed after the add dialog showed it. {file} is the file name.' }), { file: basename(file) }))
+  if ((turnOn !== 'none' || shown !== undefined) && r.hash !== shown) throw hiveError(msg({ id: 'mcp.error.fileChanged', defaultMessage: '{file} has changed since it was shown to you. Add it again to see what it runs.', description: 'An error adding an MCP server from a file that changed after the add dialog showed it. {file} is the file name.' }), { file: basename(file) }, { kind: 'conflict' })
   const def = r.folder ? retarget(r.def, r.folder, name) : r.def
-  const taken = (): Error => new Error(`A server named "${name}" already exists: choose another name, or replace it.`)
+  const taken = (): Error => hiveError(msg({ id: 'content.mcp.taken', defaultMessage: 'A server named "{name}" already exists: choose another name, or replace it.', description: 'An error adding an MCP server from a file under the name {name}, which a server of the workspace has.' }), { name }, { kind: 'conflict' })
   return inTurn(async () => {
     const dir = workspace.mcpDir
     const json = join(dir, `${name}.json`)
@@ -519,6 +540,7 @@ export async function importFromProject(projectPath: string, names: string[], sh
       // A name used before starts with no project's choice.
       await offEverywhere(n)
       // Never over one that appeared meanwhile.
+      // i18n-ignore: the definition file's text (a description the CLIs drop)
       const wrote = await writeFile(path, JSON.stringify({ description: `Imported from project ${basename(projectPath)}`, ...def }, null, 2) + '\n', { flag: 'wx' }).then(
         () => true,
         (e: NodeJS.ErrnoException) => {

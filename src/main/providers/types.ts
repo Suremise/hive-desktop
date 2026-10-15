@@ -2,6 +2,7 @@ import type { AgentInstallInfo, AutoCompactSetting, CatalogModel, EffortLevel, M
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 import type { SafeguardEvent } from '../../shared/safeguards'
+import type { Text } from '../../shared/advanced'
 
 export interface LaunchSkill {
   name: string
@@ -118,6 +119,8 @@ export interface Ask {
   blocking: boolean
   /** What it asks, for the status and the notification ('' when the CLI doesn't say). */
   message: string
+  /** When `message` is Hive's own words (a safeguard prompt, #606), not the CLI's: as the window shows them (#847). */
+  text?: Text
   /** The tool call it is about (ToolEnd's `call`), when the CLI says: that call ending answers it. */
   call?: string
 }

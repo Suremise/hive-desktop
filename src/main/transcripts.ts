@@ -2,12 +2,19 @@ import { open, stat } from 'original-fs/promises'
 import type { ProviderId, Transcript, TranscriptItem, TranscriptSearchResult, TranscriptTool } from '../shared/types'
 import { TRANSCRIPT_WINDOW, assertSessionId } from '../shared/defaults'
 import { formatDateTime } from '../shared/dates'
+import { msg, tr } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { provider } from './providers'
 import { searchItems, shownNotice, transcriptMarkdown } from './providers/conversation'
 import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
 import { setViewing, whileReading } from './transcriptReads'
 import { workspace } from './workspace'
+
+/** The Sessions tab's refusals, in the window's language (#850). */
+const M = {
+  busy: msg({ id: 'service.transcripts.busy', defaultMessage: 'This session is being archived or deleted. Try again in a moment.', description: "An error opening a session's conversation in the Sessions tab while it is being archived or deleted." })
+}
 
 /**
  * The Sessions tab's transcript viewer. Parsed transcripts are cached and followed incrementally
@@ -53,7 +60,7 @@ async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
   // The id becomes part of a file name, so only accept plain ids (UUIDs).
   assertSessionId(sessionId)
   // Not while its files move: archiving or deleting it reserves it first.
-  if (sessions.reserved(projectPath, sessionId)) throw new Error('This session is being archived or deleted. Try again in a moment.')
+  if (sessions.reserved(projectPath, sessionId)) throw hiveError(M.busy, undefined, { kind: 'conflict' })
   const key = `${projectPath.toLowerCase()}|${sessionId}`
   const run = (pending.get(key) ?? Promise.resolve()).then(
     () => whileReading(projectPath, sessionId, () => parseNow(projectPath, sessionId, key)),
@@ -69,7 +76,7 @@ async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
 
 async function parseNow(projectPath: string, sessionId: string, key: string): Promise<Entry> {
   const path = await sessions.anyTranscript(projectPath, sessionId)
-  if (!path) throw new Error('This session has no transcript yet.')
+  if (!path) throw hiveError(msg({ id: 'service.transcripts.none', defaultMessage: 'This session has no transcript yet.', description: "An error in the Sessions tab: the session's CLI hasn't written its conversation's file yet." }), undefined, { kind: 'notFound' })
   const size = (await stat(path)).size
   let e = cache.get(key)
   // A different file (the provider deleted it and Hive's backup is used) or a shorter one means start again.
@@ -128,7 +135,7 @@ export const transcripts = {
 
   async tool(projectPath: string, sessionId: string, itemId: number): Promise<TranscriptTool> {
     const item = (await parsed(projectPath, sessionId)).parser.items[itemId]
-    if (item?.kind !== 'tool') throw new Error('No such tool call')
+    if (item?.kind !== 'tool') throw hiveError(msg({ id: 'service.transcripts.noTool', defaultMessage: 'No such tool call', description: "An error in the Sessions tab: the tool call asked for isn't in the conversation (any more)." }), undefined, { kind: 'notFound' })
     return item.tool
   },
 
@@ -140,10 +147,10 @@ export const transcripts = {
   async imageNow(projectPath: string, sessionId: string, imageId: number): Promise<string> {
     const e = await parsed(projectPath, sessionId)
     const loc = e.parser.images[imageId]
-    if (!loc) throw new Error('No such image')
+    if (!loc) throw hiveError(msg({ id: 'service.transcripts.noImage', defaultMessage: 'No such image', description: "An error in the Sessions tab: the image asked for isn't in the conversation (any more)." }), undefined, { kind: 'notFound' })
     const entry = JSON.parse((await readRange(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
     const url = provider(e.provider).imageData(entry, loc)
-    if (!url) throw new Error('The image is not stored in the transcript')
+    if (!url) throw hiveError(msg({ id: 'service.transcripts.imageNotKept', defaultMessage: 'The image is not stored in the transcript', description: "An error in the Sessions tab: the conversation's file mentions the image but doesn't hold it." }), undefined, { kind: 'notFound' })
     return url
   },
 
@@ -152,7 +159,7 @@ export const transcripts = {
     projectPath = workspace.assertSessionHost(projectPath)
     if (sessionId !== null) assertSessionId(sessionId)
     // Not a session being archived or deleted: its view opens once that is over (and reads it then).
-    if (sessionId !== null && sessions.reserved(projectPath, sessionId)) throw new Error('This session is being archived or deleted. Try again in a moment.')
+    if (sessionId !== null && sessions.reserved(projectPath, sessionId)) throw hiveError(M.busy, undefined, { kind: 'conflict' })
     setViewing(window, view, projectPath, sessionId)
   },
 
@@ -187,6 +194,7 @@ export const transcripts = {
     const e = await parsed(projectPath, sessionId)
     const project = workspace.assertSessionHost(projectPath)
     const p = provider(e.provider)
-    return transcriptMarkdown(e.parser.items, title, `${p.exportSubtitle(sessionId, project)} · exported from Hive ${formatDateTime(new Date())}`, p.descriptor.assistant)
+    const subtitle = tr(msg({ id: 'service.transcripts.exported', defaultMessage: '{session} · exported from Hive {date}', description: 'The line under the title of a conversation exported as Markdown (Sessions tab → Export): {session} says which session it was, {date} when it was exported.' }), { session: p.exportSubtitle(sessionId, project), date: formatDateTime(new Date()) })
+    return transcriptMarkdown(e.parser.items, title, subtitle, p.descriptor.assistant)
   }
 }

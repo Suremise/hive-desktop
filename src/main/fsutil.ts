@@ -4,6 +4,9 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'path'
 import { createHash } from 'crypto'
 import { readdir } from 'original-fs/promises'
 import { join } from 'path'
+import { msg } from '../shared/i18n'
+import { withValues } from '../shared/advanced'
+import { HiveError } from './hiveError'
 
 export async function readJson<T>(path: string, fallback: T): Promise<T> {
   try {
@@ -368,7 +371,7 @@ async function appendRange(src: string, dest: string, from: number, to: number):
       const buf = Buffer.alloc(Math.min(4 * 1024 * 1024, to - from))
       for (let pos = from; pos < to; ) {
         const { bytesRead } = await r.read(buf, 0, Math.min(buf.length, to - pos), pos)
-        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`)
+        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`) // i18n-ignore: a low-level copy error, worded as Node's own (an outer error or the log says what failed)
         // A write can take less than it was given: the rest follows.
         for (let off = 0; off < bytesRead; ) off += (await w.write(buf, off, bytesRead - off, pos + off)).bytesWritten
         pos += bytesRead
@@ -381,7 +384,7 @@ async function appendRange(src: string, dest: string, from: number, to: number):
   }
   // At least `to`: an overlapping copy may have gone further.
   const got = (await stat(dest)).size
-  if (got < to) throw new Error(`The copy of ${src} is ${got} bytes, not ${to}`)
+  if (got < to) throw new Error(`The copy of ${src} is ${got} bytes, not ${to}`) // i18n-ignore: a low-level copy error, worded as Node's own (an outer error or the log says what failed)
 }
 
 /**
@@ -455,7 +458,7 @@ function copyRangeSync(src: string, dest: string, flags: 'r+' | 'w', from: numbe
       for (let pos = from; pos < to; ) {
         if (Date.now() >= deadline) return false
         const bytesRead = readSync(r, buf, 0, Math.min(buf.length, to - pos), pos)
-        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`)
+        if (!bytesRead) throw new Error(`${src} ended before ${to} bytes`) // i18n-ignore: a low-level copy error, worded as Node's own (an outer error or the log says what failed)
         for (let off = 0; off < bytesRead; ) off += writeSync(w, buf, off, bytesRead - off, pos + off)
         pos += bytesRead
       }
@@ -573,8 +576,8 @@ let swapCounter = 0
 /** A swap that found its destination no longer as expected: nothing was replaced, and the destination is as it was. */
 export class SwapAbandoned extends Error {}
 
-/** A swap whose copy couldn't be made (its source gone, unreadable or changing): nothing was replaced. `cause` is why. */
-export class CopyFailed extends Error {}
+/** A swap whose copy couldn't be made (its source gone, unreadable or changing): nothing was replaced. `cause` is why. Restore (Skills, modes) shows it in the window's language (#850). */
+export class CopyFailed extends HiveError {}
 
 /**
  * Why a skill's source couldn't be copied, without its path (the user's): gone, a file in it gone, not allowed, or
@@ -582,10 +585,10 @@ export class CopyFailed extends Error {}
  */
 export function sourceProblem(e: unknown, source: string): string {
   const code = ((e instanceof CopyFailed ? e.cause : e) as NodeJS.ErrnoException)?.code
-  if (code === 'ENOENT') return existsSync(source) ? 'a file in it went while it was being copied' : 'its folder in the workspace is gone'
-  if (code === 'EACCES' || code === 'EPERM') return 'its folder in the workspace could not be read (access denied)'
+  if (code === 'ENOENT') return existsSync(source) ? 'a file in it went while it was being copied' : 'its folder in the workspace is gone' // i18n-ignore: a skill delivery's problem, which the launch's problems (agents) say
+  if (code === 'EACCES' || code === 'EPERM') return 'its folder in the workspace could not be read (access denied)' // i18n-ignore: a skill delivery's problem, which the launch's problems (agents) say
   // Anything else (a disk full, a write that failed) is about making the copy, not the source.
-  return `it could not be copied${code ? ` (${code})` : ''}`
+  return `it could not be copied${code ? ` (${code})` : ''}` // i18n-ignore: a skill delivery's problem, which the launch's problems (agents) say
 }
 
 /** What a path holds, to compare with what a swap expects: its contentHash, null if nothing is there. */
@@ -651,7 +654,7 @@ export async function swapIn(src: string, dest: string, o: { prepare?: (copy: st
       revision = await contentHash(fresh)
     } catch (e) {
       if (e instanceof ContentTooLarge || e instanceof LinkNotCopied) throw e
-      throw new CopyFailed(`${name} could not be copied`, { cause: e })
+      throw new CopyFailed(withValues(msg({ id: 'service.fsutil.notCopied', defaultMessage: '{name} could not be copied', description: "An error putting back one of Hive's skills or modes: its copy couldn't be made ({name}: its folder or file name); nothing was replaced." }), { name }), { cause: e })
     }
     await o.prepare?.(fresh, revision)
   } catch (e) {
@@ -667,17 +670,17 @@ export async function swapIn(src: string, dest: string, o: { prepare?: (copy: st
     else await keepAsConflict(p, parent, name)
   }
   const publish = async (): Promise<void> => {
-    if (check && (await hashOrNone(dest)) !== o.expected) throw new SwapAbandoned(`${name} changed before it could be replaced`)
+    if (check && (await hashOrNone(dest)) !== o.expected) throw new SwapAbandoned(`${name} changed before it could be replaced`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     const had = await exists(dest)
     // A file in the old one held open by a running session keeps it from moving: a few tries, then it stays.
     if (had) await renameRetrying(dest, old, 5)
     if (had && check && (await hashOrNone(old)) !== o.expected) {
       await renameRetrying(old, dest).catch(() => keepAsConflict(old, parent, name))
-      throw new SwapAbandoned(`${name} changed while it was being replaced`)
+      throw new SwapAbandoned(`${name} changed while it was being replaced`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     }
     try {
       // Something new in its place meanwhile (the user's): it stays. On Windows the rename would fail anyway.
-      if (check && (await exists(dest))) throw new SwapAbandoned(`${name} was put back while it was being replaced`)
+      if (check && (await exists(dest))) throw new SwapAbandoned(`${name} was put back while it was being replaced`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
       // The copy was just written: a scanner may be looking at it for a moment.
       await renameRetrying(fresh, dest)
     } catch (e) {
@@ -698,17 +701,17 @@ export async function swapIn(src: string, dest: string, o: { prepare?: (copy: st
       } catch {
         // The new version can't move: it stays, and the user's edited old one is kept beside it.
         await keepAsConflict(old, parent, name)
-        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`)
+        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
       }
       try {
         await renameRetrying(old, dest)
       } catch {
         await renameRetrying(back, dest).catch(() => keepAsConflict(back, parent, name))
         await keepAsConflict(old, parent, name)
-        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`)
+        throw new SwapAbandoned(`${name} changed while it was being replaced; the edited copy is kept beside it`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
       }
       await dispose(back, staged)
-      throw new SwapAbandoned(`${name} changed while it was being replaced`)
+      throw new SwapAbandoned(`${name} changed while it was being replaced`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     }
     await rm(old, { recursive: true, force: true }).catch(() => undefined)
   }
@@ -735,17 +738,17 @@ export async function swapOut(dest: string, expected: string): Promise<void> {
   const name = dest.slice(parent.length + 1)
   const old = join(parent, `.${name}.hive-old-${tag}`)
   const remove = async (): Promise<void> => {
-    if ((await hashOrNone(dest)) !== expected) throw new SwapAbandoned(`${name} changed before it could be removed`)
+    if ((await hashOrNone(dest)) !== expected) throw new SwapAbandoned(`${name} changed before it could be removed`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     await renameRetrying(dest, old, 5)
     const putBack = async (why: string): Promise<never> => {
       if (!(await exists(dest))) await renameRetrying(old, dest).catch(() => keepAsConflict(old, parent, name))
       else await keepAsConflict(old, parent, name)
       throw new SwapAbandoned(why)
     }
-    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`)
+    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     // Something new in its place meanwhile is the user's: it stays, and so does what was moved aside (as a conflict copy
     // if it was changed: it is removed only while it is still exactly Hive's).
-    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`)
+    if ((await hashOrNone(old)) !== expected) await putBack(`${name} changed while it was being removed`) // i18n-ignore: why a swap was abandoned, for the log and a skill delivery's problem (agents); no person is shown it
     await rm(old, { recursive: true, force: true })
   }
   await withFileLocks(await filesIn(dest), remove)
@@ -837,10 +840,10 @@ export const HASH_LIMITS = { entries: 2000, depth: 12, bytes: 64 * 1024 * 1024 }
 export class ContentTooLarge extends Error {}
 
 /** ContentTooLarge's reason for content over the byte limit (the same whether a stat or the read found it). */
-export const overBytes = (limit: number): string => `it is over ${Math.round(limit / 1024 / 1024)} MB`
+export const overBytes = (limit: number): string => `it is over ${Math.round(limit / 1024 / 1024)} MB` // i18n-ignore: why a skill is too big, a delivery's problem (agents) and a kept revision's reason
 
 /** A launch's problem for a skill over HASH_LIMITS. */
-export const tooBigToDeliver = (e: ContentTooLarge): string => `it is too big for Hive to check (${e.message})`
+export const tooBigToDeliver = (e: ContentTooLarge): string => `it is too big for Hive to check (${e.message})` // i18n-ignore: a skill delivery's problem, which the launch's problems (agents) say
 
 export interface HashOptions {
   /** Stops the work (a closed workspace): the call rejects with the signal's reason. */
@@ -866,12 +869,12 @@ async function treeEntries(path: string, o: HashOptions): Promise<TreeEntry[]> {
   let seen = 0
   const walk = async (rel: string, depth: number): Promise<void> => {
     o.signal?.throwIfAborted()
-    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`)
+    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`) // i18n-ignore: why a skill is too big, a delivery's problem (agents) and a kept revision's reason
     // The limit is on the skill's own entries: Hive's copy marker (one a folder at most) comes on top, so a skill at the
     // limit is still within it once Hive has marked its copy. The listing stays bounded: at most one more than allowed.
     const list = await readDirBounded(rel ? join(path, rel) : path, lim.entries - seen + 1, o.signal, o.count)
     const own = list.entries.length - (list.entries.some((e) => e.name === COPY_MARKER) ? 1 : 0)
-    if (list.more || seen + own > lim.entries) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`)
+    if (list.more || seen + own > lim.entries) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`) // i18n-ignore: why a skill is too big, a delivery's problem (agents) and a kept revision's reason
     seen += own
     for (const e of list.entries) {
       const r = rel ? `${rel}/${e.name}` : e.name
@@ -1003,10 +1006,10 @@ export async function copySkillTree(src: string, dest: string, o: HashOptions = 
   const budget = { entries: lim.entries, bytes: lim.bytes }
   const walk = async (from: string, to: string, rel: string, depth: number): Promise<void> => {
     o.signal?.throwIfAborted()
-    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`)
+    if (depth > lim.depth) throw new ContentTooLarge(`it has folders more than ${lim.depth} deep`) // i18n-ignore: why a skill is too big, a delivery's problem (agents) and a kept revision's reason
     await mkdir(to, { recursive: true })
     const list = await readDirBounded(from, budget.entries, o.signal)
-    if (list.more) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`)
+    if (list.more) throw new ContentTooLarge(`it has more than ${lim.entries} files and folders`) // i18n-ignore: why a skill is too big, a delivery's problem (agents) and a kept revision's reason
     budget.entries -= list.entries.length
     for (const e of list.entries) {
       const f = join(from, e.name)
@@ -1043,7 +1046,7 @@ async function copyBounded(from: string, to: string, budget: { bytes: number }, 
         for (let done = 0; done < bytesRead; ) {
           signal?.throwIfAborted()
           const { bytesWritten } = await dst.write(buf, done, bytesRead - done)
-          if (bytesWritten <= 0) throw Object.assign(new Error('EIO: the copy could not be written'), { code: 'EIO' })
+          if (bytesWritten <= 0) throw Object.assign(new Error('EIO: the copy could not be written'), { code: 'EIO' }) // i18n-ignore: a low-level copy error, worded as Node's own (an outer error or the log says what failed)
           done += bytesWritten
         }
       }
@@ -1056,6 +1059,7 @@ async function copyBounded(from: string, to: string, budget: { bytes: number }, 
 }
 
 /** What a skill's links that couldn't be copied mean for the session that gets it. */
+// i18n-ignore: a skill delivery's problem, which the launch's problems (agents) say
 export const linksNotCopied = (paths: string[]): string => `${paths.length === 1 ? `the link ${paths[0]} is` : `the links ${paths.join(', ')} are`} missing from its copy: Windows didn't let Hive make ${paths.length === 1 ? 'it' : 'them'} (a link to a file needs a privilege)`
 
 /** Files that aren't part of a skill's content: Hive's own copy marker and the operating systems' folder files. */

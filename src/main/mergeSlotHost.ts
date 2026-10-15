@@ -30,7 +30,7 @@ export const mergeSlots = new MergeSlots({
   running: (a) => sessions.liveFor(a.projectPath, a.agentId)?.runId === a.runId,
   progressAt: (a) => progress.openRunOf(a.projectPath, a.agentId)?.updatedAt ?? null,
   changed: (projectPath) => changed(projectPath),
-  note: (a, text) => sessions.setMergeSlotNote(a.projectPath, a.agentId, a.runId, text),
+  note: (a, text, about) => sessions.setMergeSlotNote(a.projectPath, a.agentId, a.runId, text, about),
   warn: (projectPath, title, message) => toast('warning', title, message, undefined, projectPath),
   // Test builds can shorten a hold, to see one run out (HIVE_TEST_MERGE_HOLD_MS; never in an installed Hive).
   ...(!app.isPackaged && Number(process.env.HIVE_TEST_MERGE_HOLD_MS) > 0 ? { holdMs: Number(process.env.HIVE_TEST_MERGE_HOLD_MS) } : {})

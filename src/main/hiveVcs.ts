@@ -3,8 +3,12 @@ import { appendFile, mkdir, readFile } from 'original-fs/promises'
 import { existsSync, readFileSync, statSync } from 'original-fs'
 import { HIVE_DIR } from '../shared/defaults'
 import { git, gitReading } from './git'
-import { gitProblem } from './gitTool'
+import { gitTool } from './gitTool'
 import type { HiveVcs } from '../shared/types'
+import { gitProblemData } from '../shared/gitTool'
+import { withValues } from '../shared/advanced'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 
 /**
  * Keeping a project's .hive (sessions, transcript backups, launch settings: this machine's, not the project's) out of
@@ -16,12 +20,12 @@ import type { HiveVcs } from '../shared/types'
 
 /** Other version control systems, by the folder or file they keep at a working copy's root. */
 const OTHER_VCS: [string, string][] = [
-  ['.hg', 'Mercurial'],
-  ['.svn', 'Subversion'],
-  ['.jj', 'Jujutsu'],
-  ['.bzr', 'Bazaar'],
-  ['_FOSSIL_', 'Fossil'],
-  ['.fslckout', 'Fossil']
+  ['.hg', 'Mercurial'], // i18n-ignore: a product's name
+  ['.svn', 'Subversion'], // i18n-ignore: a product's name
+  ['.jj', 'Jujutsu'], // i18n-ignore: a product's name
+  ['.bzr', 'Bazaar'], // i18n-ignore: a product's name
+  ['_FOSSIL_', 'Fossil'], // i18n-ignore: a product's name
+  ['.fslckout', 'Fossil'] // i18n-ignore: a product's name
 ]
 
 /** A git repository's own folder (where info/exclude is) for a working folder holding `.git`: a worktree's common one. */
@@ -197,15 +201,20 @@ const RM_CHUNK = 100
  */
 export async function untrackHive(projectPath: string, confirmed: string[]): Promise<number> {
   const found = vcsOf(projectPath)
-  if (found?.kind !== 'git') throw new Error('No git repository holds this project.')
+  if (found?.kind !== 'git') throw hiveError(msg({ id: 'service.hiveVcs.noRepo', defaultMessage: 'No git repository holds this project.', description: "An error untracking the project's .hive folder (Hive's own files) from git: the project isn't in a git repository." }))
   const now = await trackedHiveFiles(projectPath, found.root, { fresh: true })
-  if (now === null) throw new Error(`Git couldn't list the files it tracks in .hive${gitProblem() ? ` (${gitProblem()})` : ''}.`)
+  if (now === null) {
+    const problem = gitProblemData(gitTool())
+    throw problem
+      ? hiveError(msg({ id: 'service.hiveVcs.cantListWhy', defaultMessage: "Git couldn't list the files it tracks in .hive ({problem}).", description: "An error untracking the project's .hive folder from git: git can't run; {problem} says why (\"Git isn't installed\"). Keep .hive as it is (a folder name)." }), { problem })
+      : hiveError(msg({ id: 'service.hiveVcs.cantList', defaultMessage: "Git couldn't list the files it tracks in .hive.", description: "An error untracking the project's .hive folder from git: git couldn't list them. Keep .hive as it is (a folder name)." }))
+  }
   const shown = new Set(Array.isArray(confirmed) ? confirmed.filter((f) => typeof f === 'string') : [])
-  if (now.length !== shown.size || now.some((f) => !shown.has(f))) throw new Error('The files git tracks in .hive changed since you were shown them: nothing was untracked. Look again.')
+  if (now.length !== shown.size || now.some((f) => !shown.has(f))) throw hiveError(msg({ id: 'service.hiveVcs.changed', defaultMessage: 'The files git tracks in .hive changed since you were shown them: nothing was untracked. Look again.', description: "An error untracking the project's .hive folder from git: the list of its tracked files changed after Hive showed it, so nothing changed. Keep .hive as it is." }), undefined, { kind: 'conflict' })
   try {
     for (let i = 0; i < now.length; i += RM_CHUNK) {
       const r = await git(projectPath, ['--literal-pathspecs', 'rm', '--cached', '--quiet', '--', ...now.slice(i, i + RM_CHUNK)])
-      if (!r.ok) throw new Error(`git rm --cached failed: ${gitProblem() ?? (r.err.split(/\r?\n/)[0] || `exit code ${r.code}`)}`)
+      if (!r.ok) throw hiveError(msg({ id: 'service.hiveVcs.rmFailed', defaultMessage: 'git rm --cached failed: {why}', description: "An error untracking the project's .hive folder from git: the git command (git rm --cached: keep it) failed; {why} is git's own first line, or why git can't run." }), { why: gitProblemData(gitTool()) ?? (r.err.split(/\r?\n/)[0] || withValues(msg({ id: 'service.hiveVcs.exitCode', defaultMessage: 'exit code {code}', description: 'Why a git command failed when git said nothing: the number it exited with.' }), { code: r.code })) })
     }
   } finally {
     trackedCache.delete(projectPath.toLowerCase())
@@ -221,7 +230,7 @@ export function syncRoots(env: Record<string, string | undefined> = process.env)
     if (!base) continue
     try {
       const info = JSON.parse(readFileSync(join(base, 'Dropbox', 'info.json'), 'utf8')) as Record<string, { path?: unknown }>
-      for (const v of Object.values(info)) if (typeof v?.path === 'string') roots.push([v.path, 'Dropbox'])
+      for (const v of Object.values(info)) if (typeof v?.path === 'string') roots.push([v.path, 'Dropbox']) // i18n-ignore: a product's name
     } catch {
       // no Dropbox here
     }
