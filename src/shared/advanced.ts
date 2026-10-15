@@ -20,7 +20,7 @@ import { createIntl, createIntlCache } from '@formatjs/intl'
 import { CLAUDE_FOOTER_MODES } from './claude'
 import { COPILOT_FOOTER_MODES } from './copilot'
 import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX } from './defaults'
-import { fmt, msg, tr, type Msg } from './i18n'
+import { fmt, language, msg, tr, type Msg } from './i18n'
 import { SAFEGUARD_DEFAULTS } from './safeguards'
 import type { ProviderId } from './types'
 
@@ -30,7 +30,7 @@ import type { ProviderId } from './types'
  * errors read its English (`englishText`), so what the Assistant is told never follows the user's language. The
  * settings catalogue's rows hold their text this way too.
  */
-export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: ListType } | { lines: TextPart[] }
+export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: ListType } | { lines: TextPart[] } | { cap: TextPart }
 /** A part of text: text of its own, or a name or a number that is the same in every language. */
 export type TextPart = string | number | Text
 export type TextValues = Record<string, TextPart>
@@ -47,11 +47,16 @@ export const listOf = (list: TextPart[], type: ListType = 'conjunction'): Text =
 /** Parts each on a line of its own. */
 export const linesOf = (lines: TextPart[]): Text => ({ lines })
 
+/** Text whose first letter is upper case in the language it is shown in: clauses joined into a list that starts a sentence. */
+export const capitalised = (cap: TextPart): Text => ({ cap })
+
 const ENGLISH = createIntl({ locale: 'en', defaultLocale: 'en', messages: {}, onError: () => undefined }, createIntlCache())
 
 interface Formatter {
   one: (m: Msg, values?: Record<string, string | number>) => string
   list: (items: string[], type: ListType) => string
+  /** A letter in upper case, as the language writes it. */
+  upper: (s: string) => string
 }
 
 function formatText(t: TextPart, f: Formatter): string {
@@ -59,6 +64,10 @@ function formatText(t: TextPart, f: Formatter): string {
   if ('id' in t) return f.one(t)
   if ('list' in t) return f.list(t.list.map((x) => formatText(x, f)), t.type ?? 'conjunction')
   if ('lines' in t) return t.lines.map((x) => formatText(x, f)).join('\n')
+  if ('cap' in t) {
+    const s = formatText(t.cap, f)
+    return f.upper(s.charAt(0)) + s.slice(1)
+  }
   const values = Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, typeof v === 'object' ? formatText(v, f) : v]))
   return f.one(t.m, values)
 }
@@ -66,9 +75,10 @@ function formatText(t: TextPart, f: Formatter): string {
 const IN_ENGLISH: Formatter = {
   one: (m, values) => (!values && !/[{}<]|''/.test(m.defaultMessage) ? m.defaultMessage : (ENGLISH.formatMessage(m, values) as string)),
   // Hive's English is British: "A, B and C", as the tools always said it.
-  list: (items, type) => new Intl.ListFormat('en-GB', { type, style: type === 'unit' ? 'short' : 'long' }).format(items)
+  list: (items, type) => new Intl.ListFormat('en-GB', { type, style: type === 'unit' ? 'short' : 'long' }).format(items),
+  upper: (s) => s.toLocaleUpperCase('en')
 }
-const AS_SHOWN: Formatter = { one: (m, values) => tr(m, values), list: (items, type) => fmt.list(items, type) }
+const AS_SHOWN: Formatter = { one: (m, values) => tr(m, values), list: (items, type) => fmt.list(items, type), upper: (s) => s.toLocaleUpperCase(language()) }
 
 /** Text in English, whatever language Hive shows: for the Assistant's tools, the log and errors. */
 export const englishText = (t: TextPart): string => formatText(t, IN_ENGLISH)

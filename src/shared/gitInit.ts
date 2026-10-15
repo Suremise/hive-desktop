@@ -2,6 +2,7 @@
 // init -b main`, .hive excluded before anything is staged, an optional starter .gitignore, a first commit, then a
 // refresh so worktrees work at once. Shared by the main process, the window and their tests.
 
+import type { Text } from './advanced'
 import { identityProblem, type GitIdentityPart } from './gitRepo'
 import { msg, tr, type Msg } from './i18n'
 
@@ -10,8 +11,10 @@ export type GitignoreChoice = 'none' | 'minimal' | 'node' | 'python' | 'dotnet' 
 
 /** What the Initialise dialog needs to know first (`git:initCheck`). */
 export interface GitInitCheck {
-  /** Why it can't be done here (already a repository, another version control system, git missing), or null. */
+  /** Why it can't be done here (already a repository, another version control system, git missing), or null: in English (#881). */
   refused: string | null
+  /** The same as text, which the window shows in its language (shownText) when the language changes too. */
+  refusedText?: Text
   /**
    * The folder is a git repository with no commit yet (one that stopped short, or `git init` by hand): it is taken on
    * from there, everything but `git init`, and its identity is read from it, so it is exactly what it will commit as.
@@ -83,6 +86,11 @@ export const GITIGNORE_CHOICES: { value: GitignoreChoice; label: Msg }[] = [
 /** The starter .gitignore in a sentence: "a Node .gitignore". */
 export function gitignoreName(choice: GitignoreChoice): string {
   return tr(M.gitignoreName, { choice, kind: tr(GITIGNORE_CHOICES.find((c) => c.value === choice)!.label) })
+}
+
+/** The same as text, formatted when it is shown (in an error's English, or the window's language): #881. */
+export function gitignoreNameText(choice: GitignoreChoice): Text {
+  return { m: M.gitignoreName, values: { choice, kind: GITIGNORE_CHOICES.find((c) => c.value === choice)!.label } }
 }
 
 export function isGitignoreChoice(v: unknown): v is GitignoreChoice {

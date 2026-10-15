@@ -27,6 +27,7 @@ function messagesOf(t: TextPart, acc: Msg[] = []): Msg[] {
   if ('id' in t) acc.push(t)
   else if ('list' in t) for (const x of t.list) messagesOf(x, acc)
   else if ('lines' in t) for (const x of t.lines) messagesOf(x, acc)
+  else if ('cap' in t) messagesOf(t.cap, acc)
   else {
     acc.push(t.m)
     for (const v of Object.values(t.values)) messagesOf(v, acc)
