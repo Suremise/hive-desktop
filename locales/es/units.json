@@ -1,0 +1,9 @@
+{
+  "units.size.bytes": "{n} B",
+  "units.size.gigabytes": "{n} GB",
+  "units.size.kilobytes": "{n} KB",
+  "units.size.megabytes": "{n} MB",
+  "units.tokens.billions": "{n} mil M",
+  "units.tokens.millions": "{n} M",
+  "units.tokens.thousands": "{n} k"
+}
