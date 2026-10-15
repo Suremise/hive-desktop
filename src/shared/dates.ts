@@ -96,3 +96,23 @@ export function formatDayLabel(d: Date | string | number): string {
   const x = toDate(d)
   return x ? dateWords(x, { weekday: 'short', day: 'numeric', month: 'short' }) : ''
 }
+
+/** How many calendar days before `now` a date is: 0 today, 1 yesterday (whatever the clock change between). */
+export function daysAgo(d: Date | string | number, now = new Date()): number {
+  const x = toDate(d)
+  if (!x) return 0
+  const day = (t: Date): number => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+  return Math.round((day(now) - day(x)) / 86_400_000)
+}
+
+/** A day in a span of days: "9 Oct" in the language's words and order, with the year when it isn't this year's. */
+export function formatShortDay(d: Date | string | number, now = new Date()): string {
+  const x = toDate(d)
+  return x ? dateWords(x, { day: 'numeric', month: 'short', ...(x.getFullYear() !== now.getFullYear() && { year: 'numeric' }) }) : ''
+}
+
+/** A day as a divider's label: "Wednesday 15 Oct" in the language's words and order, with the year when it isn't this year's. */
+export function formatLongDay(d: Date | string | number, now = new Date()): string {
+  const x = toDate(d)
+  return x ? dateWords(x, { weekday: 'long', day: 'numeric', month: 'short', ...(x.getFullYear() !== now.getFullYear() && { year: 'numeric' }) }) : ''
+}

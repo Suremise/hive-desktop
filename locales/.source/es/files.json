@@ -10,7 +10,6 @@
   "files.attachments.desc": "Files pasted or dropped into this project's agents' sessions, by session.",
   "files.attachments.descAssistant": "Files pasted or dropped into the Assistant, by conversation.",
   "files.attachments.filters": "Show",
-  "files.attachments.groupCount": "{count, plural, one {# attachment} other {# attachments}} · last {when}",
   "files.attachments.groupDelete": "{host, select, assistant {Delete This Conversation's Attachments…} other {Delete This Session's Attachments…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {All of its attachments go, whatever the filter shows. } other {}}{host, select, assistant {The conversation keeps its transcript, which still mentions their paths.} other {The session keeps its transcript, which still mentions their paths.}} You can restore them from the Recycle Bin.",
   "files.attachments.groupDeleteFailed": "Could not delete the attachments",

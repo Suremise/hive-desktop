@@ -1,7 +1,8 @@
 // The Hive Assistant view (#243): its sections are Modes, Conversations and Attachments; Attachments shows what was
 // pasted into its conversations (its home's .hive/attachments), grouped by conversation, in the project Attachments tab's grid
 // and viewer; a group's name opens that conversation's transcript in the conversations tree (#239's), and a group can
-// be moved to the Recycle Bin at once. "Show Assistant Attachments" is a command. Modes' New Mode… (a prompt opened from a
+// be moved to the Recycle Bin at once. Its tiles (#900): a file that isn't an image shows its type's icon, every tile its
+// size, and the group's heading the span of days, with a divider where each day starts. "Show Assistant Attachments" is a command. Modes' New Mode… (a prompt opened from a
 // button) takes Enter once: the mode is made, or the error shown, and no dialog is left open (#355). Fixtures only
 // (nothing runs): a conversation record, its transcript (Hive's copy) and two images. Dev build, throwaway profile and
 // workspace, quiet.
@@ -22,6 +23,13 @@ const check = (name, ok, extra = '') => {
 }
 const conv = '0f5c2a8e-3333-4444-8555-666677770001'
 const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
+/** Local noon `n` days ago, and an attachment's name for a time (Hive puts it in front: 2026-10-12_09-30-00_x.log). */
+const daysBack = (n) => {
+  const d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - n, 12, 0, 0)
+}
+const two = (n) => String(n).padStart(2, '0')
+const stamp = (d, name) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}_${two(d.getHours())}-${two(d.getMinutes())}-${two(d.getSeconds())}_${name}`
 
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
@@ -48,7 +56,18 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   fs.writeFileSync(path.join(home, '.hive', 'sessions', `${conv}.jsonl`), transcript.map((l) => JSON.stringify(l)).join('\n') + '\n')
   const imgDir = path.join(home, '.hive', 'attachments', conv)
   fs.mkdirSync(imgDir, { recursive: true })
-  for (const n of ['2026-10-05T09-10-00.png', '2026-10-05T09-20-00.png']) fs.writeFileSync(path.join(imgDir, n), lib.samplePng())
+  // Two images today, a log yesterday and notes three days ago: three days, newest first.
+  const now = new Date()
+  const files = [
+    [stamp(now, 'shot-2.png'), lib.samplePng(), now],
+    [stamp(new Date(now.getTime() - 1000), 'shot-1.png'), lib.samplePng(), now],
+    [stamp(daysBack(1), 'run.log'), 'started\n'.repeat(300), daysBack(1)],
+    [stamp(daysBack(3), 'notes.md'), '# Notes\n', daysBack(3)]
+  ]
+  for (const [n, data, when] of files) {
+    fs.writeFileSync(path.join(imgDir, n), data)
+    fs.utimesSync(path.join(imgDir, n), when, when)
+  }
 
   // --- The view: Modes, Conversations, Attachments.
   await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
@@ -94,11 +113,21 @@ const at = (h) => new Date(Date.UTC(2026, 9, 5, h, 0, 0)).toISOString()
   // --- Attachments: the conversation's group, with its name, in the Attachments grid.
   await page.locator('.row', { hasText: 'All Attachments' }).click()
   const group = page.locator('.image-group', { hasText: 'Planning the week' })
-  await lib.until(async () => (await group.locator('.thumb').count()) === 2, 10000)
-  check("the pasted images show, under their conversation's name", (await group.locator('.thumb').count()) === 2)
-  check('the toolbar counts them by conversation', /2 in 1 conversation\b/.test(await page.locator('.images-toolbar').innerText()), await page.locator('.images-toolbar').innerText())
+  await lib.until(async () => (await group.locator('.thumb').count()) === 4, 10000)
+  check("the pasted files show, under their conversation's name", (await group.locator('.thumb').count()) === 4)
+  check('the toolbar counts them by conversation', /4 in 1 conversation\b/.test(await page.locator('.images-toolbar').innerText()), await page.locator('.images-toolbar').innerText())
   const desc = await page.locator('.images-desc').innerText().catch(() => '')
   check('a line says what the view holds', desc === 'Files pasted or dropped into the Assistant, by conversation.', desc)
+  // #900: type icons for files that aren't images, a size on every tile, the span and a divider per day.
+  const icons = await group.locator('.thumb.file > .codicon').evaluateAll((els) => els.map((e) => [...e.classList].find((c) => c.startsWith('codicon-') && c !== 'codicon-modifier-spin')))
+  check("files that aren't images show their type's icon (text for a log, Markdown for notes)", JSON.stringify(icons) === JSON.stringify(['codicon-file-text', 'codicon-markdown']), JSON.stringify(icons))
+  check('images keep their thumbnails', (await group.locator('.thumb img').count()) === 2)
+  const sizes = await group.locator('.thumb-size').allInnerTexts()
+  check('every tile shows its size', sizes.length === 4 && sizes.every((x) => /\d/.test(x)) && sizes[2] !== sizes[3], JSON.stringify(sizes))
+  const head = await group.locator('.image-group-head').innerText()
+  check("the group's heading shows the span of days, to today", /4 attachments · \S.* – today/.test(head), head)
+  const days = await group.locator('.attachment-day').allInnerTexts()
+  check('a divider where each day starts (three days), the newest first', days.length === 3 && /day/.test(days[0]), JSON.stringify(days))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantimages-1-images.png') })
   await inv('settings:update', { appearance: { theme: 'light' } })
   await page.screenshot({ path: path.join(lib.WORK, 'assistantimages-1-images-light.png') })

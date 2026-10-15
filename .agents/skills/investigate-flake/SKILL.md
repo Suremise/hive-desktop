@@ -11,8 +11,9 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 
 - Find its history first: the card that cites it, the run records and logs (`%LOCALAPPDATA%\hive-test\e2e\logs`, one folder per run), and the test's own log. Note the commit each failure ran on: a failure on older code proves nothing about today's.
 - Reproduce it alone: `npm run e2e -- <suite>` for an e2e suite, `npx vitest run <file>` for a unit test. This shows whether the test fails at all. It does not load the machine.
-- Reproduce it under load, and make sure the load is there. A repeat of one suite is only repeats: suites are not run beside each other. The load is the full set, which runs suites four at a time (`--jobs 4` is the default): `npm run e2e -- --all --build --record`, repeated with `--repeat 5`. For a unit test, the load is the full unit suite (`npx vitest run`), run five times in a row while it is the only thing you're testing.
-- Write down, for each run: the command, the count (runs, passes, failures), the failing check, the load (the full set, `--jobs`, what else was running), and whether Windows Defender exclusions were on (scanning can hide a flake, or cause one).
+- Reproduce it under load, and make sure the load is there. A repeat of one suite alone is only repeats: nothing runs beside it. Run it with its **neighbours**, the suites that exercise the same area (its area's suites in `tests/e2e/affected.mjs`), enough of them to fill the runner's four jobs (`--jobs 4` is the default), five times: `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. If it doesn't fail that way, add load before concluding (more neighbours, more `--jobs`, a second run beside it in another worktree) and say what you added. For a unit test: its file and the files near it (`npx vitest run <files>`), five times in a row, while an e2e run or the full unit suite loads the machine.
+- The full set (`--all`) repeated is not the way to reproduce or prove a flake: it holds a heavy test slot for over an hour while other lanes queue, and under that load it fails on other lanes' flakes. Run it repeated only when the user asks.
+- Write down, for each run: the command, the count (runs, passes, failures), the failing check, the load (the suites run beside it, `--jobs`, what else was running), and whether Windows Defender exclusions were on (scanning can hide a flake, or cause one).
 
 ## 2. Find the race
 
@@ -29,12 +30,13 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 
 ## 4. Prove it
 
-- Repeat the fixed test under the load that showed the flake, on a verified build: the full set five times (`npm run e2e -- --all --build --record --repeat 5`), or the full unit suite five times. A repeat of one suite alone doesn't count as that load. A later pass doesn't make up for an earlier failure: start a new repeat.
+- Repeat the fixed test under the load that showed the flake, on a verified build (`--build --record`): the suite with its neighbours five times (`npm run e2e -- <suite> <neighbours> --build --record --repeat 5`), or the unit test's files five times under load (step 1). A repeat of one suite alone doesn't count as that load. A later pass doesn't make up for an earlier failure: start a new repeat. These focused repeats, with the cause shown and their run record, are the proof the card needs.
+- The full-set check is the merge's own run (`npm run e2e -- --affected --build --record`, which picks the full set itself when the change touches what every suite goes through). Don't repeat the full set on the final code unless the user asks. A failure in that run in another lane's suite doesn't count against the card: add a card for it.
 - Where it is cheap, check that the old wait fails in the same conditions. A fix that passes either way proves nothing.
 
 ## 5. Closing
 
-- "No longer reproduces" needs that evidence: the repeats under the load that showed the flake, on the commit that's being closed, with the environment noted (Defender exclusions on or off). Leave a watch-for note on the card.
+- "No longer reproduces" needs that evidence: the focused repeats under the load that showed the flake, on the commit that's being closed, with the environment noted (Defender exclusions on or off). Leave a watch-for note on the card.
 - Link duplicate cards to the one that's fixed. The user archives them.
 
 ## Report

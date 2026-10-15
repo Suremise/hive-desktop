@@ -10,7 +10,6 @@
   "files.attachments.desc": "Arquivos colados ou arrastados para as sessões dos agentes deste projeto, agrupados por sessão.",
   "files.attachments.descAssistant": "Arquivos colados ou arrastados para o Assistente, agrupados por conversa.",
   "files.attachments.filters": "Mostrar",
-  "files.attachments.groupCount": "{count, plural, one {# anexo} other {# anexos}} · último: {when}",
   "files.attachments.groupDelete": "{host, select, assistant {Excluir os anexos desta conversa…} other {Excluir os anexos desta sessão…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {Todos os anexos são excluídos, seja qual for o filtro. } other {}}{host, select, assistant {A conversa mantém a transcrição, que ainda menciona os caminhos deles.} other {A sessão mantém a transcrição, que ainda menciona os caminhos deles.}} Você pode restaurá-los da Lixeira.",
   "files.attachments.groupDeleteFailed": "Não foi possível excluir os anexos",

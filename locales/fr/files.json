@@ -10,7 +10,6 @@
   "files.attachments.desc": "Fichiers collés ou déposés dans les sessions des agents de ce projet, par session.",
   "files.attachments.descAssistant": "Fichiers collés ou déposés dans l’Assistant, par conversation.",
   "files.attachments.filters": "Afficher",
-  "files.attachments.groupCount": "{count, plural, one {# pièce jointe} many {# pièces jointes} other {# pièces jointes}} · la dernière {when}",
   "files.attachments.groupDelete": "{host, select, assistant {Supprimer les pièces jointes de cette conversation…} other {Supprimer les pièces jointes de cette session…}}",
   "files.attachments.groupDeleteDetail": "{filtered, select, yes {Toutes ses pièces jointes partent, quel que soit le filtre. } other {}}{host, select, assistant {La conversation garde sa transcription, qui mentionne toujours leurs chemins.} other {La session garde sa transcription, qui mentionne toujours leurs chemins.}} Tu peux les restaurer depuis la Corbeille.",
   "files.attachments.groupDeleteFailed": "Impossible de supprimer les pièces jointes",
