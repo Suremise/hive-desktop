@@ -81,7 +81,7 @@ export function HiveVcsNotice({ project, dismissible = false }: { project: Proje
   return (
     <div className="banner warn hive-vcs-notice">
       <Icon name="warning" />
-      <span>
+      <span className="hive-vcs-text">
         <strong>{tr(M.titleSentence, { title: text.title })}</strong> {text.detail}
       </span>
       {text.canUntrack && (

@@ -258,8 +258,11 @@ export function SkillRow({ skill, selected, onSelect, actionsFor }: { skill: Ski
     <div className={cx(/* i18n-ignore: class names */ 'row tall skill-row', selected && 'selected', missing && 'missing')} onClick={onSelect}>
       <Icon name={missing ? 'circle-slash' : SKILL_ICON[skill.level]} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {skill.name} {skill.plugin && <span className="desc">· {skill.plugin}</span>} {missing && <span className="badge">{tr(M.deletedBadge)}</span>}{skill.updateAvailable && <span className="badge accent">{tr(M.updateBadge)}</span>}
+        <div className="label with-badges">
+          <span className="row-name">
+            {skill.name} {skill.plugin && <span className="desc">· {skill.plugin}</span>}
+          </span>
+          {missing && <span className="badge">{tr(M.deletedBadge)}</span>}{skill.updateAvailable && <span className="badge accent">{tr(M.updateBadge)}</span>}
           {skill.level === 'hive' && skill.problem && <ProblemBadge problem={skillProblem(skill) ?? ''} small />}
           {skill.level === 'hive' && !skill.problem && skill.audience && skill.audience !== 'agents' && <AudienceBadge audience={skill.audience} small />}
         </div>

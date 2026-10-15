@@ -17,6 +17,133 @@ export function Icon({ name, className, title, spin }: { name: string; className
   return <i className={cx('codicon', `codicon-${name}`, spin && 'spin', className)} title={title} aria-hidden={!title} />
 }
 
+/**
+ * Which ends of a sideways-scrolling row have more out of view ('left', 'right', both or ''), for its `data-more`: a
+ * `.scroll-fade` row fades out at those ends, so a tab scrolled away still shows there is more (#886). Follows its
+ * scrolling, its size and what is in it.
+ */
+export function useScrollEdges(ref: { current: HTMLElement | null }): string {
+  const [more, setMore] = useState('')
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = (): void => {
+      const left = el.scrollLeft > 1
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+      setMore([left && 'left', right && 'right'].filter(Boolean).join(' '))
+    }
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    const mo = new MutationObserver(() => {
+      for (const c of el.children) ro.observe(c)
+      update()
+    })
+    mo.observe(el, { childList: true })
+    for (const c of el.children) ro.observe(c)
+    el.addEventListener('scroll', update, { passive: true })
+    update()
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+      el.removeEventListener('scroll', update)
+    }
+  }, [ref])
+  return more
+}
+
+/** Room a roomier fold needs to spare before a row goes back to it, so it doesn't flicker at the switching point. */
+const FOLD_SPARE = 12
+
+/**
+ * How far a row of controls folds to fit (#886: the project header, the agent strip), from 0 (everything labelled) to
+ * `max`. Measured rather than set by fixed widths, so a longer language folds sooner: `need` gives the width the row's
+ * content needs at the fold shown (null: not laid out yet), and the row folds further while that is more than its room,
+ * and unfolds once the fold below was seen to fit with room to spare. `content` names what changes the widths
+ * (language, counts, states): when it changes, the widths seen are forgotten and the row is fitted again from no folding,
+ * before it paints.
+ */
+export function useFolds(row: { current: HTMLElement | null }, width: number, content: string, max: number, need: (el: HTMLElement) => number | null): number {
+  const [folds, setFolds] = useState(0)
+  const seen = useRef<{ content: string; need: number[] }>({ content, need: [] })
+  useLayoutEffect(() => {
+    const el = row.current
+    if (!el || width <= 0) return
+    if (seen.current.content !== content) {
+      seen.current = { content, need: [] }
+      if (folds) return setFolds(0)
+    }
+    const needed = need(el)
+    if (needed === null) return
+    seen.current.need[folds] = needed
+    const style = getComputedStyle(el)
+    const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    if (needed > room && folds < max) setFolds(folds + 1)
+    else if (folds > 0 && (seen.current.need[folds - 1] ?? Infinity) + FOLD_SPARE <= room) setFolds(folds - 1)
+  }, [row, width, content, folds, max, need])
+  return folds
+}
+
+/**
+ * Whether an element's text is cut short (an ellipsis, #886), so its tooltip can give it in full. Follows the element's
+ * size and its text.
+ */
+export function useClipped<T extends HTMLElement>(): [(el: T | null) => void, boolean] {
+  const [clipped, setClipped] = useState(false)
+  const observers = useRef<{ ro: ResizeObserver; mo: MutationObserver } | null>(null)
+  const ref = useCallback((el: T | null) => {
+    observers.current?.ro.disconnect()
+    observers.current?.mo.disconnect()
+    observers.current = null
+    if (!el) return
+    const update = (): void => setClipped(el.scrollWidth > el.clientWidth + 1)
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    const mo = new MutationObserver(update)
+    mo.observe(el, { childList: true, characterData: true, subtree: true })
+    observers.current = { ro, mo }
+    update()
+  }, [])
+  return [ref, clipped]
+}
+
+/**
+ * A row's sign that it has more out of view at one end (useScrollEdges): a chevron that scrolls it that way, bringing the
+ * next item cut off at that end fully into view (past the fade). Decorative for screen readers, who reach the row's items
+ * themselves.
+ */
+/** How wide `.scroll-fade` fades a row's ends (app.css): an item scrolled into view clears it. */
+const SCROLL_FADE = 24
+
+export function ScrollMore({ dir, target }: { dir: 'left' | 'right'; target: { current: HTMLElement | null } }) {
+  return (
+    <span
+      className={cx('scroll-more', dir)}
+      aria-hidden
+      onClick={() => {
+        const el = target.current
+        if (!el) return
+        const view = el.getBoundingClientRect()
+        const items = [...el.children].map((c) => c.getBoundingClientRect())
+        const next = dir === 'right' ? items.find((r) => r.right > view.right + 1) : items.findLast((r) => r.left < view.left - 1)
+        const by = next ? (dir === 'right' ? next.right - view.right + SCROLL_FADE : next.left - view.left - SCROLL_FADE) : (dir === 'right' ? 1 : -1) * el.clientWidth
+        el.scrollBy({ left: by, behavior: 'smooth' })
+      }}
+    >
+      <Icon name={`chevron-${dir}`} />
+    </span>
+  )
+}
+
+/** A heading that stays on one line beside its buttons, cut with "…" and then given in full on hover (#886). */
+export function OneLineTitle({ text, className }: { text: string; className?: string }) {
+  const [ref, clipped] = useClipped<HTMLSpanElement>()
+  return (
+    <span ref={ref} className={cx('one-line-title', className)}>
+      <Tooltip content={clipped ? text : null}>{text}</Tooltip>
+    </span>
+  )
+}
+
 /** A tooltip's way to tell the one around it that it is showing, so only the innermost one shows (#287). */
 const TipParent = createContext<((inner: boolean) => void) | null>(null)
 

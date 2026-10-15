@@ -561,6 +561,13 @@ kbd {
 .pane-header > .tip-wrap {
   margin-left: 6px;
 }
+/* A heading kept to one line beside its buttons (OneLineTitle, #886). */
+.one-line-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pane-header .actions {
   margin-left: auto;
   display: flex;
@@ -645,6 +652,25 @@ kbd {
 .tip-wrap > .row {
   flex: 1;
   min-width: 0;
+}
+/* A row's name with badges after it (a skill's audience, a mode's In use and Default): the name is cut with "…" so the
+   badges stay in view (#886). */
+.row .label.with-badges {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.row .label.with-badges > .row-name {
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row .label.with-badges > :not(.row-name) {
+  flex-shrink: 0;
+}
+.skill-row .label.with-badges {
+  column-gap: 4px;
 }
 .row .desc {
   color: var(--fg-muted);
@@ -1391,19 +1417,30 @@ textarea.input {
 }
 /* The title gives way to the actions: it shrinks and its name is cut with "…", never pushing a button out (#216). */
 .project-header .project-title {
-  /* Shrinks far ahead of the actions (and is clipped, badge too), so they only give way once it has. */
+  /* Shrinks far ahead of the actions (and is clipped, badge too), so they only give way once it has; it keeps a little
+     of the name even then (#886), the actions wrapping onto another row first. */
   flex: 0 1000 auto;
-  min-width: 0;
+  min-width: min(5em, 30%);
   overflow: hidden;
 }
 .project-header .project-title h1 {
-  min-width: 0;
+  min-width: 2.5em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Once the actions have folded as far as they go (#886), the name keeps a few letters and the status is cut with "…". */
+.project-header .project-title > .tip-wrap {
+  display: flex;
+  min-width: 0;
+}
 .project-header .project-title .badge {
-  flex-shrink: 0;
+  min-width: 0;
+}
+.project-header .project-title .badge-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .project-header .meta {
   display: flex;
@@ -2051,11 +2088,19 @@ p.hint {
   padding: 4px 8px;
   vertical-align: top;
 }
+/* A long heading ("Coding agent" in Spanish) wraps between its words when the dialog is short of room, rather than
+   push Where out of it (#886). */
 .template-plan-table th {
   padding: 4px 8px;
+  white-space: normal;
+  vertical-align: bottom;
 }
 .template-plan-table td:first-child {
   white-space: nowrap;
+}
+/* Where keeps room for a short phrase ("project folder") beside a wide heading, rather than a letter or two a line (#886). */
+.template-plan-table td:last-child {
+  min-width: 10em;
 }
 .template-plan-name {
   font-weight: 600;
@@ -2903,6 +2948,14 @@ p.hint {
 .unused-worktrees-pane {
   overflow: auto;
   padding: 4px 18px 18px;
+}
+/* In a narrow panel the heading stays on one line and its buttons wrap under it (#886). */
+h2.section#unused-worktrees {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+#unused-worktrees > .unused-title {
+  white-space: nowrap;
 }
 .unused-worktrees-line {
   display: flex;
@@ -4043,12 +4096,27 @@ p.hint {
   background-color: rgba(245, 158, 11, 0.35);
   color: inherit;
 }
+/* In a narrow pane the session's name keeps some room and is cut with "…" (its usage first); the buttons wrap onto a
+   row under it rather than squeeze it away (#886). */
+.transcript-toolbar {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 35px;
+  row-gap: 0;
+}
 .transcript-toolbar .path {
   display: flex;
   align-items: center;
-  min-width: 0;
+  flex: 1 1 12em;
+  min-width: min(12em, 100%);
 }
 .transcript-toolbar .path > .faint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.transcript-toolbar .path > strong {
+  flex-shrink: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -4238,6 +4306,7 @@ p.hint {
 }
 .tx-compaction-line .rule {
   flex: 1;
+  min-width: 12px;
   height: 1px;
   background: var(--accent);
   opacity: 0.45;
@@ -4250,9 +4319,15 @@ p.hint {
   font-weight: 600;
   color: var(--accent-ink);
   white-space: nowrap;
+  /* Narrower than its line, the divider's text wraps between its parts, and within them, keeping a little of each rule (#886). */
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 2px;
+  min-width: 0;
 }
 .tx-compaction-label .faint {
   font-weight: 400;
+  white-space: normal;
 }
 .tx-compaction-summary {
   position: relative;
@@ -4373,6 +4448,65 @@ body.pane-resizing .monaco-editor {
 }
 .agent-tabs::-webkit-scrollbar {
   display: none;
+}
+/* A row scrolled sideways fades out at the ends that have more out of view (useScrollEdges, #886): 24 px, less in a
+   short row, so a tab still shows its name. */
+.scroll-fade {
+  --fade: min(24px, 15%);
+}
+.scroll-fade[data-more='left'] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade));
+}
+.scroll-fade[data-more='right'] {
+  mask-image: linear-gradient(to left, transparent, #000 var(--fade));
+}
+.scroll-fade[data-more='left right'] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent);
+}
+/* Folded (useFolds, #886): the strip and Add Agent's two halves take less padding, leaving the tabs more room. */
+.agent-strip[data-folded] {
+  padding: 0 4px;
+}
+.agent-strip[data-folded] .page-switch {
+  margin-right: 0;
+}
+.agent-strip[data-folded] .split-btn .btn.icon-only {
+  padding: 0 4px;
+}
+.agent-strip[data-folded] .split-btn .btn.split-caret {
+  padding: 0 3px;
+}
+/* …with a chevron over that end (ScrollMore), which scrolls it that way; laid over the faded tabs, it takes no room. */
+.scroll-more {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  border-radius: 4px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.agent-tabs-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.agent-tabs-wrap > .scroll-more {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-sidebar);
+}
+.agent-tabs-wrap > .scroll-more.left {
+  left: 0;
+}
+.agent-tabs-wrap > .scroll-more.right {
+  right: 0;
+}
+.scroll-more:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 /* Where the next page's agents start. */
 .agent-tab[data-page-start] {
@@ -5560,9 +5694,14 @@ body.pane-resizing .monaco-editor {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A description wraps onto a second line before it is cut (#886: the permission modes'). */
 .menu-detail {
   font-size: 11px;
   color: var(--fg-muted);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .menu-item.muted .menu-label,
 .menu-item.muted > .codicon {
@@ -6581,7 +6720,7 @@ body.pane-resizing-v .monaco-editor {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 6px 8px 4px;
+  padding: 8px 4px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -6646,12 +6785,35 @@ body.pane-resizing-v .monaco-editor {
   background: var(--bg-input, transparent);
   cursor: pointer;
 }
+/* A long column name is cut with "…" (its tooltip gives it in full), keeping the count, + and ⋯ in the column (#886). */
+.board-column-header > .tip-wrap:has(> .board-column-label) {
+  min-width: 0;
+  display: flex;
+}
+.board-column-header .board-column-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .board-column-header .count {
   font-weight: 400;
   color: var(--fg-faint);
+  margin-left: -2px;
 }
+/* The spacer takes no gap of its own, the buttons are a little narrower, the count sits 2 px closer and the right
+   padding matches the left (the icons move 2–4 px): that room goes to the column's name, so "Wstrzymane", "À faire" and "A fazer" stay whole beside
+   + and ⋯ (#886). */
 .board-column-header .grow {
   min-width: 0;
+  margin-left: -6px;
+}
+.board-column-header .icon-btn {
+  width: 20px;
+}
+/* « is two chevrons drawn together: 22 px holds them. */
+.board-column-header .icon-btn.board-fold {
+  width: 22px;
 }
 .board-column-body {
   flex: 1;
@@ -6884,13 +7046,17 @@ textarea.input.task-blocked-input {
 .task-archive-actions > :first-child {
   margin-right: auto;
 }
+/* The batch picker stays inside the board (#890), cut short rather than past its edge. */
 .archive-batch {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 .archive-batch .select {
   max-width: 340px;
+  min-width: 0;
 }
 /* Archive All (#351): per-column counts, the cards agents are on (a list), and the warning when they're included. */
 .archive-all {
@@ -6939,6 +7105,18 @@ textarea.input.task-blocked-input {
 }
 .archived-cards td {
   white-space: nowrap;
+}
+/* Unarchive stays in view at the right edge while the table scrolls sideways (#886). */
+.archived-cards .table :is(th, td).archive-actions {
+  position: sticky;
+  right: 0;
+  background: var(--bg);
+}
+.archived-cards .table tr:is(:hover, :focus-visible) td.archive-actions {
+  background: var(--bg-hover);
+}
+.archived-cards .table tr.selected td.archive-actions {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
 }
 /* A data table's row checkboxes (selection). */
 .table th.table-select,
@@ -7230,6 +7408,12 @@ textarea.input.task-blocked-input {
   min-width: 60px;
   height: 24px;
   font-size: 12px;
+}
+/* The archived cards' filters never cut their choice short under a narrow heading (#886: "All" is longer in most
+   languages). */
+.archived-cards .table tr.table-filters .select {
+  field-sizing: content;
+  min-width: fit-content;
 }
 .table tr.clickable:focus-visible td {
   background: var(--bg-hover);
@@ -8094,15 +8278,21 @@ button.progress-run-show:focus-visible {
   font-size: 12px;
   cursor: auto;
 }
+/* The labels' column is as wide as the longest label (at least 74px), the same in every row, so a label of two or three
+   words stays on one line (#886). */
 .progress-details dl {
   margin: 0;
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(74px, max-content) minmax(0, 1fr);
+  gap: 3px 8px;
 }
 .progress-detail-row {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.progress-detail-row dt {
+  max-width: 10em;
 }
 .progress-detail-row dd {
   margin: 0;
@@ -8610,7 +8800,8 @@ button.progress-run-show:focus-visible {
   flex-wrap: wrap;
   overflow: hidden;
 }
-.hive-vcs-notice > span {
+/* The text, not the buttons' tooltip wrappers, takes the room (#886: the × took half the banner). */
+.hive-vcs-notice > .hive-vcs-text {
   flex: 1 1 14em;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -8792,8 +8983,27 @@ button.progress-run-show:focus-visible {
   gap: 8px;
   margin-top: 10px;
 }
+/* Headings, labels and "not set" stay whole; a name wraps between its words and an email (one long word) anywhere, so
+   neither crushes the other columns; narrower still, the table scrolls sideways in its own box (#886). */
+.git-identity-wrap {
+  overflow-x: auto;
+  margin-bottom: 18px;
+}
+.git-identity-wrap > .git-identity {
+  margin-bottom: 0;
+}
 .git-identity td {
   padding-right: 24px;
+  overflow-wrap: break-word;
+}
+.git-identity tr.identity-email td {
+  overflow-wrap: anywhere;
+}
+.git-identity tr:first-child td,
+.git-identity td:first-child,
+.git-identity td > .faint {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .git-setup h2 .codicon {
   margin-right: 4px;

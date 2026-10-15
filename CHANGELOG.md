@@ -5,6 +5,7 @@
 ### Language
 - **Choose the language Hive shows.** Settings → General → Language: *Automatic* follows Windows' display language, or choose a language by its own name; the change shows at once. Languages translated by AI are marked, and improvements are welcome. Hive's text is being translated for this release, so much of it is still English. Agents and the Hive Assistant are still spoken to in English. `--lang=<code>` starts Hive in a language for one run.
 - **Date format: System now follows Windows' regional format**, not the language Hive shows.
+- **Longer words fit.** Screens that cut text off or ran past their edges in longer languages, and often in English in a narrow window, now shorten it with "…" (in full on hover), wrap it or make room: the project header folds its buttons to icons as soon as they don't fit, keeping the project's name and status; board column names, the agent strip (which fades where more agents are scrolled out of view, with a › to scroll to them, and folds Add Agent and the layout buttons to keep room for the tabs), the archived cards' table (Unarchive stays in view), permission mode descriptions (two lines), the Sessions tab's title and compaction rows, the Assistant's skills and modes lists, the commit identity table, the Progress panel's run details and the Load template dialog (#886).
 
 ### Agents
 - **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.

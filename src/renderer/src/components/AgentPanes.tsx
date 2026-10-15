@@ -28,7 +28,7 @@ import { contextLines, projectProviderConfig, providerDescriptor, providerName, 
 import { safeguardText } from '@shared/safeguards'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { unknownStateText } from '@shared/runtime'
-import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 30
@@ -427,7 +427,9 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
  * with default settings is the palette's Add Agent (Ctrl+Alt+Shift+N). `strip`: the agent strip's, which also answers
  * the palette's Add Agent from Template….
  */
-export function AddAgentButton({ project, className, label, strip }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean }) {
+const ADD_AGENT = msg({ id: 'panes.add.button', defaultMessage: 'Add Agent', description: 'Button (the agent strip): adds an agent to the project. Keep it short.' })
+
+export function AddAgentButton({ project, className, label, strip, iconOnly }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean; iconOnly?: boolean }) {
   useLanguage()
   const menu = useContextMenu()
   const caret = useRef<HTMLButtonElement>(null)
@@ -456,8 +458,10 @@ export function AddAgentButton({ project, className, label, strip }: { project: 
   return (
     <span className="split-btn">
       <Tooltip content={tip}>
-        <button className={cx('btn', className)} disabled={full} onClick={configure}>
-          <Icon name="add" /> {label ?? tr(msg({ id: 'panes.add.button', defaultMessage: 'Add Agent', description: 'Button (the agent strip): adds an agent to the project. Keep it short.' }))}
+        {/* Its icon only in a strip short of room (#886): the name stays for screen readers. */}
+        <button className={cx('btn', className, iconOnly && 'icon-only')} disabled={full} onClick={configure} aria-label={iconOnly ? (label ?? tr(ADD_AGENT)) : undefined}>
+          <Icon name="add" />
+          {!iconOnly && ` ${label ?? tr(ADD_AGENT)}`}
         </button>
       </Tooltip>
       <Tooltip content={templates ? tr(msg({ id: 'panes.add.caretTip', defaultMessage: 'Configure Agent and Add…, or Add Agent from Template', description: 'Tooltip of the ▾ beside Add Agent: its two menu items (use their translations).' })) : tr(msg({ id: 'panes.add.caretTipNoTemplates', defaultMessage: 'Configure Agent and Add… (choose the provider, where it works and its settings)', description: 'Tooltip of the ▾ beside Add Agent where templates are not offered (the Assistant). "Configure Agent and Add…" is its menu item.' }))}>
@@ -690,7 +694,7 @@ function useStripMenu(project: string | null, which: StripMenu, open: () => void
  */
 const TEMPLATE = msg({ id: 'panes.template.button', defaultMessage: 'Template', description: 'The Template ▾ button on the agent strip (save or load agent templates). Keep it short.' })
 
-function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled: boolean }) {
+function TemplateButton({ project, labelled, bare }: { project: ProjectInfo; labelled: boolean; bare?: boolean }) {
   const menu = useContextMenu()
   const button = useRef<HTMLButtonElement>(null)
   const open = async (keyboard: boolean): Promise<void> => {
@@ -704,7 +708,7 @@ function TemplateButton({ project, labelled }: { project: ProjectInfo; labelled:
       <Tooltip content={tr(msg({ id: 'panes.template.tip', defaultMessage: "Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)", description: 'Tooltip of the Template ▾ button (the agent strip).' }))}>
         <button ref={button} className="btn subtle small" aria-label={tr(TEMPLATE)} aria-haspopup="menu" onClick={(e) => void open(e.detail === 0)}>
           <Icon name="library" />
-          {labelled && ` ${tr(TEMPLATE)}`} <Icon name="chevron-down" />
+          {labelled && ` ${tr(TEMPLATE)}`} {!bare && <Icon name="chevron-down" />}
         </button>
       </Tooltip>
       {menu.element}
@@ -751,12 +755,37 @@ const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.nam
 
 /** The strip's width from which Template ▾ is labelled (else its icon). */
 const TEMPLATE_LABEL_FROM = 720
+/** The least room the agent tabs keep before the strip's other controls fold (#886): about one tab and a half. */
+const TABS_MIN = 96
+/**
+ * How far the strip's controls fold: Add Agent shows its icon only; then the layouts are one button with a menu; then the
+ * page buttons are the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
+ */
+const STRIP_FOLDS = 4
+
+/** The width the agent strip needs: its controls on one row, and the tabs their least room (`useFolds`, #886). */
+function stripNeed(el: HTMLElement): number | null {
+  const wrap = el.querySelector<HTMLElement>(':scope > .agent-tabs-wrap')
+  const tabs = wrap?.querySelector<HTMLElement>('.agent-tabs')
+  if (!wrap || !tabs) return null
+  const items = [...el.children].filter((c) => c !== wrap && !c.classList.contains('grow') && !c.classList.contains('menu')) as HTMLElement[]
+  const gap = parseFloat(getComputedStyle(el).columnGap) || 0
+  return Math.ceil(items.reduce((n, c) => n + c.getBoundingClientRect().width, 0) + gap * items.length + Math.min(tabs.scrollWidth, TABS_MIN))
+}
 
 /** The row above the Session tab: one tab per agent, Add Agent, Template ▾, the pages and the layout choice. */
 export function AgentStrip({ project }: { project: ProjectInfo }) {
-  useLanguage()
   const panes = usePanes(project)
-  const [stripRef, stripWidth] = useWidth<HTMLDivElement>()
+  const [stripWidthRef, stripWidth] = useWidth<HTMLDivElement>()
+  const strip = useRef<HTMLDivElement | null>(null)
+  const stripRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      strip.current = el
+      stripWidthRef(el)
+    },
+    [stripWidthRef]
+  )
+  const language = useLanguage()
   // A second agent: the tip about layouts and file locks, the first time.
   const several = project.agents.length >= 2
   useEffect(() => void (several && offerTip('second-agent')), [several])
@@ -795,6 +824,11 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   const ids = project.agents.map((a) => a.id)
   // The focused agent's tab stays in view when the tabs don't all fit.
   const tabs = useRef<HTMLDivElement>(null)
+  // Tabs scrolled out of view: the strip fades out at that end (#886).
+  const tabsMore = useScrollEdges(tabs)
+  // Short of room, the controls fold before the tabs lose their least room (#886): Add Agent to its icon, then the layouts
+  // to one button with a menu.
+  const folds = useFolds(strip, stripWidth, [language, project.agents.length, pages, layout, many, isAssistantPath(project.path)].join('|'), STRIP_FOLDS, stripNeed)
   useEffect(() => {
     tabs.current?.querySelector('.agent-tab.focused')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [focused, project.agents.length])
@@ -858,7 +892,10 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
     )
   }
   // Every other page's most urgent agent, for the compact pager's menu button.
-  const elsewhere = pages > PAGE_BUTTONS_MAX ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
+  // The compact pager for more pages than buttons, or (folded, #886) for any pages in a strip short of room.
+  const compactPager = pages > PAGE_BUTTONS_MAX || (pages > 1 && folds >= 3)
+  const bare = folds >= 4
+  const elsewhere = compactPager ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
   const pageMenu = (el: Element, keyboard: boolean): void => {
     const r = el.getBoundingClientRect()
     menu.openAt(
@@ -874,9 +911,11 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
     )
   }
   return (
-    <div className="agent-strip" ref={stripRef}>
+    <div className="agent-strip" ref={stripRef} data-folded={folds > 0 || undefined}>
       {/* Scrolls sideways (mouse wheel too) when a project's agents don't fit; a line marks where each page starts. */}
-      <div className="agent-tabs" ref={tabs} onWheel={(e) => e.deltaY && (e.currentTarget.scrollLeft += e.deltaY)}>
+      {/* A chevron over an end with agents scrolled out of view (#886); a click scrolls that way (the tabs themselves are what the keyboard reaches). */}
+      <div className="agent-tabs-wrap">
+      <div className="agent-tabs scroll-fade" data-more={tabsMore || undefined} ref={tabs} onWheel={(e) => e.deltaY && (e.currentTarget.scrollLeft += e.deltaY)}>
       {project.agents.map((a, i) => (
         <Tooltip key={a.id} content={<AgentTabTip project={project} a={a} />}>
           <div
@@ -917,26 +956,48 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
         </Tooltip>
       ))}
       </div>
-      <AddAgentButton project={project} className="subtle small agent-add" strip />
+      {tabsMore.includes('left') && <ScrollMore dir="left" target={tabs} />}
+      {tabsMore.includes('right') && <ScrollMore dir="right" target={tabs} />}
+      </div>
+      <AddAgentButton project={project} className="subtle small agent-add" strip iconOnly={folds >= 1} />
       <div className="grow" />
       {/* On the right: Template ▾, then the pages beside the layouts they follow from (#292). */}
-      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} />}
-      {pages > 1 && pages <= PAGE_BUTTONS_MAX && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
-      {/* More pages than fit as buttons (up to 24 agents, #562): ‹, which page of how many (a menu of them all), ›. */}
-      {pages > PAGE_BUTTONS_MAX && (
+      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} bare={bare} />}
+      {pages > 1 && !compactPager && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
+      {/* More pages than fit as buttons (up to 24 agents, #562), or a strip short of room (#886): ‹, which page of how
+          many (a menu of them all), ›; shortest, only the menu. */}
+      {compactPager && (
         <div className="segmented page-switch compact">
-          {pageButton((page - 1 + pages) % pages, { label: '‹', name: tr(msg({ id: 'panes.pages.previous', defaultMessage: 'Previous agent page', description: 'The ‹ button of the agent strip\'s compact pager (many pages): shows the previous page of agents.' })) })}
+          {!bare && pageButton((page - 1 + pages) % pages, { label: '‹', name: tr(msg({ id: 'panes.pages.previous', defaultMessage: 'Previous agent page', description: 'The ‹ button of the agent strip\'s compact pager (many pages): shows the previous page of agents.' })) })}
           <Tooltip content={tr(msg({ id: 'panes.pages.menuTip', defaultMessage: 'Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}', description: "Tooltip of the agent strip's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)." }), { page: page + 1, pages, key: pageKb ? formatKeybinding(pageKb) : 'none' })}>
             <button className="page-menu" aria-label={tr(msg({ id: 'panes.pages.menu', defaultMessage: 'Agent pages', description: "Accessible name of the agent strip's page menu (many pages)." }))} aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
               {page + 1} / {pages}
-              <Icon name="chevron-down" />
+              {!bare && <Icon name="chevron-down" />}
               {elsewhere && <span className={cx('dot', elsewhere.status, elsewhere.unseen && 'unseen')} />}
             </button>
           </Tooltip>
-          {pageButton((page + 1) % pages, { label: '›', name: tr(msg({ id: 'panes.pages.next', defaultMessage: 'Next agent page', description: "The › button of the agent strip's compact pager (many pages): shows the next page of agents." })) })}
+          {!bare && pageButton((page + 1) % pages, { label: '›', name: tr(msg({ id: 'panes.pages.next', defaultMessage: 'Next agent page', description: "The › button of the agent strip's compact pager (many pages): shows the next page of agents." })) })}
         </div>
       )}
-      {(many || layout !== 'single') && (
+      {(many || layout !== 'single') && folds >= 2 && (
+        <div className="segmented layout-switch">
+          <Tooltip content={layoutLabel(layout)}>
+            <button
+              className="layout-menu"
+              aria-label={layoutLabel(layout)}
+              aria-haspopup="menu"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                menu.openAt(r.left, r.bottom + 2, SESSION_LAYOUTS.map((l) => ({ label: layoutLabel(l.value), icon: layout === l.value ? 'check' : undefined, onClick: () => void actions.setLayout(project.path, l.value) })), e.detail === 0)
+              }}
+            >
+              <LayoutGlyph layout={layout} />
+              {!bare && <Icon name="chevron-down" />}
+            </button>
+          </Tooltip>
+        </div>
+      )}
+      {(many || layout !== 'single') && folds < 2 && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
             <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>

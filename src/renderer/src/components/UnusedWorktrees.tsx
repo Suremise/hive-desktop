@@ -298,7 +298,7 @@ export function UnusedHeading({ project, count, into, children }: { project: Pro
   return (
     <>
       <h2 className="section" id="unused-worktrees">
-        {tr(M.heading)} {count !== undefined && <span className="badge">{count}</span>}
+        <span className="unused-title">{tr(M.heading)}</span> {count !== undefined && <span className="badge">{count}</span>}
         <InfoTip text={tr(M.headingTip)} />
         <div className="grow" />
         {children}

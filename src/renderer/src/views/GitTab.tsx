@@ -656,6 +656,8 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 <Icon name="warning" /> {w}
               </div>
             ))}
+            {/* In a narrow column the table scrolls sideways in its own box rather than run under the panel beside it (#886). */}
+            <div className="git-identity-wrap">
             <table className="kv git-identity" data-git-identity="">
               <tbody>
                 <tr>
@@ -665,7 +667,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                   <td className="faint">{tr(M.commitsUse)}</td>
                 </tr>
                 {(['name', 'email'] as const).map((k) => (
-                  <tr key={k}>
+                  <tr key={k} className={`identity-${k}`}>
                     <td>{tr(k === 'name' ? M.name : M.email)}</td>
                     <td>{info.identity.local[k] ?? <span className="faint">{tr(M.notSet)}</span>}</td>
                     <td>{info.identity.global[k] ?? <span className="faint">{tr(M.notSet)}</span>}</td>
@@ -676,6 +678,7 @@ function BranchesSection({ project }: { project: ProjectInfo }) {
                 ))}
               </tbody>
             </table>
+            </div>
             {form && <GitForm make={form.make} onClose={() => setForm(null)} />}
           </div>
         )

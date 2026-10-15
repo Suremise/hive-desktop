@@ -10,7 +10,7 @@ import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
 import { get, notify, projectState, prompt, set, setProjectTab, toggleCompactSidebar, useStore } from '../store'
 import { cx, formatKeybinding } from '../util'
-import { Icon, IconButton, InfoTip, LoadFailed, SearchInput, StaleNote, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, InfoTip, LoadFailed, OneLineTitle, SearchInput, StaleNote, StatusDot, STATUS_TEXT, Switch, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { addSkill, deleteSkill, HiveSkillsWarning, restoreBundled, SKILL_LEVEL_TIP, SkillRow } from './Skills'
 import { TemplatesPanel } from './Templates'
 import { hasEditorDraftsUnder } from '../editorDrafts'
@@ -630,7 +630,7 @@ function NotesPanel() {
   return (
     <>
       <div className="pane-header">
-        {tr(M.sharedNotes)}
+        <OneLineTitle text={tr(M.sharedNotes)} />
         <InfoTip text={tr(M.notesTip)} />
         <div className="actions">
           <IconButton icon="new-file" title={tr(M.newNoteButton)} onClick={() => void create(false)} />

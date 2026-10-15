@@ -13,7 +13,7 @@ import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { formatDateTime } from '@shared/dates'
 import { returnRound } from '@shared/watch'
-import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, STATUS_TEXT, statusText, Tooltip, useBusy, useContextMenu, type MenuEntry } from './ui'
+import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, STATUS_TEXT, statusText, Tooltip, useBusy, useClipped, useContextMenu, type MenuEntry } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
 import { reportArchived, unarchiveBatch } from '../boardBatches'
@@ -692,9 +692,7 @@ export function Board({ project, scope = null, query, archived }: { project: str
                   <Chevrons dir="left" />
                 </button>
               </Tooltip>
-              <Tooltip content={description}>
-                <span className="board-column-label">{name}</span>
-              </Tooltip>
+              <ColumnLabel name={name} description={description} />
               <span className="count">{list.length}</span>
               <span className="grow" />
               {col.id === 'todo' && <IconButton icon="add" title={tr(NEW_CARD_TIP)} onClick={() => set({ taskOpen: { project: project ?? '' } })} />}
@@ -734,6 +732,29 @@ export function Board({ project, scope = null, query, archived }: { project: str
   )
 }
 
+/** A board column's name in its header: cut with "…" when the column is narrow, and then given in full in its tooltip (#886). */
+function ColumnLabel({ name, description }: { name: string; description: string }) {
+  const [ref, clipped] = useClipped<HTMLSpanElement>()
+  return (
+    <Tooltip
+      content={
+        clipped ? (
+          <>
+            <strong>{name}</strong>
+            <div>{description}</div>
+          </>
+        ) : (
+          description
+        )
+      }
+    >
+      <span className="board-column-label" ref={ref}>
+        {name}
+      </span>
+    </Tooltip>
+  )
+}
+
 /** An archived card's agent, as it was named when it last had one. */
 const lastAgent = (c: TaskCard): string => (c.agent ? (c.agentName ?? c.agent) : '')
 
@@ -764,6 +785,7 @@ const archivedColumns = (): DataColumn<TaskCard>[] => [
   {
     key: 'actions',
     header: '',
+    className: 'archive-actions',
     cell: (c) => (
       <Tooltip content={tr(msg({ id: 'board.archived.unarchiveTip', defaultMessage: 'Bring #{card} back to the end of {column}', description: "Tooltip on an archived card's Unarchive button. {card} is its number (after #), {column} the board column it was archived from." }), { card: c.number, column: columnName(c.column, tr) })}>
         <button
