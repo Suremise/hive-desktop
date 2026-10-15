@@ -7984,10 +7984,17 @@ button.progress-run-show:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The reporter's name shows whole while there is room; in a narrow panel the project name gives way first: it takes only
+   the room the icon and the name leave (from nothing, up to its own width), so the name is cut only once the project is
+   gone. No percentage cap (#905): the header is sized by its own content, so 70% of it cut the name ("[Šçŕîþţ …",
+   "スクリ…") with room to spare. */
 .progress-agent {
   font-weight: 600;
-  flex-shrink: 0;
-  max-width: 70%;
+  flex: 0 1 auto;
+}
+.progress-run-show > .progress-project {
+  flex: 1 1 0;
+  max-width: max-content;
 }
 .progress-run-show > .codicon {
   flex-shrink: 0;
@@ -8915,17 +8922,6 @@ button.progress-run-show:focus-visible {
   content: '·';
   margin-right: 8px;
   color: var(--fg-faint);
-}
-/* The Progress header's reporter name: its 70% cap, resolved against a header sized by its own content, cut
-   "スクリプト" to "スクリ…" with room to spare. The project name gives way first instead (it shrinks ten times as fast). */
-:lang(ja) .progress-agent,
-:lang(zh) .progress-agent {
-  flex: 0 1 auto;
-  max-width: none;
-}
-:lang(ja) .progress-run-show .progress-project,
-:lang(zh) .progress-run-show .progress-project {
-  flex: 0 10 auto;
 }
 /* Settings' navigation: a long section name wraps onto a second line rather than being cut off at the edge. */
 :lang(ja) .settings-nav .row,

@@ -17,6 +17,7 @@
 
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
+- **A run's reporter shows in full.** A run's header no longer cuts a longer agent name, or "Script" in some languages, short when there is room for it; in a narrow panel the project name gives way first (#905).
 
 ### Attachments
 - **Easier to scan.** Files that aren't images show their type's icon (Markdown, JSON, PDF, zip, code, text) instead of one icon for all, every tile shows its size, and a session's heading shows the days its attachments were added ("Oct 9 – today"), with a divider where each day starts (#900).
