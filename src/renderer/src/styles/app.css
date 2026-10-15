@@ -5851,6 +5851,21 @@ body.pane-resizing .monaco-editor {
 .fallback-actions .input {
   max-width: 280px;
 }
+/* Under a price table, the new model's box keeps room for its placeholder ("Model ID, e.g. a new model", longer in most
+   languages) and the buttons wrap under it when the row is short; narrower still, the whole hint shows on hover (#892). */
+.fallback-actions.price-actions {
+  flex-wrap: wrap;
+}
+.fallback-actions.price-actions > .input,
+.fallback-actions.price-actions > .tip-wrap {
+  flex: 1 1 280px;
+  max-width: 280px;
+  min-width: min(280px, 100%);
+}
+.fallback-actions.price-actions > .tip-wrap > .input {
+  width: 100%;
+  max-width: none;
+}
 .effort-picker-wrap {
   display: flex;
   flex-direction: column;

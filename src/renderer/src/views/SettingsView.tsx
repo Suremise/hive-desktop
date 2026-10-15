@@ -15,7 +15,7 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { playChime } from '../chime'
-import { Icon, IconButton, InfoTip, SearchInput, Switch, Tooltip } from '../components/ui'
+import { Icon, IconButton, InfoTip, SearchInput, Switch, Tooltip, usePlaceholderClipped } from '../components/ui'
 import { UpdateStatusRow } from '../components/Updates'
 import { KeybindingsEditor } from '../components/Keybindings'
 import { HiddenProjectsList } from '../components/ProjectRemoval'
@@ -120,6 +120,8 @@ function PriceTable({ provider }: { provider: ProviderId }) {
   const listed = useMemo(() => listedPriceModels(provider, catalog), [provider, catalog])
   const rows = priceRows(provider, settings, listed)
   const [adding, setAdding] = useState('')
+  const newHint = tr(msg({ id: 'settings.prices.newPlaceholder', defaultMessage: 'Model ID, e.g. a new model', description: "Placeholder of the box under a price table where a model's ID is typed to add it." }))
+  const [newBox, hintClipped] = usePlaceholderClipped(newHint)
   const cols: { key: keyof ModelPrice; label: string }[] = [
     { key: 'input', label: tr(msg({ id: 'settings.prices.input', defaultMessage: 'Input', description: "A column of a provider's price table (Settings → <provider> → API prices): the price of input tokens." })) },
     { key: 'cachedInput', label: tr(msg({ id: 'settings.prices.cachedInput', defaultMessage: 'Cached input', description: "A column of a provider's price table: the price of input tokens read from the cache." })) },
@@ -203,8 +205,11 @@ function PriceTable({ provider }: { provider: ProviderId }) {
         </tbody>
       </table>
       </div>
-      <div className="fallback-actions">
-        <input className="input mono" placeholder={tr(msg({ id: 'settings.prices.newPlaceholder', defaultMessage: 'Model ID, e.g. a new model', description: "Placeholder of the box under a price table where a model's ID is typed to add it." }))} aria-label={tr(msg({ id: 'settings.prices.newLabel', defaultMessage: "New model's ID", description: "The name, for screen readers, of the box under a price table where a model's ID is typed." }))} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+      {/* The new model's box keeps room for its hint; too narrow even so, the whole hint shows on hover (#892). */}
+      <div className="fallback-actions price-actions">
+        <Tooltip content={hintClipped ? newHint : null}>
+          <input ref={newBox} className="input mono" placeholder={newHint} aria-label={tr(msg({ id: 'settings.prices.newLabel', defaultMessage: "New model's ID", description: "The name, for screen readers, of the box under a price table where a model's ID is typed." }))} value={adding} onChange={(e) => setAdding(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+        </Tooltip>
         <button className="btn subtle" disabled={!adding.trim()} onClick={add}>
           <Icon name="add" /> {tr(msg({ id: 'settings.prices.add', defaultMessage: 'Add model', description: 'Button under a price table: adds the model typed beside it.' }))}
         </button>

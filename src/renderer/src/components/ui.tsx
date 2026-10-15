@@ -152,6 +152,36 @@ export function DottedId({ id }: { id: string }) {
   )
 }
 
+/**
+ * Whether a text box is too narrow for its placeholder (#892), so the full hint can be given on hover. Measured with the
+ * box's own font; follows the box's size.
+ */
+export function usePlaceholderClipped(placeholder: string): [(el: HTMLInputElement | null) => void, boolean] {
+  const [clipped, setClipped] = useState(false)
+  const observer = useRef<ResizeObserver | null>(null)
+  // A callback ref: a box remounted (wrapped in its tooltip once clipped) is measured again.
+  const ref = useCallback(
+    (el: HTMLInputElement | null) => {
+      observer.current?.disconnect()
+      observer.current = null
+      const ctx = el && document.createElement('canvas').getContext('2d')
+      if (!el || !ctx) return
+      const update = (): void => {
+        const cs = getComputedStyle(el)
+        ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+        const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+        setClipped(room > 0 && ctx.measureText(placeholder).width > room + 0.5)
+      }
+      const ro = new ResizeObserver(update)
+      ro.observe(el)
+      observer.current = ro
+      update()
+    },
+    [placeholder]
+  )
+  return [ref, clipped]
+}
+
 /** A heading that stays on one line beside its buttons, cut with "…" and then given in full on hover (#886). */
 export function OneLineTitle({ text, className }: { text: string; className?: string }) {
   const [ref, clipped] = useClipped<HTMLSpanElement>()
