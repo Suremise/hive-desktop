@@ -3,7 +3,8 @@
 // no command a clash with itself, and two commands whose names translate alike still show a real clash. A stopped
 // session's transcript, open, shows Hive's own notices in the new language at once, with its file unchanged (#797).
 // Project Settings opened in another language shows its sections (the list, the heading and its description) and its
-// rows in it, and follows a change of language while it is open (#793, E1's catalogue in lane C's view). The
+// rows in it, and follows a change of language while it is open (#793, E1's catalogue in lane C's view); its provider
+// section's permission mode row says what the mode does, and names its choices, in it too, their values the ids (#861). The
 // window is sent language-changed as main sends it, with a small catalogue of test translations. Throwaway profile and
 // workspace.
 const lib = require('./lib.cjs')
@@ -111,6 +112,26 @@ const check = (name, ok, extra = '') => {
     // English while it is open: all of it follows at once.
     await speak('en', {})
     check('…and follows a change of language while it is open', !!(await shows({ label: 'Agents & Worktrees', desc: 'The project’s agents and their providers, file locks between them, and how new worktrees are set up.', row: 'Setup command' })), await seen())
+
+    // Its provider section (#861): the permission mode row says what the mode in use does, and names its choices, in the
+    // window's language, following a change while it is open; the choices' values stay the modes' ids.
+    const DE_MODES = { 'agents.claude.auto': 'Automatisch', 'agents.claude.autoDescription': 'Ein Klassifikator genehmigt risikoarme Aktionen selbst.', 'agents.claude.manual': 'Manuell' }
+    await speak('de', DE_MODES)
+    await page.locator('.settings-nav .row', { hasText: 'Claude Code' }).first().click()
+    const modeSelect = page.locator('.settings-content select:has(option[value="acceptEdits"])')
+    const modes = async () => ({ text: await content.innerText().catch(() => ''), options: await modeSelect.locator('option').evaluateAll((os) => os.map((o) => [o.value, o.textContent.trim()])).catch(() => []) })
+    const modesIn = (want) => lib.until(async () => {
+      const m = await modes()
+      const label = Object.fromEntries(m.options)
+      return m.text.includes(want.desc) && label.manual === want.manual && label.auto === want.auto && label.inherit?.includes(want.auto) ? m : null
+    }, HUNG_MS)
+    const inGerman = await modesIn({ desc: DE_MODES['agents.claude.autoDescription'], manual: 'Manuell', auto: 'Automatisch' })
+    check('the provider section says what the permission mode does, and names its choices, in German', !!inGerman, JSON.stringify(await modes()))
+    await speak('en', {})
+    const inEnglish = await modesIn({ desc: 'A safety classifier approves low-risk actions itself and only asks about risky ones.', manual: 'Manual', auto: 'Auto' })
+    check('…and follows a change of language while it is open', !!inEnglish, JSON.stringify(await modes()))
+    const ids = (m) => JSON.stringify(m?.options.map(([v]) => v))
+    check('…its choices keep the modes’ ids', !!inGerman && ids(inGerman) === ids(inEnglish) && inEnglish.options.some(([v]) => v === 'manual') && inEnglish.options.some(([v]) => v === 'auto'), `${ids(inGerman)} ${ids(inEnglish)}`)
   } catch (e) {
     check('the suite ran', false, String(e?.stack ?? e))
   } finally {

@@ -3,7 +3,7 @@ import { readFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { setLanguage, tr } from '../../src/shared/i18n'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
-import { PROVIDERS, modeCaveat, shownText } from '../../src/shared/providers'
+import { PROVIDERS, modeCaveat, modeDescription, permissionLabel, shownText } from '../../src/shared/providers'
 import { FILE_LOCK_MODES, SESSION_LAYOUTS, agentLimitText, keybindingProblem, mergeBlocked, sessionLabel, unmergedWork } from '../../src/shared/defaults'
 import { agentNameProblem, nameTakenMessage } from '../../src/shared/agentNames'
 import { batchOutcome, busyNote, removeWorktreeText } from '../../src/shared/startAll'
@@ -75,12 +75,19 @@ describe('the agents area', () => {
     expect(nameTakenMessage('b1', owner, 'B1 (hive)', tr)).toBe(nameTakenMessage('b1', owner, 'B1 (hive)'))
     for (const n of ['', '   ', 'x'.repeat(200), 'Fine']) expect(agentNameProblem(n, tr), n).toBe(agentNameProblem(n))
     for (const d of PROVIDERS) for (const mode of ['auto', 'acceptEdits']) expect(modeCaveat(d.id, mode as never, 'haiku', { supportsAuto: false }, tr)).toBe(modeCaveat(d.id, mode as never, 'haiku', { supportsAuto: false }))
+    // A mode's name and what it does (Project Settings, Settings → Assistant: #861), an unknown mode its id either way.
+    for (const d of PROVIDERS) for (const m of [...d.permissionModes.map((x) => x.value), 'no-such-mode']) {
+      expect(permissionLabel(d.id, m, tr), m).toBe(permissionLabel(d.id, m))
+      expect(modeDescription(d.id, m, tr), m).toBe(modeDescription(d.id, m))
+    }
+    expect(modeDescription('claude-code', 'no-such-mode')).toBe('no-such-mode')
   })
 
   it('under the pseudo-locale the window words translate, and what agents and main read stays English', () => {
     setLanguage(PSEUDO_LANGUAGE, {})
     const window = [
       ...providerPairs().map(([, english, text]) => shownText(english, text, tr)),
+      ...PROVIDERS.flatMap((d) => d.permissionModes.flatMap((m) => [permissionLabel(d.id, m.value, tr), modeDescription(d.id, m.value, tr)])),
       agentLimitText(12, tr),
       ...STATUSES.flatMap((s) => mergeBlocked('B1', s, tr) ?? []),
       unmergedWork({ ahead: 2, dirty: 1, base: 'main', branch: 'b' } as never, tr)!.text,
@@ -100,6 +107,7 @@ describe('the agents area', () => {
     expect(agentLimitText(12)).toBe('A project can have up to 12 agents (Settings → Advanced → Agents per project).')
     expect(mergeBlocked('B1', 'working')).toBe('B1 is working. Merge once it has finished.')
     expect(PROVIDERS[0].permissionModes[0].label).toBe('Manual')
+    expect([permissionLabel('claude-code', 'auto'), modeDescription('claude-code', 'auto')]).toEqual(['Auto', 'A safety classifier approves low-risk actions itself and only asks about risky ones.'])
     expect(testedComparison({ version: '1', installed: 'older' } as never)).toBe('older than tested')
   })
 })

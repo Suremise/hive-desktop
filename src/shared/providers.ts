@@ -499,6 +499,12 @@ export function permissionLabel(provider: ProviderId, mode: PermissionMode, tr?:
   return m ? (tr ? shownText(m.label, m.text?.label, tr) : m.label) : mode
 }
 
+/** What a mode does: in the window's language with tr (#861), else English; its id when the provider has no such mode. */
+export function modeDescription(provider: ProviderId, mode: PermissionMode, tr?: Tr): string {
+  const m = modeOption(provider, mode)
+  return m ? (tr ? shownText(m.description, m.text?.description, tr) : m.description) : mode
+}
+
 /** Whether a mode can be used: it's one of the provider's, and not its dangerous mode unless that is enabled. */
 export function modeAllowed(provider: ProviderId, mode: PermissionMode | null | undefined, settings: Pick<AppSettings, 'providers'> | null | undefined): boolean {
   const m = modeOption(provider, mode)
