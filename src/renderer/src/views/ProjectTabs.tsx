@@ -257,7 +257,7 @@ const S = {
   overrides: msg({ id: 'project.settings.overrides', defaultMessage: 'Overrides the global default', description: 'Tooltip on the mark beside a project setting that is not Inherit.' }),
   now: msg({ id: 'project.settings.now', defaultMessage: '{desc} Now: {current}', description: "A setting's description followed by what the value in use does. {desc} is the description; {current} what is in use." }),
   turnedOff: msg({ id: 'project.agents.turnedOff', defaultMessage: '{provider} is turned off in Settings → Providers', description: "Tooltip on an agent's provider icon when the provider is turned off." }),
-  off: msg({ id: 'project.agents.off', defaultMessage: '(off)', description: "After a provider's name when it is turned off." }),
+  off: msg({ id: 'project.agents.off', defaultMessage: '{provider} (off)', description: "A provider's name when it is turned off in Settings → Providers (an agent's provider, and the Provider list)." }),
   projectFolder: msg({ id: 'project.agents.projectFolder', defaultMessage: 'project folder', description: 'Where an agent works when it has no worktree.' }),
   ownModel: msg({ id: 'project.agents.ownModel', defaultMessage: 'model {model}', description: "One of an agent's own settings, in a list." }),
   ownEffort: msg({ id: 'project.agents.ownEffort', defaultMessage: 'effort {effort}', description: "One of an agent's own settings, in a list." }),
@@ -1612,7 +1612,7 @@ function AgentList({ project }: { project: ProjectInfo }) {
             </Tooltip>
             <div className="grow">
               <div>
-                <strong>{a.name}</strong> <span className="faint">{providerName(provider)}{off ? ` ${tr(S.off)}` : ''}</span>{' '}
+                <strong>{a.name}</strong> <span className="faint">{off ? tr(S.off, { provider: providerName(provider) }) : providerName(provider)}</span>{' '}
                 {a.worktree ? (
                   <span className="agent-branch">
                     <Icon name="git-branch" /> {a.worktree.branch}
@@ -1766,8 +1766,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
           <option value="inherit">{inherit(globalDefault)}</option>
           {PROVIDERS.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
-              {isProviderEnabled(settings, p.id) ? '' : ` ${tr(S.off)}`}
+              {isProviderEnabled(settings, p.id) ? p.name : tr(S.off, { provider: p.name })}
             </option>
           ))}
         </select>

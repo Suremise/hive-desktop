@@ -139,8 +139,6 @@ interface HiveMessageValues {
   'sessions.tree.notFromAgent': undefined
   'sessions.tree.sessions': { n: number }
   'sessions.tree.subs': { n: number }
-  'sessions.view.cacheExpired': undefined
-  'sessions.view.cacheWarm': { left: string | number }
   'sessions.view.collapseTools': undefined
   'sessions.view.copy': undefined
   'sessions.view.copyMessage': undefined
@@ -159,6 +157,6 @@ interface HiveMessageValues {
   'sessions.view.refresh': undefined
   'sessions.view.running': undefined
   'sessions.view.thinking': undefined
-  'sessions.view.usage': { context: string | number; output: string | number; prompts: number; compactions: number }
+  'sessions.view.usage': { context: string | number; output: string | number; prompts: number; compactions: number; cache: string; left: string | number }
   'sessions.view.you': undefined
 }

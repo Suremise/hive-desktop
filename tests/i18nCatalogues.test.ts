@@ -88,6 +88,28 @@ describe('the English catalogues and typed values (i18n:extract)', () => {
     if (hasNativeCli()) expect(sorted(extractWithJs(root))).toBe(sorted(extractWithCli(root)))
   })
 
+  // #815: a leading space, a line break or two spaces is part of the message (translators work from this English), so
+  // neither reader trims or collapses it, and a line break in the source reads the same from a CRLF file as from an LF one.
+  it.each([
+    ['LF', '\n'],
+    ['CRLF', '\r\n']
+  ])('both readers keep white space as written (%s source)', (_name, eol) => {
+    const root = tree({
+      'src/a.ts': [
+        `import { msg } from './m'`,
+        "export const a = msg({ id: 'x.a', defaultMessage: `One",
+        "  Two`, description: 'A line break in a template' })",
+        `export const b = msg({ id: 'x.b', defaultMessage: ' lead\\ttab\\n\\npara ', description: 'Leading, trailing, a tab and a paragraph' })`,
+        `export const c = msg({ id: 'x.c', defaultMessage: 'a ' + '\\n b', description: 'Joined with +' })`,
+        `export const d = msg({ id: 'x.d', defaultMessage: "two  spaces ", description: 'Two spaces' })`
+      ].join(eol)
+    })
+    const want = { 'x.a': 'One\n  Two', 'x.b': ' lead\ttab\n\npara ', 'x.c': 'a \n b', 'x.d': 'two  spaces ' }
+    const english = (m: Messages) => Object.fromEntries(Object.entries(m).map(([id, x]) => [id, x.defaultMessage]))
+    expect(english(extractWithJs(root))).toEqual(want)
+    if (hasNativeCli()) expect(english(extractWithCli(root))).toEqual(want)
+  })
+
   it('a message with no note for translators, or an id with no area, is a problem', () => {
     expect(messageProblems({ 'board.ok': { defaultMessage: 'Fine', description: 'A word' }, 'board.bare': { defaultMessage: 'No note' }, nodots: { defaultMessage: 'X', description: 'An id with no area' } })).toEqual([
       'board.bare: needs a description, a note for translators (what it is and where it shows)',
@@ -101,7 +123,7 @@ describe('the English catalogues and typed values (i18n:extract)', () => {
     writeGenerated(root)
     expect(extractDrift(root)).toEqual([])
     const board = JSON.parse(readFileSync(join(root, 'locales/en/board.json'), 'utf8')) as Messages
-    expect(board['board.hello']).toEqual({ defaultMessage: 'Hello, {name}', description: 'A greeting; {name} is an agent' })
+    expect(board['board.hello']).toEqual({ defaultMessage: 'Hello,   {name}  ', description: 'A greeting; {name} is an agent' })
     // The --check the stale-file test makes, as the command CI's npm test runs: a message changed in the code.
     writeFileSync(join(root, 'src/renderer/src/Panel.tsx'), SOURCE.replace("'Hello,   {name}  '", "'Hi, {name}'"))
     expect(extractDrift(root)).toEqual(['locales/en/board.json'])

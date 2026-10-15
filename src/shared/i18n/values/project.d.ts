@@ -3,7 +3,7 @@
 interface HiveMessageValues {
   'project.agents.add': undefined
   'project.agents.merge': undefined
-  'project.agents.off': undefined
+  'project.agents.off': { provider: string | number }
   'project.agents.own200k': { on: string }
   'project.agents.ownEffort': { effort: string | number }
   'project.agents.ownMcp': { servers: string | number }

@@ -169,6 +169,8 @@ They should be natural, not word for word.
   style page's word for each of Hive's own terms every time.
 - **Numbers, dates, money and lists** are formatted by Hive for the language (`1 234,50 USD`, `14.10.2026`), so never
   write them out in a translation. Keep them as the placeholders they are.
+- **Keep the line breaks.** A message with `\n` in it (a hover of several lines) shows each part on its own line:
+  keep them where the English has them.
 - **Mind the length.** Buttons, tabs and column headings have little room. If a translation is much longer than the
   English, look at it in Hive or in the screenshots.
 - **Read the description.** Each message in `locales/en/<area>.json` has a note saying where it appears and what its

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { join, resolve } from 'path'
-import { setLanguage } from '../../src/shared/i18n'
+import { setLanguage, tr } from '../../src/shared/i18n'
+import { msg } from '../../src/shared/i18n/msg'
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
 import { attachmentLabel } from '../../src/shared/attachments'
 import { removedAgentName, sessionOrigin } from '../../src/shared/sessionOrigin'
@@ -58,5 +59,23 @@ describe('the sessions area', () => {
     expect(mine.agent).toBe('Coder')
     expect(gone.detail).toContain('C:\\ws\\hive-wt\\b1')
     expect(gone.location).toContain('hive/b1')
+  })
+
+  // #815: translators work from locales/en, so its English keeps the source's line breaks and separators. A language
+  // whose text is the catalogue's English as written reads exactly as the source's English does.
+  it("a translation made from the catalogue's English keeps its line breaks and the usage line's separators", () => {
+    const catalogue = (area: string) => JSON.parse(readFileSync(join(ROOT, `locales/en/${area}.json`), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
+    const en = { ...catalogue('sessions'), ...catalogue('panes'), ...catalogue('project') }
+    const ids = ['sessions.view.usage', 'panes.session.tip', 'panes.worktree.tip', 'project.settings.inheritList']
+    const messages = ids.map((id) => msg({ id, defaultMessage: en[id].defaultMessage, description: en[id].description }))
+    const values = { context: '120K', output: '8K', prompts: 3, compactions: 1, left: '4m', session: 'S', since: 'today', id: 'abc', branch: 'hive/b1', path: 'C:\\wt', base: 'main', value: 'a\nb' }
+    const shown = (cache: string) => messages.map((m) => tr(m as never, { ...values, cache } as never))
+    const english = shown('warm')
+    expect(english[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction · cache warm 4m')
+    expect(shown('expired')[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction · cache expired')
+    expect(shown('none')[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction')
+    expect(english.slice(1).map((t) => t.split('\n').length)).toEqual([4, 3, 3])
+    setLanguage('pl', Object.fromEntries(ids.map((id) => [id, en[id].defaultMessage])))
+    expect(shown('warm')).toEqual(english)
   })
 })
