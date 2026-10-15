@@ -68,6 +68,8 @@ The checks are positive and negative:
   waiting reviewer is woken. A builder woken by one card passing while the other failed at the same moment acts on the
   failed one too. A builder starting a loop registers its lane (the cards in order, its reviewer, rounds and wait) before
   its first card's review; a reviewer joins its builder's lane by name, starting none of its own (#483).
+  A builder at the lane's end whose commit needs the user's OK (a hook refuses it until they allow it) blocks the last
+  card and tells the user, bypasses nothing, and once allowed clears the block, commits and moves the cards to Done (#869).
   A reviewer whose card its builder blocks while it waits (to ask the user) keeps watching it rather than moving on, and
   reviews it when Hive wakes it once the card is unblocked and back in Review (#481).
   A reviewer woken by Hive's own loop wake, with no watch of its own, reviews the card and waits for the next (#405).

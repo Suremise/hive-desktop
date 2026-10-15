@@ -136,6 +136,17 @@ describe('the bundled skills', () => {
     // Blocked where it is: a builder at its round limit moved its card to Doing first (Codex, following work-on-card).
     expect(line('card-loop', '**Stop and ask**')).toMatch(/blocked` on the card where it is \([^)]*no move/)
   })
+
+  // #869: lane G's builder had every card passed when its CLI refused the commit; it told the user only, and the lane sat
+  // at "merge due" for two hours, since nothing showed it waiting. A merge step that needs the user blocks the last card.
+  it("a merge step at the lane's end that needs the user is a stop and ask on the last card", () => {
+    const line = (starts: string): string => catalog.get('card-loop')!.text.split(/\r?\n/).find((l) => l.includes(starts)) ?? ''
+    const end = line("**The lane's end:**")
+    expect(end).toMatch(/needs the user \(a commit or merge your CLI or a permission check refuses/)
+    expect(end).toMatch(/stop and ask on the last card/)
+    expect(end).toMatch(/clear `blocked`/)
+    expect(line('**Stop and ask**')).toMatch(/on a merge step that needs the user/)
+  })
 })
 
 describe("Hive's development skills", () => {
