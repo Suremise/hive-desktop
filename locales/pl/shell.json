@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "Nie udało się zatrzymać sesji w tle",
   "shell.error.switchModes": "Nie udało się przełączyć trybów uprawnień",
   "shell.errorBoundary.logs": "Otwórz logi",
-  "shell.errorBoundary.named": "{view} – wystąpił problem i nie można tego pokazać.",
   "shell.errorBoundary.reload": "Przeładuj okno",
   "shell.errorBoundary.save": "{n, plural, one {Zapisz # niezapisany plik} few {Zapisz # niezapisane pliki} many {Zapisz # niezapisanych plików} other {Zapisz # niezapisanego pliku}}",
   "shell.errorBoundary.saveFailed": "Nie udało się zapisać: {why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "Jego pętla kart wstrzyma się do wznowienia",
   "shell.quit.stopping.working": "Zostanie przerwany",
   "shell.quit.stoppingColumn": "Zatrzymanie",
-  "shell.quit.stops": "{how, select, workspace {Zamknięcie obszaru roboczego zatrzyma jego} switch {Przełączenie obszaru roboczego zatrzyma w tym obszarze} window {Zamknięcie tego okna zatrzyma w tym obszarze roboczym} allWindows {Zamknięcie Hive zamknie wszystkie okna ({windows}) i zatrzyma} other {Zamknięcie Hive zatrzyma}} {busy, select, yes {{n, plural, one {sesję} few {{all, select, yes {wszystkie {n} sesje} other {{n} sesje}}} many {{all, select, yes {wszystkie {n} sesji} other {{n} sesji}}} other {{all, select, yes {wszystkie {n} sesji} other {{n} sesji}}}}} other {{n, plural, one {działającą sesję} few {# działające sesje} many {# działających sesji} other {# działającej sesji}}}}{everywhere, select, yes {, we wszystkich obszarach roboczych} other {}}.",
   "shell.quit.title": "{how, select, workspace {Zamknąć ten obszar roboczy?} switch {Przełączyć obszar roboczy?} window {Zamknąć to okno?} allWindows {Zamknąć Hive i wszystkie okna ({windows})?} other {Zamknąć Hive?}}",
   "shell.quit.unsaved": "{n, plural, one {# plik ma niezapisane zmiany.} few {# pliki mają niezapisane zmiany.} many {# plików ma niezapisane zmiany.} other {# pliku ma niezapisane zmiany.}}",
   "shell.quit.when": "{action, select, saveAndClose {Zapisz i zamknij} closeWorkspace {Zamknij obszar roboczy} switchWorkspace {Przełącz obszar roboczy} closeWindow {Zamknij okno} saveAndQuit {Zapisz i zakończ} other {Zakończ}}, gdy {working, plural, one {agent skończy} few {agenci skończą} many {agenci skończą} other {agenci skończą}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "Obszar roboczy lub projekt przeniesiono do innego folderu: napraw to, co nadal wskazuje stary",
   "shell.titlebar.pin": "Zawsze na wierzchu",
   "shell.titlebar.pinTip": "{on, select, yes {Zawsze na wierzchu (wł.)} other {Zawsze na wierzchu (wył.)}}",
-  "shell.toast.dismiss": "Odrzuć",
-  "shell.view.assistant": "Asystent",
-  "shell.view.devConsole": "Konsola deweloperska",
-  "shell.view.progress": "Panel Postęp"
+  "shell.toast.dismiss": "Odrzuć"
 }

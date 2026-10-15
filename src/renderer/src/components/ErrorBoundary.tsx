@@ -3,10 +3,13 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { call } from '../api'
 import { saveAllDrafts, unsavedFiles } from './FileView'
 
+/** The parts of the window an ErrorBoundary names when it fails; without one it says "This view". */
+export type ErrorView = 'assistant' | 'progress' | 'tab' | 'devConsole' | 'hive'
+
 interface Props {
   children: ReactNode
-  /** What failed, for the message ("The Assistant", "Hive"); a function is read when the message shows, in the language shown then. */
-  label?: string | (() => string)
+  /** What failed, for the message ("The Assistant ran into a problem…"): one sentence per view, so a language words each whole. */
+  view?: ErrorView
   /** A new value (e.g. another project or tab) clears the error and tries again. */
   resetKey?: string
   /** The whole window failed: offer a reload instead of trying the view again. */
@@ -29,12 +32,7 @@ export class ErrorBoundary extends Component<Props, { error: Error | null; key?:
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`${this.label() ?? 'View'} failed`, error, info.componentStack)
-  }
-
-  private label(): string | undefined {
-    const l = this.props.label
-    return typeof l === 'function' ? l() : l
+    console.error(`${this.props.view ?? 'view'} failed`, error, info.componentStack)
   }
 
   render(): ReactNode {
@@ -43,7 +41,7 @@ export class ErrorBoundary extends Component<Props, { error: Error | null; key?:
     return (
       <div className="empty-state error-boundary" role="alert">
         <span className="codicon codicon-warning" />
-        <strong>{this.label() ? tr(msg({ id: 'shell.errorBoundary.named', defaultMessage: "{view} ran into a problem and couldn't be shown.", description: "Where a part of the window failed to show. {view} names it (The Assistant, The Progress panel…), given in the window's code." }), { view: this.label() ?? '' }) : tr(msg({ id: 'shell.errorBoundary.view', defaultMessage: "This view ran into a problem and couldn't be shown.", description: 'Where a view of the window failed to show.' }))}</strong>
+        <strong>{this.props.view ? tr(msg({ id: 'shell.errorBoundary.named', defaultMessage: "{view, select, assistant {The Assistant ran into a problem and couldn't be shown.} progress {The Progress panel ran into a problem and couldn't be shown.} tab {This tab ran into a problem and couldn't be shown.} devConsole {The developer console ran into a problem and couldn't be shown.} other {Hive ran into a problem and couldn't be shown.}}", description: "Where a part of the window failed to show. {view} picks which: the Hive Assistant, the Progress panel, a project's tab, the developer console's window, or the whole window (other: Hive)." }), { view: this.props.view }) : tr(msg({ id: 'shell.errorBoundary.view', defaultMessage: "This view ran into a problem and couldn't be shown.", description: 'Where a view of the window failed to show.' }))}</strong>
         <code className="error-boundary-message">{error.message || String(error)}</code>
         <span className="faint">{tr(msg({ id: 'shell.errorBoundary.sessions', defaultMessage: 'Running sessions are not affected.', description: 'Under a view that failed to show.' }))}</span>
         {this.state.saveResult && <span>{this.state.saveResult}</span>}

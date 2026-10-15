@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "——已关闭",
   "project.overview.updated": "更新于 {when}。更新频率：“设置”→“会话”→“概览更新频率”。",
   "project.period.all": "全部",
-  "project.period.month": "30 天",
   "project.period.today": "今天",
-  "project.period.week": "7 天",
   "project.refresh": "刷新",
   "project.retry": "重试",
   "project.running.context": "上下文 {used} 个 Token",
@@ -317,6 +315,5 @@
   "project.tab.skills": "技能",
   "project.tab.tasks": "任务",
   "project.tab.templates": "模板",
-  "project.tabs.errorLabel": "此标签页",
   "project.tabs.tip": "{tab}（{key}）"
 }

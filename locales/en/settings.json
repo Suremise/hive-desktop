@@ -104,8 +104,8 @@
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
   "settings.advanced.codex.hooks.timeoutSeconds.desc": {
-    "defaultMessage": "How long Codex waits for Hive to take one of its hooks. Codex itself holds the interrupt and session-end hooks to 3 s at most. Hive approves its hooks for Codex itself, so a change needs no review in Codex.",
-    "description": "What the advanced setting \"Hooks: timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+    "defaultMessage": "How long Codex waits for Hive to take one of its hooks. Codex itself holds the interrupt and session-end hooks to {most, plural, one {# second} other {# seconds}} at most. Hive approves its hooks for Codex itself, so a change needs no review in Codex.",
+    "description": "What the advanced setting \"Hooks: timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced). {most} is the longest Codex allows those two hooks, in seconds."
   },
   "settings.advanced.codex.hooks.timeoutSeconds.title": {
     "defaultMessage": "Hooks: timeout",
@@ -200,8 +200,8 @@
     "description": "An advanced setting's title (Settings → Advanced, under Codex). /permissions is a Codex command and {label} Codex's own name for a preset, in English: keep both as they are."
   },
   "settings.advanced.copilot.exit.graceSeconds.desc": {
-    "defaultMessage": "When Hive stops Copilot (Stop, Restart, closing a project or quitting), how long it gives Copilot to exit by itself after its Ctrl+C before killing it. Copilot writes the session's token totals only as it exits by itself: one killed first loses them. It took up to 2.4 s on a busy machine (#716); quitting Hive or closing a workspace waits up to this long, and a second more, for a Copilot that hangs.",
-    "description": "What the advanced setting \"Stop: exit grace\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+    "defaultMessage": "When Hive stops Copilot (Stop, Restart, closing a project or quitting), how long it gives Copilot to exit by itself after its Ctrl+C before killing it. Copilot writes the session's token totals only as it exits by itself: one killed first loses them. It took up to {took, plural, one {# second} other {# seconds}} on a busy machine (#716); quitting Hive or closing a workspace waits up to this long, and a second more, for a Copilot that hangs.",
+    "description": "What the advanced setting \"Stop: exit grace\" is for, and what goes wrong when it is wrong (Settings → Advanced). {took} is the longest Copilot was seen to take, in seconds (2.4)."
   },
   "settings.advanced.copilot.exit.graceSeconds.title": {
     "defaultMessage": "Stop: exit grace",
@@ -684,8 +684,8 @@
     "description": "What the setting \"Count background tasks for up to\" does, under its title (Settings → Agents & Worktrees)."
   },
   "settings.agents.backgroundTaskMinutes.tip": {
-    "defaultMessage": "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. 10 to 480 minutes.",
-    "description": "The info tip of the setting \"Count background tasks for up to\" (Settings → Agents & Worktrees): more on what it does and when it applies."
+    "defaultMessage": "An agent that ends its turn while a task it started is still running shows as waiting on background tasks, not finished: Claude Code carries on by itself when the task ends. Hive can't tell a test run from something that never ends, such as a dev server, so it stops counting a task after this long (a Monitor also when it expires). Codex isn't told when its background terminals end, so they are only counted and shown. {min, number} to {max, plural, one {# minute} other {# minutes}}.",
+    "description": "The info tip of the setting \"Count background tasks for up to\" (Settings → Agents & Worktrees): more on what it does and when it applies. {min} and {max} are the fewest and most minutes it can be set to."
   },
   "settings.agents.backgroundTaskMinutes.title": {
     "defaultMessage": "Count background tasks for up to",
@@ -840,7 +840,7 @@
     "description": "What the setting \"Interface font size\" does, under its title (Settings → Appearance)."
   },
   "settings.appearance.uiFontSize.tip": {
-    "defaultMessage": "Use View → Zoom to scale everything, including the terminal.",
+    "defaultMessage": "View → Zoom In and Zoom Out scale everything, including the terminal.",
     "description": "The info tip of the setting \"Interface font size\" (Settings → Appearance): more on what it does and when it applies."
   },
   "settings.appearance.uiFontSize.title": {
@@ -2844,8 +2844,8 @@
     "description": "What the setting \"Usage cache size\" does, under its title (Settings → Sessions)."
   },
   "settings.sessions.usageCacheSize.tip": {
-    "defaultMessage": "Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. 100 to 50,000.",
-    "description": "The info tip of the setting \"Usage cache size\" (Settings → Sessions): more on what it does and when it applies."
+    "defaultMessage": "Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. {min, number} to {max, number}.",
+    "description": "The info tip of the setting \"Usage cache size\" (Settings → Sessions): more on what it does and when it applies. {min} and {max} are the fewest and most transcripts it can be set to."
   },
   "settings.sessions.usageCacheSize.title": {
     "defaultMessage": "Usage cache size",
@@ -2884,7 +2884,7 @@
     "description": "What the setting \"Check for updates automatically\" does, under its title (Settings → Updates)."
   },
   "settings.updates.checkAutomatically.tip": {
-    "defaultMessage": "When off, Hive only checks when you choose Help → Check for Updates. Development builds never update.",
+    "defaultMessage": "When off, Hive only checks when you choose Help → Check for Updates…; development builds never update.",
     "description": "The info tip of the setting \"Check for updates automatically\" (Settings → Updates): more on what it does and when it applies."
   },
   "settings.updates.checkAutomatically.title": {

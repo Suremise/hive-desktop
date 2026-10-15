@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "— désactivé",
   "project.overview.updated": "Actualisé {when}. Fréquence : Paramètres → Sessions → Actualisation de la vue d’ensemble.",
   "project.period.all": "Tout",
-  "project.period.month": "30 jours",
   "project.period.today": "Aujourd’hui",
-  "project.period.week": "7 jours",
   "project.refresh": "Actualiser",
   "project.retry": "Réessayer",
   "project.running.context": "{used} jetons de contexte",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Compétences",
   "project.tab.tasks": "Tâches",
   "project.tab.templates": "Modèles",
-  "project.tabs.errorLabel": "Cet onglet",
   "project.tabs.tip": "{tab} ({key})"
 }

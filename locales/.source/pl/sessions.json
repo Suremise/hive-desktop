@@ -26,7 +26,6 @@
   "sessions.bulk.done": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.",
   "sessions.bulk.doneSkipped": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped, number} skipped: {why}",
   "sessions.bulk.failed": "{action, select, archive {Could not archive the {kind, select, conversation {conversations} other {sessions}}} unarchive {Could not unarchive the {kind, select, conversation {conversations} other {sessions}}} other {Could not delete the {kind, select, conversation {conversations} other {sessions}}}}",
-  "sessions.bulk.skipCount": "{n, number} {reason}",
   "sessions.bulk.skipNote": "{running, plural, =0 {Running sessions are skipped, and} one {# running now is skipped, as are} other {# running now are skipped, as are}} any whose files are in use; the result says which.",
   "sessions.bulk.skipReason": "{reason, select, live {running} inUse {in use} reading {being read by Hive} open {open in another Hive window} external {started outside Hive} other {failed}}",
   "sessions.cards.deleted": "This card was deleted.",

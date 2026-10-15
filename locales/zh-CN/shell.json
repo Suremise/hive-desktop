@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "无法停止后台会话",
   "shell.error.switchModes": "无法切换权限模式",
   "shell.errorBoundary.logs": "打开日志",
-  "shell.errorBoundary.named": "{view}遇到问题，无法显示。",
   "shell.errorBoundary.reload": "重新加载窗口",
   "shell.errorBoundary.save": "{n, plural, other {保存 # 个未保存的文件}}",
   "shell.errorBoundary.saveFailed": "无法保存：{why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "它的卡片循环将暂停，直到恢复",
   "shell.quit.stopping.working": "将被中断",
   "shell.quit.stoppingColumn": "停止它会",
-  "shell.quit.stops": "{how, select, workspace {关闭工作区将停止其} switch {切换工作区将停止此工作区的} window {关闭此窗口将停止此工作区的} allWindows {退出将关闭全部 {windows} 个窗口，并停止} other {退出将停止}}{everywhere, select, yes {所有工作区中的} other {}}{busy, select, yes {{n, plural, =1 {会话} other {{all, select, yes {全部 {n} 个会话} other { {n} 个会话}}}}} other {{n, plural, =1 {正在运行的会话} other { # 个正在运行的会话}}}}。",
   "shell.quit.title": "{how, select, workspace {关闭此工作区？} switch {切换工作区？} window {关闭此窗口？} allWindows {退出 Hive 并关闭全部 {windows} 个窗口？} other {退出 Hive？}}",
   "shell.quit.unsaved": "{n, plural, other {# 个文件有未保存的更改。}}",
   "shell.quit.when": "{working, plural, =1 {智能体完成后} other {智能体全部完成后}}{action, select, saveAndClose {保存并关闭} closeWorkspace {关闭工作区} switchWorkspace {切换工作区} closeWindow {关闭窗口} saveAndQuit {保存并退出} other {退出}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "工作区或项目已移到其他文件夹：修复仍指向旧位置的内容",
   "shell.titlebar.pin": "窗口置顶",
   "shell.titlebar.pinTip": "{on, select, yes {窗口置顶（开）} other {窗口置顶（关）}}",
-  "shell.toast.dismiss": "关闭",
-  "shell.view.assistant": "助手",
-  "shell.view.devConsole": "开发者控制台",
-  "shell.view.progress": "进度面板"
+  "shell.toast.dismiss": "关闭"
 }

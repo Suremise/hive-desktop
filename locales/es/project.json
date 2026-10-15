@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "— desactivado",
   "project.overview.updated": "Actualizado {when}. Frecuencia de actualización: Configuración → Sesiones → Actualización del resumen.",
   "project.period.all": "Todo",
-  "project.period.month": "30 días",
   "project.period.today": "Hoy",
-  "project.period.week": "7 días",
   "project.refresh": "Actualizar",
   "project.retry": "Reintentar",
   "project.running.context": "{used} tokens de contexto",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Habilidades",
   "project.tab.tasks": "Tareas",
   "project.tab.templates": "Plantillas",
-  "project.tabs.errorLabel": "Esta pestaña",
   "project.tabs.tip": "{tab} ({key})"
 }

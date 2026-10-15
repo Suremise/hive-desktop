@@ -3,6 +3,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
+import { tr } from '../src/shared/i18n'
 import { EMPTY_TIPS_STATE, TIP_ENTRIES, TIP_GROUPS, TIP_MOMENTS, TIPS, applyTipsChange, localDay, nextTip, sawTip, tipForMoment, tipForToday, tipsChange, tipsState, usedCommand, type Tip, type TipsChange, type TipsState } from '../src/shared/tips'
 
 const t = (id: string, command?: string, knownBy?: string[]): Tip => ({ id, group: 'Sessions', order: 0, title: id, text: id, command, knownBy })
@@ -60,7 +61,7 @@ describe('the tips', () => {
     expect(new Set(TIPS.map((x) => x.id)).size).toBe(TIPS.length)
     for (const tip of TIPS) {
       expect(TIP_GROUPS).toContain(tip.group)
-      expect((typeof tip.text === 'string' ? tip.text : tip.text.defaultMessage).length, tip.id).toBeLessThanOrEqual(260)
+      expect((typeof tip.text === 'string' ? tip.text : tr(tip.text, { ...tip.values?.(), key: '' })).length, tip.id).toBeLessThanOrEqual(260)
       if (tip.docs) expect(headings.has(tip.docs), `${tip.id}: "${tip.docs}"`).toBe(true)
     }
   })

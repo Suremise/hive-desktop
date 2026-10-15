@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "Não foi possível parar a sessão em segundo plano",
   "shell.error.switchModes": "Não foi possível trocar os modos de permissão",
   "shell.errorBoundary.logs": "Abrir logs",
-  "shell.errorBoundary.named": "Ocorreu um problema e não foi possível mostrar {view}.",
   "shell.errorBoundary.reload": "Recarregar janela",
   "shell.errorBoundary.save": "{n, plural, =0 {Salvar # arquivos não salvos} one {Salvar # arquivo não salvo} other {Salvar # arquivos não salvos}}",
   "shell.errorBoundary.saveFailed": "Não foi possível salvar: {why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "O ciclo de cartões fica pausado até ser retomado",
   "shell.quit.stopping.working": "Será interrompido",
   "shell.quit.stoppingColumn": "Ao parar",
-  "shell.quit.stops": "{how, select, workspace {Fechar o espaço de trabalho encerra} switch {Trocar de espaço de trabalho encerra, neste espaço de trabalho,} window {Fechar esta janela encerra, neste espaço de trabalho,} allWindows {Sair fecha todas as {windows} janelas e encerra} other {Sair encerra}} {busy, select, yes {{n, plural, one {a sessão} other {{all, select, yes {todas as {n} sessões} other {as {n} sessões}}}}} other {{n, plural, one {a sessão em execução} other {as # sessões em execução}}}}{everywhere, select, yes {, em todos os espaços de trabalho} other {}}.",
   "shell.quit.title": "{how, select, workspace {Fechar este espaço de trabalho?} switch {Trocar de espaço de trabalho?} window {Fechar esta janela?} allWindows {Sair do Hive e fechar todas as {windows} janelas?} other {Sair do Hive?}}",
   "shell.quit.unsaved": "{n, plural, =0 {# arquivos têm alterações não salvas.} one {# arquivo tem alterações não salvas.} other {# arquivos têm alterações não salvas.}}",
   "shell.quit.when": "{action, select, saveAndClose {Salvar e fechar} closeWorkspace {Fechar espaço de trabalho} switchWorkspace {Trocar de espaço de trabalho} closeWindow {Fechar janela} saveAndQuit {Salvar e sair} other {Sair}} quando {working, plural, one {o agente terminar} other {os agentes terminarem}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "O espaço de trabalho ou um projeto foi movido para outra pasta: reparar o que ainda aponta para a antiga",
   "shell.titlebar.pin": "Sempre visível",
   "shell.titlebar.pinTip": "{on, select, yes {Sempre visível (ativado)} other {Sempre visível (desativado)}}",
-  "shell.toast.dismiss": "Dispensar",
-  "shell.view.assistant": "o Assistente",
-  "shell.view.devConsole": "o console do desenvolvedor",
-  "shell.view.progress": "o painel Progresso"
+  "shell.toast.dismiss": "Dispensar"
 }

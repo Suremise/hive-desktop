@@ -26,7 +26,6 @@
   "sessions.bulk.done": "{n, plural, other {#件のセッション}}を{action, select, archive {アーカイブしました} unarchive {アーカイブから戻しました} other {削除しました}}。",
   "sessions.bulk.doneSkipped": "{n, plural, other {#件のセッション}}を{action, select, archive {アーカイブしました} unarchive {アーカイブから戻しました} other {削除しました}}。{skipped, number}件をスキップ：{why}",
   "sessions.bulk.failed": "{action, select, archive {{kind, select, conversation {会話} other {セッション}}をアーカイブできませんでした} unarchive {{kind, select, conversation {会話} other {セッション}}をアーカイブから戻せませんでした} other {{kind, select, conversation {会話} other {セッション}}を削除できませんでした}}",
-  "sessions.bulk.skipCount": "{reason}{n, number}件",
   "sessions.bulk.skipNote": "{running, plural, =0 {実行中のセッション} other {現在実行中の#件}}と、ファイルが使用中のセッションはスキップされます。どれをスキップしたかは結果に表示されます。",
   "sessions.bulk.skipReason": "{reason, select, live {実行中} inUse {使用中} reading {Hiveが読み込み中} open {別のHiveウィンドウで表示中} external {Hiveの外で開始} other {失敗}}",
   "sessions.cards.deleted": "このカードは削除されました。",

@@ -1948,7 +1948,7 @@
     "description": "The welcome page, How Hive works: a heading."
   },
   "workspace.welcome.skillsText": {
-    "defaultMessage": "Hive skills in the workspace reach the agents of every project (and the Hive Assistant, for those written for it); each project also shows its own and your user skills. MCP servers are turned on for the workspace and off per project. Changes apply to new sessions.",
+    "defaultMessage": "Hive skills in the workspace reach the agents of every project (and the Hive Assistant, for those written for it); each project also shows its own and your user skills. An MCP server is on only where you turn it on: in one project, or in all of them. Changes apply to new sessions.",
     "description": "The welcome page, How Hive works."
   },
   "workspace.welcome.start": {

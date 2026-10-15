@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "（オフ）",
   "project.overview.updated": "{when}に更新しました。更新の頻度：「設定」→「セッション」→「概要の更新」",
   "project.period.all": "全期間",
-  "project.period.month": "30日",
   "project.period.today": "今日",
-  "project.period.week": "7日",
   "project.refresh": "更新",
   "project.retry": "再試行",
   "project.running.context": "コンテキスト{used}トークン",
@@ -317,6 +315,5 @@
   "project.tab.skills": "スキル",
   "project.tab.tasks": "タスク",
   "project.tab.templates": "テンプレート",
-  "project.tabs.errorLabel": "このタブ",
   "project.tabs.tip": "{tab}（{key}）"
 }
