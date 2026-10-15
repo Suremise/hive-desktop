@@ -59,7 +59,7 @@
   "git.identity.global": "Globalne",
   "git.identity.heading": "Autor commitów",
   "git.identity.missing": "Git nie ma {missing, select, both {user.name ani user.email} name {user.name} other {user.email}} dla tego repozytorium, więc commity się nie udają. Ustaw to tutaj (albo w globalnej konfiguracji git).",
-  "git.identity.name": "Nazwa",
+  "git.identity.name": "Imię i nazwisko",
   "git.identity.namePlaceholder": "Jan Kowalski",
   "git.identity.notSet": "nie ustawiono",
   "git.identity.public": "Commity wypchnięte na GitHuba pokazują adres {email} każdemu, kto je czyta. Adres no-reply GitHuba (…@users.noreply.github.com, w ustawieniach e-mail na GitHubie) chroni prywatność Twojego adresu.",

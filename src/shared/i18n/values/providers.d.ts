@@ -14,12 +14,12 @@ interface HiveMessageValues {
   'providers.autoCompact.scope.managed': undefined
   'providers.autoCompact.scope.project': undefined
   'providers.autoCompact.scope.user': undefined
-  'providers.autoCompact.scopeSubject.local': undefined
-  'providers.autoCompact.scopeSubject.managed': undefined
-  'providers.autoCompact.scopeSubject.project': undefined
-  'providers.autoCompact.scopeSubject.user': undefined
   'providers.autoCompact.unreadReason': undefined
   'providers.autoCompact.unreadable': { why: string | number }
+  'providers.autoCompact.unsureFile.local': { unsure: string | number }
+  'providers.autoCompact.unsureFile.managed': { unsure: string | number }
+  'providers.autoCompact.unsureFile.project': { unsure: string | number }
+  'providers.autoCompact.unsureFile.user': { unsure: string | number }
   'providers.autoCompact.unsureMode': undefined
   'providers.autoCompact.unsureScope': { scope: string | number; unsure: string | number }
   'providers.autoCompact.why.notFile': undefined

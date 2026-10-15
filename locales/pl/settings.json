@@ -623,7 +623,7 @@
   "settings.provider.use200kContext.title": "Używaj kontekstu 200K (zamiast 1M)",
   "settings.providerOff.detail": "Zatrzymaj ich teraz albo pozwól im działać, dopóki nie zostaną zatrzymani. Tak czy inaczej, dopóki dostawca jest wyłączony, nowi się nie uruchomią.",
   "settings.providerOff.listFailed": "Nie udało się wyświetlić działających agentów",
-  "settings.providerOff.message": "{n, plural, one {Z dostawcą {provider} działa agent: {agents}.} few {Z dostawcą {provider} działają # agenci: {agents}.} many {Z dostawcą {provider} działa # agentów: {agents}.} other {Z dostawcą {provider} działa # agenta: {agents}.}}",
+  "settings.providerOff.message": "{n, plural, one {Z dostawcą {provider} działa agent: {agents}.} few {Z dostawcą {provider} działa # agentów: {agents}.} many {Z dostawcą {provider} działa # agentów: {agents}.} other {Z dostawcą {provider} działa # agenta: {agents}.}}",
   "settings.providerOff.otherWindow": "{workspace}/{project} (inne okno)",
   "settings.providerOff.run": "Pozwól im działać",
   "settings.providerOff.stop": "Zatrzymaj ich teraz",

@@ -26,7 +26,7 @@
   "worktrees.gitFailed": "{command} – błąd",
   "worktrees.gitProblem": "{problem}.",
   "worktrees.listBranches": "git nie mógł wyświetlić gałęzi ({why})",
-  "worktrees.merge.cantCheck": "Git nie mógł sprawdzić, czy worktree ma niezacommitowane zmiany (git status nie powiódł się w {folder}). Napraw to i scal ponownie.",
+  "worktrees.merge.cantCheck": "Git nie mógł sprawdzić, czy worktree ma zmiany bez commita (git status nie powiódł się w {folder}). Napraw to i scal ponownie.",
   "worktrees.merge.commitFailed": "Nie udało się zrobić commita zmian agenta: {why}",
   "worktrees.merge.detached": "Folder projektu nie jest na żadnej gałęzi (detached HEAD). Najpierw przełącz się na gałąź, do której chcesz scalić.",
   "worktrees.merge.notRemoved": "Scalono, ale nie usunięto worktree",
@@ -58,7 +58,7 @@
   "worktrees.reuse.notMerged": "{n, plural, one {# commit niescalony} few {# commity niescalone} many {# commitów niescalonych} other {# commita niescalonego}} z gałęzią {base}",
   "worktrees.reuse.resetFailed": "git nie mógł go zaktualizować do gałęzi {base} ({why})",
   "worktrees.reuse.taken": "zajmuje je inny agent",
-  "worktrees.reuse.uncommitted": "{n, plural, one {# niezacommitowany plik} few {# niezacommitowane pliki} many {# niezacommitowanych plików} other {# niezacommitowanego pliku}}",
+  "worktrees.reuse.uncommitted": "{n, plural, one {# plik bez commita} few {# pliki bez commita} many {# plików bez commita} other {# pliku bez commita}}",
   "worktrees.reuse.unreadable": "git nie mógł go odczytać",
   "worktrees.statusFailed": "git status nie powiódł się w jego folderze",
   "worktrees.unknownError": "nieznany błąd",
@@ -71,5 +71,5 @@
   "worktrees.why.notChecked": "niesprawdzone",
   "worktrees.why.notListed": "git nie wymienia go jako worktree na gałęzi {branch}",
   "worktrees.why.notMerged": "{n, plural, one {# commit niescalony} few {# commity niescalone} many {# commitów niescalonych} other {# commita niescalonego}} z gałęzią {into}",
-  "worktrees.why.uncommitted": "{n, plural, one {# niezacommitowany plik} few {# niezacommitowane pliki} many {# niezacommitowanych plików} other {# niezacommitowanego pliku}}"
+  "worktrees.why.uncommitted": "{n, plural, one {# plik bez commita} few {# pliki bez commita} many {# plików bez commita} other {# pliku bez commita}}"
 }

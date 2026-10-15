@@ -142,7 +142,7 @@
   "main.tray.noProjects": "Brak aktywnych projektów",
   "main.tray.quit": "Zamknij Hive",
   "main.tray.quitNow": "Zamknij teraz",
-  "main.tray.quitting": "{n, plural, one {Zamknięcie, gdy agent skończy} few {Zamknięcie, gdy # agenci skończą} many {Zamknięcie, gdy # agentów skończy} other {Zamknięcie, gdy # agenta skończy}}",
+  "main.tray.quitting": "{n, plural, one {Zamknięcie, gdy agent skończy} few {Zamknięcie, gdy # agentów skończy} many {Zamknięcie, gdy # agentów skończy} other {Zamknięcie, gdy # agenta skończy}}",
   "main.tray.restartToUpdate": "Uruchom ponownie, aby zaktualizować ({version})",
   "main.tray.section": "{title} ({n})",
   "main.tray.settings": "Ustawienia",
