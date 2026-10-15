@@ -196,7 +196,7 @@ export async function gitDiff(projectPath: string, file: string, base?: string):
     else {
       // Nor a file reached through a linked folder that leads outside.
       if (!insideReal(abs, [projectPath])) throw Object.assign(hiveError(M.outside), { outside: true })
-      if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: tr(msg({ id: 'service.git.tooLarge', defaultMessage: 'File is too large to diff ({kb} KB).', description: "Shown in place of a file's changes in the Changes tab: the file is too large ({kb} KB) to compare." }), { kb: Math.round(s.size / 1024) }), binary: true }
+      if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: tr(msg({ id: 'service.git.tooLarge', defaultMessage: 'File is too large to diff ({kb, number} KB).', description: "Shown in place of a file's changes in the Changes tab: the file is too large ({kb} KB) to compare." }), { kb: Math.round(s.size / 1024) }), binary: true }
       modified = await readFile(abs)
     }
   } catch (e) {

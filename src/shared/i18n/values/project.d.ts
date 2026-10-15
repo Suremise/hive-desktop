@@ -65,7 +65,7 @@ interface HiveMessageValues {
   'project.card.warm': undefined
   'project.card.warmLeft': { left: string | number; ttl: string }
   'project.card.withoutPrice': { count: number }
-  'project.card.withoutPriceShort': { count: string | number }
+  'project.card.withoutPriceShort': { count: number }
   'project.card.writtenNext': undefined
   'project.card.writtenToCache': undefined
   'project.changes.agentSetup': undefined
@@ -264,7 +264,7 @@ interface HiveMessageValues {
   'project.settings.hours': { count: string | number }
   'project.settings.inherit': { value: string | number }
   'project.settings.inheritList': { value: string | number }
-  'project.settings.megabytes': { count: string | number }
+  'project.settings.megabytes': { count: number }
   'project.settings.never': undefined
   'project.settings.neverChoice': undefined
   'project.settings.noMatch': undefined

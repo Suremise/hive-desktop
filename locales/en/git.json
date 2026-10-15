@@ -24,7 +24,7 @@
     "description": "Tooltip on the refresh button in Git → Branches & remotes."
   },
   "git.branches.remote": {
-    "defaultMessage": "Remote branches ({count})",
+    "defaultMessage": "Remote branches ({count, number})",
     "description": "Button in Git → Branches & remotes that shows or hides the remote branches with no local one."
   },
   "git.branches.stateBanner": {
@@ -712,7 +712,7 @@
     "description": "Git → History when there are no tags. Create tag… is the button of that name."
   },
   "git.tags.older": {
-    "defaultMessage": "and {count} older",
+    "defaultMessage": "and {count, number} older",
     "description": "Under the tags listed in Git → History: how many older tags are not listed."
   },
   "git.tags.optional": {

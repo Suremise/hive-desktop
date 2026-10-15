@@ -241,8 +241,8 @@ export function runDetails(r: ProgressRun, project: string | null, now: number, 
   if (r.total !== null) {
     const values = { done: Math.min(r.step ?? 0, r.total), total: r.total }
     steps = r.stepName
-      ? tr(msg({ id: 'board.details.stepsLast', defaultMessage: '{done} of {total} done · last: {step}', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done, and the last step reported ({step}, as the reporter named it)." }), { ...values, step: r.stepName })
-      : tr(msg({ id: 'board.details.steps', defaultMessage: '{done} of {total} done', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done." }), values)
+      ? tr(msg({ id: 'board.details.stepsLast', defaultMessage: '{done, number} of {total, number} done · last: {step}', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done, and the last step reported ({step}, as the reporter named it)." }), { ...values, step: r.stepName })
+      : tr(msg({ id: 'board.details.steps', defaultMessage: '{done, number} of {total, number} done', description: "A run's details in the Progress panel, its steps: {done} of {total} steps done." }), values)
   } else if (r.stepName) steps = tr(msg({ id: 'board.details.lastStep', defaultMessage: 'Last: {step}', description: "A run's details in the Progress panel, its steps: the last step reported ({step}, as the reporter named it), with no count." }), { step: r.stepName })
   let state: string
   if (r.state === 'stale') {

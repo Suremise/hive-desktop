@@ -11,11 +11,11 @@ interface HiveMessageValues {
   'sessions.attach.native': { cli: string | number; kind: string }
   'sessions.attach.pdf': undefined
   'sessions.attach.text': undefined
-  'sessions.branch.archive': { scope: string; n: string | number }
-  'sessions.branch.delete': { scope: string; n: string | number }
+  'sessions.branch.archive': { scope: string; n: number }
+  'sessions.branch.delete': { scope: string; n: number }
   'sessions.branch.nothingToArchive': undefined
-  'sessions.branch.unarchive': { scope: string; n: string | number }
-  'sessions.bulk.andMore': { n: string | number }
+  'sessions.branch.unarchive': { scope: string; n: number }
+  'sessions.bulk.andMore': { n: number }
   'sessions.bulk.archiveAll': undefined
   'sessions.bulk.archiveDetail': { skipNote: string | number }
   'sessions.bulk.archiveMessage': { what: string | number; branch: string | number }
@@ -26,9 +26,9 @@ interface HiveMessageValues {
   'sessions.bulk.deleteMessage': { what: string | number; branch: string | number }
   'sessions.bulk.deleteTitle': { what: string | number }
   'sessions.bulk.done': { action: string; n: number }
-  'sessions.bulk.doneSkipped': { action: string; n: number; skipped: string | number; why: string | number }
+  'sessions.bulk.doneSkipped': { action: string; n: number; skipped: number; why: string | number }
   'sessions.bulk.failed': { action: string; kind: string }
-  'sessions.bulk.skipCount': { n: string | number; reason: string | number }
+  'sessions.bulk.skipCount': { n: number; reason: string | number }
   'sessions.bulk.skipNote': { running: number }
   'sessions.bulk.skipReason': { reason: string }
   'sessions.cards.deleted': undefined
@@ -73,7 +73,7 @@ interface HiveMessageValues {
   'sessions.image.copyPath': undefined
   'sessions.image.earlier': undefined
   'sessions.image.later': undefined
-  'sessions.image.position': { n: string | number; total: string | number }
+  'sessions.image.position': { n: number; total: number }
   'sessions.image.reveal': undefined
   'sessions.image.untitled': undefined
   'sessions.list.heading': { kind: string }

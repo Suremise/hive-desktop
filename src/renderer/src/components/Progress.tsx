@@ -215,8 +215,8 @@ function stepLine(r: ProgressRun): string | null {
   if (r.state === 'running' && r.waiting) return r.waiting
   if (r.total === null) return r.stepName
   const values = { step: Math.min((r.step ?? 0) + (r.state === 'running' && r.stepName ? 1 : 0), r.total), total: r.total }
-  if (!r.stepName) return tr(msg({ id: 'board.progress.stepOf', defaultMessage: '{step} of {total}', description: "A run's step in the Progress panel, under its bar: step {step} of {total}." }), values)
-  return tr(msg({ id: 'board.progress.stepOfNamed', defaultMessage: '{step} of {total}: {name}', description: "A run's step in the Progress panel, under its bar: step {step} of {total}, and the step's name ({name}, as its reporter named it)." }), { ...values, name: r.stepName })
+  if (!r.stepName) return tr(msg({ id: 'board.progress.stepOf', defaultMessage: '{step, number} of {total, number}', description: "A run's step in the Progress panel, under its bar: step {step} of {total}." }), values)
+  return tr(msg({ id: 'board.progress.stepOfNamed', defaultMessage: '{step, number} of {total, number}: {name}', description: "A run's step in the Progress panel, under its bar: step {step} of {total}, and the step's name ({name}, as its reporter named it)." }), { ...values, name: r.stepName })
 }
 
 /**
@@ -439,8 +439,8 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
   // Filtered (#251): it shows and counts that project's runs, and says how many there are in all.
   const what = filtered
     ? summary
-      ? tr(msg({ id: 'board.progress.railFiltered', defaultMessage: '{name} only: {summary}; {all} in all', description: "The folded Progress strip's name when the panel is filtered: the project (or project · agent) shown ({name}), its runs in words ({summary}: 3 runs: 2 running, 1 failed), and how many runs there are in all ({all})." }), { name: filtered.name, summary, all: filtered.all })
-      : tr(msg({ id: 'board.progress.railFilteredNone', defaultMessage: '{name} only: no runs; {all} in all', description: "The folded Progress strip's name when the panel is filtered and the project (or project · agent) shown ({name}) has no runs: how many runs there are in all ({all})." }), { name: filtered.name, all: filtered.all })
+      ? tr(msg({ id: 'board.progress.railFiltered', defaultMessage: '{name} only: {summary}; {all, number} in all', description: "The folded Progress strip's name when the panel is filtered: the project (or project · agent) shown ({name}), its runs in words ({summary}: 3 runs: 2 running, 1 failed), and how many runs there are in all ({all})." }), { name: filtered.name, summary, all: filtered.all })
+      : tr(msg({ id: 'board.progress.railFilteredNone', defaultMessage: '{name} only: no runs; {all, number} in all', description: "The folded Progress strip's name when the panel is filtered and the project (or project · agent) shown ({name}) has no runs: how many runs there are in all ({all})." }), { name: filtered.name, all: filtered.all })
     : summary
   const show = tr(msg({ id: 'board.progress.show', defaultMessage: 'Show the Progress panel', description: "Tooltip and accessible name of the folded Progress strip at the window's edge: opens the panel. Its runs in words, or a shortcut, may follow in brackets." }))
   return (
@@ -463,7 +463,7 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
         </span>
       </Tooltip>
       {filtered && (
-        <Tooltip content={tr(msg({ id: 'board.progress.railShowing', defaultMessage: 'Showing {name} only ({shown} of {all})', description: "Tooltip of the filter mark on the folded Progress strip: only one project's (or agent's) runs ({name}) show, {shown} of {all} runs." }), { name: filtered.name, shown: runs.length, all: filtered.all })}>
+        <Tooltip content={tr(msg({ id: 'board.progress.railShowing', defaultMessage: 'Showing {name} only ({shown, number} of {all, number})', description: "Tooltip of the filter mark on the folded Progress strip: only one project's (or agent's) runs ({name}) show, {shown} of {all} runs." }), { name: filtered.name, shown: runs.length, all: filtered.all })}>
           <span className="progress-rail-filter">
             <Icon name="filter" />
           </span>
@@ -484,13 +484,13 @@ function ProgressRail({ runs, filtered }: { runs: ProgressRun[]; filtered: { nam
         <Tooltip
           content={
             <>
-              <div>{tr(msg({ id: 'board.progress.moreRuns', defaultMessage: '{n} more:', description: "Heading of the folded Progress strip's +N tooltip: the runs without a bar of their own ({n} of them) are listed under it." }), { n: more.length })}</div>
+              <div>{tr(msg({ id: 'board.progress.moreRuns', defaultMessage: '{n, number} more:', description: "Heading of the folded Progress strip's +N tooltip: the runs without a bar of their own ({n} of them) are listed under it." }), { n: more.length })}</div>
               {more.slice(0, MORE_LISTED).map((r) => (
                 <div key={r.id}>
                   {runAgentName(r, tr)}: {r.title} ({r.waiting && r.state === 'running' ? tr(WAITING) : runStateWord(r, tr)})
                 </div>
               ))}
-              {more.length > MORE_LISTED && <div className="faint">{tr(msg({ id: 'board.progress.moreOthers', defaultMessage: 'and {n} others: open the panel to see them', description: "The last line of the folded Progress strip's +N tooltip, after the runs it lists: how many more there are ({n})." }), { n: more.length - MORE_LISTED })}</div>}
+              {more.length > MORE_LISTED && <div className="faint">{tr(msg({ id: 'board.progress.moreOthers', defaultMessage: 'and {n, number} others: open the panel to see them', description: "The last line of the folded Progress strip's +N tooltip, after the runs it lists: how many more there are ({n})." }), { n: more.length - MORE_LISTED })}</div>}
             </>
           }
         >

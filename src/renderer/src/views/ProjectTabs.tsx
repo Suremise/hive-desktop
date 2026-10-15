@@ -61,7 +61,7 @@ const M = {
   tokensTip: msg({ id: 'project.card.tokensTip', defaultMessage: 'All tokens: new input, cache writes, input read from cache, and output.', description: 'The (i) beside Tokens.' }),
   cost: msg({ id: 'project.card.cost', defaultMessage: 'API-equivalent cost', description: 'A figure in the Overview: what the work would cost at API prices.' }),
   withoutPrice: msg({ id: 'project.card.withoutPrice', defaultMessage: '{count, plural, one {# session without a price} other {# sessions without a price}}', description: 'Under the cost: sessions whose model has no known price.' }),
-  withoutPriceShort: msg({ id: 'project.card.withoutPriceShort', defaultMessage: '{count} without a price', description: "Under a provider's cost: its sessions whose model has no known price." }),
+  withoutPriceShort: msg({ id: 'project.card.withoutPriceShort', defaultMessage: '{count, number} without a price', description: "Under a provider's cost: its sessions whose model has no known price." }),
   partlyEstimated: msg({ id: 'project.card.partlyEstimated', defaultMessage: 'partly estimated', description: 'Under the cost: some of it is estimated by Hive.' }),
   asReported: msg({ id: 'project.card.asReported', defaultMessage: 'as reported', description: 'Under the cost: all of it as the provider reported it.' }),
   estimated: msg({ id: 'project.card.estimated', defaultMessage: 'estimated', description: 'Under the cost: estimated by Hive from token counts.' }),
@@ -271,7 +271,7 @@ const S = {
   addAgent: msg({ id: 'project.agents.add', defaultMessage: 'Add Agent', description: 'Button: adds an agent to the project.' }),
   saveFailed: msg({ id: 'project.settings.saveFailed', defaultMessage: 'Could not save project settings', description: 'Title of an error notification.' }),
   never: msg({ id: 'project.settings.never', defaultMessage: 'never', description: 'A global setting turned off, shown in "Inherit (never)".' }),
-  megabytes: msg({ id: 'project.settings.megabytes', defaultMessage: '{count} MB', description: 'A size in megabytes.' }),
+  megabytes: msg({ id: 'project.settings.megabytes', defaultMessage: '{count, number} MB', description: 'A size in megabytes.' }),
   providerDefault: msg({ id: 'project.settings.providerDefault', defaultMessage: '{provider} default', description: "The provider's own default model, in \"Inherit (Claude Code default)\"." }),
   inherit: msg({ id: 'project.settings.inherit', defaultMessage: 'Inherit ({value})', description: 'The choice that takes the global (or workspace) setting. {value} is what that is now.' }),
   inheritNewline: msg({ id: 'project.settings.inheritList', defaultMessage: 'Inherit:\n{value}', description: "Placeholder of a box that takes a list when it is empty: Inherit, then the global list on the lines after it. Keep the line break." }),
@@ -460,7 +460,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
             sub={total.unpriced ? tr(M.withoutPrice, { count: total.unpriced }) : tr(total.estimated ? M.partlyEstimated : M.asReported)}
             tip={costTip}
           />
-          <Card title={tr(M.sessions)} value={total.sessions} sub={tr(M.runningNow, { count: running.length })} />
+          <Card title={tr(M.sessions)} value={formatNumber(total.sessions)} sub={tr(M.runningNow, { count: running.length })} />
           <Card title={tr(M.prompts)} value={formatNumber(total.prompts)} sub={tr(M.compactions, { count: total.compactions })} />
         </div>
         {from && period !== 'today' && <DailyChart days={dailyTotals(inPeriod, from, now)} />}
@@ -488,7 +488,7 @@ export function OverviewTab({ project }: { project: ProjectInfo }) {
               <div className="cards">
                 <Card title={tr(M.tokens)} value={formatTokens(tokens(t))} sub={tr(M.outputSub, { tokens: formatTokens(t.output) })} />
                 <Card title={tr(M.cost)} value={costText(t)} sub={t.unpriced ? tr(M.withoutPriceShort, { count: t.unpriced }) : tr(!t.estimated ? M.asReported : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? M.partlyEstimated : M.estimated)} tip={costTip} />
-                <Card title={tr(M.sessions)} value={t.sessions} sub={tr(M.promptsSub, { count: t.prompts })} />
+                <Card title={tr(M.sessions)} value={formatNumber(t.sessions)} sub={tr(M.promptsSub, { count: t.prompts })} />
               </div>
               <PlanLimits provider={p.id} />
             </div>

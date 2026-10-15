@@ -280,13 +280,13 @@ export function DataTable<T>({
             </select>
           </label>
           <span className="faint table-range">
-            {tr(msg({ id: 'shell.table.range', defaultMessage: '{from}–{to} of {total}', description: 'Under a table: which of its rows the page shows.' }), { from: view.from, to: view.to, total: view.matched })}
+            {tr(msg({ id: 'shell.table.range', defaultMessage: '{from, number}–{to, number} of {total, number}', description: 'Under a table: which of its rows the page shows.' }), { from: view.from, to: view.to, total: view.matched })}
           </span>
           <div className="grow" />
           <PageButton label="«" title={tr(msg({ id: 'shell.table.first', defaultMessage: 'First page', description: "A table's button: its first page." }))} disabled={view.page === 1} onClick={() => setPage(1)} />
           <IconButton icon="chevron-left" title={tr(msg({ id: 'shell.table.previous', defaultMessage: 'Previous page', description: "A table's button." }))} disabled={view.page === 1} onClick={() => setPage(view.page - 1)} />
           <span className="table-page">
-            {tr(msg({ id: 'shell.table.page', defaultMessage: 'Page {page} of {pages}', description: 'Under a table: which page it shows.' }), { page: view.page, pages: view.pages })}
+            {tr(msg({ id: 'shell.table.page', defaultMessage: 'Page {page, number} of {pages, number}', description: 'Under a table: which page it shows.' }), { page: view.page, pages: view.pages })}
           </span>
           <IconButton icon="chevron-right" title={tr(msg({ id: 'shell.table.next', defaultMessage: 'Next page', description: "A table's button." }))} disabled={view.page === view.pages} onClick={() => setPage(view.page + 1)} />
           <PageButton label="»" title={tr(msg({ id: 'shell.table.last', defaultMessage: 'Last page', description: "A table's button: its last page." }))} disabled={view.page === view.pages} onClick={() => setPage(view.pages)} />

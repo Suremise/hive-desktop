@@ -108,7 +108,7 @@
     "description": "An error adding an MCP server from a .zip without a definition where Hive looks. {files} are the file names it looks for, joined with \"or\"."
   },
   "content.mcp.zipTooMany": {
-    "defaultMessage": "The .zip has too many files for an MCP server (over {max}).",
+    "defaultMessage": "The .zip has too many files for an MCP server (over {max, number}).",
     "description": "An error adding an MCP server from a .zip with more than {max} files."
   },
   "content.mcp.zipUnreadable": {

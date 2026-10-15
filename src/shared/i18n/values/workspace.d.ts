@@ -236,7 +236,7 @@ interface HiveMessageValues {
   'workspace.overview.turnedOff': undefined
   'workspace.overview.updated': { when: string | number }
   'workspace.overview.withoutPrice': { count: number }
-  'workspace.overview.withoutPriceShort': { count: string | number }
+  'workspace.overview.withoutPriceShort': { count: number }
   'workspace.removal.back': { name: string | number }
   'workspace.removal.banner': { what: string | number; when: string | number }
   'workspace.removal.blocked': { agents: string | number; unchecked: string }

@@ -71,7 +71,7 @@ interface HiveMessageValues {
   'panes.leftovers.label': { processes: string | number }
   'panes.leftovers.tip': { n: number }
   'panes.leftovers.tipClick': { n: number }
-  'panes.list.more': { n: string | number }
+  'panes.list.more': { n: number }
   'panes.locks.title': undefined
   'panes.locks.titleShared': undefined
   'panes.menu.archiveStartNew': undefined
@@ -100,7 +100,7 @@ interface HiveMessageValues {
   'panes.pages.tip': { button: string; page: string | number; count: number; first: string | number; last: string | number; added: string; key: string }
   'panes.processes.andMore': { shown: string | number; n: number }
   'panes.processes.count': { n: number }
-  'panes.resume.allSessions': { n: string | number }
+  'panes.resume.allSessions': { n: number }
   'panes.resume.button': undefined
   'panes.resume.choose': undefined
   'panes.resume.header': undefined
@@ -117,7 +117,7 @@ interface HiveMessageValues {
   'panes.resume.tip': { session: string | number; when: string | number }
   'panes.runtime.needsInput': undefined
   'panes.runtime.signin': undefined
-  'panes.runtime.silent': { minutes: string | number }
+  'panes.runtime.silent': { known: string; minutes: number }
   'panes.runtime.starting': undefined
   'panes.runtime.stopped': undefined
   'panes.runtime.working': undefined

@@ -267,7 +267,7 @@ describe("the board's refusals: English for agents as before, the window's langu
       [await caught(run(() => tasks.editDecision(todo.number, 'x', 'y', assistant))), "Only the user changes or removes a card's decisions.", 403, null],
       [await caught(run(() => tasks.archiveBatch([todo.number], { label: '', column: null, project: null, query: '', includeBusy: false }, assistant))), 'Only the user archives cards.', 403, null],
       [await caught(Promise.resolve().then(() => tasks.batchNumbers([]))),'cards: list the card numbers to change.', 400, null],
-      [await caught(run(() => startTask(todo.number, { kind: 'agent', agentId: 'a1' }, user, 'x'.repeat(4001)))), 'The note is too long (at most 4000 characters).', 400, 'Die Notiz ist zu lang (höchstens 4.000 Zeichen).']
+      [await caught(run(() => startTask(todo.number, { kind: 'agent', agentId: 'a1' }, user, 'x'.repeat(4001)))), 'The note is too long (at most 4,000 characters).', 400, 'Die Notiz ist zu lang (höchstens 4.000 Zeichen).']
     ]
     for (const [e, english, status, german] of cases) {
       // The Agent API's reply (and every reader of .message): the English, as before, with the status its English gave.

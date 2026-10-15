@@ -133,10 +133,10 @@ function archiveAllItem(all: TaskCard[], r: ArchiveAllRequest): MenuEntry {
   const { shown, total } = archiveScope(all, r)
   const where = r.column === null ? null : columnName(r.column, tr)
   let label: string
-  if (shown.length < total && where) label = tr(msg({ id: 'board.archiveAll.menuShownIn', defaultMessage: 'Archive the {n} Shown (of {total})…', description: "Menu item in a board column's ⋯ menu, when a search hides some of its cards: archive the {n} cards shown, of the column's {total}. Opens a dialog (…)." }), { n: shown.length, total })
-  else if (shown.length < total) label = tr(msg({ id: 'board.archiveAll.menuShown', defaultMessage: '{n, plural, one {Archive the # Shown Card (of {total})…} other {Archive the # Shown Cards (of {total})…}}', description: "Menu item in the board's ⋯ menu, when a search hides some cards: archive the {n} cards shown, of the board's {total}. Opens a dialog (…)." }), { n: shown.length, total })
-  else if (where) label = tr(msg({ id: 'board.archiveAll.menuColumn', defaultMessage: 'Archive All in {column} ({total})…', description: "Menu item in a board column's ⋯ menu: archive all {total} cards of the column ({column}, its name). Opens a dialog (…)." }), { column: where, total })
-  else label = tr(msg({ id: 'board.archiveAll.menuAll', defaultMessage: 'Archive All Cards ({total})…', description: "Menu item in the board's ⋯ menu: archive all {total} cards. Opens a dialog (…)." }), { total })
+  if (shown.length < total && where) label = tr(msg({ id: 'board.archiveAll.menuShownIn', defaultMessage: 'Archive the {n, number} Shown (of {total, number})…', description: "Menu item in a board column's ⋯ menu, when a search hides some of its cards: archive the {n} cards shown, of the column's {total}. Opens a dialog (…)." }), { n: shown.length, total })
+  else if (shown.length < total) label = tr(msg({ id: 'board.archiveAll.menuShown', defaultMessage: '{n, plural, one {Archive the # Shown Card (of {total, number})…} other {Archive the # Shown Cards (of {total, number})…}}', description: "Menu item in the board's ⋯ menu, when a search hides some cards: archive the {n} cards shown, of the board's {total}. Opens a dialog (…)." }), { n: shown.length, total })
+  else if (where) label = tr(msg({ id: 'board.archiveAll.menuColumn', defaultMessage: 'Archive All in {column} ({total, number})…', description: "Menu item in a board column's ⋯ menu: archive all {total} cards of the column ({column}, its name). Opens a dialog (…)." }), { column: where, total })
+  else label = tr(msg({ id: 'board.archiveAll.menuAll', defaultMessage: 'Archive All Cards ({total, number})…', description: "Menu item in the board's ⋯ menu: archive all {total} cards. Opens a dialog (…)." }), { total })
   return { label, icon: 'archive', disabled: !shown.length, onClick: () => set({ boardArchiveAll: r }) }
 }
 
@@ -848,11 +848,11 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
       <div className="task-archive-actions">
         <span className="faint">
           {picked.length
-            ? tr(msg({ id: 'board.archived.countSelected', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}} · {selected} selected', description: "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})." }), { n: cards.length, selected: picked.length })
+            ? tr(msg({ id: 'board.archived.countSelected', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}} · {selected, number} selected', description: "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})." }), { n: cards.length, selected: picked.length })
             : tr(msg({ id: 'board.archived.count', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}}', description: "Above the archived cards' table: how many archived cards it shows." }), { n: cards.length })}
         </span>
         <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
-          <Icon name="discard" /> {picked.length ? tr(msg({ id: 'board.archived.unarchiveSelectedN', defaultMessage: 'Unarchive Selected ({n})', description: "Button above the archived cards' table: brings the {n} selected cards back to the board." }), { n: picked.length }) : tr(msg({ id: 'board.archived.unarchiveSelected', defaultMessage: 'Unarchive Selected', description: "Button above the archived cards' table (off while none is selected): brings the selected cards back to the board." }))}
+          <Icon name="discard" /> {picked.length ? tr(msg({ id: 'board.archived.unarchiveSelectedN', defaultMessage: 'Unarchive Selected ({n, number})', description: "Button above the archived cards' table: brings the {n} selected cards back to the board." }), { n: picked.length }) : tr(msg({ id: 'board.archived.unarchiveSelected', defaultMessage: 'Unarchive Selected', description: "Button above the archived cards' table (off while none is selected): brings the selected cards back to the board." }))}
         </button>
         {kept.length > 0 && (
           <label className="archive-batch faint">
@@ -870,7 +870,7 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
         {chosen && (
           <Tooltip content={tr(msg({ id: 'board.archived.unarchiveBatchTip', defaultMessage: '{n, plural, one {Bring the # card archived in this batch back to its column, where it was} other {Bring the # cards archived in this batch back to their columns, where they were}}', description: "Tooltip on Unarchive this batch: brings the {n} cards of one bulk archive back where they were on the board." }), { n: chosen.n })}>
             <button className="btn small" disabled={bringing} onClick={() => void bringBatch(chosen.b.id)}>
-              <Icon name="discard" /> {tr(msg({ id: 'board.archived.unarchiveBatch', defaultMessage: 'Unarchive this batch ({n})', description: "Button above the archived cards' table: brings the {n} cards of the chosen bulk archive back where they were." }), { n: chosen.n })}
+              <Icon name="discard" /> {tr(msg({ id: 'board.archived.unarchiveBatch', defaultMessage: 'Unarchive this batch ({n, number})', description: "Button above the archived cards' table: brings the {n} cards of the chosen bulk archive back where they were." }), { n: chosen.n })}
             </button>
           </Tooltip>
         )}
@@ -918,7 +918,7 @@ export function BoardToolbar({
         <SearchInput placeholder={tr(msg({ id: 'board.toolbar.search', defaultMessage: 'Search cards (#12, words, labels)', description: "Placeholder of the board's search box: finds cards by number (#12), words or labels." }))} value={query} onChange={setQuery} />
       </div>
       <label className="flex muted" style={{ cursor: 'pointer' }}>
-        <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> {tr(msg({ id: 'board.toolbar.archived', defaultMessage: 'Archived ({n})', description: "A checkbox in the board's toolbar: shows the archived cards instead (how many there are: {n})." }), { n: count })}
+        <input type="checkbox" className="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> {tr(msg({ id: 'board.toolbar.archived', defaultMessage: 'Archived ({n, number})', description: "A checkbox in the board's toolbar: shows the archived cards instead (how many there are: {n})." }), { n: count })}
       </label>
       <div className="grow" />
       <button className="btn primary" onClick={() => set({ taskOpen: { project: project ?? '' } })}>
@@ -1023,19 +1023,19 @@ export function ArchiveAllDialog() {
   const where = req.column === null ? null : columnName(req.column, tr)
   const n = going.length
   let title: string
-  if (where && filtered) title = tr(msg({ id: 'board.archiveAll.titleShownIn', defaultMessage: 'Archive the {n} Shown in {column}?', description: "Title of the Archive All dialog for a column whose cards a search narrows: the {n} cards shown in the column ({column}, its name)." }), { n: shown.length, column: where })
+  if (where && filtered) title = tr(msg({ id: 'board.archiveAll.titleShownIn', defaultMessage: 'Archive the {n, number} Shown in {column}?', description: "Title of the Archive All dialog for a column whose cards a search narrows: the {n} cards shown in the column ({column}, its name)." }), { n: shown.length, column: where })
   else if (where) title = tr(msg({ id: 'board.archiveAll.titleColumn', defaultMessage: 'Archive All in {column}?', description: "Title of the Archive All dialog for a board column ({column}, its name)." }), { column: where })
   else if (filtered) title = tr(msg({ id: 'board.archiveAll.titleShown', defaultMessage: '{n, plural, one {Archive the # Shown Card?} other {Archive the # Shown Cards?}}', description: 'Title of the Archive All dialog for the whole board when a search narrows its cards: the {n} cards shown.' }), { n: shown.length })
   else title = tr(msg({ id: 'board.archiveAll.titleAll', defaultMessage: 'Archive All Cards?', description: 'Title of the Archive All dialog for the whole board.' }))
   let message: string
   if (!n) message = tr(msg({ id: 'board.archiveAll.allBusy', defaultMessage: '{n, plural, one {Every card here is one an agent is on. Tick the box below to archive it anyway.} other {Every card here is one an agent is on. Tick the box below to archive them anyway.}}', description: 'In the Archive All dialog when an agent is on every card it would archive ({n} cards). The box is "Also archive cards agents are working on".' }), { n: shown.length })
-  else if (filtered && where) message = tr(msg({ id: 'board.archiveAll.messageShownIn', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total})? You can unarchive them from Archived.', description: 'The Archive All dialog for a column a search narrows: archives the {n} cards shown in {column} (its name), of its {total}. Archived is the checkbox that shows archived cards.' }), { n, column: where, total })
-  else if (filtered) message = tr(msg({ id: 'board.archiveAll.messageShown', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown (of {total})? You can unarchive them from Archived.', description: "The Archive All dialog for the whole board when a search narrows it: archives the {n} cards shown, of the board's {total}. Archived is the checkbox that shows archived cards." }), { n, total })
+  else if (filtered && where) message = tr(msg({ id: 'board.archiveAll.messageShownIn', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total, number})? You can unarchive them from Archived.', description: 'The Archive All dialog for a column a search narrows: archives the {n} cards shown in {column} (its name), of its {total}. Archived is the checkbox that shows archived cards.' }), { n, column: where, total })
+  else if (filtered) message = tr(msg({ id: 'board.archiveAll.messageShown', defaultMessage: 'Archive the {n, plural, one {# card} other {# cards}} shown (of {total, number})? You can unarchive them from Archived.', description: "The Archive All dialog for the whole board when a search narrows it: archives the {n} cards shown, of the board's {total}. Archived is the checkbox that shows archived cards." }), { n, total })
   else if (where) message = tr(msg({ id: 'board.archiveAll.messageColumn', defaultMessage: 'Archive {n, plural, one {# card} other {# cards}} in {column}? You can unarchive them from Archived.', description: 'The Archive All dialog for a column: archives its {n} cards ({column}, its name). Archived is the checkbox that shows archived cards.' }), { n, column: where })
   else message = tr(msg({ id: 'board.archiveAll.messageAll', defaultMessage: 'Archive {n, plural, one {# card} other {# cards}}? You can unarchive them from Archived.', description: "The Archive All dialog for the whole board: archives its {n} cards. Archived is the checkbox that shows archived cards." }), { n })
   const perColumn = TASK_COLUMNS.flatMap((col) => {
     const k = going.filter((c) => c.column === col.id).length
-    return k ? [tr(msg({ id: 'board.archiveAll.columnCount', defaultMessage: '{column} {n}', description: 'In the Archive All dialog for the whole board: how many cards it archives from a column ("Done 4"), listed with the other columns.' }), { column: tr(COLUMN_TEXT[col.id].label), n: k })] : []
+    return k ? [tr(msg({ id: 'board.archiveAll.columnCount', defaultMessage: '{column} {n, number}', description: 'In the Archive All dialog for the whole board: how many cards it archives from a column ("Done 4"), listed with the other columns.' }), { column: tr(COLUMN_TEXT[col.id].label), n: k })] : []
   })
   // The batch's name, kept with it in English and quoted in its cards' history; the archive's picker shows it translated.
   const label = archiveBatchLabel(req.column, filtered ? n : null)

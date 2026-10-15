@@ -28,7 +28,7 @@
     "description": "The Archive All dialog's button: archives {n} cards."
   },
   "board.archiveAll.columnCount": {
-    "defaultMessage": "{column} {n}",
+    "defaultMessage": "{column} {n, number}",
     "description": "In the Archive All dialog for the whole board: how many cards it archives from a column (\"Done 4\"), listed with the other columns."
   },
   "board.archiveAll.filteredNote": {
@@ -60,19 +60,19 @@
     "description": "A warning in the Archive All dialog once the user ticks to archive the cards agents are on. A watch is how an agent waits for a card to change."
   },
   "board.archiveAll.menuAll": {
-    "defaultMessage": "Archive All Cards ({total})…",
+    "defaultMessage": "Archive All Cards ({total, number})…",
     "description": "Menu item in the board's ⋯ menu: archive all {total} cards. Opens a dialog (…)."
   },
   "board.archiveAll.menuColumn": {
-    "defaultMessage": "Archive All in {column} ({total})…",
+    "defaultMessage": "Archive All in {column} ({total, number})…",
     "description": "Menu item in a board column's ⋯ menu: archive all {total} cards of the column ({column}, its name). Opens a dialog (…)."
   },
   "board.archiveAll.menuShown": {
-    "defaultMessage": "{n, plural, one {Archive the # Shown Card (of {total})…} other {Archive the # Shown Cards (of {total})…}}",
+    "defaultMessage": "{n, plural, one {Archive the # Shown Card (of {total, number})…} other {Archive the # Shown Cards (of {total, number})…}}",
     "description": "Menu item in the board's ⋯ menu, when a search hides some cards: archive the {n} cards shown, of the board's {total}. Opens a dialog (…)."
   },
   "board.archiveAll.menuShownIn": {
-    "defaultMessage": "Archive the {n} Shown (of {total})…",
+    "defaultMessage": "Archive the {n, number} Shown (of {total, number})…",
     "description": "Menu item in a board column's ⋯ menu, when a search hides some of its cards: archive the {n} cards shown, of the column's {total}. Opens a dialog (…)."
   },
   "board.archiveAll.messageAll": {
@@ -84,11 +84,11 @@
     "description": "The Archive All dialog for a column: archives its {n} cards ({column}, its name). Archived is the checkbox that shows archived cards."
   },
   "board.archiveAll.messageShown": {
-    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown (of {total})? You can unarchive them from Archived.",
+    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown (of {total, number})? You can unarchive them from Archived.",
     "description": "The Archive All dialog for the whole board when a search narrows it: archives the {n} cards shown, of the board's {total}. Archived is the checkbox that shows archived cards."
   },
   "board.archiveAll.messageShownIn": {
-    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total})? You can unarchive them from Archived.",
+    "defaultMessage": "Archive the {n, plural, one {# card} other {# cards}} shown in {column} (of {total, number})? You can unarchive them from Archived.",
     "description": "The Archive All dialog for a column a search narrows: archives the {n} cards shown in {column} (its name), of its {total}. Archived is the checkbox that shows archived cards."
   },
   "board.archiveAll.titleAll": {
@@ -104,7 +104,7 @@
     "description": "Title of the Archive All dialog for the whole board when a search narrows its cards: the {n} cards shown."
   },
   "board.archiveAll.titleShownIn": {
-    "defaultMessage": "Archive the {n} Shown in {column}?",
+    "defaultMessage": "Archive the {n, number} Shown in {column}?",
     "description": "Title of the Archive All dialog for a column whose cards a search narrows: the {n} cards shown in the column ({column}, its name)."
   },
   "board.archived.agent": {
@@ -128,7 +128,7 @@
     "description": "Above the archived cards' table: how many archived cards it shows."
   },
   "board.archived.countSelected": {
-    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}} · {selected} selected",
+    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}} · {selected, number} selected",
     "description": "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})."
   },
   "board.archived.created": {
@@ -172,7 +172,7 @@
     "description": "Button on an archived card in the archived cards' table: brings it back to the board."
   },
   "board.archived.unarchiveBatch": {
-    "defaultMessage": "Unarchive this batch ({n})",
+    "defaultMessage": "Unarchive this batch ({n, number})",
     "description": "Button above the archived cards' table: brings the {n} cards of the chosen bulk archive back where they were."
   },
   "board.archived.unarchiveBatchTip": {
@@ -184,7 +184,7 @@
     "description": "Button above the archived cards' table (off while none is selected): brings the selected cards back to the board."
   },
   "board.archived.unarchiveSelectedN": {
-    "defaultMessage": "Unarchive Selected ({n})",
+    "defaultMessage": "Unarchive Selected ({n, number})",
     "description": "Button above the archived cards' table: brings the {n} selected cards back to the board."
   },
   "board.archived.unarchiveTip": {
@@ -192,7 +192,7 @@
     "description": "Tooltip on an archived card's Unarchive button. {card} is its number (after #), {column} the board column it was archived from."
   },
   "board.batch.andMore": {
-    "defaultMessage": "{cards} and {n} more",
+    "defaultMessage": "{cards} and {n, number} more",
     "description": "Cards that could not be brought back from an archive, cut short: the first six card numbers ({cards}: \"#3, #4\") and how many more ({n})."
   },
   "board.batch.archived": {
@@ -240,11 +240,11 @@
     "description": "An Archive All batch's name in the archived cards' batch picker: every card of a column ({column}: \"Done\")."
   },
   "board.batchName.shownCards": {
-    "defaultMessage": "{n} shown cards",
+    "defaultMessage": "{n, number} shown cards",
     "description": "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed on the whole board."
   },
   "board.batchName.shownIn": {
-    "defaultMessage": "{n} shown in {column}",
+    "defaultMessage": "{n, number} shown in {column}",
     "description": "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed in a column ({column}: \"Done\")."
   },
   "board.busy.assistantWatching": {
@@ -644,7 +644,7 @@
     "description": "A label in a run's details (Progress panel): its state follows (Running, Failed…)."
   },
   "board.details.steps": {
-    "defaultMessage": "{done} of {total} done",
+    "defaultMessage": "{done, number} of {total, number} done",
     "description": "A run's details in the Progress panel, its steps: {done} of {total} steps done."
   },
   "board.details.stepsLabel": {
@@ -652,7 +652,7 @@
     "description": "A label in a run's details (Progress panel): its steps follow (\"4 of 12 done\")."
   },
   "board.details.stepsLast": {
-    "defaultMessage": "{done} of {total} done · last: {step}",
+    "defaultMessage": "{done, number} of {total, number} done · last: {step}",
     "description": "A run's details in the Progress panel, its steps: {done} of {total} steps done, and the last step reported ({step}, as the reporter named it)."
   },
   "board.details.summary": {
@@ -960,11 +960,11 @@
     "description": "Title of the Move to Doing dialog: {card} is the card's number (after #). Doing is a board column."
   },
   "board.duration.hours": {
-    "defaultMessage": "{h} h",
+    "defaultMessage": "{h, number} h",
     "description": "A short duration in whole hours (\"2 h\"), in the Progress panel and on cards. Keep it short: an abbreviation."
   },
   "board.duration.hoursMinutes": {
-    "defaultMessage": "{h} h {min} min",
+    "defaultMessage": "{h, number} h {min} min",
     "description": "A short duration in hours and minutes (\"1 h 5 min\"), in the Progress panel and on cards. Keep it short: abbreviations."
   },
   "board.duration.minutes": {
@@ -1440,11 +1440,11 @@
     "description": "Tooltip of a run's small bar on the folded Progress strip: its agent, its title ({run}), and that it is waiting (for a test slot, say)."
   },
   "board.progress.moreOthers": {
-    "defaultMessage": "and {n} others: open the panel to see them",
+    "defaultMessage": "and {n, number} others: open the panel to see them",
     "description": "The last line of the folded Progress strip's +N tooltip, after the runs it lists: how many more there are ({n})."
   },
   "board.progress.moreRuns": {
-    "defaultMessage": "{n} more:",
+    "defaultMessage": "{n, number} more:",
     "description": "Heading of the folded Progress strip's +N tooltip: the runs without a bar of their own ({n} of them) are listed under it."
   },
   "board.progress.noAssistant": {
@@ -1464,11 +1464,11 @@
     "description": "Why a Progress panel run's agent can't be shown: its project was removed from the workspace."
   },
   "board.progress.railFiltered": {
-    "defaultMessage": "{name} only: {summary}; {all} in all",
+    "defaultMessage": "{name} only: {summary}; {all, number} in all",
     "description": "The folded Progress strip's name when the panel is filtered: the project (or project · agent) shown ({name}), its runs in words ({summary}: 3 runs: 2 running, 1 failed), and how many runs there are in all ({all})."
   },
   "board.progress.railFilteredNone": {
-    "defaultMessage": "{name} only: no runs; {all} in all",
+    "defaultMessage": "{name} only: no runs; {all, number} in all",
     "description": "The folded Progress strip's name when the panel is filtered and the project (or project · agent) shown ({name}) has no runs: how many runs there are in all ({all})."
   },
   "board.progress.railLabel": {
@@ -1476,7 +1476,7 @@
     "description": "The folded Progress panel's label, written down the strip at the window's edge. Keep it short."
   },
   "board.progress.railShowing": {
-    "defaultMessage": "Showing {name} only ({shown} of {all})",
+    "defaultMessage": "Showing {name} only ({shown, number} of {all, number})",
     "description": "Tooltip of the filter mark on the folded Progress strip: only one project's (or agent's) runs ({name}) show, {shown} of {all} runs."
   },
   "board.progress.recent": {
@@ -1536,11 +1536,11 @@
     "description": "Button and tooltip on a Progress panel run: shows the agent that ran it."
   },
   "board.progress.stepOf": {
-    "defaultMessage": "{step} of {total}",
+    "defaultMessage": "{step, number} of {total, number}",
     "description": "A run's step in the Progress panel, under its bar: step {step} of {total}."
   },
   "board.progress.stepOfNamed": {
-    "defaultMessage": "{step} of {total}: {name}",
+    "defaultMessage": "{step, number} of {total, number}: {name}",
     "description": "A run's step in the Progress panel, under its bar: step {step} of {total}, and the step's name ({name}, as its reporter named it)."
   },
   "board.progress.title": {
@@ -1660,7 +1660,7 @@
     "description": "Where a merge goes: into a branch ({branch}, shown as code; keep the <code> tags around it)."
   },
   "board.slots.minutes": {
-    "defaultMessage": "{n} min",
+    "defaultMessage": "{n, number} min",
     "description": "How long a merge has held the merge slot (or has left), in whole minutes (\"48 min\"). Keep it short: an abbreviation."
   },
   "board.slots.note": {
@@ -1772,7 +1772,7 @@
     "description": "Why a card waiting in Review is stalled: its reviewer watches it but is busy with other work. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
   },
   "board.stalled.reviewWaitSilent": {
-    "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent} min: state unknown): in Review for {waited}.",
+    "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent, number} min: state unknown): in Review for {waited}.",
     "description": "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
   },
   "board.start.busy": {
@@ -1872,7 +1872,7 @@
     "description": "The folded Progress strip's name: how many runs, then how many are in each state (\"8 runs: 5 running, 2 failed\"). {states} is that list."
   },
   "board.toolbar.archived": {
-    "defaultMessage": "Archived ({n})",
+    "defaultMessage": "Archived ({n, number})",
     "description": "A checkbox in the board's toolbar: shows the archived cards instead (how many there are: {n})."
   },
   "board.toolbar.more": {

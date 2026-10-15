@@ -886,7 +886,7 @@ export function advancedText(def: AdvancedDef, v: unknown): string {
 
 /** A number's unit as Settings shows it, by the unit's id. */
 const UNITS: Record<string, Msg> = {
-  s: msg({ id: 'settings.advanced.unit.seconds', defaultMessage: '{n} s', description: 'An advanced setting\'s value in seconds, short: "300 s". {n} is the number.' }),
+  s: msg({ id: 'settings.advanced.unit.seconds', defaultMessage: '{n, number} s', description: 'An advanced setting\'s value in seconds, short: "300 s". {n} is the number.' }),
   lanes: msg({ id: 'settings.advanced.unit.lanes', defaultMessage: '{n, plural, one {# lane} other {# lanes}}', description: "An advanced setting's value: a number of card-loop lanes the Progress panel shows." }),
   agents: msg({ id: 'settings.advanced.unit.agents', defaultMessage: '{n, plural, one {# agent} other {# agents}}', description: "An advanced setting's value: a number of agents." })
 }

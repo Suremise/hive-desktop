@@ -8,7 +8,7 @@ interface HiveMessageValues {
   'board.agent.unnamed': undefined
   'board.archiveAll.allBusy': { n: number }
   'board.archiveAll.button': { n: number }
-  'board.archiveAll.columnCount': { column: string | number; n: string | number }
+  'board.archiveAll.columnCount': { column: string | number; n: number }
   'board.archiveAll.filteredNote': undefined
   'board.archiveAll.heldIncluded': { n: number }
   'board.archiveAll.heldRow': { card: string | number; title: string | number; why: string | number }
@@ -16,24 +16,24 @@ interface HiveMessageValues {
   'board.archiveAll.heldSkipped': { n: number }
   'board.archiveAll.includeBusy': undefined
   'board.archiveAll.includeWarning': undefined
-  'board.archiveAll.menuAll': { total: string | number }
-  'board.archiveAll.menuColumn': { column: string | number; total: string | number }
-  'board.archiveAll.menuShown': { n: number; total: string | number }
-  'board.archiveAll.menuShownIn': { n: string | number; total: string | number }
+  'board.archiveAll.menuAll': { total: number }
+  'board.archiveAll.menuColumn': { column: string | number; total: number }
+  'board.archiveAll.menuShown': { n: number; total: number }
+  'board.archiveAll.menuShownIn': { n: number; total: number }
   'board.archiveAll.messageAll': { n: number }
   'board.archiveAll.messageColumn': { n: number; column: string | number }
-  'board.archiveAll.messageShown': { n: number; total: string | number }
-  'board.archiveAll.messageShownIn': { n: number; column: string | number; total: string | number }
+  'board.archiveAll.messageShown': { n: number; total: number }
+  'board.archiveAll.messageShownIn': { n: number; column: string | number; total: number }
   'board.archiveAll.titleAll': undefined
   'board.archiveAll.titleColumn': { column: string | number }
   'board.archiveAll.titleShown': { n: number }
-  'board.archiveAll.titleShownIn': { n: string | number; column: string | number }
+  'board.archiveAll.titleShownIn': { n: number; column: string | number }
   'board.archived.agent': undefined
   'board.archived.allBatches': undefined
   'board.archived.archived': undefined
   'board.archived.batch': undefined
   'board.archived.count': { n: number }
-  'board.archived.countSelected': { n: number; selected: string | number }
+  'board.archived.countSelected': { n: number; selected: number }
   'board.archived.created': undefined
   'board.archived.from': undefined
   'board.archived.labels': undefined
@@ -44,12 +44,12 @@ interface HiveMessageValues {
   'board.archived.selectRow': { card: string | number }
   'board.archived.title': undefined
   'board.archived.unarchive': undefined
-  'board.archived.unarchiveBatch': { n: string | number }
+  'board.archived.unarchiveBatch': { n: number }
   'board.archived.unarchiveBatchTip': { n: number }
   'board.archived.unarchiveSelected': undefined
-  'board.archived.unarchiveSelectedN': { n: string | number }
+  'board.archived.unarchiveSelectedN': { n: number }
   'board.archived.unarchiveTip': { card: string | number; column: string | number }
-  'board.batch.andMore': { cards: string | number; n: string | number }
+  'board.batch.andMore': { cards: string | number; n: number }
   'board.batch.archived': { n: number }
   'board.batch.backFailed': undefined
   'board.batch.broughtBack': { n: number }
@@ -61,8 +61,8 @@ interface HiveMessageValues {
   'board.batch.undo': undefined
   'board.batchName.allCards': undefined
   'board.batchName.allIn': { column: string | number }
-  'board.batchName.shownCards': { n: string | number }
-  'board.batchName.shownIn': { n: string | number; column: string | number }
+  'board.batchName.shownCards': { n: number }
+  'board.batchName.shownIn': { n: number; column: string | number }
   'board.busy.assistantWatching': undefined
   'board.busy.reviewing': { agent: string | number }
   'board.busy.watching': { agent: string | number }
@@ -162,9 +162,9 @@ interface HiveMessageValues {
   'board.details.started': undefined
   'board.details.state': { state: string; dismissed: string }
   'board.details.stateLabel': undefined
-  'board.details.steps': { done: string | number; total: string | number }
+  'board.details.steps': { done: number; total: number }
   'board.details.stepsLabel': undefined
-  'board.details.stepsLast': { done: string | number; total: string | number; step: string | number }
+  'board.details.stepsLast': { done: number; total: number; step: string | number }
   'board.details.summary': undefined
   'board.details.took': undefined
   'board.details.tookSoFar': { took: string | number; expected: string }
@@ -241,8 +241,8 @@ interface HiveMessageValues {
   'board.doing.startText': undefined
   'board.doing.stopped': undefined
   'board.doing.title': { card: string | number }
-  'board.duration.hours': { h: string | number }
-  'board.duration.hoursMinutes': { h: string | number; min: string | number }
+  'board.duration.hours': { h: number }
+  'board.duration.hoursMinutes': { h: number; min: string | number }
   'board.duration.minutes': { min: string | number }
   'board.duration.seconds': { s: string | number }
   'board.error.archive': undefined
@@ -361,16 +361,16 @@ interface HiveMessageValues {
   'board.progress.fold': undefined
   'board.progress.hideDetails': { run: string | number }
   'board.progress.miniWaiting': { agent: string | number; run: string | number }
-  'board.progress.moreOthers': { n: string | number }
-  'board.progress.moreRuns': { n: string | number }
+  'board.progress.moreOthers': { n: number }
+  'board.progress.moreRuns': { n: number }
   'board.progress.noAssistant': undefined
   'board.progress.openLog': undefined
   'board.progress.openLogFailed': undefined
   'board.progress.projectGone': undefined
-  'board.progress.railFiltered': { name: string | number; summary: string | number; all: string | number }
-  'board.progress.railFilteredNone': { name: string | number; all: string | number }
+  'board.progress.railFiltered': { name: string | number; summary: string | number; all: number }
+  'board.progress.railFilteredNone': { name: string | number; all: number }
   'board.progress.railLabel': undefined
-  'board.progress.railShowing': { name: string | number; shown: string | number; all: string | number }
+  'board.progress.railShowing': { name: string | number; shown: number; all: number }
   'board.progress.recent': undefined
   'board.progress.recentHover': { agent: string | number; run: string | number; state: string | number }
   'board.progress.recentHoverTook': { agent: string | number; run: string | number; state: string | number; took: string | number }
@@ -385,8 +385,8 @@ interface HiveMessageValues {
   'board.progress.showLog': undefined
   'board.progress.showLogFailed': undefined
   'board.progress.showTheAgent': undefined
-  'board.progress.stepOf': { step: string | number; total: string | number }
-  'board.progress.stepOfNamed': { step: string | number; total: string | number; name: string | number }
+  'board.progress.stepOf': { step: number; total: number }
+  'board.progress.stepOfNamed': { step: number; total: number; name: string | number }
   'board.progress.title': undefined
   'board.progress.waiting': undefined
   'board.review.line': { agent: string | number; ago: string | number }
@@ -416,7 +416,7 @@ interface HiveMessageValues {
   'board.slots.held': { holder: string | number; sofar: string | number; left: string | number }
   'board.slots.heldOver': { holder: string | number; sofar: string | number }
   'board.slots.into': { branch: string | number }
-  'board.slots.minutes': { n: string | number }
+  'board.slots.minutes': { n: number }
   'board.slots.note': { who: string | number; branch: string | number; waiting: number }
   'board.slots.release': undefined
   'board.slots.releaseAgent': { agent: string | number; project: string | number; branch: string | number }
@@ -444,7 +444,7 @@ interface HiveMessageValues {
   'board.stalled.reviewVerdictWait': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWait': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWaitBusy': { agent: string | number; card: string | number; waited: string | number }
-  'board.stalled.reviewWaitSilent': { agent: string | number; card: string | number; silent: string | number; waited: string | number }
+  'board.stalled.reviewWaitSilent': { agent: string | number; card: string | number; silent: number; waited: string | number }
   'board.start.busy': { status: string | number }
   'board.start.idle': { status: string | number }
   'board.start.intro': undefined
@@ -469,7 +469,7 @@ interface HiveMessageValues {
   'board.strip.count': { state: string; n: number }
   'board.strip.oneRun': { state: string }
   'board.strip.runs': { n: number; states: string | number }
-  'board.toolbar.archived': { n: string | number }
+  'board.toolbar.archived': { n: number }
   'board.toolbar.more': undefined
   'board.toolbar.search': undefined
   'board.view.intro': undefined

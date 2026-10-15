@@ -308,9 +308,9 @@ interface HiveMessageValues {
   'shell.shortcuts.switchMode': undefined
   'shell.shortcuts.terminal': undefined
   'shell.shortcuts.title': undefined
-  'shell.showAll.all': { n: string | number }
+  'shell.showAll.all': { n: number }
   'shell.showAll.fewer': undefined
-  'shell.showAll.region': { label: string | number; n: string | number }
+  'shell.showAll.region': { label: string | number; n: number }
   'shell.signIn.said': { provider: string | number; said: string | number }
   'shell.signIn.stopped': { provider: string | number }
   'shell.signIn.then': { help: string | number }
@@ -341,10 +341,10 @@ interface HiveMessageValues {
   'shell.table.last': undefined
   'shell.table.next': undefined
   'shell.table.noMatch': undefined
-  'shell.table.page': { page: string | number; pages: string | number }
+  'shell.table.page': { page: number; pages: number }
   'shell.table.pages': undefined
   'shell.table.previous': undefined
-  'shell.table.range': { from: string | number; to: string | number; total: string | number }
+  'shell.table.range': { from: number; to: number; total: number }
   'shell.table.rowsPerPage': undefined
   'shell.table.selectAll': { n: number }
   'shell.table.selectAllMatching': { n: number }

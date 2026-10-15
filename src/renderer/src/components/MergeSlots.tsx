@@ -39,7 +39,7 @@ type Holder = NonNullable<MergeSlotInfo['holder']>
 export function minutesText(ms: number): string {
   const m = Math.floor(Math.max(0, ms) / 60000)
   if (m < 1) return tr(msg({ id: 'board.slots.underMinute', defaultMessage: 'under a minute', description: 'How long a merge has held the merge slot (or has left), when under a minute. Lower case: it starts a phrase ("under a minute so far").' }))
-  return tr(msg({ id: 'board.slots.minutes', defaultMessage: '{n} min', description: 'How long a merge has held the merge slot (or has left), in whole minutes ("48 min"). Keep it short: an abbreviation.' }), { n: m })
+  return tr(msg({ id: 'board.slots.minutes', defaultMessage: '{n, number} min', description: 'How long a merge has held the merge slot (or has left), in whole minutes ("48 min"). Keep it short: an abbreviation.' }), { n: m })
 }
 
 /**

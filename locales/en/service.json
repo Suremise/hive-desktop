@@ -204,7 +204,7 @@
     "description": "An error showing a file's changes: its path leads out of the project."
   },
   "service.git.tooLarge": {
-    "defaultMessage": "File is too large to diff ({kb} KB).",
+    "defaultMessage": "File is too large to diff ({kb, number} KB).",
     "description": "Shown in place of a file's changes in the Changes tab: the file is too large ({kb} KB) to compare."
   },
   "service.gitRepo.addFailed": {
@@ -252,7 +252,7 @@
     "description": "An error pushing in the Git view: the project folder is on no branch (a detached HEAD: keep HEAD as it is)."
   },
   "service.gitRepo.diverged": {
-    "defaultMessage": "{branch} and {upstream} have diverged ({ahead, plural, one {# commit} other {# commits}} here, {behind} there), so pulling needs a merge or rebase. Do that in a terminal, or ask an agent to.",
+    "defaultMessage": "{branch} and {upstream} have diverged ({ahead, plural, one {# commit} other {# commits}} here, {behind, number} there), so pulling needs a merge or rebase. Do that in a terminal, or ask an agent to.",
     "description": "An error pulling in the Git view: the branch {branch} has {ahead} commits the remote branch {upstream} hasn't, and it has {behind} the branch hasn't; Hive pulls only when no merge is needed."
   },
   "service.gitRepo.exitCode": {

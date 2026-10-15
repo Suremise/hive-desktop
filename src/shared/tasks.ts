@@ -74,8 +74,8 @@ export function archiveBatchText(label: string, tr: Tr): string {
   const m = /^(?:All in (.+)|(\d+) shown in (.+)|(\d+) shown cards|(All Cards))$/.exec(label)
   const column = m ? byLabel.get(m[1] ?? m[3] ?? '') : undefined
   if (m?.[1] && column) return tr(msg({ id: 'board.batchName.allIn', defaultMessage: 'All in {column}', description: "An Archive All batch's name in the archived cards' batch picker: every card of a column ({column}: \"Done\")." }), { column: columnName(column, tr) })
-  if (m?.[2] && column) return tr(msg({ id: 'board.batchName.shownIn', defaultMessage: '{n} shown in {column}', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed in a column ({column}: \"Done\")." }), { n: Number(m[2]), column: columnName(column, tr) })
-  if (m?.[4]) return tr(msg({ id: 'board.batchName.shownCards', defaultMessage: '{n} shown cards', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed on the whole board." }), { n: Number(m[4]) })
+  if (m?.[2] && column) return tr(msg({ id: 'board.batchName.shownIn', defaultMessage: '{n, number} shown in {column}', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed in a column ({column}: \"Done\")." }), { n: Number(m[2]), column: columnName(column, tr) })
+  if (m?.[4]) return tr(msg({ id: 'board.batchName.shownCards', defaultMessage: '{n, number} shown cards', description: "An Archive All batch's name in the archived cards' batch picker: the {n} cards a search showed on the whole board." }), { n: Number(m[4]) })
   if (m?.[5]) return tr(msg({ id: 'board.batchName.allCards', defaultMessage: 'All Cards', description: "An Archive All batch's name in the archived cards' batch picker: every card on the board." }))
   return label
 }
@@ -230,7 +230,7 @@ export function reviewWaitReason(card: Pick<TaskCard, 'number' | 'column' | 'arc
   const min = Math.round(ms / 60_000)
   if (tr) {
     const values = { agent: w.name, card: card.number, waited: durationText(min * 60_000, tr) }
-    if (w.silentMinutes !== undefined) return tr(msg({ id: 'board.stalled.reviewWaitSilent', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent} min: state unknown): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), { ...values, silent: w.silentMinutes })
+    if (w.silentMinutes !== undefined) return tr(msg({ id: 'board.stalled.reviewWaitSilent', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent, number} min: state unknown): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), { ...values, silent: w.silentMinutes })
     if (w.status === 'working') return tr(msg({ id: 'board.stalled.reviewWaitBusy', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it (it is working on something else): in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but is busy with other work. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
     return tr(msg({ id: 'board.stalled.reviewWait', defaultMessage: "{agent} is watching #{card} but hasn't started reviewing it: in Review for {waited}.", description: "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started. {agent} is the reviewer's name, {card} the card number (after #), {waited} how long it has waited (\"40 min\", \"2 h 5 min\")." }), values)
   }
@@ -272,8 +272,8 @@ export function durationText(ms: number, tr: Tr): string {
   const min = Math.round(s / 60)
   if (min < 60) return tr(msg({ id: 'board.duration.minutes', defaultMessage: '{min} min', description: 'A short duration in minutes ("4 min"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { min })
   const h = Math.floor(min / 60)
-  if (!(min % 60)) return tr(msg({ id: 'board.duration.hours', defaultMessage: '{h} h', description: 'A short duration in whole hours ("2 h"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { h })
-  return tr(msg({ id: 'board.duration.hoursMinutes', defaultMessage: '{h} h {min} min', description: 'A short duration in hours and minutes ("1 h 5 min"), in the Progress panel and on cards. Keep it short: abbreviations.' }), { h, min: min % 60 })
+  if (!(min % 60)) return tr(msg({ id: 'board.duration.hours', defaultMessage: '{h, number} h', description: 'A short duration in whole hours ("2 h"), in the Progress panel and on cards. Keep it short: an abbreviation.' }), { h })
+  return tr(msg({ id: 'board.duration.hoursMinutes', defaultMessage: '{h, number} h {min} min', description: 'A short duration in hours and minutes ("1 h 5 min"), in the Progress panel and on cards. Keep it short: abbreviations.' }), { h, min: min % 60 })
 }
 
 /**

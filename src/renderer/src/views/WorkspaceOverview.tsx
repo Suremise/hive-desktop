@@ -63,7 +63,7 @@ const M = {
   hidden: msg({ id: 'workspace.overview.hidden', defaultMessage: "{count, plural, one {# hidden or removed project isn't counted} other {# hidden or removed projects aren't counted}} (Settings → Workspace).", description: 'Under the table by project.' }),
   turnedOff: msg({ id: 'workspace.overview.turnedOff', defaultMessage: '— turned off', description: "Beside a coding agent's heading when it is turned off in Settings (its past use still shows)." }),
   outputSub: msg({ id: 'workspace.overview.outputSub', defaultMessage: '{tokens} output', description: "Under a coding agent's Tokens (like 1.2M)." }),
-  withoutPriceShort: msg({ id: 'workspace.overview.withoutPriceShort', defaultMessage: '{count} without a price', description: "Under a coding agent's API-equivalent cost: sessions whose model has no known price." }),
+  withoutPriceShort: msg({ id: 'workspace.overview.withoutPriceShort', defaultMessage: '{count, number} without a price', description: "Under a coding agent's API-equivalent cost: sessions whose model has no known price." }),
   promptsSub: msg({ id: 'workspace.overview.promptsSub', defaultMessage: '{count, plural, one {# prompt} other {# prompts}}', description: "Under a coding agent's Sessions: prompts sent." }),
   panelTip: msg({ id: 'workspace.overview.panelTip', defaultMessage: 'What each project used in the period chosen in the overview. Click one for its own Overview.', description: "The Workspace Overview's sidebar: tooltip on its heading." }),
   rowTip: msg({ id: 'workspace.overview.rowTip', defaultMessage: '{tokens} tokens · {sessions, plural, one {# session} other {# sessions}}{running, plural, =0 {} other { · # running}}', description: "The Workspace Overview's sidebar: tooltip on a project ({tokens} like 1.2M)." })
@@ -309,7 +309,7 @@ export function WorkspaceOverviewView() {
         <div className="cards">
           <Card accent title={tr(M.tokens)} value={formatTokens(all$)} sub={tr(M.tokensSub, { input: formatTokens(total.input + total.cacheWrite), cached: formatTokens(total.cached), output: formatTokens(total.output) })} tip={tr(M.tokensTip)} />
           <Card title={tr(M.apiCost)} value={costText(total)} sub={total.unpriced ? tr(M.withoutPrice, { count: total.unpriced }) : tr(total.estimated ? M.partlyEstimated : M.asReported)} tip={tr(M.costTip)} />
-          <Card title={tr(M.sessions)} value={total.sessions} sub={tr(M.runningNow, { count: running.length })} />
+          <Card title={tr(M.sessions)} value={formatNumber(total.sessions)} sub={tr(M.runningNow, { count: running.length })} />
           <Card title={tr(M.prompts)} value={formatNumber(total.prompts)} sub={tr(M.compactions, { count: total.compactions })} />
         </div>
         {stack && stack.series.length > 0 && <StackedChart series={stack.series} days={stack.days} />}
@@ -365,7 +365,7 @@ export function WorkspaceOverviewView() {
               <div className="cards">
                 <Card title={tr(M.tokens)} value={formatTokens(totalTokens(t))} sub={tr(M.outputSub, { tokens: formatTokens(t.output) })} />
                 <Card title={tr(M.apiCost)} value={costText(t)} sub={t.unpriced ? tr(M.withoutPriceShort, { count: t.unpriced }) : tr(!t.estimated ? M.asReported : p.capabilities.reportsCost && !usesOwnPrices(p.id, settings) ? M.partlyEstimated : M.estimated)} tip={tr(M.costTip)} />
-                <Card title={tr(M.sessions)} value={t.sessions} sub={tr(M.promptsSub, { count: t.prompts })} />
+                <Card title={tr(M.sessions)} value={formatNumber(t.sessions)} sub={tr(M.promptsSub, { count: t.prompts })} />
               </div>
               <PlanLimits provider={p.id} />
             </div>

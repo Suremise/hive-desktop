@@ -353,7 +353,7 @@ export function serverFromZip(data: Uint8Array): { def: McpServerDef; files: Map
   })
   const norm = (n: string): string => n.replace(/\\/g, '/')
   const names = Object.keys(entries).filter((n) => !norm(n).endsWith('/') && !/(^|\/)(__MACOSX|\.DS_Store)(\/|$)/.test(norm(n)))
-  if (names.length > MCP_ZIP_MAX_FILES) throw hiveError(msg({ id: 'content.mcp.zipTooMany', defaultMessage: 'The .zip has too many files for an MCP server (over {max}).', description: 'An error adding an MCP server from a .zip with more than {max} files.' }), { max: MCP_ZIP_MAX_FILES })
+  if (names.length > MCP_ZIP_MAX_FILES) throw hiveError(msg({ id: 'content.mcp.zipTooMany', defaultMessage: 'The .zip has too many files for an MCP server (over {max, number}).', description: 'An error adding an MCP server from a .zip with more than {max} files.' }), { max: MCP_ZIP_MAX_FILES })
   for (const n of names) {
     const rel = norm(n)
     if (/^[a-z]:|^\//i.test(rel) || rel.split('/').some(unsafePart)) throw hiveError(msg({ id: 'content.mcp.zipUnsafe', defaultMessage: 'The .zip has a file with an unsafe path: {path}', description: "An error adding an MCP server from a .zip: a file's path ({path}) would land outside its folder, or Windows can't have it." }), { path: n })

@@ -42,7 +42,7 @@ interface HiveMessageValues {
   'actions.discard.message': { path: string | number; branch: string | number; agent: string | number }
   'actions.discard.title': { agent: string | number }
   'actions.drafts.changedOnDisk': undefined
-  'actions.duration.hoursMinutes': { h: string | number; m: string | number }
+  'actions.duration.hoursMinutes': { h: number; m: string | number }
   'actions.duration.minutes': { m: string | number }
   'actions.duration.seconds': { s: string | number }
   'actions.keys.ctrl': undefined

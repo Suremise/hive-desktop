@@ -732,7 +732,7 @@
     "description": "Repair's plan: a missing worktree's choice."
   },
   "workspace.move.unreadable": {
-    "defaultMessage": "{count} can't be read: {files}{more, plural, =0 {} other { and # more}}. Repair tries {count, plural, one {it} other {them}} again.",
+    "defaultMessage": "{count, number} can't be read: {files}{more, plural, =0 {} other { and # more}}. Repair tries {count, plural, one {it} other {them}} again.",
     "description": "Repair's plan: files that couldn't be read ({files}: up to five names)."
   },
   "workspace.move.untouched": {
@@ -940,7 +940,7 @@
     "description": "Under API-equivalent cost: sessions whose model has no known price."
   },
   "workspace.overview.withoutPriceShort": {
-    "defaultMessage": "{count} without a price",
+    "defaultMessage": "{count, number} without a price",
     "description": "Under a coding agent's API-equivalent cost: sessions whose model has no known price."
   },
   "workspace.removal.back": {

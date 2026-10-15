@@ -280,7 +280,7 @@
     "description": "Hover of an agent's left-running mark, its last line: what clicking offers ({n} processes)."
   },
   "panes.list.more": {
-    "defaultMessage": "…and {n} more",
+    "defaultMessage": "…and {n, number} more",
     "description": "The last line of a list in a hover cut short (files, processes): how many more ({n})."
   },
   "panes.locks.title": {
@@ -396,7 +396,7 @@
     "description": "How many processes an agent left running (\"2 processes\")."
   },
   "panes.resume.allSessions": {
-    "defaultMessage": "All {n} Sessions…",
+    "defaultMessage": "All {n, number} Sessions…",
     "description": "Last item of the session picker when it lists only the newest: opens the Sessions tab with all {n}."
   },
   "panes.resume.button": {
@@ -464,8 +464,8 @@
     "description": "An agent's status: its CLI waits for the user to sign in."
   },
   "panes.runtime.silent": {
-    "defaultMessage": "Silent {minutes} min · state unknown",
-    "description": "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell) and can't tell what it is doing. Keep it short."
+    "defaultMessage": "Silent {known, select, yes {{minutes, number}} other {?}} min · state unknown",
+    "description": "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell: known is no) and can't tell what it is doing. Keep it short."
   },
   "panes.runtime.starting": {
     "defaultMessage": "Starting…",
