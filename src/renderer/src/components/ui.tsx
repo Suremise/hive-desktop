@@ -6,7 +6,8 @@ import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { actClass, cx, type SessionAction } from '../util'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
-import { runtimeLabel, unknownStateText } from '@shared/runtime'
+import { runtimeLabel, shownMergeSlot, shownStatusMessage, unknownStateText } from '@shared/runtime'
+import { shownText } from '@shared/advanced'
 import { providerDescriptor, providerName } from '@shared/providers'
 import { safeguardText } from '@shared/safeguards'
 import { placeTip, type Box } from '@shared/tipPlacement'
@@ -284,15 +285,16 @@ export const STATUS_TEXT: Readonly<Record<SessionStatus | 'idle', string>> = Obj
  * unknown, working…); when no turn runs, Hive's policy words: what its watch waits for, its status message, finished or
  * ready, with any background tasks it is running.
  */
-export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'mergeSlot' | 'backgroundTasks' | 'question' | 'watch' | 'turn' | 'runtime'>): string {
+export function statusText(live: Pick<LiveSessionState, 'status' | 'statusMessage' | 'statusText' | 'mergeSlot' | 'mergeSlotText' | 'backgroundTasks' | 'question' | 'watch' | 'turn' | 'runtime'>): string {
   const text = ((): string => {
     const projected = live.runtime ? runtimeLabel(live) : unknownStateText(live)
     if (projected) return projected
     // Waiting on cards: what for ("Waiting for #12 → Review").
     if (live.status === 'watching' && live.watch) return live.watch.label
-    if (live.statusMessage) return live.statusMessage
+    // Hive's own words in the window's language (#847), or the CLI's as they came.
+    if (live.statusMessage) return shownStatusMessage(live)!
     // At the merge slot (#350): waiting for it, or merging.
-    if (live.mergeSlot) return live.mergeSlot
+    if (live.mergeSlot) return shownMergeSlot(live)!
     const n = live.backgroundTasks ?? 0
     // Whole sentences with the count, so a language words each count as it needs (#795).
     if (live.status === 'background') return tr(msg({ id: 'shell.status.waitingOnTasks', defaultMessage: '{n, plural, one {Waiting on # background task} other {Waiting on # background tasks}}', description: "An agent's status: its turn ended while background tasks it started still run. {n} is how many." }), { n })
@@ -342,7 +344,7 @@ export function SafeguardMark({ live }: { live: Pick<LiveSessionState, 'safeguar
       content={
         <>
           <div>{text}</div>
-          {d.safeguardHelp && <div className="faint review-mark-detail">{d.safeguardHelp}</div>}
+          {d.safeguardHelp && <div className="faint review-mark-detail">{d.text?.safeguardHelp ? tr(d.text.safeguardHelp) : d.safeguardHelp}</div>}
         </>
       }
     >
@@ -361,12 +363,14 @@ export function SafeguardMark({ live }: { live: Pick<LiveSessionState, 'safeguar
 export function signInNote(live: Pick<LiveSessionState, 'status' | 'signIn' | 'provider'> | null | undefined): string | null {
   if (!live?.signIn) return null
   const d = providerDescriptor(live.provider)
-  const said = live.signIn.message.length > 160 ? `${live.signIn.message.slice(0, 160)}…` : live.signIn.message
+  // Hive's own message in the window's language (#847), else what the CLI said, as it said it.
+  const message = live.signIn.messageText ? shownText(live.signIn.messageText) : live.signIn.message
+  const said = message.length > 160 ? `${message.slice(0, 160)}…` : message
   // Two lines: what the CLI said, then how to carry on (a message keeps no line break).
   if (live.status === 'signin')
     return [
       tr(msg({ id: 'shell.signIn.said', defaultMessage: '{provider} says: {said}', description: "Tooltip of an agent that needs sign-in, its first line. {provider} is the coding agent's name; {said} what its CLI said, as it said it." }), { provider: d.name, said }),
-      tr(msg({ id: 'shell.signIn.then', defaultMessage: "{help} Then Resume in the project's header carries on the agents it stopped.", description: "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (in English for now); Resume is a button in the project's header." }), { help: d.signInHelp })
+      tr(msg({ id: 'shell.signIn.then', defaultMessage: "{help} Then Resume in the project's header carries on the agents it stopped.", description: "Tooltip of an agent that needs sign-in, its second line. {help} says how to sign in again (a sentence or two); Resume is a button in the project's header." }), { help: d.text?.signInHelp ? tr(d.text.signInHelp) : d.signInHelp })
     ].join('\n')
   if (live.status === 'ready' || live.status === 'finished') return tr(msg({ id: 'shell.signIn.stopped', defaultMessage: "Its turn stopped when {provider}'s sign-in expired. Resume in the project's header carries it on.", description: "Tooltip of an agent whose turn stopped for its sign-in. {provider} is the coding agent's name." }), { provider: d.name })
   return null
@@ -374,7 +378,7 @@ export function signInNote(live: Pick<LiveSessionState, 'status' | 'signIn' | 'p
 
 export function StatusDot({ live, active }: { live: LiveSessionState | null; active: boolean }) {
   const status = live?.status ?? (active ? 'idle' : 'stopped')
-  const said = live?.statusMessage ?? live?.mergeSlot
+  const said = live ? (shownStatusMessage(live) ?? shownMergeSlot(live)) : undefined
   const base = !live ? STATUS_TEXT[status] : said ? `${STATUS_TEXT[status]} — ${said}` : statusText(live)
   const reviewed = live?.review ? tr(msg({ id: 'shell.review.status', defaultMessage: '{status} · an action is being reviewed automatically', description: "An agent's status tooltip while its CLI's automatic review checks an action." }), { status: base }) : base
   const note = signInNote(live)

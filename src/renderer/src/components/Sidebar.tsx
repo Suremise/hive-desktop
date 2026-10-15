@@ -4,6 +4,7 @@ import { AgentsTable, agentsText } from './AgentsTable'
 import { useLanes, type Lane } from '../laneSource'
 import { agentLaunchSettings, modeOption } from '@shared/providers'
 import { agentsToResume } from '@shared/resumeAll'
+import { shownMergeSlot, shownStatusMessage } from '@shared/runtime'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding, runCommand } from '../commands'
@@ -346,7 +347,7 @@ function ProjectsRail() {
         <strong>{p.name}</strong>
         <div>
           {status}
-          {(state?.statusMessage ?? state?.mergeSlot) ? ` — ${state?.statusMessage ?? state?.mergeSlot}` : ''}
+          {state && (state.statusMessage ?? state.mergeSlot) ? ` — ${shownStatusMessage(state) ?? shownMergeSlot(state)}` : ''}
         </div>
         {p.branch && (
           <div className="desc">
