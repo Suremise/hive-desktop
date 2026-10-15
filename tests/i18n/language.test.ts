@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { readFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
+import { createIntl } from '@formatjs/intl'
 import { setLanguage, setProblemReporter, tr, type Msg } from '../../src/shared/i18n'
 import { loadCatalogue } from '../../src/shared/i18n/catalogues'
 import { LANGUAGE_TEXT } from '../../src/shared/i18n/languageText'
@@ -52,18 +53,22 @@ describe('the language area', () => {
     for (const m of MESSAGES) expect(m.description.length, m.id).toBeGreaterThan(10)
   })
 
+  // #792: the expected text is the catalogue's own, formatted apart from Hive, so a translator can change the wording
+  // without changing this test; a broken placeholder still fails here and in i18n:check.
   it('Polish formats every message it has, with the English placeholders', async () => {
     const problems: string[] = []
     setProblemReporter((p) => problems.push(p))
     const pl = await loadCatalogue('pl')
     setLanguage('pl', pl, 'pl-PL')
+    const apart = createIntl({ locale: 'pl-PL', messages: pl, onError: (e) => problems.push(`apart: ${e.message}`) })
     for (const m of MESSAGES) {
       if (!pl[m.id]) continue
       expect([...placeholders(parse(pl[m.id]))].sort(), m.id).toEqual([...placeholders(parse(m.defaultMessage))].sort())
-      const values = Object.fromEntries([...placeholders(parse(m.defaultMessage))].map((n) => [n, 'X']))
-      expect(tr(m, values), m.id).not.toBe(tr({ ...m, id: `${m.id}.english` }, values))
+      const values = Object.fromEntries([...placeholders(parse(m.defaultMessage))].map((n) => [n, `‹${n}›`]))
+      expect(tr(m, values), m.id).toBe(apart.formatMessage({ id: m.id }, values))
     }
-    expect(tr(LANGUAGE_TEXT.automatic, { language: 'Polski' })).toBe('Automatycznie (Windows: Polski)')
+    // The placeholder is filled, whatever the words around it.
+    expect(tr(LANGUAGE_TEXT.automatic, { language: 'Polski' })).toContain('Polski')
     expect(problems).toEqual([])
   })
 })

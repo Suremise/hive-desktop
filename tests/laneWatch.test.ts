@@ -7,7 +7,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { LANE_CARD_CHANGES, LANE_DEFAULT_EVENTS, laneHits, laneWakeLine, readLaneCards, readLaneCondition, type LaneMark, type LaneNow } from '../src/shared/laneWatch'
+import { LANE_CARD_CHANGES, LANE_DEFAULT_EVENTS, MERGE_STALL_MS, laneHits, laneWakeLine, mergeStallReason, readLaneCards, readLaneCondition, readSavedLaneMark, type LaneMark, type LaneNow } from '../src/shared/laneWatch'
 import { WAKE_MAX_BYTES, type CardChange } from '../src/shared/watch'
 import { taskWaitText } from '../src/shared/toolReplies'
 import { REVIEW_WAIT_STALL_MS } from '../src/shared/tasks'
@@ -45,6 +45,55 @@ describe('what a lane watch counts (#531)', () => {
     expect(laneHits({ ...before, cards: { 1: card() } }, now(passed), LANE_DEFAULT_EVENTS)!.parts.map((p) => p.event)).toEqual(['merge-due'])
     expect(laneHits(passed, now({ ...passed, state: 'ended', mergeDue: false }), LANE_DEFAULT_EVENTS)!.parts.map((p) => p.text)).toEqual(['ended (merged)'])
     expect(laneHits(passed, now({ ...passed, state: 'abandoned' }), LANE_DEFAULT_EVENTS)!.parts.map((p) => p.text)).toEqual(['was abandoned'])
+  })
+
+  // #869: lane G's cards all passed, its builder's commit was refused and it ended its turn after telling the user; merge-due
+  // had been told and nothing else woke the Assistant for two hours.
+  describe('a merge that stalls (#869)', () => {
+    const t0 = Date.parse('2026-10-15T00:00:00.000Z')
+    const at = (ms: number): string => new Date(t0 + ms).toISOString()
+    const passed = { mark: card({ c: 'passed', p: at(0) }), updatedAt: at(0) }
+    const lane = (over: Partial<Parameters<typeof mergeStallReason>[0]> = {}) => ({ state: 'active' as const, builder: 'HB1', cards: [passed, { ...passed, mark: card({ c: 'done' }) }], ...over })
+    const idle = { status: 'finished' as const, statusSince: at(60_000) }
+    const after = (ms: number): number => t0 + 60_000 + ms
+
+    it('every card passed, its builder idle with no merge slot for the limit: stalled, with why', () => {
+      expect(mergeStallReason(lane(), idle, after(MERGE_STALL_MS - 1))).toBeNull()
+      expect(mergeStallReason(lane(), idle, after(MERGE_STALL_MS + 2 * 60_000))).toBe('Every card passed, but HB1 has been idle for 12 min with no merge slot claimed.')
+      expect(mergeStallReason(lane(), { status: 'ready' }, t0 + MERGE_STALL_MS)).toMatch(/idle for 10 min/)
+      // Not running at all: from its cards' last change.
+      expect(mergeStallReason(lane(), null, t0 + MERGE_STALL_MS)).toBe("Every card passed, but HB1 isn't running.")
+      expect(mergeStallReason(lane(), null, t0 + MERGE_STALL_MS - 1)).toBeNull()
+    })
+
+    it('not while its builder works, watches, waits for the user or has a background task or a merge slot; not before every card passed, nor with one blocked', () => {
+      const late = after(MERGE_STALL_MS * 3)
+      expect(mergeStallReason(lane(), idle, late)).not.toBeNull()
+      for (const status of ['working', 'watching', 'waiting', 'background', 'starting', 'signin'] as const) expect(mergeStallReason(lane(), { ...idle, status }, late), status).toBeNull()
+      expect(mergeStallReason(lane(), { ...idle, backgroundTasks: 1 }, late)).toBeNull()
+      expect(mergeStallReason(lane(), { ...idle, mergeSlot: 'Waiting for the merge slot (B4 is merging #305)' }, late)).toBeNull()
+      expect(mergeStallReason(lane({ cards: [passed, { mark: card({ c: 'review' }), updatedAt: at(0) }] }), idle, late)).toBeNull()
+      expect(mergeStallReason(lane({ cards: [{ ...passed, mark: card({ c: 'done' }) }] }), idle, late)).toBeNull()
+      // A blocked card is told as blocked: the builder asked the user, as card-loop says.
+      expect(mergeStallReason(lane({ cards: [{ ...passed, mark: card({ c: 'passed', b: true }) }] }), idle, late)).toBeNull()
+      for (const state of ['ended', 'abandoned', 'gone'] as const) expect(mergeStallReason(lane({ state }), idle, late), state).toBeNull()
+      // A card changed lately (a comment on it) starts the time again.
+      expect(mergeStallReason(lane({ cards: [{ ...passed, updatedAt: new Date(late - 60_000).toISOString() }] }), idle, late)).toBeNull()
+    })
+
+    it('a lane watch tells it once, as stalled, with the reason; the mark is kept on disk', () => {
+      const due: LaneMark = { state: 'active', mergeDue: true, cards: { 1: card({ c: 'passed' }) } }
+      const now = (mark: LaneMark, mergeStall: string | null = null): LaneNow => ({ id: 'lane-g', label: 'HB1 / HR1 (lane G)', mark, cards: [{ number: 1, blocked: null, stalled: null, failedBy: null, passedBy: null }], mergeStall })
+      const why = 'Every card passed, but HB1 has been idle for 12 min with no merge slot claimed.'
+      expect(laneHits(due, now(due), LANE_DEFAULT_EVENTS)).toBeNull()
+      const hit = laneHits(due, now({ ...due, ms: true }, why), LANE_DEFAULT_EVENTS)!
+      expect(hit.parts).toEqual([{ n: null, event: 'stalled', text: 'its merge is stalled', detail: why }])
+      expect(laneWakeLine([hit])).toMatch(/^\[Hive\] Lane HB1 \/ HR1 \(lane G\): its merge is stalled: "Every card passed, but HB1 has been idle for 12 min with no merge slot claimed\."\. Your lane watch has ended/)
+      expect(laneHits({ ...due, ms: true }, now({ ...due, ms: true }, why), LANE_DEFAULT_EVENTS)).toBeNull()
+      expect(laneHits(due, now({ ...due, ms: true }, why), ['failed', 'merge-due'])).toBeNull()
+      expect(readSavedLaneMark(JSON.parse(JSON.stringify({ ...due, ms: true })))).toEqual({ ...due, ms: true })
+      expect(readSavedLaneMark(JSON.parse(JSON.stringify(due)))).toEqual(due)
+    })
   })
 
   it("the reply to a lane watch: lean, with the events only when they aren't the default", () => {
@@ -478,6 +527,37 @@ describe('lane watches (main/watches.ts, #531)', async () => {
       vi.useRealTimers()
     }
     expect(st.told[0]).toContain(`#${a} is stalled: "R1 started reviewing #${a} but has given no verdict, and has only been watching it for 16 min."`)
+    await disposeWorkspaceService(w)
+  })
+
+  it("a lane's merge due with its builder idle and no merge slot wakes it once the limit has passed (#869, lane G)", async () => {
+    const { w, alpha, home } = await open()
+    const st = fake(alpha, home)
+    const [a, b] = await newCards(w, 'b1', 2)
+    await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [a, b], by: 'B1 (alpha)', name: 'lane G' })
+    await watchAll(w, home, st)
+    for (const n of [a, b]) await inWorkspace(w, () => tasks.updateTask(n, { column: 'passed' }, user))
+    await watches.evaluateWatches(w)
+    await vi.waitFor(() => expect(st.told).toHaveLength(1), { timeout: HUNG_MS })
+    expect(st.told[0]).toMatch(/all its cards passed: its merge is due\./)
+    await watchAll(w, home, st)
+    // B1's commit is refused: it tells the user and its turn ends, with no merge slot and nothing blocked.
+    const idleSince = new Date().toISOString()
+    const liveFor = sessions.liveFor.bind(sessions)
+    Object.assign(sessions, { liveFor: (p: string, id: string) => (id === 'b1' ? ({ projectPath: alpha, agentId: 'b1', status: 'finished', statusSince: idleSince, runId: 'b1' } as never) : liveFor(p, id)) })
+    await watches.evaluateWatches(w)
+    await watches.settled()
+    expect(st.told).toHaveLength(1)
+    // The limit passes: Hive's clock moves on (the lane tick looks again now and then).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.parse(idleSince) + MERGE_STALL_MS + 60_000)
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(st.told[1]).toMatch(/^\[Hive\] Lane B1 \/ R1 \(lane G\): its merge is stalled: "Every card passed, but B1 has been idle for 11 min with no merge slot claimed\."/)
     await disposeWorkspaceService(w)
   })
 

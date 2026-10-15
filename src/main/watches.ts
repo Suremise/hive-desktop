@@ -14,7 +14,7 @@ import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
-import { LANE_CARD_CHANGES, laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCards, type LaneWatchCondition, type WaitHit } from '../shared/laneWatch'
+import { LANE_CARD_CHANGES, laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, mergeStallReason, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCards, type LaneWatchCondition, type WaitHit } from '../shared/laneWatch'
 import { cardStallIn } from './cardStall'
 import { noteLoopWatch } from './loopCheck'
 import { sessions } from './sessions'
@@ -1215,17 +1215,22 @@ async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' |
   for (const l of chosen) {
     const marks: LaneMark['cards'] = {}
     const cards: LaneNow['cards'] = []
+    const changed: { mark: LaneMark['cards'][string]; updatedAt?: string }[] = []
     for (const lc of l.cards) {
       const found = byNumber.get(lc.number)
       // A card moved to another project is gone from the lane.
       const card = found && same(found.project, l.project) ? found : null
       const stalled = card && !card.archived ? await cardStallIn(store.ws, card, agents) : null
       marks[lc.number] = laneCardMark(card, stalled)
+      changed.push({ mark: marks[lc.number], updatedAt: card?.updatedAt })
       const v = card ? verdictsOf(card) : null
       cards.push({ number: lc.number, blocked: card?.blocked ?? null, stalled, failedBy: v?.failed?.by ?? null, passedBy: v?.passed?.by ?? null })
     }
     const label = `${l.builder.name}${l.reviewer ? ` / ${l.reviewer.name}` : ''}${l.name ? ` (${l.name})` : ''}`
-    out.push({ id: l.id, label, mark: { state: l.state, mergeDue: mergeDue(Object.values(marks)), cards: marks }, cards })
+    // #869: a merge due with its builder idle and no merge slot claimed (a step it stopped on for the user) is a stall.
+    const builder = store.ws.path ? (sessions.liveFor(join(store.ws.path, l.project), l.builder.id) ?? null) : null
+    const mergeStall = mergeStallReason({ state: l.state, builder: l.builder.name, cards: changed }, builder)
+    out.push({ id: l.id, label, mark: { state: l.state, mergeDue: mergeDue(Object.values(marks)), ...(mergeStall ? { ms: true } : {}), cards: marks }, cards, mergeStall })
   }
   return out
 }

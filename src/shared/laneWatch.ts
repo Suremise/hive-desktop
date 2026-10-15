@@ -1,4 +1,4 @@
-import type { LaneState, TaskCard, TaskColumn } from './types'
+import type { LaneState, SessionStatus, TaskCard, TaskColumn } from './types'
 import { columnLabel } from './tasks'
 import { brief, cardPart, WAKE_MAX_BYTES, WATCH_CHANGES, WATCH_MAX_CARDS, type CardChange, type WatchChange } from './watch'
 
@@ -43,6 +43,8 @@ export interface LaneMark {
   state: LaneState | 'gone'
   /** Every card passed or done, at least one not yet done: its merge is due. */
   mergeDue: boolean
+  /** Its merge is due but stalled (#869, mergeStallReason); left out: not. */
+  ms?: boolean
   cards: Record<string, LaneCardMark>
 }
 
@@ -53,6 +55,8 @@ export interface LaneNow {
   label: string
   mark: LaneMark
   cards: { number: number; blocked: string | null; stalled: string | null; failedBy: string | null; passedBy: string | null }[]
+  /** Why its merge has stalled (#869), when it has. */
+  mergeStall?: string | null
 }
 
 /** One lane's events since its mark: what the wake line tells. */
@@ -82,6 +86,42 @@ export function laneCardMark(card: Pick<TaskCard, 'column' | 'blocked' | 'histor
 /** Whether a lane's merge is due: every card passed or done, at least one passed (not yet merged). */
 export const mergeDue = (cards: readonly LaneCardMark[]): boolean => cards.length > 0 && cards.every((c) => c.c === 'passed' || c.c === 'done') && cards.some((c) => c.c === 'passed')
 
+/** How long a lane's merge may wait with its builder idle and no merge slot claimed before a lane watch is told (#869). */
+export const MERGE_STALL_MS = 10 * 60_000
+
+/** A builder's statuses in which it does nothing until someone prompts it: its turn has ended, or it never started. */
+const IDLE: readonly SessionStatus[] = ['ready', 'finished', 'stopped', 'error']
+
+/** A lane's builder as it is now, for mergeStallReason: null when its session isn't running. */
+export interface LaneBuilderNow {
+  status: SessionStatus
+  /** When its status last changed (ISO). */
+  statusSince?: string
+  backgroundTasks?: number
+  /** Its place at the merge slot (holding it or waiting for it), if it has one. */
+  mergeSlot?: string
+}
+
+/**
+ * Why a lane whose merge is due has stalled (#869), or null: on 14 Oct lane G's cards had all passed, its builder's CLI
+ * refused the commit, and the builder told the user and ended its turn. merge-due had already been told once, the cards
+ * weren't blocked and the builder wasn't at a prompt, so nothing woke the Assistant for two hours. Stalled: every card
+ * passed or done (one not yet merged), none blocked (a block is told as one), and its builder isn't running, or has been
+ * idle (its turn ended, no background task) with no place at the merge slot, for MERGE_STALL_MS since the later of its
+ * cards' last change and its own. A builder working, watching or waiting for the user (told as `waiting`) isn't stalled.
+ */
+export function mergeStallReason(lane: { state: LaneState | 'gone'; builder: string; cards: readonly { mark: LaneCardMark; updatedAt?: string }[] }, builder: LaneBuilderNow | null, now = Date.now()): string | null {
+  if (lane.state !== 'active' && lane.state !== 'paused') return null
+  const marks = lane.cards.map((c) => c.mark)
+  if (!mergeDue(marks) || marks.some((m) => m.b)) return null
+  if (builder && (!IDLE.includes(builder.status) || (builder.backgroundTasks ?? 0) > 0 || builder.mergeSlot)) return null
+  const at = (iso: string | undefined): number => (iso ? Date.parse(iso) || 0 : 0)
+  const since = Math.max(...lane.cards.map((c) => at(c.updatedAt)), at(builder?.statusSince))
+  if (!since || now - since < MERGE_STALL_MS) return null
+  const minutes = Math.round((now - since) / 60_000)
+  return builder ? `Every card passed, but ${lane.builder} has been idle for ${minutes} min with no merge slot claimed.` : `Every card passed, but ${lane.builder} isn't running.`
+}
+
 const clip = (s: string, max: number): string => {
   const one = s.replace(/\s+/g, ' ').trim()
   return one.length > max ? `${one.slice(0, max - 1)}…` : one
@@ -108,6 +148,7 @@ export function laneHits(before: LaneMark | null | undefined, now: LaneNow, even
     if (on.has('moved') && is.c !== was.c) parts.push({ n: c.number, event: 'moved', text: `#${c.number} is in ${columnLabel(is.c)}` })
   }
   if (on.has('merge-due') && now.mark.mergeDue && !before.mergeDue && now.mark.state !== 'ended' && now.mark.state !== 'abandoned') parts.push({ n: null, event: 'merge-due', text: 'all its cards passed: its merge is due' })
+  if (on.has('stalled') && now.mark.ms && !before.ms) parts.push({ n: null, event: 'stalled', text: 'its merge is stalled', ...(now.mergeStall ? { detail: now.mergeStall } : {}) })
   if (on.has('ended') && now.mark.state === 'ended' && before.state !== 'ended') parts.push({ n: null, event: 'ended', text: 'ended (merged)' })
   if (on.has('abandoned') && now.mark.state === 'abandoned' && before.state !== 'abandoned') parts.push({ n: null, event: 'abandoned', text: 'was abandoned' })
   return parts.length ? { id: now.id, label: now.label, parts } : null
@@ -243,5 +284,5 @@ export function readSavedLaneMark(v: unknown): LaneMark | null {
     if (!/^\d{1,9}$/.test(k) || !m || !COLS.includes(m.c as string) || typeof m.b !== 'boolean' || typeof m.s !== 'boolean' || !iso(m.f) || !iso(m.p)) return null
     cards[k] = { c: m.c as LaneCardMark['c'], b: m.b, s: m.s, f: m.f, p: m.p }
   }
-  return { state: r.state as LaneMark['state'], mergeDue: r.mergeDue, cards }
+  return { state: r.state as LaneMark['state'], mergeDue: r.mergeDue, ...(r.ms === true ? { ms: true } : {}), cards }
 }
