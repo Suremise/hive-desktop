@@ -1,0 +1,77 @@
+// Generated from locales/en/worktrees.json: do not edit. Each message's placeholders and their types, for tr(): a
+// global script, so its interface merges with every other area's (shared/i18n/msg.ts).
+interface HiveMessageValues {
+  'worktrees.agent.chooseMove': undefined
+  'worktrees.agent.chooseTree': undefined
+  'worktrees.agent.detached': undefined
+  'worktrees.agent.enterName': undefined
+  'worktrees.agent.gone': undefined
+  'worktrees.agent.nameTaken': { name: string | number }
+  'worktrees.agent.noBase': undefined
+  'worktrees.agent.noGitForTree': { problem: string | number }
+  'worktrees.agent.noGitToCheck': { problem: string | number }
+  'worktrees.agent.noTree': undefined
+  'worktrees.agent.notATree': undefined
+  'worktrees.agent.removing': undefined
+  'worktrees.agent.roleTooLong': { max: string | number }
+  'worktrees.agent.sharedTree': undefined
+  'worktrees.agent.stopForProvider': undefined
+  'worktrees.agent.stopToMerge': { agent: string | number }
+  'worktrees.agent.stopToRemove': undefined
+  'worktrees.agent.treeRemoved': undefined
+  'worktrees.agent.treeShared': undefined
+  'worktrees.agent.unknownProvider': { provider: string | number }
+  'worktrees.badBranchName': { branch: string | number }
+  'worktrees.branchInWay': { branch: string | number; parent: string | number }
+  'worktrees.cantCheck': { branch: string | number; why: string | number }
+  'worktrees.deleteBranch': { branch: string | number }
+  'worktrees.gitFailed': { command: string | number }
+  'worktrees.gitProblem': { problem: string | number }
+  'worktrees.listBranches': { why: string | number }
+  'worktrees.merge.cantCheck': { folder: string | number }
+  'worktrees.merge.commitFailed': { why: string | number }
+  'worktrees.merge.detached': undefined
+  'worktrees.merge.notRemoved': undefined
+  'worktrees.merge.nothing': { why: string | number }
+  'worktrees.merge.sameBranch': { branch: string | number }
+  'worktrees.merge.staged': undefined
+  'worktrees.merge.unknownFiles': undefined
+  'worktrees.missing.noAgent': undefined
+  'worktrees.missing.noBranch': { agent: string | number; branch: string | number }
+  'worktrees.missing.noTree': { agent: string | number }
+  'worktrees.missing.stillListed': { folder: string | number }
+  'worktrees.missing.stopFirst': { agent: string | number }
+  'worktrees.missing.thereRecreate': { agent: string | number; folder: string | number }
+  'worktrees.missing.thereUnlink': { agent: string | number; folder: string | number }
+  'worktrees.missing.wouldPrune': { folders: string | number; n: number }
+  'worktrees.move.missing': { folder: string | number }
+  'worktrees.move.notEverything': { into: string | number; branch: string | number }
+  'worktrees.move.notOnBranch': { branch: string | number }
+  'worktrees.names.closed': undefined
+  'worktrees.names.projectGone': undefined
+  'worktrees.readBranch': { folder: string | number; why: string | number }
+  'worktrees.readOriginHead': { why: string | number }
+  'worktrees.reuse.beingRemoved': undefined
+  'worktrees.reuse.cantCheck': { base: string | number }
+  'worktrees.reuse.gitBusy': undefined
+  'worktrees.reuse.inUse': undefined
+  'worktrees.reuse.movedAside': { folder: string | number; aside: string | number }
+  'worktrees.reuse.notChecked': undefined
+  'worktrees.reuse.notMerged': { n: number; base: string | number }
+  'worktrees.reuse.resetFailed': { base: string | number; why: string | number }
+  'worktrees.reuse.taken': undefined
+  'worktrees.reuse.uncommitted': { n: number }
+  'worktrees.reuse.unreadable': undefined
+  'worktrees.statusFailed': undefined
+  'worktrees.unknownError': undefined
+  'worktrees.why.cantCheck': { branch: string | number }
+  'worktrees.why.changed': { branch: string | number }
+  'worktrees.why.folderMissing': undefined
+  'worktrees.why.gitKept': { why: string | number }
+  'worktrees.why.mainMoved': { gone: string; expected: string | number; now: string | number }
+  'worktrees.why.noMain': undefined
+  'worktrees.why.notChecked': undefined
+  'worktrees.why.notListed': { branch: string | number }
+  'worktrees.why.notMerged': { n: number; into: string | number }
+  'worktrees.why.uncommitted': { n: number }
+}

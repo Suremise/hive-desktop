@@ -38,7 +38,7 @@ import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
 import { startTaskbarFlash } from './taskbar'
 import { setTitleBarColors, trackTitleBar } from './titleBar'
-import { fitToWorkArea } from './windowBounds'
+import { placeOnDisplay } from './windowBounds'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
@@ -165,18 +165,6 @@ function titleBarColors(): { color: string; symbolColor: string } {
 /** The smallest a Hive window can be. */
 const WINDOW_MIN = { width: 900, height: 560 }
 
-/** Whether a saved position is still on a screen. */
-function onScreen(b: WindowState): boolean {
-  return (
-    b.x !== undefined &&
-    b.y !== undefined &&
-    screen.getAllDisplays().some((d) => {
-      const a = d.workArea
-      return b.x! >= a.x - 50 && b.y! >= a.y - 50 && b.x! < a.x + a.width && b.y! < a.y + a.height
-    })
-  )
-}
-
 /**
  * Opens a Hive window, with its own workspace service. `workspacePath` opens that workspace in it;
  * `bounds` places it (a restored window), else it goes over the last focused one, offset like VS Code's.
@@ -188,16 +176,15 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
     const r = from.win.getNormalBounds()
     b = { x: r.x + 30, y: r.y + 30, width: r.width, height: r.height, maximized: false }
   }
-  const visible = onScreen(b)
   // Fitted to the display it opens on: the one its corner is on, else the primary one, where it is centred (#812).
-  b = fitToWorkArea(visible ? b : { ...b, x: undefined, y: undefined }, (visible ? screen.getDisplayNearestPoint({ x: b.x!, y: b.y! }) : screen.getPrimaryDisplay()).workArea, WINDOW_MIN)
+  b = placeOnDisplay(b, WINDOW_MIN, screen)
   // A quiet test copy's windows open off screen, never over the user's (testQuiet).
   const offScreen = testQuiet() ? offScreenOrigin(b.width) : null
   const win = new BrowserWindow({
     width: b.width,
     height: b.height,
-    x: offScreen ? offScreen.x : visible ? b.x : undefined,
-    y: offScreen ? offScreen.y : visible ? b.y : undefined,
+    x: offScreen ? offScreen.x : b.x,
+    y: offScreen ? offScreen.y : b.y,
     minWidth: WINDOW_MIN.width,
     minHeight: WINDOW_MIN.height,
     show: false,

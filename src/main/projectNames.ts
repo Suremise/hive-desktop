@@ -3,10 +3,15 @@ import { basename, dirname, join, resolve } from 'path'
 import { HIVE_DIR } from '../shared/defaults'
 import { isProjectId } from '../shared/projectIds'
 import { readKeptJson, withFileLock, writeKeptJson } from './fsutil'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import type { ProjectSeen, WorkspaceService } from './workspace'
 
 const log = createLogger('projectNames')
+
+/** A name change refused because its workspace closed meanwhile (#848): the window's language, English for agents. */
+const CLOSED = msg({ id: 'worktrees.names.closed', defaultMessage: 'The workspace was closed or switched: nothing was changed.', description: "An error: the workspace closed, or another opened in its window, while a project's name was being recorded; nothing changed." })
 
 /**
  * The workspace's record of its projects' names, by their stable ids (#514), in `.hive/project-names.json` (a kept file):
@@ -177,12 +182,12 @@ export async function noteFormerName(ws: WorkspaceService, id: string, folder: s
   const life = ws.lifetime
   const gone = (): boolean => life.aborted || ws.lifetime !== life || ws.path !== path
   await withFileLock(fileOf(path), async () => {
-    if (gone()) throw new Error('The workspace was closed or switched: nothing was changed.')
+    if (gone()) throw hiveError(CLOSED, undefined, { kind: 'conflict' })
     const j = readJournal(await readKeptJson<unknown>(fileOf(path), null))
-    if (gone()) throw new Error('The workspace was closed or switched: nothing was changed.')
+    if (gone()) throw hiveError(CLOSED, undefined, { kind: 'conflict' })
     const now = ws.projectIdsNow().byId.get(id)
     const p = j.projects[id] ?? (now ? (j.projects[id] = { name: basename(now), former: [] }) : null)
-    if (!p) throw new Error('That project is no longer in the workspace.')
+    if (!p) throw hiveError(msg({ id: 'worktrees.names.projectGone', defaultMessage: 'That project is no longer in the workspace.', description: "An error: the project whose name was being recorded was removed from the workspace meanwhile." }))
     if (same(p.name, folder) || p.former.some((n) => same(n, folder))) return remember(ws, life, j)
     // The oldest of its names: it had it before any Hive saw it renamed from.
     p.former = [...p.former.slice(0, MAX_FORMER - 1), folder]

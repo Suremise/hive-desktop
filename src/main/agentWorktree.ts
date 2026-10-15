@@ -7,10 +7,12 @@ import { samePath } from '../shared/movePaths'
 import { config } from './config'
 import { samePlace } from './fsutil'
 import { git } from './git'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { workspace, workspaceOf } from './workspace'
-import { copyIgnored, createWorktree, currentBranch, listWorktrees, uniqueFolder } from './worktrees'
+import { copyIgnored, createWorktree, currentBranch, GIT_FAILED, listWorktrees, uniqueFolder } from './worktrees'
 
 /**
  * An agent's worktree whose folder is gone (#146): deleted after its work was merged, or a workspace copied to another
@@ -20,6 +22,12 @@ import { copyIgnored, createWorktree, currentBranch, listWorktrees, uniqueFolder
  */
 
 const log = createLogger('worktrees')
+
+/** Recreating or unlinking a missing worktree (#848): refusals the window reads in its language, as HiveErrors. */
+const M = {
+  noAgent: msg({ id: 'worktrees.missing.noAgent', defaultMessage: 'That agent no longer exists.', description: 'An error: the agent whose missing worktree was to be recreated or unlinked was removed meanwhile.' }),
+  noTree: msg({ id: 'worktrees.missing.noTree', defaultMessage: "{agent} doesn't work in a worktree.", description: 'An error: the agent {agent} (its name) works in the project folder, so it has no worktree to recreate or unlink.' })
+}
 
 const branchExists = async (repo: string, branch: string): Promise<boolean> => (await git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])).ok
 
@@ -69,17 +77,17 @@ async function usableParent(p: string): Promise<boolean> {
 export async function recreateWorktree(projectPath: string, agentId: string, opts: { prefer?: string; alsoRecreating?: string[] } = {}): Promise<AgentDef> {
   const cfg = await workspace.projectConfig(projectPath)
   const a = projectAgents(cfg).find((x) => x.id === agentId)
-  if (!a) throw new Error('That agent no longer exists.')
-  if (!a.worktree) throw new Error(`${a.name} doesn't work in a worktree.`)
+  if (!a) throw hiveError(M.noAgent, undefined, { kind: 'notFound' })
+  if (!a.worktree) throw hiveError(M.noTree, { agent: a.name })
   const old = a.worktree
-  if (existsSync(old.path)) throw new Error(`${a.name}'s worktree folder is there (${old.path}): there's nothing to recreate.`)
-  if (sessions.liveFor(projectPath, agentId)) throw new Error(`Stop ${a.name} first.`)
+  if (existsSync(old.path)) throw hiveError(msg({ id: 'worktrees.missing.thereRecreate', defaultMessage: "{agent}'s worktree folder is there ({folder}): there's nothing to recreate.", description: "An error: the worktree folder {folder} of the agent {agent} (its name) exists, so it isn't missing." }), { agent: a.name, folder: old.path })
+  if (sessions.liveFor(projectPath, agentId)) throw hiveError(msg({ id: 'worktrees.missing.stopFirst', defaultMessage: 'Stop {agent} first.', description: "An error: the agent {agent} (its name) is running; its missing worktree can't be recreated until it stops." }), { agent: a.name })
   const others = (await prunable(projectPath)).filter((p) => !samePlace(p, old.path) && !(opts.alsoRecreating ?? []).some((q) => samePlace(p, q)))
   if (others.length) {
-    throw new Error(`Recreating runs git worktree prune, which would also drop git's link to ${others.join(', ')} (missing too). Locate, recreate or remove ${others.length === 1 ? 'that worktree' : 'those worktrees'} first.`)
+    throw hiveError(msg({ id: 'worktrees.missing.wouldPrune', defaultMessage: "Recreating runs git worktree prune, which would also drop git's link to {folders} (missing too). Locate, recreate or remove {n, plural, one {that worktree} other {those worktrees}} first.", description: "An error: recreating a missing worktree runs git worktree prune (a git command: keep it), which would also forget the other missing worktrees {folders} (a list of folders); {n} is how many." }), { folders: others.join(', '), n: others.length })
   }
   await git(projectPath, ['worktree', 'prune'])
-  if ((await listWorktrees(projectPath)).some((l) => samePlace(l.path, old.path))) throw new Error(`git still lists ${old.path} as a worktree (it may be locked): unlock it, or run git worktree prune, then try again.`)
+  if ((await listWorktrees(projectPath)).some((l) => samePlace(l.path, old.path))) throw hiveError(msg({ id: 'worktrees.missing.stillListed', defaultMessage: 'git still lists {folder} as a worktree (it may be locked): unlock it, or run git worktree prune, then try again.', description: "An error: git still has the missing worktree {folder} on its list, so it can't be recreated there. git worktree prune is a git command: keep it." }), { folder: old.path })
   const fallback = (): string => uniqueFolder(join(workspaceOf(projectPath).worktreesRoot, basename(projectPath), slugify(a.name)))
   let dest = opts.prefer ?? old.path
   if (existsSync(dest) || !(await usableParent(dest))) dest = fallback()
@@ -87,10 +95,10 @@ export async function recreateWorktree(projectPath: string, agentId: string, opt
   let base = old.base
   if (onBranch) {
     const r = await git(projectPath, ['worktree', 'add', dest, old.branch])
-    if (!r.ok) throw new Error((r.err || 'git worktree add failed').trim())
+    if (!r.ok) throw r.err.trim() ? new Error(r.err.trim()) : hiveError(GIT_FAILED, { command: 'git worktree add' }) // i18n-ignore: a git command, as it is
   } else {
     const from = (await branchExists(projectPath, old.base)) ? old.base : await currentBranch(projectPath)
-    if (!from) throw new Error(`${a.name}'s branch ${old.branch} is gone, and the project folder isn't on a branch to start a new one from.`)
+    if (!from) throw hiveError(msg({ id: 'worktrees.missing.noBranch', defaultMessage: "{agent}'s branch {branch} is gone, and the project folder isn't on a branch to start a new one from.", description: "An error: the missing worktree of the agent {agent} (its name) can't be recreated: its branch {branch} is gone too, and there's no branch to make a new one from." }), { agent: a.name, branch: old.branch })
     await createWorktree(projectPath, dest, old.branch, from)
     base = from
   }
@@ -107,11 +115,11 @@ export async function recreateWorktree(projectPath: string, agentId: string, opt
       next = { ...x, worktree: { ...x.worktree, path: dest, base }, ...(setup ? { needsSetup: true } : {}) }
       return next
     })
-    const m = { from: old.path, to: dest, of: `${a.name}'s worktree` }
+    const m = { from: old.path, to: dest, of: `${a.name}'s worktree` } // i18n-ignore: what a pending copy is of, for the log
     const pending = (now.pendingCopies ?? []).filter((x) => !(samePath(x.from, m.from) && samePath(x.to, m.to)))
     return { agents, ...(moved ? { pendingCopies: [...pending, m] } : {}) }
   })
-  if (!next) throw new Error('That agent no longer exists.')
+  if (!next) throw hiveError(M.noAgent, undefined, { kind: 'notFound' })
   return next
 }
 
@@ -121,14 +129,14 @@ export async function unlinkMissingWorktree(projectPath: string, agentId: string
   await workspace.mutateProjectConfig(projectPath, (cfg) => {
     const agents = projectAgents(cfg).map((x) => {
       if (x.id !== agentId) return x
-      if (!x.worktree) throw new Error(`${x.name} doesn't work in a worktree.`)
-      if (existsSync(x.worktree.path)) throw new Error(`${x.name}'s worktree folder is there (${x.worktree.path}): remove the agent to remove its worktree.`)
+      if (!x.worktree) throw hiveError(M.noTree, { agent: x.name })
+      if (existsSync(x.worktree.path)) throw hiveError(msg({ id: 'worktrees.missing.thereUnlink', defaultMessage: "{agent}'s worktree folder is there ({folder}): remove the agent to remove its worktree.", description: "An error: the worktree folder {folder} of the agent {agent} (its name) exists, so its link can't be dropped as a missing one." }), { agent: x.name, folder: x.worktree.path })
       next = { ...x, worktree: undefined, needsSetup: undefined }
       log.info(`Removed ${userText(x.name)}'s link to its missing worktree ${userText(x.worktree.path)}`)
       return next
     })
     return { agents }
   })
-  if (!next) throw new Error('That agent no longer exists.')
+  if (!next) throw hiveError(M.noAgent, undefined, { kind: 'notFound' })
   return next
 }

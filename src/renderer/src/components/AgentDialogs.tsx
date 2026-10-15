@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
+import { shownText as inLanguage } from '@shared/advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, modeOption, offeredModes, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings, shownText } from '@shared/providers'
 import type { AddAgentOptions, AgentBranchStatus, EffortLevel, MergeResult, PermissionMode, ProjectConfig, ProjectGitInfo, ProjectInfo, ProviderId, WorktreeMatch } from '@shared/types'
 import { serverOnIn } from '@shared/agentMcp'
@@ -354,7 +355,9 @@ export function AddAgentDialog() {
       close()
       // What happened to an unused worktree it could reuse (#456): "Reused hive/b4, brought up to main at 66ce11b".
       if (def.reuse) {
-        const note = reuseNote(def.reuse, tr)
+        // Why an unused worktree wasn't reused, in the window's language (#848): the English is the Agent API's.
+        const reuse = def.reuse.notReusedText ? { ...def.reuse, notReused: inLanguage(def.reuse.notReusedText) } : def.reuse
+        const note = reuseNote(reuse, tr)
         notify('info', tr(msg({ id: 'agents.add.worktreeNotice', defaultMessage: '{agent}: {reused, select, yes {worktree reused} other {new worktree}}', description: "A notification's title after adding a worktree agent ({agent}): whether it reused an unused worktree or made a new one. Its message says how." }), { agent: def.name, reused: def.reuse.reused ? 'yes' : 'no' }), note.charAt(0).toUpperCase() + note.slice(1))
       }
       actions.noteManyAgents(project.path)

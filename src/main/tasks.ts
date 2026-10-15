@@ -3,9 +3,11 @@ import { basename, join } from 'path'
 import { mkdir, readdir, readFile, stat } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { projectAgents } from '../shared/defaults'
+import { englishText, withValues, type Text } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
-import { ordinal } from '../shared/toolReplies'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskPatch, UnarchiveResult } from '../shared/types'
+import { HISTORY, storedMessage, storedText } from '../shared/taskHistory'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
@@ -13,11 +15,32 @@ import { keepBeforeIds } from './beforeIds'
 import { config } from './config'
 import { emit } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
+import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { workspace, type WorkspaceService } from './workspace'
 import { trash } from './trash'
 
 const log = createLogger('tasks')
+
+/**
+ * The board's refusals (#846, E10b of #677) are HiveErrors: the window reads them in its language, agents (the Agent API,
+ * the hive tools) in English, exactly as before. A refusal's `kind` is set where it is the status its English always
+ * gave (servers.ts `statusFor`); without one, the English still gives it. A column (`{column}`) is its key, and each
+ * message chooses its words.
+ */
+const ERR = {
+  unknownTask: msg({ id: 'tasks.error.unknownTask', defaultMessage: 'Unknown task #{n}', description: 'An error: there is no card #{n} (a number), or none the caller may see.' }),
+  noWorkspace: msg({ id: 'tasks.error.noWorkspace', defaultMessage: 'No workspace is open', description: "An error: a change to the task board needs an open workspace, and there is none." }),
+  needsTitle: msg({ id: 'tasks.error.needsTitle', defaultMessage: 'A task needs a title.', description: 'An error: a card (a task) was saved with an empty title.' }),
+  unknownColumn: msg({ id: 'tasks.error.unknownColumn', defaultMessage: 'Unknown column "{column}": {choices}.', description: 'An error: {column} is not a column of the board; {choices} lists the column ids the call takes (hold, todo, doing… kept as they are).' }),
+  archived: msg({ id: 'tasks.error.archived', defaultMessage: '#{n} is archived. Only the user can bring it back.', description: 'An error: card #{n} (a number) is archived, so an agent or the Assistant cannot change it; only the user can bring it back from the archive.' }),
+  noCard: msg({ id: 'tasks.error.noCard', defaultMessage: 'There is no card #{n}.', description: 'An error: there is no card #{n} (a number) that the caller may see.' }),
+  cardsTooMany: msg({ id: 'tasks.error.cardsTooMany', defaultMessage: 'cards: at most {max} cards at once.', description: 'An error: a call listed more than {max} cards. "cards:" is the name of the call\'s field: keep it as it is.' }),
+  cardsNotNumber: msg({ id: 'tasks.error.cardsNotNumber', defaultMessage: 'cards: "{value}" is not a card number', description: 'An error: {value} in the list of cards is not a card number. "cards:" is the name of the call\'s field: keep it as it is.' }),
+  cardsTwice: msg({ id: 'tasks.error.cardsTwice', defaultMessage: 'cards: #{n} is listed twice', description: 'An error: the list of cards names card #{n} (a number) twice. "cards:" is the name of the call\'s field: keep it as it is.' }),
+  emptyDecision: msg({ id: 'tasks.error.emptyDecision', defaultMessage: 'The decision is empty.', description: "An error: a decision recorded on a card has no text." }),
+  onlyUserDone: msg({ id: 'tasks.error.onlyUserOrdersDone', defaultMessage: 'Only the user puts the cards in Done in order.', description: 'An error: an agent or the Assistant tried to put the cards of the Done column in order; only the user does that.' })
+}
 
 /**
  * The workspace's task board: one JSON file per card in .hive/tasks (<number>.json), and board.json with the next
@@ -40,19 +63,30 @@ export const scopeOf = (a: TaskActor): string | null => (a.kind === 'agent' && a
 export const inScope = (c: { project: string }, scope: string | null): boolean => scope === null || (!!c.project && c.project.toLowerCase() === scope.toLowerCase())
 
 /** What a confined agent is told about a card outside its project: the same as for one that doesn't exist. */
-export const unknownTask = (n: number): Error => new Error(`Unknown task #${n}`)
+export const unknownTask = (n: number): Error => hiveError(ERR.unknownTask, { n }, { kind: 'notFound' })
 
 /** The calling agent, when a card of `project` going into Doing with no agent named should be given to it. */
 const selfIn = (actor: TaskActor, project: string): string | null =>
   actor.kind === 'agent' && actor.self && project && actor.self.project.toLowerCase() === project.toLowerCase() ? actor.self.agentId : null
 
-export const actorName = (a: TaskActor): string => (a.kind === 'user' ? 'You' : a.kind === 'assistant' ? 'Assistant' : a.name)
+/** Who changed a card, as its history, comments and decisions store it: English, read by agents (the window words them, shared/taskHistory.ts BY_TEXT). */
+const BY = { you: 'You', assistant: 'Assistant', hive: 'Hive', repair: 'Repair' } as const // i18n-ignore: stored with cards in English, as agents read them
 
-/** A change only the user may make (or the Assistant once the user said yes): thrown for others. */
-export class TaskPermissionError extends Error {}
+export const actorName = (a: TaskActor): string => (a.kind === 'user' ? BY.you : a.kind === 'assistant' ? BY.assistant : a.name)
+
+/** A change only the user may make (or the Assistant once the user said yes): thrown for others. The Agent API's 403. */
+export class TaskPermissionError extends HiveError {
+  constructor(text: Text) {
+    super(text, { kind: 'forbidden' })
+  }
+}
 
 /** A change the card's state rules out now (another agent is working on it): the Agent API's 409. */
-export class TaskConflictError extends Error {}
+export class TaskConflictError extends HiveError {
+  constructor(text: Text) {
+    super(text, { kind: 'conflict' })
+  }
+}
 
 const MAX_TITLE = 200
 const MAX_TEXT = 20_000
@@ -101,7 +135,9 @@ let loopEvents: ((e: LoopEvent) => void) | null = null
 export function onLoopEvent(fn: (e: LoopEvent) => void): void {
   loopEvents = fn
 }
-const INTO_REVIEW_SAID = /^(Moved to (the (top|bottom) of )?Review\b|Returned for review, round \d+)/
+/** History lines that bring a card into Review: moved there (to its top, bottom or before a card), or returned there for its next round. */
+const INTO_REVIEW = new Set<string>([HISTORY.moved.id, HISTORY.movedTop.id, HISTORY.movedBottom.id, HISTORY.movedBefore.id])
+const intoReview = (s: StoredText): boolean => s.id === HISTORY.returned.id || (INTO_REVIEW.has(s.id) && s.values?.column === 'review')
 
 /** A card read from disk, with anything missing or of the wrong type made safe (the files can be edited by hand). */
 function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?: ProjectIdIndex): TaskCard {
@@ -110,7 +146,7 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
   const now = new Date(0).toISOString()
   return {
     number: n,
-    title: typeof raw.title === 'string' ? raw.title : `Task ${n}`,
+    title: typeof raw.title === 'string' ? raw.title : `Task ${n}`, // i18n-ignore: a damaged card's stand-in title, saved and read by agents
     description: typeof raw.description === 'string' ? raw.description : '',
     // Renamed or moved since it was saved: the project that has its id now (projectNow).
     project: ids ? projectNow(ids, typeof raw.project === 'string' ? raw.project : '', raw.projectId) : typeof raw.project === 'string' ? raw.project : '',
@@ -268,7 +304,7 @@ export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
 export async function listTasks(opts: { project?: string; column?: TaskColumn; archived?: boolean; scope?: string | null } = {}): Promise<TaskCard[]> {
   const scope = opts.scope ?? null
   if (scope !== null && opts.project !== undefined && opts.project.toLowerCase() !== scope.toLowerCase()) {
-    throw new TaskPermissionError(`You can see only your project's cards (${scope}).`)
+    throw new TaskPermissionError(withValues(msg({ id: 'tasks.error.ownCardsOnly', defaultMessage: "You can see only your project's cards ({project}).", description: "An error: an agent asked for another project's cards; it sees only its own project's ({project}, its folder name)." }), { project: scope }))
   }
   return (await allTasks()).filter(
     (c) =>
@@ -295,9 +331,9 @@ export async function refsOutside(refs: number[], scope: string | null): Promise
 }
 
 export async function getTask(n: number, ws: WorkspaceService = workspace): Promise<TaskCard> {
-  if (!Number.isInteger(n) || n < 1) throw new Error(`Unknown task #${n}`)
+  if (!Number.isInteger(n) || n < 1) throw unknownTask(n)
   const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
-  if (!raw || typeof raw !== 'object') throw new Error(`Unknown task #${n}`)
+  if (!raw || typeof raw !== 'object') throw unknownTask(n)
   return withoutGone(clean(raw, n, await ws.projectIds()), (x) => existsSync(cardFile(x, ws)))
 }
 
@@ -397,7 +433,7 @@ export async function legacyCards(ws: WorkspaceService): Promise<{ number: numbe
 export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: string; cards: number[] }): Promise<number> {
   return boardLock(ws, async () => {
     const projectId = projectIdNamed(await ws.projectIds(), m.to)
-    if (!projectId) throw new Error(`${m.to} isn't a project of the workspace now`)
+    if (!projectId) throw hiveError(msg({ id: 'tasks.error.repairNoProject', defaultMessage: "{project} isn't a project of the workspace now", description: "An error from Repair: the project {project} (a folder name) it was to give cards to isn't in the workspace any more." }), { project: m.to })
     let n = 0
     for (const x of m.cards) {
       const file = cardFile(x, ws)
@@ -405,7 +441,7 @@ export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: str
         const raw = await readJson<Record<string, unknown> | null>(file, null)
         if (!raw || typeof raw !== 'object' || isProjectId(raw.projectId) || typeof raw.project !== 'string' || raw.project.toLowerCase() !== m.from.toLowerCase()) return false
         const history = Array.isArray(raw.history) ? raw.history : []
-        const entry = { at: new Date().toISOString(), by: 'Repair', what: `Project: ${m.from} → ${m.to} (renamed or moved)`, id: entryId() }
+        const entry = entryOf(new Date().toISOString(), BY.repair, storedText(HISTORY.repaired, { from: m.from, to: m.to }))
         await keepBeforeIds(file)
         await writeJsonAtomic(file, { ...withProject(raw, m.to, projectId), history: [...history, entry].slice(-MAX_HISTORY) })
         return true
@@ -437,29 +473,37 @@ async function projectName(name: string | undefined): Promise<string> {
   const v = (name ?? '').trim()
   if (!v) return ''
   const hit = (await workspace.listProjectPaths()).map((p) => basename(p)).find((p) => p.toLowerCase() === v.toLowerCase())
-  if (!hit) throw new Error(`Unknown project "${v}"`)
+  if (!hit) throw hiveError(msg({ id: 'tasks.error.unknownProject', defaultMessage: 'Unknown project "{project}"', description: 'An error: the workspace has no project named {project}.' }), { project: v }, { kind: 'notFound' })
   return hit
 }
 
 /** An agent of the project, by id or name: its id and name. */
 async function agentOf(project: string, agent: string): Promise<{ id: string; name: string }> {
-  if (!project) throw new Error('Choose a project before giving the task to an agent.')
+  if (!project) throw hiveError(msg({ id: 'tasks.error.chooseProject', defaultMessage: 'Choose a project before giving the task to an agent.', description: "An error: a card of the whole workspace (no project) can't be given to an agent: agents belong to a project." }), undefined, { kind: 'invalid' })
   const cfg = await workspace.projectConfig(join(workspace.path!, project))
   const a = projectAgents(cfg).find((x) => x.id === agent || x.name.toLowerCase() === agent.toLowerCase())
-  if (!a) throw new Error(`Unknown agent "${agent}" in ${project}`)
+  if (!a) throw hiveError(UNKNOWN_AGENT, { agent, project }, { kind: 'notFound' })
   return { id: a.id, name: a.name }
 }
 
-const text = (v: unknown, max: number, what: string): string => {
+/** An agent named that the project doesn't have (also taskStart.ts's). */
+export const UNKNOWN_AGENT = msg({ id: 'tasks.error.unknownAgent', defaultMessage: 'Unknown agent "{agent}" in {project}', description: 'An error: the project {project} (a folder name) has no agent named {agent}.' })
+
+/** A field of a card, by what its "too long" refusal calls it. */
+type TextField = 'title' | 'description' | 'comment' | 'decision' | 'blockedReason'
+
+const text = (v: unknown, max: number, what: TextField): string => {
   const s = String(v ?? '')
-  if (s.length > max) throw new Error(`The ${what} is too long (at most ${max.toLocaleString()} characters).`)
+  if (s.length > max) {
+    throw hiveError(msg({ id: 'tasks.error.tooLong', defaultMessage: '{what, select, title {The title is too long (at most {max, number} characters).} description {The description is too long (at most {max, number} characters).} comment {The comment is too long (at most {max, number} characters).} decision {The decision is too long (at most {max, number} characters).} other {The blocked reason is too long (at most {max, number} characters).}}', description: "An error: a card's field is longer than it may be ({what}, select: its title, description, comment, decision or blocked reason; translate each sentence); {max} is the most characters it takes." }), { what, max }, { kind: 'invalid' })
+  }
   return s
 }
 
 function labelsOf(v: unknown): string[] {
-  if (!Array.isArray(v)) throw new Error('labels must be a list')
+  if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelsList', defaultMessage: 'labels must be a list', description: 'An error: the call gave the card\'s labels as something other than a list. "labels" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
   const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))].map((l) => l.slice(0, 40))
-  if (out.length > MAX_LABELS) throw new Error(`A card can have up to ${MAX_LABELS} labels.`)
+  if (out.length > MAX_LABELS) throw hiveError(msg({ id: 'tasks.error.tooManyLabels', defaultMessage: 'A card can have up to {max} labels.', description: 'An error: a card was given more labels than it may have ({max}, a number).' }), { max: MAX_LABELS }, { kind: 'invalid' })
   return out
 }
 
@@ -467,15 +511,17 @@ function labelsOf(v: unknown): string[] {
  * The cards a list names (blockedBy, links), checked. A confined agent can only name its project's cards; when it
  * changes a card's list, the cards from other projects already on it (`kept`, which it sees only as numbers) stay.
  */
-async function cardRefs(v: unknown, self: number | null, what: string, scope: string | null = null, kept: number[] = []): Promise<number[]> {
-  if (!Array.isArray(v)) throw new Error(`${what} must be a list of card numbers`)
+async function cardRefs(v: unknown, self: number | null, what: 'blockedBy' | 'links', scope: string | null = null, kept: number[] = []): Promise<number[]> {
+  // `what` is the call's field, named as it is in every language.
+  if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.refsList', defaultMessage: '{field} must be a list of card numbers', description: 'An error: the call gave {field} (the name of its field: blockedBy or links, kept as it is) as something other than a list of card numbers.' }), { field: what })
   const nums = [...new Set(v.map((x) => Number(String(x).replace(/^#/, ''))))]
   const hidden = await refsOutside(kept, scope)
+  const noCard = (n: number): HiveError => hiveError(msg({ id: 'tasks.error.refsNoCard', defaultMessage: '{field}: there is no card #{n}', description: 'An error: the list {field} (the name of the call\'s field: blockedBy or links, kept as it is) names card #{n} (a number), which there is not.' }), { field: what, n }, { kind: 'invalid' })
   for (const n of nums) {
-    if (!Number.isInteger(n) || n < 1) throw new Error(`${what}: "${n}" is not a card number`)
-    if (n === self) throw new Error(`${what}: a card can't refer to itself`)
-    if (!existsSync(cardFile(n))) throw new Error(`${what}: there is no card #${n}`)
-    if (!hidden.includes(n) && !inScope(await getTask(n), scope)) throw new Error(`${what}: there is no card #${n}`)
+    if (!Number.isInteger(n) || n < 1) throw hiveError(msg({ id: 'tasks.error.refsNotNumber', defaultMessage: '{field}: "{value}" is not a card number', description: 'An error: the list {field} (the name of the call\'s field: blockedBy or links, kept as it is) has {value} in it, which is not a card number.' }), { field: what, value: String(n) }, { kind: 'invalid' })
+    if (n === self) throw hiveError(msg({ id: 'tasks.error.refsSelf', defaultMessage: "{field}: a card can't refer to itself", description: "An error: the list {field} (the name of the call's field: blockedBy or links, kept as it is) names the card itself." }), { field: what }, { kind: 'invalid' })
+    if (!existsSync(cardFile(n))) throw noCard(n)
+    if (!hidden.includes(n) && !inScope(await getTask(n), scope)) throw noCard(n)
   }
   return [...nums, ...hidden.filter((n) => !nums.includes(n))]
 }
@@ -489,14 +535,17 @@ function orderIn(cards: CardPlace[], column: TaskColumn, self: number | null, be
   return (prev + list[i].order) / 2
 }
 
-const OUT_OF_DONE = 'Only the user puts the cards in Done in order.'
-
 /**
  * On Hold is the user's and the Assistant's (#170): parked work nobody picks up. A project agent (its own token) can't
  * park a card, by a move or by creating it there; taking one out (the user asked it to work on it) is a move like any.
  */
 function checkHold(column: TaskColumn, actor: TaskActor, n?: number): void {
-  if (column === 'hold' && actor.kind === 'agent' && actor.self) throw new TaskPermissionError(`Only the user or the Assistant puts cards On Hold: ask the user to park ${n ? `#${n}` : 'it'}.`)
+  if (column !== 'hold' || actor.kind !== 'agent' || !actor.self) return
+  throw new TaskPermissionError(
+    n
+      ? withValues(msg({ id: 'tasks.error.holdCard', defaultMessage: 'Only the user or the Assistant puts cards On Hold: ask the user to park #{n}.', description: 'An error: an agent tried to move card #{n} (a number) On Hold (a board column), which only the user or the Assistant may do.' }), { n })
+      : msg({ id: 'tasks.error.holdNew', defaultMessage: 'Only the user or the Assistant puts cards On Hold: ask the user to park it.', description: 'An error: an agent tried to add a card On Hold (a board column), which only the user or the Assistant may do.' })
+  )
 }
 
 /**
@@ -504,27 +553,24 @@ function checkHold(column: TaskColumn, actor: TaskActor, n?: number): void {
  * agent's or the Assistant's explicit placement is checked (the card it names has to be in the column; never in
  * Done) and, when it moves the card, says so for the history; the user's drags are saved quietly.
  */
-function placement(all: CardPlace[], card: TaskCard, column: TaskColumn, patch: TaskPatch, actor: TaskActor): { order: number; said?: string } {
+function placement(all: CardPlace[], card: TaskCard, column: TaskColumn, patch: TaskPatch, actor: TaskActor): { order: number; said?: StoredText } {
   const { before, position } = patch
   const placed = (before !== undefined && before !== null) || position !== undefined
-  if (position !== undefined && position !== 'top' && position !== 'bottom') throw new Error(`Unknown position "${String(position)}": top or bottom.`)
-  if (placed && before !== undefined && before !== null && position !== undefined) throw new Error('Give before or position, not both.')
+  if (position !== undefined && position !== 'top' && position !== 'bottom') throw hiveError(msg({ id: 'tasks.error.unknownPosition', defaultMessage: 'Unknown position "{position}": top or bottom.', description: 'An error: the call\'s position was {position}, which it doesn\'t take. "top" and "bottom" are the values it takes: keep them as they are.' }), { position: String(position) }, { kind: 'invalid' })
+  if (placed && before !== undefined && before !== null && position !== undefined) throw hiveError(msg({ id: 'tasks.error.beforeOrPosition', defaultMessage: 'Give before or position, not both.', description: 'An error: the call gave both of its fields "before" and "position" (keep them as they are), which place a card in two ways.' }), undefined, { kind: 'invalid' })
   const list = all.filter((c) => c.column === column && !c.archived && c.number !== card.number)
-  const W = COLUMN_WORD[column]
   // A confined agent places its card among its project's cards: the top and bottom of those, never past another project's.
   const scope = scopeOf(actor)
   const own = list.filter((c) => inScope(c, scope))
   if (placed && actor.kind !== 'user') {
-    if (column === 'done') throw new TaskPermissionError(OUT_OF_DONE)
+    if (column === 'done') throw new TaskPermissionError(ERR.onlyUserDone)
     if (before != null && !own.some((c) => c.number === before)) {
       const other = all.find((c) => c.number === before && inScope(c, scope))
-      throw new Error(
-        before === card.number
-          ? "A card can't go before itself."
-          : !other
-            ? `There is no card #${before}.`
-            : `#${before} is ${other.archived ? 'archived' : `in ${COLUMN_WORD[other.column]}`}, not in ${W}: #${card.number} can only go before a card in the column it's in.`
-      )
+      if (before === card.number) throw hiveError(msg({ id: 'tasks.error.beforeItself', defaultMessage: "A card can't go before itself.", description: 'An error: a card was to be placed just above itself.' }), undefined, { kind: 'invalid' })
+      if (!other) throw hiveError(ERR.noCard, { n: before }, { kind: 'invalid' })
+      // Archived, it is a conflict (409) as its English always said; in another column, a mistake in the call (400).
+      if (other.archived) throw hiveError(msg({ id: 'tasks.error.beforeArchived', defaultMessage: "#{before} is archived, not in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}: #{n} can only go before a card in the column it's in.", description: 'An error: card #{n} was to be placed just above card #{before} (numbers), which is archived, not in the column {column} (select: a board column; translate each).' }), { before, column, n: card.number }, { kind: 'conflict' })
+      throw hiveError(msg({ id: 'tasks.error.beforeElsewhere', defaultMessage: "#{before} is in {other, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{other}}}, not in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}: #{n} can only go before a card in the column it's in.", description: 'An error: card #{n} was to be placed just above card #{before} (numbers), which is in the column {other}, not in {column} (select: board columns; translate each).' }), { before, other: other.column, column, n: card.number }, { kind: 'invalid' })
     }
   }
   const order =
@@ -544,12 +590,12 @@ function placement(all: CardPlace[], card: TaskCard, column: TaskColumn, patch: 
   if (!moved && rank(card.order) === rank(order)) return { order }
   const said =
     position === 'top'
-      ? `Moved to the top of ${W}`
+      ? storedText(HISTORY.movedTop, { column })
       : position === 'bottom'
-        ? `Moved to the bottom of ${W}`
+        ? storedText(HISTORY.movedBottom, { column })
         : moved
-          ? `Moved to ${W}, before #${before}`
-          : `Moved before #${before} in ${W}`
+          ? storedText(HISTORY.movedBefore, { column, before: before! })
+          : storedText(HISTORY.movedBeforeIn, { column, before: before! })
   return { order, said }
 }
 
@@ -563,17 +609,11 @@ export function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskAc
 }
 
 async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
-  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
-  if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(OUT_OF_DONE)
-  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers in the order wanted.')
-  if (numbers.length > 500) throw new Error('cards: at most 500 cards at once.')
-  const nums = numbers.map((x) => Number(String(x).replace(/^#/, '')))
-  const seen = new Set<number>()
-  for (const x of nums) {
-    if (!Number.isInteger(x) || x < 1) throw new Error(`cards: "${x}" is not a card number`)
-    if (seen.has(x)) throw new Error(`cards: #${x} is listed twice`)
-    seen.add(x)
-  }
+  if (!isTaskColumn(column)) throw unknownColumn(column)
+  if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(ERR.onlyUserDone)
+  if (!Array.isArray(numbers) || !numbers.length) throw hiveError(msg({ id: 'tasks.error.orderNone', defaultMessage: 'cards: list the card numbers in the order wanted.', description: 'An error: a call to put cards in order listed none. "cards:" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
+  if (numbers.length > 500) throw hiveError(ERR.cardsTooMany, { max: 500 }, { kind: 'invalid' })
+  const nums = checkedNumbers(numbers)
   const ws = workspace
   const by = actorName(actor)
   const W = COLUMN_WORD[column]
@@ -585,7 +625,10 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
   for (const x of nums) {
     if (own.some((c) => c.number === x)) continue
     const other = all.find((c) => c.number === x && inScope(c, scope))
-    throw new Error(!other ? `There is no card #${x}.` : `#${x} is ${other.archived ? 'archived' : `in ${COLUMN_WORD[other.column]}`}, not in ${W}. Only cards already in ${W} can be put in order there.`)
+    if (!other) throw hiveError(ERR.noCard, { n: x }, { kind: 'invalid' })
+    // Archived, it is a conflict (409) as its English always said; in another column, a mistake in the call (400).
+    if (other.archived) throw hiveError(msg({ id: 'tasks.error.orderArchived', defaultMessage: '#{n} is archived, not in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}. Only cards already in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}} can be put in order there.', description: 'An error: card #{n} (a number) was listed to be put in order in the column {column}, but it is archived (select: a board column; translate each).' }), { n: x, column }, { kind: 'conflict' })
+    throw hiveError(msg({ id: 'tasks.error.orderElsewhere', defaultMessage: '#{n} is in {other, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{other}}}, not in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}. Only cards already in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}} can be put in order there.', description: 'An error: card #{n} (a number) was listed to be put in order in the column {column}, but it is in the column {other} (select: board columns; translate each).' }), { n: x, other: other.column, column }, { kind: 'invalid' })
   }
   // The listed cards take the place of the first of the cards in view, in the order given; the rest keep theirs below.
   const first = own[0]
@@ -599,9 +642,9 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
       // read, it is unknown to a confined agent (its order and history stay as they are).
       if (!inScope(card, scope)) throw unknownTask(x)
       // Moved or archived since the list was read: the order asked for no longer holds.
-      if (card.column !== column || card.archived) throw new Error(`#${x} changed while the cards were being put in order; read the board again.`)
+      if (card.column !== column || card.archived) throw hiveError(msg({ id: 'tasks.error.orderChanged', defaultMessage: '#{n} changed while the cards were being put in order; read the board again.', description: 'An error: card #{n} (a number) moved or was archived while the cards were being put in order, so the order asked for no longer holds.' }), { n: x }, { kind: 'conflict' })
       card.order = orderAt(i)
-      if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? `Moved to the top of ${W}` : `Placed ${ordinal(i + 1)} in ${W}`)
+      if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? storedText(HISTORY.movedTop, { column }) : storedText(HISTORY.placed, { place: i + 1, column }))
       await saveCard(ws, x, card)
     }).catch((e) => {
       if (i) changed(ws)
@@ -619,13 +662,42 @@ const clip = (s: string, max = 80): string => {
   return one.length > max ? `${one.slice(0, max - 1)}…` : one
 }
 
-function note(card: TaskCard, by: string, what: string): void {
+/** A history line's English, from its message and values: what agents read and Hive's own code matches (`what`). */
+const englishSaid = (s: StoredText): string => {
+  const m = storedMessage(s)
+  if (!m) throw new Error(`No history line ${s.id}`) // i18n-ignore: a mistake in Hive's code, never shown
+  return englishText(s.values ? withValues(m, s.values) : m)
+}
+
+/**
+ * A line in the card's history: its English (`what`), and as data (`whatText`, #846) for the window to show in its
+ * language. Text from elsewhere (an agent-facing note, noteOnCard) is kept in English only.
+ */
+function note(card: TaskCard, by: string, said: StoredText | string): void {
   const at = new Date().toISOString()
-  card.history = [...card.history, { at, by, what, id: entryId() }].slice(-MAX_HISTORY)
+  card.history = [...card.history, entryOf(at, by, said)].slice(-MAX_HISTORY)
   card.updatedAt = at
 }
 
+const entryOf = (at: string, by: string, said: StoredText | string): TaskHistoryEntry =>
+  typeof said === 'string' ? { at, by, what: said, id: entryId() } : { at, by, what: englishSaid(said), whatText: said, id: entryId() }
+
+/** Column names in English, for the log. */
 const COLUMN_WORD = Object.fromEntries(TASK_COLUMNS.map((c) => [c.id, c.label])) as Record<TaskColumn, string>
+
+const unknownColumn = (column: unknown): HiveError => hiveError(ERR.unknownColumn, { column: String(column), choices: COLUMN_CHOICES }, { kind: 'invalid' })
+
+/** Card numbers as a call lists them ("#3" or 3), each checked: a whole number, listed once. */
+function checkedNumbers(numbers: unknown[]): number[] {
+  const nums = numbers.map((x) => Number(String(x).replace(/^#/, '')))
+  const seen = new Set<number>()
+  for (const x of nums) {
+    if (!Number.isInteger(x) || x < 1) throw hiveError(ERR.cardsNotNumber, { value: String(x) }, { kind: 'invalid' })
+    if (seen.has(x)) throw hiveError(ERR.cardsTwice, { n: x }, { kind: 'invalid' })
+    seen.add(x)
+  }
+  return nums
+}
 
 /** Who can return a failed card for review: its own agent (its hive tools, or the Agent API with its token) or the user. */
 const returnsCard = (actor: TaskActor, card: TaskCard): boolean => actor.kind === 'user' || (actor.kind === 'agent' && !!card.agent && actor.self?.agentId === card.agent)
@@ -638,17 +710,17 @@ async function createTaskLocked(
   input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[] },
   actor: TaskActor
 ): Promise<TaskCard> {
-  if (!workspace.path) throw new Error('No workspace is open')
+  if (!workspace.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
   const title = text(input.title, MAX_TITLE, 'title').trim()
-  if (!title) throw new Error('A task needs a title.')
+  if (!title) throw hiveError(ERR.needsTitle, undefined, { kind: 'invalid' })
   const column = input.column ?? 'todo'
-  if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
-  if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError('Only the user puts cards in Done.')
+  if (!isTaskColumn(column)) throw unknownColumn(column)
+  if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserDone', defaultMessage: 'Only the user puts cards in Done.', description: 'An error: an agent or the Assistant tried to add a card straight into Done (a board column), which only the user does.' }))
   checkHold(column, actor)
   // A confined agent's cards are its project's (by default too); never another project's or the workspace's.
   const scope = scopeOf(actor)
   const project = await projectName(scope !== null && input.project === undefined ? scope : input.project)
-  if (!inScope({ project }, scope)) throw new TaskPermissionError(`You can add cards only to your project (${scope}).`)
+  if (!inScope({ project }, scope)) throw new TaskPermissionError(withValues(msg({ id: 'tasks.error.addOwnOnly', defaultMessage: 'You can add cards only to your project ({project}).', description: "An error: an agent tried to add a card to another project, or to the whole workspace; it adds cards only to its own project ({project}, its folder name)." }), { project: scope ?? '' }))
   // An agent that puts a new card straight into Doing, naming no agent, is taking it.
   const own = column === 'doing' && input.agent === undefined ? selfIn(actor, project) : null
   const agent = input.agent ? await agentOf(project, input.agent) : own ? await agentOf(project, own) : null
@@ -669,11 +741,11 @@ async function createTaskLocked(
     column,
     order: orderIn(await boardPlaces(ws), column, null, null),
     labels: input.labels ? labelsOf(input.labels) : [],
-    blocked: input.blocked?.trim() ? text(input.blocked.trim(), 1000, 'blocked reason') : null,
+    blocked: input.blocked?.trim() ? text(input.blocked.trim(), 1000, 'blockedReason') : null,
     blockedBy,
     links,
     comments: [],
-    history: [{ at: now, by, what: `Created in ${COLUMN_WORD[column]}`, id: entryId() }],
+    history: [entryOf(now, by, storedText(HISTORY.created, { column }))],
     archived: false,
     createdAt: now,
     createdBy: by,
@@ -709,7 +781,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     if (!inScope(card, scope)) throw unknownTask(n)
     // The caller's own conditions, on the card as it is now (Start: not archived or done meanwhile).
     opts.check?.(card)
-    if (card.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
+    if (card.archived && actor.kind !== 'user') throw new TaskPermissionError(withValues(ERR.archived, { n }))
     // A card in Doing with another agent is that agent's work in progress: a project agent can't move it on to Review or
     // Done (a reviewer whose review ended when it came back for more work, say). Checked on the card as it is, before
     // anything else in the change (giving it to itself in the same call doesn't get round it). A project agent is one
@@ -717,10 +789,14 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     // A review verdict or start is refused on a card in Doing anyway (reviewChange), with its own reason.
     const moving = patch.review === undefined && (patch.column === 'review' || patch.column === 'passed' || patch.column === 'done')
     if (actor.kind === 'agent' && actor.self && moving && card.column === 'doing' && card.agent && card.agent !== actor.self.agentId) {
-      const who = card.agentName ?? 'another agent'
-      throw new TaskConflictError(`#${n} is in Doing with ${who}, who is working on it: newer work is in progress, so it can't be moved to ${COLUMN_WORD[patch.column!]} by another agent. Leave it where it is; ${who} moves it to Review when done, and the user can move it.`)
+      const column = patch.column!
+      throw new TaskConflictError(
+        card.agentName
+          ? withValues(msg({ id: 'tasks.error.inDoingWith', defaultMessage: "#{n} is in Doing with {agent}, who is working on it: newer work is in progress, so it can't be moved to {column, select, review {Review} passed {Passed} done {Done} other {{column}}} by another agent. Leave it where it is; {agent} moves it to Review when done, and the user can move it.", description: 'An error: an agent tried to move card #{n} (a number) on to {column} (select: a board column; translate each), but the card is in Doing with another agent ({agent}, its name), whose work is in progress. Doing and Review are board columns.' }), { n, agent: card.agentName, column })
+          : withValues(msg({ id: 'tasks.error.inDoingWithAnother', defaultMessage: "#{n} is in Doing with another agent, who is working on it: newer work is in progress, so it can't be moved to {column, select, review {Review} passed {Passed} done {Done} other {{column}}} by another agent. Leave it where it is; another agent moves it to Review when done, and the user can move it.", description: "An error: an agent tried to move card #{n} (a number) on to {column} (select: a board column; translate each), but the card is in Doing with another agent (whose name isn't known), whose work is in progress. Doing and Review are board columns." }), { n, column })
+      )
     }
-    const said: string[] = []
+    const said: StoredText[] = []
     // Whether a move to Review returns a failed card for review (#214): decided on the card as it is before this change,
     // by whoever has it now, so giving it to the caller in the same change never makes it the caller's to return.
     const returning = patch.column === 'review' && patch.review === undefined && returnsCard(actor, card) ? returnRound(card) : null
@@ -730,26 +806,26 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     let transferred = false
     if (patch.title !== undefined) {
       const t = text(patch.title, MAX_TITLE, 'title').trim()
-      if (!t) throw new Error('A task needs a title.')
-      if (t !== card.title) said.push(`Renamed to "${t}"`)
+      if (!t) throw hiveError(ERR.needsTitle, undefined, { kind: 'invalid' })
+      if (t !== card.title) said.push(storedText(HISTORY.renamed, { title: t }))
       card.title = t
     }
     if (patch.description !== undefined) {
       const d = text(patch.description, MAX_TEXT, 'description')
-      if (d !== card.description) said.push('Changed the description')
+      if (d !== card.description) said.push(storedText(HISTORY.description))
       card.description = d
     }
     if (patch.project !== undefined) {
       const p = await projectName(patch.project)
-      if (!inScope({ project: p }, scope)) throw new TaskPermissionError(`Cards stay in your project (${scope}).`)
+      if (!inScope({ project: p }, scope)) throw new TaskPermissionError(withValues(msg({ id: 'tasks.error.staysInProject', defaultMessage: 'Cards stay in your project ({project}).', description: "An error: an agent tried to move a card to another project, or to the whole workspace; its cards stay in its own project ({project}, its folder name)." }), { project: scope ?? '' }))
       if (p !== card.project) {
         // A card that changes project always leaves its agent (of the old project): giving it to one of the new
         // project's agents is a change of its own, after this one.
-        if (patch.agent) throw new Error('Move the card to the other project first, then give it to one of its agents.')
-        said.push(p ? `Moved to ${p}` : 'Moved to the workspace')
-        if (card.agent) said.push(`Taken from ${card.agentName ?? card.agent} of ${card.project || 'the workspace'}`)
+        if (patch.agent) throw hiveError(msg({ id: 'tasks.error.projectThenAgent', defaultMessage: 'Move the card to the other project first, then give it to one of its agents.', description: "An error: one change both moved a card to another project and gave it to an agent; those are two changes, in that order." }), undefined, { kind: 'invalid' })
+        said.push(p ? storedText(HISTORY.toProject, { project: p }) : storedText(HISTORY.toWorkspace))
+        if (card.agent) said.push(card.project ? storedText(HISTORY.takenFromOf, { agent: card.agentName ?? card.agent, project: card.project }) : storedText(HISTORY.takenFromOfWorkspace, { agent: card.agentName ?? card.agent }))
         if (card.review) {
-          said.push(`Review by ${card.review.agentName} stopped`)
+          said.push(storedText(HISTORY.reviewStopped, { agent: card.review.agentName }))
           delete card.review
         }
         card.project = p
@@ -765,11 +841,11 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     if (agent !== undefined && !(transferred && !agent)) {
       if (agent) {
         const a = await agentOf(card.project, agent)
-        if (a.id !== card.agent) said.push(`Given to ${a.name}`)
+        if (a.id !== card.agent) said.push(storedText(HISTORY.given, { agent: a.name }))
         card.agent = a.id
         card.agentName = a.name
       } else if (card.agent) {
-        said.push(`Taken from ${card.agentName ?? 'its agent'}`)
+        said.push(card.agentName ? storedText(HISTORY.takenFrom, { agent: card.agentName }) : storedText(HISTORY.takenFromAgent))
         card.agent = null
         delete card.agentName
       }
@@ -778,20 +854,20 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     const reviewed = patch.review !== undefined && (await reviewChange(card, patch, actor, said))
     if (patch.column !== undefined || patch.before !== undefined || patch.position !== undefined) {
       const column = patch.column ?? card.column
-      if (!isTaskColumn(column)) throw new Error(`Unknown column "${String(column)}": ${COLUMN_CHOICES}.`)
+      if (!isTaskColumn(column)) throw unknownColumn(column)
       if (column !== card.column) checkHold(column, actor, n)
       const place = placement(await boardPlaces(ws), card, column, patch, actor)
-      if (column !== card.column) said.push(place.said ?? `Moved to ${COLUMN_WORD[column]}`)
+      if (column !== card.column) said.push(place.said ?? storedText(HISTORY.moved, { column }))
       else {
         // Moved to Review by its agent (or the user, on the board) while still there after a failed review: returned for
         // its next round, which wakes a reviewer waiting for it to come back (#214). Not when this change also gives it to
         // another agent or project (that starts a new round of its own); any other move in place is no change.
-        if (returning && card.agent === hadAgent && card.project === hadProject) said.push(`Returned for review, round ${returning}`)
+        if (returning && card.agent === hadAgent && card.project === hadProject) said.push(storedText(HISTORY.returned, { round: returning }))
         if (place.said) said.push(place.said)
       }
       // A review is of the card in Review: moved on without a verdict, it stops.
       if (card.review && column !== 'review') {
-        said.push(`Review by ${card.review.agentName} stopped`)
+        said.push(storedText(HISTORY.reviewStopped, { agent: card.review.agentName }))
         delete card.review
       }
       const order = place.order
@@ -803,31 +879,31 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       // Recorded by whoever calls (the user, the Assistant, an agent), decided by the user: agents only write down what
       // the user decided (their tool's description says so). Editing or removing one is the user's (editDecision).
       const t = text(patch.decision, MAX_DECISION, 'decision').trim()
-      if (!t) throw new Error('The decision is empty.')
+      if (!t) throw hiveError(ERR.emptyDecision)
       const list = card.decisions ?? []
-      if (list.length >= MAX_DECISIONS) throw new Error(`A card can have up to ${MAX_DECISIONS} decisions.`)
+      if (list.length >= MAX_DECISIONS) throw hiveError(msg({ id: 'tasks.error.tooManyDecisions', defaultMessage: 'A card can have up to {max} decisions.', description: 'An error: a card already has as many decisions as it may have ({max}, a number).' }), { max: MAX_DECISIONS })
       card.decisions = [...list, { id: entryId(), text: t, decidedBy: 'user', recordedBy: by, at: new Date().toISOString() }]
-      said.push(`Recorded a decision: "${clip(t)}"`)
+      said.push(storedText(HISTORY.decision, { decision: clip(t) }))
     }
     if (patch.labels !== undefined) {
       card.labels = labelsOf(patch.labels)
-      said.push(card.labels.length ? `Labels: ${card.labels.join(', ')}` : 'Removed the labels')
+      said.push(card.labels.length ? storedText(HISTORY.labels, { labels: card.labels.join(', ') }) : storedText(HISTORY.labelsRemoved))
     }
     if (patch.blocked !== undefined) {
-      const b = patch.blocked?.trim() ? text(patch.blocked.trim(), 1000, 'blocked reason') : null
-      if (b !== card.blocked) said.push(b ? `Blocked: ${b}` : 'No longer blocked')
+      const b = patch.blocked?.trim() ? text(patch.blocked.trim(), 1000, 'blockedReason') : null
+      if (b !== card.blocked) said.push(b ? storedText(HISTORY.blocked, { reason: b }) : storedText(HISTORY.unblocked))
       card.blocked = b
     }
     if (patch.blockedBy !== undefined) {
       card.blockedBy = await cardRefs(patch.blockedBy, n, 'blockedBy', scope, card.blockedBy)
-      said.push(card.blockedBy.length ? `Depends on ${card.blockedBy.map((x) => `#${x}`).join(', ')}` : 'No longer depends on other cards')
+      said.push(card.blockedBy.length ? storedText(HISTORY.dependsOn, { cards: card.blockedBy.map((x) => `#${x}`).join(', ') }) : storedText(HISTORY.noDependencies))
     }
     if (patch.links !== undefined) {
       card.links = await cardRefs(patch.links, n, 'links', scope, card.links)
-      said.push(card.links.length ? `Linked to ${card.links.map((x) => `#${x}`).join(', ')}` : 'Removed the links')
+      said.push(card.links.length ? storedText(HISTORY.linked, { cards: card.links.map((x) => `#${x}`).join(', ') }) : storedText(HISTORY.linksRemoved))
     }
-    // What changed, in the history's words, for a caller that confirms it (the hive tools' short replies).
-    opts.said?.push(...said)
+    // What changed, in the history's words (English), for a caller that confirms it (the hive tools' short replies).
+    opts.said?.push(...said.map(englishSaid))
     if (!said.length && !reordered && !reviewed && !comment) return card
     for (const s of said) note(card, by, s)
     if (comment) addComment(card, by, comment)
@@ -836,7 +912,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     // see the card as it was before this change.
     opts.commit?.()
     await saveCard(ws, n, card)
-    handoff = said.some((x) => x === 'Review passed' || x === 'Review failed') ? 'verdict' : said.some((x) => INTO_REVIEW_SAID.test(x)) ? 'review' : null
+    handoff = said.some((x) => x.id === HISTORY.reviewPassed.id || x.id === HISTORY.reviewFailed.id) ? 'verdict' : said.some(intoReview) ? 'review' : null
     return card
   })
   changed(ws)
@@ -866,16 +942,9 @@ export interface BatchItem {
 
 /** The card numbers of a batch: at least one, at most MAX_CHANGE_BATCH, each once. Checked before anything changes or is counted. */
 export function batchNumbers(numbers: unknown): number[] {
-  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the card numbers to change.')
-  if (numbers.length > MAX_CHANGE_BATCH) throw new Error(`cards: at most ${MAX_CHANGE_BATCH} cards at once.`)
-  const nums = numbers.map((x) => Number(String(x).replace(/^#/, '')))
-  const seen = new Set<number>()
-  for (const x of nums) {
-    if (!Number.isInteger(x) || x < 1) throw new Error(`cards: "${x}" is not a card number`)
-    if (seen.has(x)) throw new Error(`cards: #${x} is listed twice`)
-    seen.add(x)
-  }
-  return nums
+  if (!Array.isArray(numbers) || !numbers.length) throw hiveError(msg({ id: 'tasks.error.changeNone', defaultMessage: 'cards: list the card numbers to change.', description: 'An error: a call to change several cards listed none. "cards:" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
+  if (numbers.length > MAX_CHANGE_BATCH) throw hiveError(ERR.cardsTooMany, { max: MAX_CHANGE_BATCH }, { kind: 'invalid' })
+  return checkedNumbers(numbers)
 }
 
 /**
@@ -908,36 +977,40 @@ export async function updateTasks(numbers: number[], patch: BatchPatch, actor: T
  * agent of the project to mark the card with). Returns whether the card changed (a renewal changes it without a line in
  * its history). Runs under the card's lock, with the card as it is now.
  */
-async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, said: string[]): Promise<boolean> {
+async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, said: StoredText[]): Promise<boolean> {
   const me = selfIn(actor, card.project)
-  if (!me) throw new TaskPermissionError("Only an agent of the card's project reviews it, through its own hive tools.")
+  if (!me) throw new TaskPermissionError(msg({ id: 'tasks.error.reviewAgentsOnly', defaultMessage: "Only an agent of the card's project reviews it, through its own hive tools.", description: "An error: the user, the Assistant or a script tried to start or end a card's review; only an agent of the card's project does that, with its hive tools (a name: keep it)." }))
   const since = (r: NonNullable<TaskCard['review']>): string => r.since.slice(0, 16).replace('T', ' ')
+  const n = card.number
   if (patch.review === 'start') {
-    if (patch.column !== undefined || patch.agent !== undefined) throw new Error('Start a review on its own: the card stays where it is, with its agent.')
-    if (card.column !== 'review') throw new Error(`#${card.number} is in ${COLUMN_WORD[card.column]}. A card is reviewed in Review; if it needs more work, that is work on it (move it to doing).`)
-    if (card.review && card.review.agent !== me) throw new Error(`${card.review.agentName} is already reviewing #${card.number} (since ${since(card.review)} UTC).`)
+    if (patch.column !== undefined || patch.agent !== undefined) throw hiveError(msg({ id: 'tasks.error.reviewOnItsOwn', defaultMessage: 'Start a review on its own: the card stays where it is, with its agent.', description: 'An error: a call started a review and also moved the card or gave it to an agent; a review starts on its own.' }))
+    if (card.column !== 'review') throw hiveError(msg({ id: 'tasks.error.reviewNotInReview', defaultMessage: '#{n} is in {column, select, hold {On Hold} todo {Todo} doing {Doing} passed {Passed} done {Done} other {{column}}}. A card is reviewed in Review; if it needs more work, that is work on it (move it to doing).', description: 'An error: an agent tried to review card #{n} (a number), which is in the column {column} (select: a board column; translate each), not in Review. "doing" is the value the call takes: keep it as it is.' }), { n, column: card.column })
+    if (card.review && card.review.agent !== me) throw hiveError(msg({ id: 'tasks.error.reviewTaken', defaultMessage: '{agent} is already reviewing #{n} (since {since} UTC).', description: 'An error: another agent ({agent}, its name) is already reviewing card #{n} (a number), since {since} (a date and time, UTC).' }), { agent: card.review.agentName, n, since: since(card.review) })
     const a = await agentOf(card.project, me)
-    if (!card.review) said.push('Started reviewing')
+    if (!card.review) said.push(storedText(HISTORY.reviewStarted))
     card.review = { agent: a.id, agentName: a.name, since: new Date().toISOString() }
     return true
   }
-  if (patch.review !== 'passed' && patch.review !== 'failed') throw new Error(`Unknown review "${String(patch.review)}": start, passed or failed.`)
+  if (patch.review !== 'passed' && patch.review !== 'failed') throw hiveError(msg({ id: 'tasks.error.unknownReview', defaultMessage: 'Unknown review "{review}": start, passed or failed.', description: 'An error: the call\'s review was {review}, which it doesn\'t take. "start", "passed" and "failed" are the values it takes: keep them as they are.' }), { review: String(patch.review) })
   // A failed card stays in Review for its fixes: never on to Passed or Done with its verdict.
-  if (patch.review === 'failed' && patch.column !== undefined && patch.column !== 'review') throw new Error(`A failed review leaves #${card.number} in Review: give the verdict without column.`)
-  if (card.review && card.review.agent !== me) throw new Error(`${card.review.agentName} is reviewing #${card.number}: its verdict is its own.`)
+  if (patch.review === 'failed' && patch.column !== undefined && patch.column !== 'review') throw hiveError(msg({ id: 'tasks.error.failedStays', defaultMessage: 'A failed review leaves #{n} in Review: give the verdict without column.', description: 'An error: a failed review also moved card #{n} (a number) out of Review; a failed card stays in Review. "column" is the name of the call\'s field: keep it as it is.' }), { n }, { kind: 'invalid' })
+  if (card.review && card.review.agent !== me) throw hiveError(msg({ id: 'tasks.error.verdictNotYours', defaultMessage: '{agent} is reviewing #{n}: its verdict is its own.', description: "An error: an agent tried to give a verdict on card #{n} (a number), which another agent ({agent}, its name) is reviewing." }), { agent: card.review.agentName, n })
   if (!card.review || card.column !== 'review') {
-    throw new Error(`You aren't reviewing #${card.number} now: its review ended (the card moved, or your session ended) or never started. Start one with review "start" if it is in Review.`)
+    throw hiveError(msg({ id: 'tasks.error.notReviewing', defaultMessage: 'You aren\'t reviewing #{n} now: its review ended (the card moved, or your session ended) or never started. Start one with review "start" if it is in Review.', description: 'An error: an agent tried to give a verdict on card #{n} (a number), but it has no review going on it. "review" and "start" are the call\'s field and value: keep them as they are.' }), { n })
   }
-  said.push(patch.review === 'passed' ? 'Review passed' : 'Review failed')
+  said.push(storedText(patch.review === 'passed' ? HISTORY.reviewPassed : HISTORY.reviewFailed))
   delete card.review
   return true
 }
 
-/** Notes on a card something Hive did about it without changing it (#420: an agent's watch on it ended), as Hive. */
-export async function noteOnCard(n: number, what: string, ws: WorkspaceService = workspace): Promise<void> {
+/**
+ * Notes on a card something Hive did about it without changing it (#420: an agent's watch on it ended), as Hive: English
+ * text (kept as it is), or a message of the card history's (shared/taskHistory.ts), which the window shows in its language.
+ */
+export async function noteOnCard(n: number, what: string | StoredText, ws: WorkspaceService = workspace): Promise<void> {
   await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
-    note(card, 'Hive', what)
+    note(card, BY.hive, what)
     await saveCard(ws, n, card)
   })
   changed(ws)
@@ -946,13 +1019,14 @@ export async function noteOnCard(n: number, what: string, ws: WorkspaceService =
 /**
  * A comment from Hive itself on a card (#606: its agent's model changed after a safeguard stop), for whoever reads the
  * card. `still`: whether the card, as it is under its lock, is still the one meant (its column, project and agent may
- * have changed since it was chosen). True when it was written.
+ * have changed since it was chosen). True when it was written. `said`: English text, or a message of the card history's
+ * (shared/taskHistory.ts), kept as its English (`text`) and as data (`hiveText`, #846) for the window to show in its language.
  */
-export async function commentAsHive(n: number, said: string, ws: WorkspaceService = workspace, still: (card: TaskCard) => boolean = () => true): Promise<boolean> {
+export async function commentAsHive(n: number, said: string | StoredText, ws: WorkspaceService = workspace, still: (card: TaskCard) => boolean = () => true): Promise<boolean> {
   const done = await withFileLock(cardFile(n, ws), async () => {
     const card = await getTask(n, ws)
     if (card.archived || !still(card)) return false
-    addComment(card, 'Hive', said)
+    addComment(card, BY.hive, typeof said === 'string' ? said : englishSaid(said), typeof said === 'string' ? undefined : said)
     await saveCard(ws, n, card)
     return true
   })
@@ -960,18 +1034,22 @@ export async function commentAsHive(n: number, said: string, ws: WorkspaceServic
   return done
 }
 
+/** Why an agent's reviews stop, as its callers say it (in English), and its key in the history line's message. */
+export type ReviewEnd = 'its session ended' | 'the agent was removed'
+const REVIEW_END: Record<ReviewEnd, string> = { 'its session ended': 'sessionEnded', 'the agent was removed': 'agentRemoved' }
+
 /**
  * Stops the reviews an agent has going (its session ended, or it was removed), so a card never shows a reviewer that
  * has gone. A review started again meanwhile by another agent is left alone.
  */
-export async function endReviews(project: string, agentId: string, why: string, ws: WorkspaceService = workspace): Promise<number[]> {
+export async function endReviews(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService = workspace): Promise<number[]> {
   const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
   const out: number[] = []
   for (const c of mine) {
     const ended = await withFileLock(cardFile(c.number, ws), async () => {
       const card = await getTask(c.number, ws)
       if (card.review?.agent !== agentId) return false
-      note(card, 'Hive', `Review by ${card.review.agentName} stopped: ${why}`)
+      note(card, BY.hive, storedText(HISTORY.reviewEnded, { agent: card.review.agentName, why: REVIEW_END[why] }))
       delete card.review
       await saveCard(ws, c.number, card)
       return true
@@ -1001,13 +1079,14 @@ export const withoutId = <T extends { id?: string }>({ id: _id, ...rest }: T): O
 /** A comment's text, checked: within the limit and not empty. */
 function commentText(comment: string): string {
   const t = text(comment, MAX_TEXT, 'comment').trim()
-  if (!t) throw new Error('The comment is empty.')
+  if (!t) throw hiveError(msg({ id: 'tasks.error.emptyComment', defaultMessage: 'The comment is empty.', description: 'An error: a comment on a card has no text.' }), undefined, { kind: 'invalid' })
   return t
 }
 
-function addComment(c: TaskCard, by: string, t: string): void {
+/** Adds a comment; one Hive writes itself can carry its text as data (`hiveText`) beside its English. */
+function addComment(c: TaskCard, by: string, t: string, hiveText?: StoredText): void {
   const at = new Date().toISOString()
-  c.comments = [...c.comments, { at, by, text: t, id: entryId() }].slice(-MAX_COMMENTS)
+  c.comments = [...c.comments, { at, by, text: t, ...(hiveText ? { hiveText } : {}), id: entryId() }].slice(-MAX_COMMENTS)
   c.updatedAt = at
 }
 
@@ -1017,7 +1096,7 @@ export async function commentTask(n: number, comment: string, actor: TaskActor):
   const card = await withFileLock(cardFile(n, ws), async () => {
     const c = await getTask(n, ws)
     if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
-    if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(`#${n} is archived. Only the user can bring it back.`)
+    if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(withValues(ERR.archived, { n }))
     addComment(c, actorName(actor), t)
     await saveCard(ws, n, c)
     return c
@@ -1031,21 +1110,21 @@ export async function commentTask(n: number, comment: string, actor: TaskActor):
  * Assistant only record decisions; the history keeps what each said.
  */
 export async function editDecision(n: number, id: string, newText: string | null, actor: TaskActor): Promise<TaskCard> {
-  if (actor.kind !== 'user') throw new TaskPermissionError("Only the user changes or removes a card's decisions.")
+  if (actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.decisionsUsers', defaultMessage: "Only the user changes or removes a card's decisions.", description: "An error: an agent or the Assistant tried to change or remove a decision on a card; only the user does that (they only record them)." }))
   const ws = workspace
   const t = newText === null ? null : text(newText, MAX_DECISION, 'decision').trim()
-  if (t === '') throw new Error('The decision is empty: remove it instead.')
+  if (t === '') throw hiveError(msg({ id: 'tasks.error.decisionEmptied', defaultMessage: 'The decision is empty: remove it instead.', description: "An error: the user emptied a decision's text; to take it off the card, remove it." }))
   const card = await withFileLock(cardFile(n, ws), async () => {
     const c = await getTask(n, ws)
     const d = c.decisions?.find((x) => x.id === id)
-    if (!d) throw new Error(`That decision is no longer on #${n}.`)
+    if (!d) throw hiveError(msg({ id: 'tasks.error.decisionGone', defaultMessage: 'That decision is no longer on #{n}.', description: 'An error: the decision being changed was removed from card #{n} (a number) meanwhile.' }), { n })
     if (t === null) {
       c.decisions = c.decisions!.filter((x) => x.id !== id)
       if (!c.decisions.length) delete c.decisions
-      note(c, 'You', `Removed a decision: "${clip(d.text)}"`)
+      note(c, BY.you, storedText(HISTORY.decisionRemoved, { decision: clip(d.text) }))
     } else {
       if (t === d.text) return c
-      note(c, 'You', `Changed a decision to "${clip(t)}" (was "${clip(d.text)}")`)
+      note(c, BY.you, storedText(HISTORY.decisionChanged, { decision: clip(t), was: clip(d.text) }))
       d.text = t
       d.editedAt = new Date().toISOString()
     }
@@ -1071,7 +1150,7 @@ async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard
     else delete c.archivedFor
     // Brought back on its own, it leaves its batch: that batch's Undo no longer moves it.
     delete c.archivedBatch
-    note(c, 'You', archived ? 'Archived' : 'Brought back from the archive')
+    note(c, BY.you, storedText(archived ? HISTORY.archived : HISTORY.unarchived))
     // Back at the end of its column.
     if (!archived) c.order = orderIn(await boardPlaces(ws), c.column, n, null)
     await saveCard(ws, n, c)
@@ -1116,26 +1195,26 @@ export async function archiveBatches(ws: WorkspaceService = workspace): Promise<
  * nothing was archived) and the cards it archived.
  */
 export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor: TaskActor, opts: { busy?: (card: TaskCard) => string | null } = {}): Promise<ArchiveResult> {
-  if (actor.kind !== 'user') throw new TaskPermissionError('Only the user archives cards.')
-  if (!Array.isArray(numbers) || !numbers.length) throw new Error('cards: list the cards to archive.')
-  if (numbers.length > MAX_BATCH) throw new Error(`cards: at most ${MAX_BATCH} cards at once.`)
+  if (actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserArchives', defaultMessage: 'Only the user archives cards.', description: 'An error: an agent or the Assistant tried to archive cards; only the user does that.' }))
+  if (!Array.isArray(numbers) || !numbers.length) throw hiveError(msg({ id: 'tasks.error.archiveNone', defaultMessage: 'cards: list the cards to archive.', description: 'An error: a call to archive cards listed none. "cards:" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
+  if (numbers.length > MAX_BATCH) throw hiveError(ERR.cardsTooMany, { max: MAX_BATCH }, { kind: 'invalid' })
   const nums = [...new Set(numbers.map((x) => Number(x)))]
-  if (nums.some((x) => !Number.isInteger(x) || x < 1)) throw new Error('cards: card numbers only.')
-  if (req.column !== null && !isTaskColumn(req.column)) throw new Error(`Unknown column "${String(req.column)}": ${COLUMN_CHOICES}.`)
+  if (nums.some((x) => !Number.isInteger(x) || x < 1)) throw hiveError(msg({ id: 'tasks.error.archiveNumbers', defaultMessage: 'cards: card numbers only.', description: 'An error: the list of cards to archive has something other than card numbers in it. "cards:" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
+  if (req.column !== null && !isTaskColumn(req.column)) throw unknownColumn(req.column)
   const ws = workspace
-  if (!ws.path) throw new Error('No workspace is open')
-  const what = String(req.label ?? '').trim().slice(0, 80) || 'Archive All'
+  if (!ws.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
+  const what = String(req.label ?? '').trim().slice(0, 80) || 'Archive All' // i18n-ignore: the batch's name, stored in English and quoted in its cards' history (the window words it, archiveBatchText)
   const project = typeof req.project === 'string' ? req.project : null
   const query = typeof req.query === 'string' ? req.query : ''
   const busy = req.includeBusy === true ? null : (opts.busy ?? null)
-  // Why a card, as it is now, isn't one the user asked to archive (null: it is).
+  // Why a card, as it is now, isn't one the user asked to archive (null: it is). Only the window reads it: in its language.
   const outside = (c: TaskCard): string | null =>
     req.column !== null && c.column !== req.column
-      ? `moved to ${COLUMN_WORD[c.column]}`
+      ? tr(msg({ id: 'tasks.skipped.movedColumn', defaultMessage: 'moved to {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}', description: 'Why Archive All left a card on the board (after its number, "#12 moved to Doing"): it moved to the column {column} meanwhile (select: a board column; translate each). Lower case: it follows the number.' }), { column: c.column })
       : project !== null && c.project.toLowerCase() !== project.toLowerCase()
-        ? 'moved to another project'
+        ? tr(msg({ id: 'tasks.skipped.movedProject', defaultMessage: 'moved to another project', description: 'Why Archive All left a card on the board (after its number, "#12 moved to another project"): it moved to another project meanwhile. Lower case: it follows the number.' }))
         : !cardMatches(c, query)
-          ? 'no longer matches the search'
+          ? tr(msg({ id: 'tasks.skipped.noMatch', defaultMessage: 'no longer matches the search', description: 'Why Archive All left a card on the board (after its number, "#12 no longer matches the search"): it changed meanwhile, and the board\'s search no longer finds it. Lower case: it follows the number.' }))
           : (busy?.(c) ?? null)
   await mkdir(tasksDir(ws), { recursive: true })
   const result = await withFileLock(batchesFile(ws), async (): Promise<ArchiveResult> => {
@@ -1146,7 +1225,7 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
     // Each column the batch leaves, as it is now: where its cards come back to.
     const columns: Partial<Record<TaskColumn, number[]>> = {}
     for (const c of going) columns[c.column] ??= all.filter((x) => x.column === c.column && !x.archived).map((x) => x.number)
-    const batch: ArchiveBatch = { id: `b${Date.now().toString(36)}${randomBytes(3).toString('hex')}`, at: new Date().toISOString(), by: 'You', label: what, cards: going.map((c) => c.number), columns }
+    const batch: ArchiveBatch = { id: `b${Date.now().toString(36)}${randomBytes(3).toString('hex')}`, at: new Date().toISOString(), by: BY.you, label: what, cards: going.map((c) => c.number), columns }
     const kept = await readBatches(ws)
     // Recorded first: a card is in the batch only once it is archived with its id, so a batch cut short brings back
     // only what it archived.
@@ -1157,19 +1236,19 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
       await withFileLock(cardFile(c.number, ws), async () => {
         if (!existsSync(cardFile(c.number, ws))) return
         const fresh = await getTask(c.number, ws).catch(() => null)
-        if (!fresh) return void skipped.push({ number: c.number, why: "couldn't be read" })
+        if (!fresh) return void skipped.push({ number: c.number, why: tr(msg({ id: 'tasks.skipped.unreadable', defaultMessage: "couldn't be read", description: 'Why Archive All left a card on the board (after its number, "#12 couldn\'t be read"): its file could not be read. Lower case: it follows the number.' })) })
         if (fresh.archived) return
         const why = outside(fresh)
         if (why) return void skipped.push({ number: c.number, why })
         fresh.archived = true
         fresh.archivedFor = 'user'
         fresh.archivedBatch = batch.id
-        note(fresh, 'You', `Archived in a batch of ${going.length} (${what})`)
+        note(fresh, BY.you, storedText(HISTORY.archivedInBatch, { n: going.length, label: what }))
         await saveCard(ws, c.number, fresh)
         done.push(c.number)
       }).catch((e) => {
         log.warn(`Could not archive #${c.number} with its batch`, e)
-        skipped.push({ number: c.number, why: "couldn't be saved" })
+        skipped.push({ number: c.number, why: tr(msg({ id: 'tasks.skipped.unsaved', defaultMessage: "couldn't be saved", description: 'Why Archive All left a card on the board (after its number, "#12 couldn\'t be saved"): its file could not be written. Lower case: it follows the number.' })) })
       })
     }
     if (done.length !== batch.cards.length) {
@@ -1196,13 +1275,13 @@ export function unarchiveBatch(id: string, actor: TaskActor): Promise<UnarchiveR
 }
 
 async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<UnarchiveResult> {
-  if (actor.kind !== 'user') throw new TaskPermissionError('Only the user brings archived cards back.')
+  if (actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserUnarchives', defaultMessage: 'Only the user brings archived cards back.', description: 'An error: an agent or the Assistant tried to bring archived cards back onto the board; only the user does that.' }))
   const ws = workspace
-  if (!ws.path) throw new Error('No workspace is open')
+  if (!ws.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
   const result = await withFileLock(batchesFile(ws), async (): Promise<UnarchiveResult> => {
     const batches = await readBatches(ws)
     const batch = batches.find((b) => b.id === id)
-    if (!batch) throw new Error('That batch is no longer kept: unarchive its cards from Archived.')
+    if (!batch) throw hiveError(msg({ id: 'tasks.error.batchGone', defaultMessage: 'That batch is no longer kept: unarchive its cards from Archived.', description: "An error: the Archive All batch to bring back is no longer kept (Hive keeps the latest 50); its cards can still be brought back one by one from the board's Archived list." }))
     const failed = new Set<number>()
     // The batch's own list, read card by card: one that can't be read now still belongs to it.
     const back: TaskCard[] = []
@@ -1232,7 +1311,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
           delete fresh.archivedFor
           delete fresh.archivedBatch
           fresh.order = orders.get(c.number) ?? orderIn(await boardPlaces(ws), column, c.number, null)
-          note(fresh, 'You', `Brought back with its batch (${batch.label})`)
+          note(fresh, BY.you, storedText(HISTORY.backWithBatch, { label: batch.label }))
           await saveCard(ws, c.number, fresh)
           restored.push(c.number)
         }).catch((e) => {
@@ -1267,7 +1346,7 @@ export async function releaseAgentCards(project: string, agentId: string, actor:
     try {
       await updateTask(c.number, { agent: null, ...(c.column === 'doing' ? { column: 'todo' as const } : {}) }, actor, {
         check: (now) => {
-          if (now.agent !== agentId || now.archived || now.column === 'done') throw new Error('changed meanwhile')
+          if (now.agent !== agentId || now.archived || now.column === 'done') throw new Error('changed meanwhile') // i18n-ignore: only logged
         }
       })
       out.push(c.number)
@@ -1332,7 +1411,7 @@ export async function archiveOldDone(ws: WorkspaceService, now = Date.now()): Pr
       if (!fresh || fresh.archived || fresh.column !== 'done' || doneSince(fresh) > cutoff) return
       fresh.archived = true
       fresh.archivedFor = 'done'
-      note(fresh, 'Hive', `Archived after ${days} day${days === 1 ? '' : 's'} in Done`)
+      note(fresh, BY.hive, storedText(HISTORY.archivedDone, { days }))
       await saveCard(ws, c.number, fresh)
       out.push(c.number)
     })
@@ -1361,7 +1440,7 @@ export async function archiveProjectCards(ws: WorkspaceService, project: string,
       const fresh = await getTask(c.number, ws)
       fresh.archived = true
       fresh.archivedFor = why
-      note(fresh, 'You', why === 'project-hidden' ? `Archived: ${project} was hidden` : `Archived: ${project} was removed from Hive`)
+      note(fresh, BY.you, storedText(why === 'project-hidden' ? HISTORY.archivedHidden : HISTORY.archivedRemoved, { project }))
       await saveCard(ws, c.number, fresh)
       out.push(fresh)
     })
@@ -1379,7 +1458,7 @@ export async function restoreProjectCards(ws: WorkspaceService, project: string)
       const fresh = await getTask(c.number, ws)
       fresh.archived = false
       delete fresh.archivedFor
-      note(fresh, 'You', `Brought back: ${project} was restored`)
+      note(fresh, BY.you, storedText(HISTORY.restored, { project }))
       await saveCard(ws, c.number, fresh)
       n++
     })
@@ -1429,7 +1508,7 @@ async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], projec
       delete c.archivedFor
     }
     c.order = orderIn(all, c.column, null, null) + c.order / 1e6
-    note(c, 'You', `Brought back with ${project} (it was #${raw.number})`)
+    note(c, BY.you, storedText(HISTORY.imported, { project, was: raw.number }))
     await saveCard(ws, c.number, c)
   }
   changed(ws)

@@ -320,11 +320,11 @@ export const PREVIEW_MS = 15 * 60_000
 function takePreview(token: string): { ok: true; preview: { project: string; at: number; snap: Snapshot } } | { ok: false; reason: string } {
   const shown = previews.get(token)
   previews.delete(token)
-  if (!shown) return { ok: false, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
+  if (!shown) return { ok: false, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again and asks again, saying this." })) }
   if (Date.now() - shown.at > PREVIEW_MS)
     return {
       ok: false,
-      reason: tr(msg({ id: 'main.unused.stale', defaultMessage: '{n, plural, one {what it holds was checked more than # minute ago: nothing was removed, look again} other {what it holds was checked more than # minutes ago: nothing was removed, look again}}', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause." }), { n: PREVIEW_MS / 60_000 })
+      reason: tr(msg({ id: 'main.unused.stale', defaultMessage: '{n, plural, one {what it holds was checked more than # minute ago} other {what it holds was checked more than # minutes ago}}', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was too old. {n} is how many minutes it lasts. A clause; the window then looks again and asks again, saying this." }), { n: PREVIEW_MS / 60_000 })
     }
   return { ok: true, preview: shown }
 }
@@ -396,9 +396,9 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
     let done: UnusedWorktreeRemoval
     if (opts.force !== undefined) {
       // Refusals a new look settles are marked `lookAgain` (#377): the window checks again and asks again.
-      if (!taken?.ok) return { deleted: false, lookAgain: true, reason: taken?.reason ?? tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
+      if (!taken?.ok) return { deleted: false, lookAgain: true, reason: taken?.reason ?? tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again and asks again, saying this." })) }
       const shown = taken.preview
-      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, lookAgain: true, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal: look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again." })) }
+      if (shown.project !== key(projectPath) || shown.snap.path !== realPath(resolve(listed.path))) return { deleted: false, lookAgain: true, reason: tr(msg({ id: 'main.unused.notChecked', defaultMessage: 'what it holds was not checked for this removal', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge): the confirmation was not for it. A clause; the window then looks again and asks again, saying this." })) }
       let now: Snapshot
       try {
         now = await snapshot(projectPath, listed.path)
@@ -410,7 +410,7 @@ export async function removeUnusedWorktree(projectPath: string, path: string, op
         return {
           deleted: false,
           lookAgain: true,
-          reason: tr(msg({ id: 'main.unused.changed', defaultMessage: 'it changed since you were shown what it holds ({changed}): nothing was removed, look again', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause." }), { changed: fmt.list(changed.map((k) => tr(SNAPSHOT_FIELD[k]))) })
+          reason: tr(msg({ id: 'main.unused.changed', defaultMessage: 'it changed since you were shown what it holds ({changed})', description: "Why Remove anyway did nothing to one of the Overview's unused worktrees (Remove, Remove anyway, Merge). {changed} lists what changed (main.unused.field.*). A clause; the window then looks again and asks again, saying this." }), { changed: fmt.list(changed.map((k) => tr(SNAPSHOT_FIELD[k]))) })
         }
       const snap = shown.snap
       await wt.removeWorktree(projectPath, { path: listed.path, branch: snap.branch ?? '', base: '' }, false)
