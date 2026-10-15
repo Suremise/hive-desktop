@@ -6,8 +6,8 @@ import { AGENT_LIMIT_MAX, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './def
 import { isKnownProvider } from './providers'
 import { cleanMcpServers } from './agentMcp'
 import type { AgentDef, EffortLevel, PageLayout, PermissionMode, ProviderId } from './types'
-import { tr } from './i18n'
 import { msg } from './i18n/msg'
+import { shownText, withValues, type Text } from './advanced'
 
 /** The format's version: a template made by a newer Hive (a higher one) is refused rather than half read. */
 export const TEMPLATE_VERSION = 1
@@ -82,8 +82,10 @@ export interface TemplateEntry {
   layout: PageLayout
   description?: string
   agents: TemplateAgent[]
-  /** It can't be used (damaged, made by a newer Hive…): why. */
+  /** It can't be used (damaged, made by a newer Hive…): why, in English (the log, a refusal's message). */
   problem?: string
+  /** Why, as text for the window to show in its language (#870), following a change of language. */
+  problemText?: Text
 }
 
 /**
@@ -133,34 +135,43 @@ const M = {
   badMcp: msg({ id: 'assistant.template.badMcp', defaultMessage: "{name}'s MCP servers aren't a list Hive can use.", description: "Why a template file can't be used: an agent's list of MCP servers." })
 }
 
-/** Why a template of `count` agents can't be loaded into a project that can have `limit` (#562). */
-export const templateLimitText = (count: number, limit: number): string => tr(M.tooMany, { count, limit })
+/** Why a template of `count` agents can't be loaded into a project that can have `limit` (#562), as text (#870). */
+export const templateLimitText = (count: number, limit: number): Text => withValues(M.tooMany, { count, limit })
 
-/** A template read from a file (untrusted): the template, or why it can't be used. */
-export function readTemplate(raw: unknown): AgentTemplate | string {
-  if (!isObj(raw)) return tr(M.notTemplate)
+/** Why a listed template can't be used, in the language Hive shows now (call it when rendering); undefined when it can be. */
+export const shownProblem = (t: Pick<TemplateEntry, 'problem' | 'problemText'>): string | undefined => (t.problemText ? shownText(t.problemText) : t.problem)
+
+/** Whether readTemplate read a template, rather than why it can't be used. */
+export const isAgentTemplate = (t: AgentTemplate | Text): t is AgentTemplate => typeof t === 'object' && 'agents' in t
+
+/**
+ * A template read from a file (untrusted): the template, or why it can't be used as text (#870): the window shows it in
+ * its language (`shownText`), the log and a refusal's message read its English.
+ */
+export function readTemplate(raw: unknown): AgentTemplate | Text {
+  if (!isObj(raw)) return M.notTemplate
   const version = raw.version
-  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return tr(M.noVersion)
-  if (version > TEMPLATE_VERSION) return tr(M.newer)
-  if (!text(raw.name, TEMPLATE_NAME_MAX)) return tr(M.badName, { max: TEMPLATE_NAME_MAX })
-  if (!Array.isArray(raw.agents) || !raw.agents.length) return tr(M.noAgents)
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return M.noVersion
+  if (version > TEMPLATE_VERSION) return M.newer
+  if (!text(raw.name, TEMPLATE_NAME_MAX)) return withValues(M.badName, { max: TEMPLATE_NAME_MAX })
+  if (!Array.isArray(raw.agents) || !raw.agents.length) return M.noAgents
   // Any template Hive could have saved (#562): whether it fits a project is its load's to say (templateLimitText).
-  if (raw.agents.length > AGENT_LIMIT_MAX) return tr(M.tooManyAny, { count: raw.agents.length, max: AGENT_LIMIT_MAX })
+  if (raw.agents.length > AGENT_LIMIT_MAX) return withValues(M.tooManyAny, { count: raw.agents.length, max: AGENT_LIMIT_MAX })
   const agents: TemplateAgent[] = []
   for (const [i, a] of raw.agents.entries()) {
-    if (!isObj(a) || !text(a.name, 60)) return tr(M.agentNoName, { n: i + 1 })
+    if (!isObj(a) || !text(a.name, 60)) return withValues(M.agentNoName, { n: i + 1 })
     const name = a.name.trim()
-    if (agents.some((x) => x.name.toLowerCase() === name.toLowerCase())) return tr(M.sameName, { name })
+    if (agents.some((x) => x.name.toLowerCase() === name.toLowerCase())) return withValues(M.sameName, { name })
     // One this Hive doesn't know is kept (flagged where it is shown; loading it is refused), as long as it looks like one.
-    if (!isProviderId(a.provider)) return tr(M.badProvider, { name, given: typeof a.provider === 'string' ? 'yes' : 'no', provider: typeof a.provider === 'string' ? a.provider.slice(0, 40) : '' })
-    if (a.role !== undefined && (typeof a.role !== 'string' || a.role.length > ROLE_MAX)) return tr(M.longRole, { name, max: ROLE_MAX })
-    for (const k of ['model', 'effort', 'permissionMode'] as const) if (a[k] !== undefined && !setting(a[k])) return tr(M.badSetting, { name, setting: k })
-    if (a.use200kContext !== undefined && typeof a.use200kContext !== 'boolean') return tr(M.badContext, { name })
+    if (!isProviderId(a.provider)) return withValues(M.badProvider, { name, given: typeof a.provider === 'string' ? 'yes' : 'no', provider: typeof a.provider === 'string' ? a.provider.slice(0, 40) : '' })
+    if (a.role !== undefined && (typeof a.role !== 'string' || a.role.length > ROLE_MAX)) return withValues(M.longRole, { name, max: ROLE_MAX })
+    for (const k of ['model', 'effort', 'permissionMode'] as const) if (a[k] !== undefined && !setting(a[k])) return withValues(M.badSetting, { name, setting: k })
+    if (a.use200kContext !== undefined && typeof a.use200kContext !== 'boolean') return withValues(M.badContext, { name })
     let mcpServers: string[] | undefined
     try {
       mcpServers = cleanMcpServers(a.mcpServers)
     } catch {
-      return tr(M.badMcp, { name })
+      return withValues(M.badMcp, { name })
     }
     const role = typeof a.role === 'string' ? a.role.replace(/\s+/g, ' ').trim() : ''
     agents.push({

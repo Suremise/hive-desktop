@@ -6,7 +6,8 @@ import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { agentChoosesMcp, agentGetsMcp, agentMcpText, cleanMcpServers, isMcpServerName } from '../src/shared/agentMcp'
-import { readTemplate, templateFrom } from '../src/shared/templates'
+import { isAgentTemplate, readTemplate, templateFrom } from '../src/shared/templates'
+import { englishText } from '../src/shared/advanced'
 import type { LaunchContext } from '../src/main/providers/types'
 import type { McpServerDef } from '../src/shared/types'
 import { tempDir } from './tempDir'
@@ -52,9 +53,9 @@ describe("an agent's choice", () => {
     const t = templateFrom('Release', [{ id: 'a1', name: 'Tester', provider: 'claude-code', mcpServers: ['windows-sandbox'] }, { id: 'a2', name: 'Builder', provider: 'claude-code' }], 'auto', () => 'claude-code')
     expect(t.agents.map((a) => a.mcpServers)).toEqual([['windows-sandbox'], undefined])
     const read = readTemplate(JSON.parse(JSON.stringify(t)))
-    expect(typeof read !== 'string' && read.agents.map((a) => a.mcpServers)).toEqual([['windows-sandbox'], undefined])
+    expect(isAgentTemplate(read) && read.agents.map((a) => a.mcpServers)).toEqual([['windows-sandbox'], undefined])
     const bad = readTemplate({ ...t, agents: [{ ...t.agents[0], mcpServers: ['hive'] }] })
-    expect(bad).toBe("Tester's MCP servers aren't a list Hive can use.")
+    expect(!isAgentTemplate(bad) && englishText(bad)).toBe("Tester's MCP servers aren't a list Hive can use.")
   })
 })
 

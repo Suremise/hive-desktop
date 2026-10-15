@@ -3,7 +3,7 @@
 // card it reviews (TaskCard.review), marked as reviewed, for "Reviewed #5 …".
 import { basename } from 'path'
 import { agentDoingCards, agentReviewCards } from '../shared/tasks'
-import type { LiveSessionState } from '../shared/types'
+import type { LiveSessionState, StoredText } from '../shared/types'
 import { createLogger } from './logger'
 import { allTasks, commentAsHive } from './tasks'
 import { workspaceFor, type WorkspaceService } from './workspace'
@@ -48,7 +48,7 @@ export async function recordLiveCards(workspacePath: string, live: LiveSessionSt
 }
 
 /** A comment from Hive on each card an agent of a project has in Doing (#606: its model changed after a safeguard stop). */
-export async function commentOnDoingCards(ws: WorkspaceService, projectPath: string, agentId: string, said: string): Promise<number[]> {
+export async function commentOnDoingCards(ws: WorkspaceService, projectPath: string, agentId: string, said: string | StoredText): Promise<number[]> {
   if (ws.isAssistantHome(projectPath)) return []
   const project = basename(projectPath)
   const out: number[] = []

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { basename } from 'path'
 import { projectAgents } from '../shared/defaults'
 import type { LiveSessionState } from '../shared/types'
+import { HISTORY, storedText } from '../shared/taskHistory'
 import { cardReadsBy, newDecisionsOn } from './decisionNotices'
 import { onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
@@ -138,7 +139,7 @@ registerSource('decision', {
     told.set(key, known)
     if (told.size > 500) told.delete(told.keys().next().value!)
     log.info(`Told ${userText(self)} of new decisions on ${[...cards.keys()].map((n) => `#${n}`).join(', ')}`)
-    void Promise.all([...cards].map(([n, d]) => noteOnCard(n, `Told ${self} of ${d.count} new decision${d.count === 1 ? '' : 's'}`, ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
+    void Promise.all([...cards].map(([n, d]) => noteOnCard(n, storedText(HISTORY.decisionsTold, { agent: self, count: d.count }), ws).catch((e) => log.warn(`noting on #${n} that decisions were told`, e))))
   },
   ended: (r, host) => {
     made.delete(madeKey(host, r.id, r.meta?.v))

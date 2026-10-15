@@ -5,7 +5,9 @@ import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCalle
 import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { MergeSlotInfo, ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
-import { fmt, tr } from '../src/shared/i18n'
+import { fmt, setLanguage, tr } from '../src/shared/i18n'
+import { runAgentName } from '../src/shared/progress'
+import { publicRun } from '../src/main/apiEvents'
 
 // The panel's text is the window's (#798): worded with tr(), in English here.
 const runStateWord = (r: Parameters<typeof stateWordIn>[0]): string => stateWordIn(r, tr)
@@ -676,7 +678,7 @@ describe('progress rules', () => {
     const all = [a1, a2, b1, s1]
     const names = (p: string): string => p.split('\\').pop()!.toLowerCase()
     expect(filterChoices(all, names)).toEqual([{ value: 'c:\\ws\\alpha', label: 'alpha' }, { value: 'c:\\ws\\beta', label: 'beta' }, { value: NO_PROJECT, label: 'Assistant and scripts' }])
-    expect(agentChoices(all, 'c:\\ws\\alpha')).toEqual([{ value: 'y', label: 'Ada' }, { value: 'x', label: 'Alfie' }])
+    expect(agentChoices(all, 'c:\\ws\\alpha', tr)).toEqual([{ value: 'y', label: 'Ada' }, { value: 'x', label: 'Alfie' }])
     const ids = (f: Parameters<typeof filterRuns>[1]): string[] => filterRuns(all, activeFilter(all, f)).map((r) => r.id)
     expect(ids({ project: 'c:\\ws\\alpha' })).toEqual(['a1', 'a2'])
     expect(ids({ project: 'c:\\ws\\alpha', agent: 'x' })).toEqual(['a1'])
@@ -758,6 +760,34 @@ describe('progress history (#352): Recent kept across restarts', () => {
   const kept = (h: ReturnType<typeof files>, ws = WS): ProgressRun[] => (h.saved.get(ws.toLowerCase()) as { runs: ProgressRun[] } | undefined)?.runs ?? []
   const withHistory = (h: ProgressHistory): ProgressStore =>
     new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, emitEveryMs: 250, history: h, saveAfterMs: 2000 })
+
+  it("keeps Hive's mark on a name it gave across a save and a restart, and never marks an agent named Agent (#872)", async () => {
+    const ended = { state: 'passed', startedAt: 1, finishedAt: 2 }
+    const records = [
+      { ...ended, id: 'k1', title: 'nameless', source: 'agent', agentId: 'a-1', projectPath: alfie.projectPath },
+      { ...ended, id: 'k2', title: 'named Agent', source: 'agent', agentName: 'Agent', agentId: 'a-9', projectPath: alfie.projectPath },
+      { ...ended, id: 'k3', title: 'old script', source: 'api', agentName: 'Script' }
+    ]
+    const marks = (runs: ProgressRun[]): (string | null)[][] => runs.filter((r) => r.id.startsWith('k')).map((r) => [r.id, r.agentName, r.defaultName ?? null])
+    const want = [['k1', 'Agent', 'agent'], ['k2', 'Agent', null], ['k3', 'Script', 'script']]
+    // Read, written as JSON, read again: the same marks each time.
+    const once = keptRuns({ runs: records }, WS)
+    expect(marks(once)).toEqual(want)
+    expect(marks(keptRuns(JSON.parse(JSON.stringify({ runs: once })), WS))).toEqual(want)
+    // A mark on a name that isn't Hive's (an edited file) is dropped, so the window shows that name as it is.
+    expect(keptRuns({ runs: [{ ...records[1], defaultName: 'script' }, { ...records[0], agentName: 'Ada', defaultName: 'agent' }] }, WS).map((r) => r.defaultName ?? null)).toEqual([null, null])
+    // Through the store: loaded, saved with a new run, loaded again after a restart.
+    const h = files()
+    h.saved.set(WS.toLowerCase(), { version: 1, runs: records })
+    const s = withHistory(h)
+    await s.loadHistory(WS)
+    s.finish(alfie, s.start(alfie, { title: 'new' }).id, { ok: true })
+    await s.saveNow()
+    expect(marks(kept(h))).toEqual(want)
+    const after = withHistory(h)
+    await after.loadHistory(WS)
+    expect(marks(after.list(WS))).toEqual(want)
+  })
 
   it('saves ended runs shortly after they end (not open ones); a restart brings them back, seen, under Recent', async () => {
     const h = files()
@@ -848,6 +878,35 @@ describe('progress history (#352): Recent kept across restarts', () => {
     const good = { id: 'g', title: 'cmd /c echo x', command: 'cmd /c echo x', state: 'passed', source: 'agent', agentName: 'Alfie', agentId: 'a-1', projectPath: 'C:\\ws\\alpha', startedAt: 1, finishedAt: 2 }
     expect(keptRuns({ runs: [{ ...good, titleFromCommand: true }] }, WS)[0].titleFromCommand).toBe(true)
     expect(keptRuns({ runs: [{ ...good, titleFromCommand: 'x' }] }, WS)[0]).not.toHaveProperty('titleFromCommand')
+  })
+
+  it("marks the names Hive gives a run, never an agent's own (#872): the window translates only those, agents get the English", () => {
+    const s = store()
+    const agentNamedAgent: ProgressCaller = { ...alfie, agentId: 'a-9', agentName: 'Agent' }
+    const fromScript = s.start(script, { title: 'build' })
+    const fromAgent = s.start(agentNamedAgent, { title: 'unit tests' })
+    expect(fromScript).toMatchObject({ agentName: 'Script', defaultName: 'script' })
+    expect(fromAgent.agentName).toBe('Agent')
+    expect(fromAgent).not.toHaveProperty('defaultName')
+    // Kept history: a record with no name gets Hive's "Agent", marked; one named "Agent" keeps its name, unmarked.
+    const ended = { state: 'passed', startedAt: 1, finishedAt: 2 }
+    const runs = keptRuns({ runs: [
+      { ...ended, id: 'k1', title: 'nameless', source: 'agent', agentId: 'a-1', projectPath: alfie.projectPath },
+      { ...ended, id: 'k2', title: 'named', source: 'agent', agentName: 'Agent', agentId: 'a-9', projectPath: alfie.projectPath },
+      { ...ended, id: 'k3', title: 'old script', source: 'api', agentName: 'Script' },
+      { ...ended, id: 'k4', title: 'script, no name', source: 'api' }
+    ] }, WS)
+    expect(runs.map((r) => [r.agentName, r.defaultName ?? null])).toEqual([['Agent', 'agent'], ['Agent', null], ['Script', 'script'], ['Script', 'script']])
+    try {
+      setLanguage('de', { 'board.progress.script': 'Skript', 'board.progress.anAgent': 'Ein Agent' })
+      expect([fromScript, fromAgent, ...runs].map((r) => runAgentName(r, tr))).toEqual(['Skript', 'Agent', 'Ein Agent', 'Agent', 'Skript', 'Skript'])
+    } finally {
+      setLanguage('en', {})
+    }
+    // Agents read the English name, never the marker.
+    expect(publicRun(fromScript)).toMatchObject({ agentName: 'Script' })
+    expect(publicRun(fromScript)).not.toHaveProperty('defaultName')
+    expect(publicRun(runs[0])).not.toHaveProperty('defaultName')
   })
 
   it('a damaged or edited file gives only well-formed runs, cut to their limits, each once, at most RECENT_KEPT', () => {

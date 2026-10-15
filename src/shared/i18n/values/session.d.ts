@@ -35,6 +35,7 @@ interface HiveMessageValues {
   'session.format.body': { provider: string | number }
   'session.format.bodyVersion': { provider: string | number; version: string | number }
   'session.format.title': { provider: string | number }
+  'session.handOver.apiFailed': { agent: string | number }
   'session.handOver.asking': { agent: string | number }
   'session.handOver.busy': { agent: string | number }
   'session.handOver.didntStop': { agent: string | number; handover: string | number }

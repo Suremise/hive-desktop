@@ -135,6 +135,10 @@
     "defaultMessage": "Hive may not fully understand this {provider} version",
     "description": "A notice's title: a coding agent's transcripts show no token use, so its format probably changed. {provider} is the coding agent's name."
   },
+  "session.handOver.apiFailed": {
+    "defaultMessage": "Could not hand over to {agent}",
+    "description": "A notice's title: handing an agent's work to another ({agent}) failed, when an agent or the Assistant asked for it; the error follows."
+  },
   "session.handOver.asking": {
     "defaultMessage": "{agent} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.",
     "description": "Hand Over to… stopped: the agent handing over waits for the user. {agent} is its name."

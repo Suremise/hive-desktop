@@ -5,15 +5,15 @@ import {
   BRANCHES_SHOWN,
   HISTORY_COMMITS,
   HISTORY_TAGS,
-  folderBusy,
-  identityProblem,
-  parentRepoText,
+  folderBusyData,
+  identityProblemData,
+  parentRepoData,
   redactRemoteUrl,
   redactUrlsIn,
   scrubSecrets,
   urlSecrets,
-  remoteNameProblem,
-  remoteUrlProblem,
+  remoteNameProblemData,
+  remoteUrlProblemData,
   type FolderSlot,
   type GitBranchRow,
   type GitFolderAction,
@@ -32,7 +32,7 @@ import { samePlace, withFileLock } from './fsutil'
 import { git, type GitResult } from './git'
 import { gitProblem, gitTool } from './gitTool'
 import { gitProblemData } from '../shared/gitTool'
-import { englishText, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
+import { englishText, linesOf, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
 import { fmt, msg, tr, type Msg } from '../shared/i18n'
 import { HiveError } from './hiveError'
 import { createLogger, userText } from './logger'
@@ -65,7 +65,6 @@ const net = (cwd: string, args: string[]): Promise<GitResult> => git(cwd, args, 
  * language through IPC). Git's own words stay as git said them.
  */
 const M = {
-  asShown: msg({ id: 'service.gitRepo.asShown', defaultMessage: '{problem}', description: "Why a Git view action was refused, said in the window's language already. Keep it as {problem} alone." }),
   gaveUp: msg({ id: 'service.gitRepo.gaveUp', defaultMessage: 'git gave up after {minutes} minutes (no answer from the remote, or a sign-in left open).', description: 'Why fetching, pulling or pushing failed: git waited {minutes} minutes for the remote (or a sign-in window) and stopped.' }),
   exitCode: msg({ id: 'service.gitRepo.exitCode', defaultMessage: 'exit code {code}', description: 'Why a git command failed when git said nothing: the number it exited with.' }),
   command: msg({ id: 'service.gitRepo.command', defaultMessage: '{command}: {why}', description: "An error in the Git view: a git command ({command}, as it is: \"git log\") failed; {why} is git's own words, or why git can't run." }),
@@ -76,9 +75,6 @@ const M = {
   fetchFailed: msg({ id: 'service.gitRepo.fetchFailed', defaultMessage: "Couldn't fetch: {why}", description: "An error fetching from the repository's remotes; {why} is git's own words (any password in a URL hidden)." }),
   badName: msg({ id: 'service.gitRepo.badName', defaultMessage: "{kind, select, tag {{hasName, select, yes {{name} isn't a valid tag name.} other {That isn't a valid tag name.}}} other {{hasName, select, yes {{name} isn't a valid branch name.} other {That isn't a valid branch name.}}}}", description: "An error creating a branch or a tag ({kind}): its name {name} is one git refuses. {hasName} is no when no name was given (then it says That)." })
 }
-
-/** A refusal said in the window's language already (a shared helper's, which formats it at once), as a HiveError. */
-const asShown = (problem: string): HiveError => new HiveError(withValues(M.asShown, { problem }))
 
 /** A refusal or failure from a message and its values. */
 const refusal = (m: Msg, values?: TextValues): HiveError => new HiveError(values ? withValues(m, values) : m)
@@ -339,14 +335,14 @@ function folderSlots(projectPath: string): FolderSlot[] {
  * awaited between that check and starting git).
  */
 async function changeFolder<T>(projectPath: string, action: GitFolderAction, branch: string | null, fn: () => Promise<T>): Promise<T> {
-  const why = folderBusy(await folderAgents(projectPath), folderSlots(projectPath), action)
-  if (why) throw asShown(why)
+  const why = folderBusyData(await folderAgents(projectPath), folderSlots(projectPath), action)
+  if (why) throw new HiveError(why)
   const locked = (): Promise<T> =>
     withFileLock(join(projectPath, '.git', 'hive-merge'), async () => {
       // The slot is this action's own now (asUser refuses when anyone else holds or waits for it); without a branch to
       // hold it for (a detached HEAD), the slots are checked again too.
-      const now = folderBusy(await folderAgents(projectPath), branch ? [] : folderSlots(projectPath), action)
-      if (now) throw asShown(now)
+      const now = folderBusyData(await folderAgents(projectPath), branch ? [] : folderSlots(projectPath), action)
+      if (now) throw new HiveError(now)
       return fn()
     })
   return branch ? mergeSlots.asUser(projectPath, branch, locked) : locked()
@@ -360,10 +356,11 @@ async function changed(projectPath: string): Promise<void> {
 
 async function summaryOf(projectPath: string): Promise<GitRepoSummary> {
   const s = await repoSummary(projectPath)
-  if (s.gitProblem) throw new HiveError(gitProblemData(gitTool()) ?? withValues(M.asShown, { problem: s.gitProblem }))
+  // Git's problem as data; else (it changed meanwhile) the summary's English as it is.
+  if (s.gitProblem) throw new HiveError(gitProblemData(gitTool()) ?? linesOf([s.gitProblem]))
   if (!s.isRepo) throw refusal(msg({ id: 'service.gitRepo.notRepo', defaultMessage: "{folder} isn't a git repository.", description: 'An error in the Git view: the project folder {folder} is not in a git repository.' }), { folder: projectPath })
-  const parent = parentRepoText(s)
-  if (parent) throw asShown(parent)
+  const parent = parentRepoData(s)
+  if (parent) throw new HiveError(parent)
   return s
 }
 
@@ -418,8 +415,8 @@ export async function addRemote(projectPath: string, name: string, url: string):
   projectPath = workspace.assertProject(projectPath)
   name = name.trim()
   url = url.trim()
-  const problem = remoteNameProblem(name) ?? remoteUrlProblem(url)
-  if (problem) throw asShown(problem)
+  const problem = remoteNameProblemData(name) ?? remoteUrlProblemData(url)
+  if (problem) throw new HiveError(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     const r = await git(projectPath, ['remote', 'add', '--', name, url])
@@ -433,8 +430,8 @@ export async function addRemote(projectPath: string, name: string, url: string):
 export async function setRemoteUrl(projectPath: string, name: string, url: string): Promise<string> {
   projectPath = workspace.assertProject(projectPath)
   url = url.trim()
-  const problem = remoteUrlProblem(url)
-  if (problem) throw asShown(problem)
+  const problem = remoteUrlProblemData(url)
+  if (problem) throw new HiveError(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     const r = await git(projectPath, ['remote', 'set-url', '--', name, url])
@@ -470,8 +467,8 @@ export async function pull(projectPath: string): Promise<string> {
     if (!s.upstream) throw refusal(msg({ id: 'service.gitRepo.noUpstream', defaultMessage: '{branch} tracks no remote branch: push it first, or switch to one that does.', description: 'An error pulling in the Git view: the branch {branch} follows no remote branch.' }), { branch: s.branch })
     if (s.state) throw refusal(msg({ id: 'service.gitRepo.midOperation', defaultMessage: 'Git is in the middle of a {state}: finish or abort it first.', description: "An error pulling in the Git view: a git operation is under way in the project folder; {state} is git's word for it (merge, rebase, cherry-pick, revert or bisect: keep it as it is)." }), { state: s.state })
     // Refused before the fetch too, so a pull that can't go ahead doesn't wait on the network first.
-    const why = folderBusy(await folderAgents(projectPath), folderSlots(projectPath), 'pull')
-    if (why) throw asShown(why)
+    const why = folderBusyData(await folderAgents(projectPath), folderSlots(projectPath), 'pull')
+    if (why) throw new HiveError(why)
     if (s.upstream.remote) {
       const f = await net(projectPath, ['fetch', '--', s.upstream.remote])
       if (!f.ok) throw failed(M.fetchFailed, {}, f)
@@ -546,8 +543,8 @@ export async function setIdentity(projectPath: string, name: string, email: stri
   projectPath = workspace.assertProject(projectPath)
   name = name.trim()
   email = email.trim()
-  const problem = identityProblem(name, email)
-  if (problem) throw asShown(problem)
+  const problem = identityProblemData(name, email)
+  if (problem) throw new HiveError(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     for (const [key, value] of [['user.name', name], ['user.email', email]] as const) {

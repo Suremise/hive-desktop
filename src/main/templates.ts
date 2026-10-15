@@ -6,6 +6,7 @@ import { agentProvider, isKnownProvider, isProviderEnabled, providerDescriptor }
 import {
   exportable,
   exportFileName,
+  isAgentTemplate,
   isTemplateFile,
   readTemplate,
   TEMPLATE_VERSION,
@@ -37,7 +38,7 @@ import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
 import { gitTool } from './gitTool'
 import { gitProblemData } from '../shared/gitTool'
-import { listOf, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
+import { englishText, listOf, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
 import { fmt, msg, tr, type Msg } from '../shared/i18n'
 import { errorText, HiveError, shownError } from './hiveError'
 import { unusedWorktreesNamed } from './unusedWorktrees'
@@ -66,7 +67,6 @@ const refusal = (m: Msg, values?: TextValues, kind?: 'invalid' | 'notFound' | 'c
 /** Templates' refusals and the load plan's reasons, which only the window reads (#849): IPC shows them in its language. */
 const M = {
   gone: msg({ id: 'content.templates.gone', defaultMessage: 'That template is no longer there.', description: 'An error: the template was deleted or renamed meanwhile.' }),
-  asShown: msg({ id: 'content.templates.asShown', defaultMessage: '{problem}', description: "A template's problem, said in the window's language already (why it isn't one Hive can use). Keep it as {problem} alone." }),
   nameTaken: msg({ id: 'content.templates.nameTaken', defaultMessage: 'There is already a template called "{name}" there.', description: 'An error renaming or editing a template: another template where it is kept (the workspace or a project) is called {name}.' }),
   provider: msg({ id: 'content.templates.provider', defaultMessage: '{problem, select, unknown {This Hive doesn\'t know the coding agent "{provider}" (update Hive)} off {{provider} is turned off (Settings → Providers)} other {{provider} isn\'t installed (Agent Setup)}}', description: "Why a template can't be loaded: a coding agent CLI it needs. {problem} is why: unknown ({provider} is the id the template gives, which this version of Hive doesn't know), off (turned off in Settings → Providers), or not installed (Agent Setup is a Help window). {provider} is otherwise its name (\"Codex\")." }),
   neededBy: msg({ id: 'content.templates.neededBy', defaultMessage: '{problem, select, unknown {This Hive doesn\'t know the coding agent "{provider}" (update Hive), needed by {agents}.} off {{provider} is turned off (Settings → Providers), needed by {agents}.} other {{provider} isn\'t installed (Agent Setup), needed by {agents}.}}', description: "Why a template can't be loaded: a coding agent CLI its agents {agents} (their names, listed in the language's way: \"Builder and Reviewer\") need. {problem} and {provider} as in the reason without the agents." }),
@@ -76,9 +76,6 @@ const M = {
   inUse: msg({ id: 'content.templates.inUse', defaultMessage: "another agent works in {branch}'s worktree", description: "Why a template's agent gets a new worktree: another agent works in the one of its name, on {branch}. A clause, lower case." }),
   nothing: msg({ id: 'content.templates.nothing', defaultMessage: '{problem} Nothing was changed.', description: "An error loading a template, nothing changed: {problem} is why, a sentence of its own (how many agents a project can have)." })
 }
-
-/** A template's problem, already in the window's language (readTemplate's), as a refusal's text. */
-const asShown = (problem: string): Text => withValues(M.asShown, { problem })
 
 const checkScope = (scope: unknown): TemplateScope => {
   if (scope !== 'workspace' && scope !== 'project') throw refusal(msg({ id: 'content.templates.scope', defaultMessage: 'Unknown scope "{scope}": workspace or project.', description: 'An error: where a template is kept must be workspace or project (keep those two words: they are the values to use).' }), { scope: String(scope) }, 'invalid')
@@ -102,10 +99,11 @@ const place = (d: TemplateDest): TemplateDest => (d.scope === 'project' ? { scop
 async function readOne(d: TemplateDest, file: string): Promise<TemplateEntry> {
   const where = place(d)
   const raw = await readKeptJson<unknown>(join(folder(d), file), null)
-  const t = raw === null ? tr(msg({ id: 'content.templates.unreadable', defaultMessage: "It couldn't be read.", description: "Why a template can't be used: its file couldn't be read." })) : readTemplate(raw)
-  if (typeof t === 'string') {
+  const t = raw === null ? msg({ id: 'content.templates.unreadable', defaultMessage: "It couldn't be read.", description: "Why a template can't be used: its file couldn't be read." }) : readTemplate(raw)
+  if (!isAgentTemplate(t)) {
     const name = raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string' ? String((raw as { name: string }).name).slice(0, TEMPLATE_NAME_MAX) : file.replace(/\.json$/, '')
-    return { ...where, file, name, savedAt: null, layout: 'auto', agents: [], problem: t }
+    // Why, in English for the log and a refusal's message, and as text the window shows in its language (#870).
+    return { ...where, file, name, savedAt: null, layout: 'auto', agents: [], problem: englishText(t), problemText: t }
   }
   return { ...where, file, name: t.name, savedAt: t.savedAt || null, layout: t.layout, ...(t.description ? { description: t.description } : {}), agents: t.agents }
 }
@@ -147,7 +145,7 @@ function fileOf(ref: TemplateRef): string {
 async function usable(ref: TemplateRef): Promise<TemplateEntry & { template: AgentTemplate }> {
   fileOf(ref)
   const e = await readOne(ref, ref.file)
-  if (e.problem) throw refusal(msg({ id: 'content.templates.cantUse', defaultMessage: '"{name}" can\'t be used: {problem}', description: "An error: the template {name} can't be used; {problem} says why (a sentence)." }), { name: e.name, problem: e.problem })
+  if (e.problem) throw refusal(msg({ id: 'content.templates.cantUse', defaultMessage: '"{name}" can\'t be used: {problem}', description: "An error: the template {name} can't be used; {problem} says why (a sentence)." }), { name: e.name, problem: e.problemText ?? e.problem })
   return { ...e, template: { version: 1, name: e.name, savedAt: e.savedAt ?? '', layout: e.layout, ...(e.description ? { description: e.description } : {}), agents: e.agents } }
 }
 
@@ -226,7 +224,7 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
 export async function updateTemplate(ref: TemplateRef, edited: unknown, savedAt: string | null): Promise<TemplateEntry> {
   const clean = cleanName(edited && typeof edited === 'object' ? (edited as { name?: unknown }).name : '')
   const t = readTemplate({ ...(edited as object), version: TEMPLATE_VERSION, name: clean, savedAt: new Date().toISOString() })
-  if (typeof t === 'string') throw new TemplateError(asShown(t), { kind: 'invalid' })
+  if (!isAgentTemplate(t)) throw new TemplateError(t, { kind: 'invalid' })
   return changing(ref, async () => {
     const now = await usable(ref)
     if ((now.savedAt ?? null) !== (savedAt ?? null)) throw refusal(msg({ id: 'content.templates.editedMeanwhile', defaultMessage: '"{name}" changed since you started editing it (saved again meanwhile): nothing was saved. Close the editor to see it as it is now.', description: 'An error saving an edited template: it was saved again elsewhere after the editor opened it.' }), { name: now.name }, 'conflict')
@@ -295,7 +293,7 @@ export async function readImport(path: string): Promise<AgentTemplate> {
     throw refusal(msg({ id: 'content.templates.importNotJson', defaultMessage: "It isn't a Hive agent template (not JSON).", description: "An error importing a template: the file isn't JSON." }))
   }
   const t = readTemplate(raw)
-  if (typeof t === 'string') throw new TemplateError(asShown(t))
+  if (!isAgentTemplate(t)) throw new TemplateError(t)
   return t
 }
 

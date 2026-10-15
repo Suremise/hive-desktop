@@ -37,7 +37,9 @@ interface HiveMessageValues {
   'content.notes.closed': undefined
   'content.notes.deleteRoot': undefined
   'content.notes.exists': { name: string | number }
+  'content.notes.handoverCreated': undefined
   'content.notes.nameRequired': undefined
+  'content.notes.openHandover': undefined
   'content.notes.outside': undefined
   'content.persona.badName': undefined
   'content.persona.exists': { mode: string | number }
@@ -66,7 +68,6 @@ interface HiveMessageValues {
   'content.skill.zipTooMany': { max: string | number }
   'content.skill.zipUnsafe': { path: string | number }
   'content.templates.agentGone': undefined
-  'content.templates.asShown': { problem: string | number }
   'content.templates.bullet': { item: string | number }
   'content.templates.cantCheck': { branch: string | number; error: string | number }
   'content.templates.cantLoad': undefined

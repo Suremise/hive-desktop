@@ -5,7 +5,7 @@ import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
-import { TEMPLATE_SCOPES, type TemplateEntry } from '@shared/templates'
+import { TEMPLATE_SCOPES, shownProblem, type TemplateEntry } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
 import { processCount } from '@shared/agentProcesses'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
@@ -664,7 +664,7 @@ function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntr
         return here.length
           ? [
               { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: '{scope, select, workspace {Workspace templates} other {This project templates}}', description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
-              ...here.map((t) => ({ label: t.name, icon: 'library', detail: t.problem ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
+              ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
             ]
           : []
       })

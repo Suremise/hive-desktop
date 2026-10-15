@@ -16,7 +16,10 @@ const base = tempDir('hive-i18n-tasks-')
 
 const { setLanguage, tr } = await import('../../src/shared/i18n')
 const { englishText, withValues } = await import('../../src/shared/advanced')
-const { HISTORY, storedMessage, storedText } = await import('../../src/shared/taskHistory')
+const { HISTORY, storedLineText, storedMessage, storedText } = await import('../../src/shared/taskHistory')
+const { PROVIDERS, providerMessage } = await import('../../src/shared/providers')
+const { safeguardComment, safeguardText } = await import('../../src/shared/safeguards')
+const { cardBusy } = await import('../../src/main/cardBusy')
 const { ordinal } = await import('../../src/shared/toolReplies')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../../src/main/workspace')
 const tasks = await import('../../src/main/tasks')
@@ -24,6 +27,7 @@ const { startTask } = await import('../../src/main/taskStart')
 const { shownError, windowError } = await import('../../src/main/hiveError')
 const { apiErrorReply, entryForAgents } = await import('../../src/main/servers')
 type StoredText = import('../../src/shared/types').StoredText
+type TaskCard = import('../../src/shared/types').TaskCard
 
 const ROOT = resolve(__dirname, '../..')
 const EN = JSON.parse(readFileSync(join(ROOT, 'locales/en/tasks.json'), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
@@ -39,6 +43,12 @@ const GERMAN: Record<string, string> = {
   'tasks.history.movedTop': 'Ganz nach oben in {column, select, hold {Geparkt} todo {Zu tun} doing {In Arbeit} review {Prüfung} passed {Bestanden} done {Erledigt} other {{column}}}',
   'tasks.history.placed': 'Auf Platz {place} in {column, select, hold {Geparkt} todo {Zu tun} doing {In Arbeit} review {Prüfung} passed {Bestanden} done {Erledigt} other {{column}}}',
   'tasks.history.archivedInBatch': 'Mit {n} Karten archiviert ({label})',
+  'tasks.history.loopWake': '{agent} {kind, select, review {zur Prüfung} other {mit dem Urteil}} geweckt (Schleife)',
+  'tasks.history.decisionsTold': '{agent} über {count, plural, one {# neue Entscheidung} other {# neue Entscheidungen}} informiert',
+  'tasks.history.watchEnded': '{watcher} wartet nicht mehr darauf: {why, select, blocked {die Karte ist blockiert} reviewer {{agent} prüft sie} reviewTaken {ihre Prüfung wurde ihm genommen} reassigned {an {agent} gegeben} unassigned {an niemanden gegeben} other {{why}}}',
+  'tasks.history.safeguardStop': '**{agent}, nach einem Sicherheitsstopp:** Läuft jetzt auf {to} statt {from} (seit {since}).{hasHelp, select, yes { {help}} other {}}',
+  'agents.claude.safeguardHelp': 'Im Terminal: /feedback meldet einen Fehlalarm, /model wechselt zurück.',
+  'board.busy.reviewing': '{agent} prüft sie',
   'tasks.by.you': 'Du',
   'tasks.error.unknownTask': 'Unbekannte Aufgabe #{n}',
   'tasks.error.needsTitle': 'Eine Aufgabe braucht einen Titel.',
@@ -85,10 +95,10 @@ async function caught(p: Promise<unknown>): Promise<Error> {
 }
 
 /** A stored line as the window shows it: its message in the window's language (what Board.tsx does). */
-const shown = (s: StoredText | undefined): string | null => {
-  const m = storedMessage(s)
-  return m && s ? tr(m, s.values) : null
-}
+const shown = (s: StoredText | undefined): string | null => (s ? storedLineText(s, (m, values) => tr(m, values), providerMessage) : null)
+
+/** A stored line's English (what main stores in `what`). */
+const englishOf = (s: StoredText): string | null => storedLineText(s, (m, values) => englishText(values ? withValues(m, values) : m), providerMessage)
 
 describe('the tasks area', () => {
   it('every message is of the tasks area, with a note for translators, and the two files have no text left to convert', () => {
@@ -153,8 +163,8 @@ describe("a card's history: English as stored, its line as data for the window",
     expect(said).toEqual(history.slice(1, 9).map((h) => h.what))
     // Each line Hive's board wrote is also data, which formats back to the same English…
     for (const h of history.slice(0, -1)) {
-      const m = storedMessage(h.whatText)!
-      expect(englishText(h.whatText!.values ? withValues(m, h.whatText!.values) : m), h.what).toBe(h.what)
+      expect(storedMessage(h.whatText), h.what).not.toBeNull()
+      expect(englishOf(h.whatText!), h.what).toBe(h.what)
     }
     // …and in the window's language where there is a translation (the column a select key, never English).
     expect(history[0].whatText).toEqual({ id: 'tasks.history.created', values: { column: 'todo' } })
@@ -168,7 +178,7 @@ describe("a card's history: English as stored, its line as data for the window",
   })
 
   it("formats every line's English exactly as the board wrote it before (#846)", () => {
-    const en = (s: StoredText): string => englishText(withValues(storedMessage(s)!, s.values ?? {}))
+    const en = (s: StoredText): string | null => englishOf(s)
     const cases: [StoredText, string][] = [
       [storedText(HISTORY.moved, { column: 'hold' }), 'Moved to On Hold'],
       [storedText(HISTORY.moved, { column: 'passed' }), 'Moved to Passed'],
@@ -298,5 +308,102 @@ describe("the board's refusals: English for agents as before, the window's langu
     expect(h.what).toBe('Archived in a batch of 1 (All in Doing)')
     setLanguage('de', GERMAN)
     expect(shown(h.whatText)).toBe('Mit 1 Karten archiviert (All in Doing)')
+  })
+})
+
+describe('lines and a comment Hive writes from outside the board service (#866)', () => {
+  it('stores the English each wrote before, word for word, and the window reads them in its language', () => {
+    const cases: [StoredText, string, string][] = [
+      [storedText(HISTORY.loopWake, { agent: 'R1', kind: 'review' }), 'Woke R1 to review it (a loop wake)', 'R1 zur Prüfung geweckt (Schleife)'],
+      [storedText(HISTORY.loopWake, { agent: 'B1', kind: 'verdict' }), 'Woke B1 with its verdict (a loop wake)', 'B1 mit dem Urteil geweckt (Schleife)'],
+      [storedText(HISTORY.decisionsTold, { agent: 'B1', count: 1 }), 'Told B1 of 1 new decision', 'B1 über 1 neue Entscheidung informiert'],
+      [storedText(HISTORY.decisionsTold, { agent: 'B1', count: 3 }), 'Told B1 of 3 new decisions', 'B1 über 3 neue Entscheidungen informiert'],
+      [storedText(HISTORY.watchEnded, { watcher: 'B1', why: 'blocked', agent: '' }), "Ended B1's watch on it: the card is blocked", 'B1 wartet nicht mehr darauf: die Karte ist blockiert'],
+      [storedText(HISTORY.watchEnded, { watcher: 'R1', why: 'reviewer', agent: 'R2' }), "Ended R1's watch on it: R2 reviews it", 'R1 wartet nicht mehr darauf: R2 prüft sie'],
+      [storedText(HISTORY.watchEnded, { watcher: 'R1', why: 'reviewTaken', agent: '' }), "Ended R1's watch on it: its review was taken from it", 'R1 wartet nicht mehr darauf: ihre Prüfung wurde ihm genommen'],
+      [storedText(HISTORY.watchEnded, { watcher: 'R1', why: 'reassigned', agent: 'B4' }), "Ended R1's watch on it: reassigned to B4", 'R1 wartet nicht mehr darauf: an B4 gegeben'],
+      [storedText(HISTORY.watchEnded, { watcher: 'a-1', why: 'unassigned', agent: '' }), "Ended a-1's watch on it: reassigned to no agent", 'a-1 wartet nicht mehr darauf: an niemanden gegeben']
+    ]
+    for (const [s, en] of cases) expect(englishOf(s)).toBe(en)
+    setLanguage('de', GERMAN)
+    for (const [s, en, de] of cases) {
+      expect(englishOf(s), en).toBe(en)
+      expect(shown(s), en).toBe(de)
+    }
+  })
+
+  it("words the safeguard comment as before, the CLI's help included, and shows it in the window's language", () => {
+    const label = (m: string): string => m.toUpperCase()
+    const switched = { from: 'opus', to: 'sonnet', at: '2026-10-15T15:12:00.000Z' }
+    const notes = [
+      { at: '2026-10-15T15:10:00.000Z', model: 'opus', tools: ['Bash', 'Edit'], stops: 1, switched },
+      { at: '2026-10-15T15:10:00.000Z', tools: ['Bash'], stops: 3, switched, prompt: true },
+      { at: '2026-10-15T15:10:00.000Z', model: 'opus', tools: [], stops: 2, switched, idle: true },
+      { at: '2026-10-15T15:10:00.000Z', tools: ['Read'], stops: 0, switched }
+    ]
+    for (const d of PROVIDERS) {
+      // The descriptor's English help and its message are the same sentence (the comment's English comes from the message).
+      expect(d.text?.safeguardHelp?.defaultMessage ?? null, d.id).toBe(d.safeguardHelp)
+      for (const note of notes) {
+        const before = `**Agent 1, after a safeguard stop:** ${safeguardText(note, label)}${d.safeguardHelp ? ` ${d.safeguardHelp}` : ''}`
+        expect(englishOf(safeguardComment(note, 'Agent 1', label, d.text?.safeguardHelp ?? null)), `${d.id} ${JSON.stringify(note)}`).toBe(before)
+      }
+    }
+    setLanguage('de', GERMAN)
+    const claude = PROVIDERS.find((d) => d.text?.safeguardHelp?.id === 'agents.claude.safeguardHelp')!
+    const said = safeguardComment(notes[3], 'Agent 1', label, claude.text!.safeguardHelp)
+    expect(said.values?.help).toEqual({ id: 'agents.claude.safeguardHelp' })
+    const since = said.values?.since as string
+    expect(shown(said)).toBe(`**Agent 1, nach einem Sicherheitsstopp:** Läuft jetzt auf SONNET statt OPUS (seit ${since}). Im Terminal: /feedback meldet einen Fehlalarm, /model wechselt zurück.`)
+    // A help message this Hive doesn't know (a newer one wrote it): nothing to show, so the window shows the stored English.
+    expect(shown({ ...said, values: { ...said.values, help: { id: 'agents.nope.safeguardHelp' } } })).toBeNull()
+  })
+
+  it('shows nothing of a damaged record (a card file edited by hand), so the window keeps the stored English', () => {
+    setLanguage('de', GERMAN)
+    const help = { id: 'agents.claude.safeguardHelp' }
+    const ok = { id: 'tasks.history.safeguardStop', values: { agent: 'A', stops: 0, model: 'none', time: '', to: 'b', from: 'a', since: '15:12', state: 'none', hasTools: 'no', tools: '', hasHelp: 'yes', help } }
+    expect(shown(ok)).toBe('**A, nach einem Sicherheitsstopp:** Läuft jetzt auf b statt a (seit 15:12). Im Terminal: /feedback meldet einen Fehlalarm, /model wechselt zurück.')
+    const damaged: unknown[] = [
+      null,
+      'tasks.history.loopWake',
+      [],
+      { id: 42 },
+      { id: null, values: {} },
+      { id: 'tasks.history.loopWake', values: null },
+      { id: 'tasks.history.loopWake', values: ['R1', 'review'] },
+      { id: 'tasks.history.loopWake', values: 'R1' },
+      { id: 'tasks.history.loopWake', values: { agent: null, kind: 'review' } },
+      { id: 'tasks.history.loopWake', values: { agent: ['R1'], kind: 'review' } },
+      { id: 'tasks.history.loopWake', values: { agent: true, kind: 'review' } },
+      { id: 'tasks.history.decisionsTold', values: { agent: 'B1', count: Number.NaN } },
+      { ...ok, values: { ...ok.values, help: null } },
+      { ...ok, values: { ...ok.values, help: [] } },
+      { ...ok, values: { ...ok.values, help: { id: 7 } } },
+      { ...ok, values: { ...ok.values, help: { id: 'agents.claude.safeguardHelp', values: null } } },
+      { ...ok, values: { ...ok.values, help: { id: 'tasks.history.loopWake', values: { agent: { id: 'tasks.history.loopWake', values: { agent: { id: 'tasks.history.loopWake', values: { agent: { id: 'tasks.history.loopWake', values: { agent: 'x', kind: 'review' } }, kind: 'review' } }, kind: 'review' } }, kind: 'review' } } } }
+    ]
+    for (const s of damaged) {
+      expect(storedLineText(s, (m, values) => tr(m, values), providerMessage), JSON.stringify(s)).toBeNull()
+      expect(storedLineText(s, (m, values) => englishText(values ? withValues(m, values) : m), providerMessage), JSON.stringify(s)).toBeNull()
+    }
+  })
+
+  it("puts the comment on a card with its English for agents and its data for the window", async () => {
+    const c = await run(() => tasks.createTask({ title: 'Guarded', project: 'alpha' }, user))
+    const said = safeguardComment({ at: '2026-10-15T15:10:00.000Z', tools: [], stops: 1, switched: { from: 'a', to: 'b', at: '2026-10-15T15:12:00.000Z' } }, 'Agent 1', (m) => m, null)
+    expect(await run(() => tasks.commentAsHive(c.number, said))).toBe(true)
+    const comment = (await run(() => tasks.getTask(c.number))).comments.at(-1)!
+    expect(comment.text).toBe(englishOf(said))
+    expect(comment.text).toMatch(/^\*\*Agent 1, after a safeguard stop:\*\* A safety classifier stopped a response at \d\d:\d\d\. It now runs on b instead of a \(since \d\d:\d\d\)\.$/)
+    expect(comment.hiveText).toEqual(said)
+  })
+
+  it("gives Archive All's reasons for leaving a card in the window's language", async () => {
+    const card = { number: 1, column: 'review', project: 'alpha', review: { agentId: 'r1', agentName: 'R1' } } as unknown as TaskCard
+    setLanguage('de', GERMAN)
+    expect(await run(async () => cardBusy(w, card))).toBe('R1 prüft sie')
+    setLanguage('en', {})
+    expect(await run(async () => cardBusy(w, card))).toBe('R1 is reviewing it')
   })
 })

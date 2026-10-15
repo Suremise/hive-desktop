@@ -74,6 +74,7 @@ interface HiveMessageValues {
   'tasks.history.decision': { decision: string | number }
   'tasks.history.decisionChanged': { decision: string | number; was: string | number }
   'tasks.history.decisionRemoved': { decision: string | number }
+  'tasks.history.decisionsTold': { agent: string | number; count: number }
   'tasks.history.dependsOn': { cards: string | number }
   'tasks.history.description': undefined
   'tasks.history.given': { agent: string | number }
@@ -82,6 +83,7 @@ interface HiveMessageValues {
   'tasks.history.labelsRemoved': undefined
   'tasks.history.linked': { cards: string | number }
   'tasks.history.linksRemoved': undefined
+  'tasks.history.loopWake': { agent: string | number; kind: string }
   'tasks.history.moved': { column: string }
   'tasks.history.movedBefore': { column: string; before: string | number }
   'tasks.history.movedBeforeIn': { before: string | number; column: string }
@@ -98,6 +100,7 @@ interface HiveMessageValues {
   'tasks.history.reviewPassed': undefined
   'tasks.history.reviewStarted': undefined
   'tasks.history.reviewStopped': { agent: string | number }
+  'tasks.history.safeguardStop': { agent: string | number; stops: number; model: string; time: string | number; to: string | number; from: string | number; since: string | number; state: string; hasTools: string; tools: string | number; hasHelp: string; help: string | number }
   'tasks.history.takenFrom': { agent: string | number }
   'tasks.history.takenFromAgent': undefined
   'tasks.history.takenFromOf': { agent: string | number; project: string | number }
@@ -106,6 +109,7 @@ interface HiveMessageValues {
   'tasks.history.toWorkspace': undefined
   'tasks.history.unarchived': undefined
   'tasks.history.unblocked': undefined
+  'tasks.history.watchEnded': { watcher: string | number; why: string; agent: string | number }
   'tasks.skipped.movedColumn': { column: string }
   'tasks.skipped.movedProject': undefined
   'tasks.skipped.noMatch': undefined

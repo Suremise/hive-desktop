@@ -11,7 +11,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { basename, join } from 'path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { TEMPLATE_VERSION, exportFileName, readTemplate, templateFile, templateFrom, uniqueName, uniqueTemplateName, unknownProviders } from '../src/shared/templates'
+import { TEMPLATE_VERSION, exportFileName, isAgentTemplate, readTemplate as readAny, templateFile, templateFrom, uniqueName, uniqueTemplateName, unknownProviders, type AgentTemplate } from '../src/shared/templates'
+import { englishText } from '../src/shared/advanced'
 import type { AgentDef } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
@@ -96,10 +97,14 @@ describe('the template format', () => {
       ]
     })
     expect(JSON.stringify(t)).not.toMatch(/s1|C:\/w\/b|hive\/builder|needsSetup|persona|"id"/)
-    expect(readTemplate(JSON.parse(JSON.stringify(t)))).toEqual(t)
+    expect(readAny(JSON.parse(JSON.stringify(t)))).toEqual(t)
   })
 
   it('reads a file as untrusted: what it can use, else why not', () => {
+    const readTemplate = (raw: unknown): AgentTemplate | string => {
+      const t = readAny(raw)
+      return isAgentTemplate(t) ? t : englishText(t)
+    }
     const ok = { version: 1, name: 'T', savedAt: 'x', layout: 'mosaic', agents: [{ name: 'A', provider: 'claude-code', role: '  a   b ', extra: 1 }] }
     expect(readTemplate(ok)).toEqual({ version: 1, name: 'T', savedAt: '', layout: 'auto', agents: [{ name: 'A', role: 'a b', provider: 'claude-code', worktree: false }] })
     expect(readTemplate({ ...ok, version: TEMPLATE_VERSION + 1 })).toMatch(/newer version of Hive/)

@@ -5,8 +5,9 @@ import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messagefor
 import { PSEUDO_LANGUAGE } from '../../src/shared/i18n/languages'
 import { setLanguage, setProblemReporter, tr, type Msg } from '../../src/shared/i18n'
 import { gitFixText, gitOldText, gitProblemEnglish, gitProblemText } from '../../src/shared/gitTool'
-import { folderBusy, gitStatusText, gitStatusTip, headText, identityWarnings, type GitRepoSummary } from '../../src/shared/gitRepo'
+import { folderBusy, folderBusyData, gitStatusText, gitStatusTip, headText, identityWarnings, type GitRepoSummary } from '../../src/shared/gitRepo'
 import { gitignoreName, initAbout, type GitInitCheck } from '../../src/shared/gitInit'
+import { englishText } from '../../src/shared/advanced'
 import { hiveVcsText } from '../../src/shared/hiveVcsText'
 
 // #804: the `git` area (the Git tab, Initialise repository, the .hive notice, and what the shared git modules say). Its
@@ -119,6 +120,13 @@ describe('the sentences once built by hand read as before, in English', () => {
     expect(folderBusy([{ name: 'B1', status: 'signin' }], [], 'create')).toBe('B1 stopped in the middle of a task when its sign-in expired in the project folder: create and switch to a branch once it has finished.')
     expect(folderBusy([], [{ branch: 'main', holder: null, byUser: true, waiting: [] }], 'pull')).toBe('Your merge into main is running: pull once it is done.')
     expect(folderBusy([], [{ branch: 'main', holder: null, waiting: ['B2'] }], 'switch')).toBe('B2 is waiting for the merge slot for main: switch branches once those merges are done.')
+    // As text (#871): its English for main's refusal, the same words, the waiting agents a unit list as before.
+    const slots = [{ branch: 'main', holder: null, waiting: ['B2', 'B3'] }]
+    expect(englishText(folderBusyData([], slots, 'pull')!)).toBe('B2, B3 are waiting for the merge slot for main: pull once those merges are done.')
+    expect(folderBusy([], slots, 'pull')).toBe(englishText(folderBusyData([], slots, 'pull')!))
+    setLanguage(PSEUDO_LANGUAGE, {})
+    expect(folderBusy([], slots, 'pull')).toMatch(/^\[/)
+    expect(englishText(folderBusyData([], slots, 'pull')!)).toBe('B2, B3 are waiting for the merge slot for main: pull once those merges are done.')
   })
 
   it("the status bar's item and tooltip", () => {

@@ -1,7 +1,8 @@
 // The Git view (#607): a project folder's branch, remotes, upstream, history, tags and commit identity, and what the
 // window says about them. Shared by the main process, the window and their tests. Only the user changes these: there is
 // no agent tool or Agent API route for any of it.
-import { fmt, msg, tr, type Msg } from './i18n'
+import { msg, tr, type Msg } from './i18n'
+import { listOf, shownText, withValues, type Text } from './advanced'
 
 /** A merge, rebase or other operation git has in progress in the folder. */
 export type GitRepoState = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'bisect'
@@ -202,17 +203,23 @@ const BUSY = new Set(['starting', 'working', 'waiting', 'background', 'watching'
 /**
  * Why switching branch or pulling in the project folder is refused now, or null: it moves the ground under an agent
  * that works there, and under a merge into its branch. Checked in the window (the buttons are disabled with this as the
- * reason) and again by the main process before it acts.
+ * reason) and again by the main process before it acts. As text (#871): main's refusal logs its English.
  */
-export function folderBusy(agents: FolderAgent[], slots: FolderSlot[], action: GitFolderAction): string | null {
-  for (const a of agents) if (a.status && BUSY.has(a.status)) return tr(M.agentBusy, { agent: a.name, status: a.status, action })
+export function folderBusyData(agents: FolderAgent[], slots: FolderSlot[], action: GitFolderAction): Text | null {
+  for (const a of agents) if (a.status && BUSY.has(a.status)) return withValues(M.agentBusy, { agent: a.name, status: a.status, action })
   for (const s of slots) {
-    if (s.byUser) return tr(M.yourMerge, { branch: s.branch, action })
-    if (s.holder) return tr(M.slotHeld, { agent: s.holder, branch: s.branch, action })
-    if (s.waiting.length) return tr(M.slotWaiting, { agents: fmt.list(s.waiting, 'unit'), count: s.waiting.length, branch: s.branch, action })
+    if (s.byUser) return withValues(M.yourMerge, { branch: s.branch, action })
+    if (s.holder) return withValues(M.slotHeld, { agent: s.holder, branch: s.branch, action })
+    if (s.waiting.length) return withValues(M.slotWaiting, { agents: listOf(s.waiting, 'unit'), count: s.waiting.length, branch: s.branch, action })
   }
   return null
 }
+
+/** Text in the language shown, or null. */
+const inLanguage = (t: Text | null): string | null => (t ? shownText(t) : null)
+
+/** folderBusyData in the language shown (the window's buttons). */
+export const folderBusy = (agents: FolderAgent[], slots: FolderSlot[], action: GitFolderAction): string | null => inLanguage(folderBusyData(agents, slots, action))
 
 /** A state as messages select on (their keys have no "-"). */
 export const gitStateKey = (state: GitRepoState): string => state.replace('-', '')
@@ -233,9 +240,12 @@ export function aheadBehindText(u: Pick<GitUpstream, 'ahead' | 'behind' | 'gone'
 }
 
 /** Why the Git view doesn't change a folder inside another repository (`parentRepo`), or null. */
-export function parentRepoText(s: Pick<GitRepoSummary, 'parentRepo'>): string | null {
-  return s.parentRepo ? tr(M.parentRepo, { folder: s.parentRepo }) : null
+export function parentRepoData(s: Pick<GitRepoSummary, 'parentRepo'>): Text | null {
+  return s.parentRepo ? withValues(M.parentRepo, { folder: s.parentRepo }) : null
 }
+
+/** parentRepoData in the language shown. */
+export const parentRepoText = (s: Pick<GitRepoSummary, 'parentRepo'>): string | null => inLanguage(parentRepoData(s))
 
 /** The status bar's item: "main · origin · ↑2 ↓0", "main · no upstream", "detached at abc1234 · rebasing". Empty when not a repository. */
 export function gitStatusText(s: GitRepoSummary): string {
@@ -360,27 +370,36 @@ export function identityWarnings(id: GitIdentity, remotes: Pick<GitRemote, 'fetc
 }
 
 /** A remote's name as `git remote add` takes it here: letters, digits, . _ - (not starting with - or .). */
-export function remoteNameProblem(name: string): string | null {
-  if (!name.trim()) return tr(M.enterName)
-  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(name.trim())) return tr(M.remoteNameChars)
+export function remoteNameProblemData(name: string): Text | null {
+  if (!name.trim()) return M.enterName
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(name.trim())) return M.remoteNameChars
   return null
 }
+
+/** remoteNameProblemData in the language shown (a dialog's check). */
+export const remoteNameProblem = (name: string): string | null => inLanguage(remoteNameProblemData(name))
 
 /** A remote URL Hive passes to git: one line, not an option. */
-export function remoteUrlProblem(url: string): string | null {
+export function remoteUrlProblemData(url: string): Text | null {
   const u = url.trim()
-  if (!u) return tr(M.enterUrl)
-  if (/\s/.test(u) || u.startsWith('-')) return tr(M.notUrl)
-  if (u.includes(HIDDEN)) return tr(M.wholeUrl)
+  if (!u) return M.enterUrl
+  if (/\s/.test(u) || u.startsWith('-')) return M.notUrl
+  if (u.includes(HIDDEN)) return M.wholeUrl
   return null
 }
 
+/** remoteUrlProblemData in the language shown (a dialog's check). */
+export const remoteUrlProblem = (url: string): string | null => inLanguage(remoteUrlProblemData(url))
+
 /** Name and email for `git config user.*`: one line each; an email has an @. Empty clears this repository's own. */
-export function identityProblem(name: string, email: string): string | null {
-  if (/[\r\n<>]/.test(name)) return tr(M.nameLine)
-  if (email.trim() && (!/^[^\s<>@]+@[^\s<>@]+$/.test(email.trim()))) return tr(M.notEmail)
+export function identityProblemData(name: string, email: string): Text | null {
+  if (/[\r\n<>]/.test(name)) return M.nameLine
+  if (email.trim() && (!/^[^\s<>@]+@[^\s<>@]+$/.test(email.trim()))) return M.notEmail
   return null
 }
+
+/** identityProblemData in the language shown (a dialog's check). */
+export const identityProblem = (name: string, email: string): string | null => inLanguage(identityProblemData(name, email))
 
 /** The user guide's heading for this view. */
 // i18n-ignore: a user guide heading, found by its English text
