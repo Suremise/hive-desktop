@@ -30,7 +30,7 @@ import type { ProviderId } from './types'
  * errors read its English (`englishText`), so what the Assistant is told never follows the user's language. The
  * settings catalogue's rows hold their text this way too.
  */
-export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: ListType } | { lines: TextPart[] } | { cap: TextPart }
+export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: ListType } | { lines: TextPart[] } | { cap: TextPart } | { shown: TextPart; english: string }
 /** A part of text: text of its own, or a name or a number that is the same in every language. */
 export type TextPart = string | number | Text
 export type TextValues = Record<string, TextPart>
@@ -47,6 +47,12 @@ export const listOf = (list: TextPart[], type: ListType = 'conjunction'): Text =
 /** Parts each on a line of its own. */
 export const linesOf = (lines: TextPart[]): Text => ({ lines })
 
+/**
+ * Text the window words differently from what agents read (#910): `shown` in the window, in its language (English too),
+ * and `english`, word for word, for agents and the Agent API, whose replies don't change when the window's words do.
+ */
+export const forAgents = (shown: TextPart, english: string): Text => ({ shown, english })
+
 /** Text whose first letter is upper case in the language it is shown in: clauses joined into a list that starts a sentence. */
 export const capitalised = (cap: TextPart): Text => ({ cap })
 
@@ -57,6 +63,8 @@ interface Formatter {
   list: (items: string[], type: ListType) => string
   /** A letter in upper case, as the language writes it. */
   upper: (s: string) => string
+  /** Agents' English (`forAgents`), not the window's words. */
+  agents: boolean
 }
 
 function formatText(t: TextPart, f: Formatter): string {
@@ -68,6 +76,7 @@ function formatText(t: TextPart, f: Formatter): string {
     const s = formatText(t.cap, f)
     return f.upper(s.charAt(0)) + s.slice(1)
   }
+  if ('shown' in t) return f.agents ? t.english : formatText(t.shown, f)
   const values = Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, typeof v === 'object' ? formatText(v, f) : v]))
   return f.one(t.m, values)
 }
@@ -76,11 +85,12 @@ const IN_ENGLISH: Formatter = {
   one: (m, values) => (!values && !/[{}<]|''/.test(m.defaultMessage) ? m.defaultMessage : (ENGLISH.formatMessage(m, values) as string)),
   // Hive's English is British: "A, B and C", as the tools always said it.
   list: (items, type) => new Intl.ListFormat('en-GB', { type, style: type === 'unit' ? 'short' : 'long' }).format(items),
-  upper: (s) => s.toLocaleUpperCase('en')
+  upper: (s) => s.toLocaleUpperCase('en'),
+  agents: true
 }
-const AS_SHOWN: Formatter = { one: (m, values) => tr(m, values), list: (items, type) => fmt.list(items, type), upper: (s) => s.toLocaleUpperCase(language()) }
+const AS_SHOWN: Formatter = { one: (m, values) => tr(m, values), list: (items, type) => fmt.list(items, type), upper: (s) => s.toLocaleUpperCase(language()), agents: false }
 
-/** Text in English, whatever language Hive shows: for the Assistant's tools, the log and errors. */
+/** Text in English, whatever language Hive shows: for the Assistant's tools, the log and errors (agents' words, `forAgents`). */
 export const englishText = (t: TextPart): string => formatText(t, IN_ENGLISH)
 
 /** Text in the language Hive shows now (call it when the text is rendered, never when a module loads). */

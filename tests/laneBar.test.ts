@@ -4,13 +4,13 @@
 import { describe, expect, it } from 'vitest'
 import { cardSegment as segmentIn, chosenLaneRows, currentCard, DEFAULT_LANE_ROWS, draggedLaneRows, droppedLaneOrder, failedVerdictGist, fitSegments as fitIn, frozenSegment as frozenIn, keptLaneOrder, keyedLaneRows, LANE_ORDER_MAX, laneCards as laneCardsIn, laneRowsNow, laneRunning, lanesShown, laneSummary, maxLaneRows, mergedLaneOrder, nudgedLaneOrder, panelOrder, reviewRounds, SEGMENT_NOTE_MAX, segmentName, segmentsThatFit, type CardSegment, type SegmentState } from '../src/shared/laneBar'
 import type { LaneCard, LaneState, TaskCard, TaskColumn } from '../src/shared/types'
-import { tr } from '../src/shared/i18n'
+import { fmt, tr } from '../src/shared/i18n'
 
 // The segments' text is the window's (#798): worded with tr(), in English here.
 const cardSegment = (n: number, c: TaskCard | undefined): CardSegment => segmentIn(n, c, tr)
 const frozenSegment = (c: LaneCard): CardSegment => frozenIn(c, tr)
 const laneCards = (numbers: readonly number[], tasks: readonly TaskCard[]): CardSegment[] => laneCardsIn(numbers, tasks, tr)
-const fitSegments = (cards: CardSegment[], max: number): ReturnType<typeof fitIn> => fitIn(cards, max, tr)
+const fitSegments = (cards: CardSegment[], max: number): ReturnType<typeof fitIn> => fitIn(cards, max, tr, fmt.list)
 
 const card = (number: number, column: TaskColumn, history: string[] = [], extra: Partial<TaskCard> = {}): TaskCard => ({
   number,

@@ -180,7 +180,7 @@ interface HiveMessageValues {
   'agents.mergeDialog.copy': undefined
   'agents.mergeDialog.mergeNote': undefined
   'agents.mergeDialog.mergeNoteUnused': undefined
-  'agents.mergeDialog.merges': { commits: number; both: string; changes: number; branch: string | number; into: string | number }
+  'agents.mergeDialog.merges': { parts: string; commits: number; changes: number; branch: string | number; into: string | number }
   'agents.mergeDialog.message': undefined
   'agents.mergeDialog.move': { branch: string | number; known: string; into: string | number }
   'agents.mergeDialog.moveNote': { agent: string | number }
@@ -204,7 +204,7 @@ interface HiveMessageValues {
   'agents.merged.kept': { branch: string | number }
   'agents.merged.moved': { branch: string | number; folder: string; into: string | number; agent: string | number }
   'agents.merged.notMoved': { branch: string | number; folder: string; into: string | number }
-  'agents.merged.notMovedWhy': { why: string | number; agent: string | number; folder: string; into: string | number }
+  'agents.merged.notMovedWhy': { why: string | number; folder: string; agent: string | number; into: string | number }
   'agents.merged.removed': { agent: string | number }
   'agents.merged.removedUnused': undefined
   'agents.merged.title': { branch: string | number; folder: string; into: string | number }

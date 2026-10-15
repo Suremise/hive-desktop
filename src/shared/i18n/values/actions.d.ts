@@ -182,7 +182,7 @@ interface HiveMessageValues {
   'actions.stop.confirm': undefined
   'actions.stop.detail': undefined
   'actions.stop.failed': undefined
-  'actions.stop.message': { project: string | number; agent: string | number }
+  'actions.stop.message': { named: string; agent: string | number; project: string | number }
   'actions.stop.title': undefined
   'actions.stopAll.busy': undefined
   'actions.stopAll.confirm': { n: number }
@@ -191,7 +191,7 @@ interface HiveMessageValues {
   'actions.stopAll.title': { n: number }
   'actions.stopFirst.confirm': { what: string; agent: string | number }
   'actions.stopFirst.detail': undefined
-  'actions.stopFirst.message': { project: string | number; agent: string | number }
+  'actions.stopFirst.message': { named: string; agent: string | number; project: string | number }
   'actions.stopFirst.title': { what: string; agent: string | number }
   'actions.template.addAgentFailed': undefined
   'actions.template.blockedMessage': { project: string }

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
 import { RUNS_KEEP_PX, draggedLaneRows, droppedLaneOrder, fitSegments, frozenSegment, keyedLaneRows, laneCards, laneRowsNow, laneRunning, laneSummary, mergedLaneOrder, nudgedLaneOrder, segmentName, segmentsThatFit, type LaneSegment } from '@shared/laneBar'
-import { msg, tr } from '@shared/i18n'
+import { fmt, msg, tr } from '@shared/i18n'
 import { call } from '../api'
 import { NO_PROJECTS, get, set, useLanguage, useStore } from '../store'
 import { saveLaneOrder, useLaneOrder, type Lane } from '../laneSource'
@@ -362,7 +362,7 @@ function LaneRow({ lane: l, max, reorder: r }: { lane: Lane; max: number; reorde
   const { finished, total, current } = laneSummary(cards)
   // A lane that ended without a record of its cards doesn't know how many were finished (#512).
   const unknown = cards.some((c) => c.state === 'unrecorded')
-  const segments = fitSegments(cards, max, tr)
+  const segments = fitSegments(cards, max, tr, fmt.list)
   const pair = lanePair(l)
   const word = stateWord(l.state)
   // Its cost on the hover of its top line (#602), read when the hover first shows.

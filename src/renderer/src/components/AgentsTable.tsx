@@ -35,13 +35,14 @@ export function agentsText(p: ProjectInfo, tasks: TaskCard[], lanes: readonly Ta
 
 /**
  * A column of an agents table after Agent: its heading, its kind (a card's cell gets the most room; a short one, a state
- * or a project, never wraps in a dialog) and the words before its cell in the plain text (`agentRowsText`).
+ * or a project, never wraps in a dialog) and its cell in words in the plain text (`agentRowsText`).
  */
 export interface AgentColumn {
   /** Its heading: a message (#799), or text a caller hasn't converted yet. */
   label: string | Msg
   kind?: 'card' | 'short'
-  prefix?: string | Msg
+  /** Its cell in the plain text, a message with the cell as {value} ("card {value}"); none: the cell as it is. */
+  cell?: Msg
 }
 
 /** A column's heading or prefix in the language shown now. */
@@ -77,7 +78,7 @@ export interface AgentTableData {
 /** The table as plain text (#572): every cell it shows, a line an agent, for screen readers and a confirm's copy. */
 export function tableText(d: AgentTableData): string {
   return agentRowsText(
-    d.columns.map((c) => ({ prefix: c.prefix === undefined || typeof c.prefix === 'string' ? c.prefix : `${tr(c.prefix)} ` })),
+    d.columns.map((c) => ({ cell: c.cell && ((text: string) => tr(c.cell!, { value: text })) })),
     d.rows.map((r) => ('group' in r ? { groupText: r.text } : r))
   )
 }
@@ -133,16 +134,16 @@ export const STATE_COLUMN: AgentColumn = { label: msg({ id: 'panes.table.state',
 export const CARD_COLUMN: AgentColumn = {
   label: msg({ id: 'panes.table.card', defaultMessage: 'Card', description: "An agents table's column heading: the card the agent works on or reviews." }),
   kind: 'card',
-  prefix: msg({ id: 'panes.table.cardPrefix', defaultMessage: 'card', description: "Before the agent's card in a line of text (screen readers, a dialog's copy): \"card #12 Title\". Lower case." })
+  cell: msg({ id: 'panes.table.cardPrefix', defaultMessage: 'card {value}', description: "The agent's card in a line of text (screen readers, a dialog's copy): {value} is the card (\"#12 Title\", \"reviewing #12 Title\"). Lower case." })
 }
 export const WAITING_COLUMN: AgentColumn = {
   label: msg({ id: 'panes.table.waiting', defaultMessage: 'Waiting for', description: "An agents table's column heading: what a watching agent waits for (cards, agents, lanes)." }),
-  prefix: msg({ id: 'panes.table.waitingPrefix', defaultMessage: 'waiting for', description: "Before what a watching agent waits for, in a line of text (screen readers, a dialog's copy): \"waiting for #12 → Review\". Lower case." })
+  cell: msg({ id: 'panes.table.waitingPrefix', defaultMessage: 'waiting for {value}', description: "What a watching agent waits for, in a line of text (screen readers, a dialog's copy): {value} is what (\"#12 → Review\", \"B6 to finish\"). Lower case." })
 }
 export const PROJECT_COLUMN: AgentColumn = {
   label: msg({ id: 'panes.table.project', defaultMessage: 'Project', description: "An agents table's column heading: the agent's project." }),
   kind: 'short',
-  prefix: msg({ id: 'panes.table.projectPrefix', defaultMessage: 'in', description: "Before the agent's project in a line of text (screen readers, a dialog's copy): \"in hive\". Lower case." })
+  cell: msg({ id: 'panes.table.projectPrefix', defaultMessage: 'in {value}', description: "The agent's project in a line of text (screen readers, a dialog's copy): {value} is its name (\"in hive\"). Lower case." })
 }
 
 /**
@@ -180,7 +181,7 @@ export function batchAgentsData(p: ProjectInfo, tasks: readonly TaskCard[], kind
   })
   const worktree: AgentColumn = {
     label: msg({ id: 'panes.table.worktree', defaultMessage: 'Worktree', description: "An agents table's column heading (Start New All, Remove All…): the agent's worktree branch." }),
-    prefix: msg({ id: 'panes.table.worktreePrefix', defaultMessage: 'worktree', description: "Before the agent's worktree branch in a line of text (screen readers, a dialog's copy). Lower case." })
+    cell: msg({ id: 'panes.table.worktreePrefix', defaultMessage: 'worktree {value}', description: "The agent's worktree in a line of text (screen readers, a dialog's copy): {value} is its branch (\"hive/b1\"). Lower case." })
   }
   const happens: AgentColumn = { label: msg({ id: 'panes.table.happens', defaultMessage: 'What happens', description: "An agents table's column heading (Start New All, Remove All…): what the action does to each agent." }) }
   return { columns: [STATE_COLUMN, CARD_COLUMN, ...(trees ? [worktree] : []), happens], rows }

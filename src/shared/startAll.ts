@@ -21,7 +21,7 @@ export interface BatchSession {
 /** What stopping a running agent costs it, as the quit dialog says it (null: nothing in progress). */
 export function busyNote(status: SessionStatus): string | null {
   return status === 'working' || status === 'background' || status === 'waiting' || status === 'watching'
-    ? tr(msg({ id: 'agents.batch.busy', defaultMessage: '{status, select, working {will be interrupted} background {background tasks will stop} waiting {waiting for you} other {its card loop pauses until it is resumed}}', description: "What stopping a running agent costs, in a few words (the quit dialog, Start New All…; lower case, in brackets after Stopped): it is working, waiting on its background tasks, waiting for the user's answer, or in a card loop (other: watching)." }), { status })
+    ? tr(msg({ id: 'agents.batch.busy', defaultMessage: '{status, select, working {will be interrupted} background {background tasks will stop} waiting {waiting for you} other {its card loop pauses until it is resumed}}', description: "What stopping a running agent costs, in a few words (the quit dialog, Start New All…; lower case, in brackets after Stopped): it is working, waiting on its background tasks, waiting for the user's answer, or watching cards in a card loop (other: its loop pauses until the agent is resumed)." }), { status })
     : null
 }
 
