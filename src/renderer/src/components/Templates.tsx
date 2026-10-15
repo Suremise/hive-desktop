@@ -3,7 +3,7 @@ import { SESSION_LAYOUTS } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { isKnownProvider, providerDescriptor, providerName } from '@shared/providers'
-import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateDeleted, type TemplateEntry, type TemplateRef } from '@shared/templates'
+import { TEMPLATE_DESCRIPTION_MAX, TEMPLATE_NAME_MAX, shownProblem, uniqueName, unknownProviders, type TemplateAgent, type TemplateDest, type TemplateDeleted, type TemplateEntry, type TemplateRef } from '@shared/templates'
 import type { PageLayout, ProjectInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
@@ -334,13 +334,13 @@ function TemplateRow({ t, selected, onSelect, showScope }: { t: TemplateEntry; s
             </Tooltip>
           )}
           {(t.problem || unknown.length > 0) && (
-            <Tooltip content={t.problem ?? unknownText(unknown)}>
+            <Tooltip content={shownProblem(t) ?? unknownText(unknown)}>
               <span className="badge warn">{tr(t.problem ? M.cantBeUsed : M.unknownAgent)}</span>
             </Tooltip>
           )}
         </div>
         <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {t.problem ?? tr(M.rowDesc, { count: t.agents.length, layout: layoutText(t.layout) })}
+          {shownProblem(t) ?? tr(M.rowDesc, { count: t.agents.length, layout: layoutText(t.layout) })}
         </div>
       </div>
     </div>
@@ -606,7 +606,7 @@ export function TemplateDetail({ t, project, onGone, onSelect }: { t: TemplateEn
       <div className="template-detail-body">
         {t.problem ? (
           <p className="template-problem">
-            <Icon name="warning" /> {tr(M.problem, { problem: t.problem })}
+            <Icon name="warning" /> {tr(M.problem, { problem: shownProblem(t) ?? '' })}
           </p>
         ) : (
           <>

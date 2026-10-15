@@ -267,10 +267,6 @@
     "defaultMessage": "That agent is no longer in the template.",
     "description": "An error adding one agent from a template: the template no longer has it (edited meanwhile)."
   },
-  "content.templates.asShown": {
-    "defaultMessage": "{problem}",
-    "description": "A template's problem, said in the window's language already (why it isn't one Hive can use). Keep it as {problem} alone."
-  },
   "content.templates.bullet": {
     "defaultMessage": "• {item}",
     "description": "A line of a list of reasons: a bullet, then the reason {item}."

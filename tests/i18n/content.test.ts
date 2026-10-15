@@ -5,7 +5,7 @@
 // (`problemText`, `errorText`). A template's load plan is the window's: its reasons are in its language, and what a
 // missing provider's problem is (`problem`) is a key the window matches, never its words. Agent-facing content stays
 // English: a new SKILL.md, a new server's definition, the Assistant's instructions.
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
@@ -53,6 +53,8 @@ const GERMAN: Record<string, string> = {
   'content.templates.neededBy': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren), gebraucht von {agents}.} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von {agents}.} other {{provider} ist nicht installiert (Agent-Einrichtung), gebraucht von {agents}.}}',
   'content.templates.cantLoad': 'Die Vorlage kann noch nicht geladen werden:',
   'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.',
+  'content.templates.cantUse': '„{name}“ kann nicht verwendet werden: {problem}',
+  'assistant.template.noAgents': 'Sie hat keine Agenten.',
   'content.notes.handoverCreated': 'Übergabe erstellt',
   'content.notes.openHandover': 'Öffnen',
   'session.handOver.apiFailed': 'Übergabe an {agent} nicht möglich'
@@ -202,6 +204,31 @@ describe("a template's load plan is the window's", () => {
     writeFileSync(join(wsPath, '.hive', 'templates', 'later.json'), JSON.stringify({ version: 1, name: 'Later', savedAt: '', layout: 'auto', agents: [{ name: 'G', provider: 'gemini', worktree: false }] }))
     setLanguage('en', {})
     expect((await run(() => templates.templatePlan(proj, 'workspace', 'later.json'))).missing[0]).toMatchObject({ problem: 'unknown', reason: 'This Hive doesn\'t know the coding agent "gemini" (update Hive)' })
+  })
+})
+
+describe("a template file's problem: English for the log, the window's text beside it (#870)", () => {
+  it("lists a damaged template with its problem in English and as text, and refuses it in English with the window's text", async () => {
+    const file = join(wsPath, '.hive', 'templates', 'empty.json')
+    writeFileSync(file, JSON.stringify({ version: 1, name: 'Empty', savedAt: '', layout: 'auto', agents: [] }))
+    try {
+      setLanguage('de', GERMAN)
+      const entry = (await run(() => templates.listAllTemplates())).find((t) => t.file === 'empty.json')!
+      expect(entry.problem).toBe('It has no agents.')
+      expect(shownText(entry.problemText!)).toBe('Sie hat keine Agenten.')
+      // The listed text follows a change of language without the list being read again.
+      setLanguage('en', {})
+      expect(shownText(entry.problemText!)).toBe('It has no agents.')
+      setLanguage('de', GERMAN)
+      const used = await caught(() => templates.templatePlan(proj, 'workspace', 'empty.json'))
+      expect(used.message).toBe(`"Empty" can't be used: It has no agents.`)
+      expect(shownError(used)).toBe('„Empty“ kann nicht verwendet werden: Sie hat keine Agenten.')
+      const imported = await caught(() => templates.readImport(file))
+      expect(imported.message).toBe('It has no agents.')
+      expect(shownError(imported)).toBe('Sie hat keine Agenten.')
+    } finally {
+      rmSync(file, { force: true })
+    }
   })
 })
 

@@ -9,7 +9,8 @@ import * as electron from 'electron'
 import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, manyAgentsNote } from '../src/shared/defaults'
 import { advancedDef, AGENTS_PER_PROJECT } from '../src/shared/advanced'
 import { AGENT_WATCH_MAX_AGENTS, readSavedAgentCondition } from '../src/shared/agentWatch'
-import { readTemplate } from '../src/shared/templates'
+import { isAgentTemplate, readTemplate } from '../src/shared/templates'
+import { englishText } from '../src/shared/advanced'
 import type { AgentDef } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
@@ -34,7 +35,8 @@ describe('the setting', () => {
   it('templates hold up to 24 agents, whichever project they are loaded into', () => {
     const t = (n: number) => ({ version: 1, name: 'T', layout: 'auto', agents: Array.from({ length: n }, (_, i) => ({ name: `A${i}`, provider: 'claude-code' })) })
     expect(typeof readTemplate(t(24))).toBe('object')
-    expect(readTemplate(t(25))).toBe('It has 25 agents; a project can have up to 24.')
+    const many = readTemplate(t(25))
+    expect(!isAgentTemplate(many) && englishText(many)).toBe('It has 25 agents; a project can have up to 24.')
   })
 
   it("the agent watch takes a whole project's agents at the most, and more (the Assistant's span projects)", () => {

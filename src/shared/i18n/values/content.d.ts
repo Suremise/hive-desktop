@@ -68,7 +68,6 @@ interface HiveMessageValues {
   'content.skill.zipTooMany': { max: string | number }
   'content.skill.zipUnsafe': { path: string | number }
   'content.templates.agentGone': undefined
-  'content.templates.asShown': { problem: string | number }
   'content.templates.bullet': { item: string | number }
   'content.templates.cantCheck': { branch: string | number; error: string | number }
   'content.templates.cantLoad': undefined
