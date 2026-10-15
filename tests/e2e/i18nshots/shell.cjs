@@ -51,7 +51,12 @@ async function startFirst(ctx) {
 
 async function stopFirst(ctx) {
   await ctx.inv('session:stop', ctx.project, ctx.agents[0].id)
-  if (!(await ctx.lib.until(async () => !(await firstLive(ctx)) || ['stopped', 'exited'].includes((await firstLive(ctx)).status), ctx.hungMs))) throw new Error("One didn't stop")
+  // One read per check (#868): the session can go between two reads, and a second read's undefined threw.
+  const stopped = async () => {
+    const s = await firstLive(ctx)
+    return !s || ['stopped', 'exited'].includes(s.status)
+  }
+  if (!(await ctx.lib.until(stopped, ctx.hungMs))) throw new Error(`One didn't stop: ${JSON.stringify(await firstLive(ctx))}`)
 }
 
 /** Compact for alpha's first agent: shown with its facts once the agent is ready. */
