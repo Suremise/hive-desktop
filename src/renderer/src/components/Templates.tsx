@@ -782,9 +782,11 @@ export function ProjectTemplatesTab({ project }: { project: ProjectInfo }) {
   const shared = (list ?? []).filter((t) => t.scope === 'workspace')
   const current = selected ? list?.find((t) => templateKey(t) === selected) : undefined
   const row = (t: TemplateEntry) => <TemplateRow key={templateKey(t)} t={t} showScope selected={selected === templateKey(t)} onSelect={() => setSelected(templateKey(t))} />
+  // The list beside the template, or above it when the tab is narrow (#890; app.css `.templates-split`, as Changes').
   return (
+    <div className="templates-split" style={{ '--list-width': `${listWidth}px` } as React.CSSProperties}>
     <div className="split">
-      <div className="split-list" style={{ width: listWidth }}>
+      <div className="split-list">
         <PaneResizer paneKey="projectTemplates" max={600} />
         <div className="pane-header" style={{ paddingLeft: 14 }}>
           {tr(M.title)} <InfoTip text={tr(TEMPLATES_TIP)} />
@@ -830,6 +832,7 @@ export function ProjectTemplatesTab({ project }: { project: ProjectInfo }) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }

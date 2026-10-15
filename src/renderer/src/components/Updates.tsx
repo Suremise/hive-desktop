@@ -277,7 +277,7 @@ export function UpdateStatusRow() {
   const u = useStore((s) => s.update)
   const kb = commandKeybinding('help.checkUpdates')
   return (
-    <div className="flex" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+    <div className="flex update-status-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       <span className={cx('badge', u?.status === 'ready' || u?.status === 'available' ? 'accent' : u?.status === 'up-to-date' ? 'success' : u?.status === 'error' ? 'error' : '')}>{updateSummary(u)}</span>
       {(u?.status === 'available' || u?.status === 'downloading' || u?.status === 'ready') && (
         <button className="btn small primary" onClick={() => set({ updateOpen: true })}>

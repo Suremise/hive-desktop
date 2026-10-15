@@ -10,9 +10,9 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu } from '../components/ui'
+import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu, useFolds } from '../components/ui'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
-import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useLanguage, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { AttachmentsTab, FilesTab } from './FilesTab'
 import { GitTab } from './GitTab'
@@ -98,6 +98,32 @@ type TabFit = 'labels' | 'icons' | 'all-icons'
 const TAB_FITS: TabFit[] = ['labels', 'icons', 'all-icons']
 /** Room a roomier fit needs to spare before the strip goes back to it, so it doesn't flicker at the switching point. */
 const TAB_FIT_SPARE = 12
+
+/** The least of the project's name the header keeps beside its status before its actions fold further (#886). */
+const TITLE_MIN = 96
+/** How far the header's actions can fold: every label; batch actions as icons; Resume, Stop and Active too; batch actions in ⋯. */
+const HEADER_FOLDS = 3
+
+/**
+ * The width the project header's title (its least room) and actions (all of them, on one row) need side by side, for
+ * `useFolds` (#886): 0 shows every label; 1 shows the batch actions as icons; 2 Resume, Stop and Active too (the status
+ * says less, and Remove All moves into ⋯); 3 moves the other batch actions into ⋯ as well.
+ */
+function headerNeed(el: HTMLElement): number | null {
+  const title = el.querySelector<HTMLElement>('.project-title')
+  const name = title?.querySelector<HTMLElement>('h1')
+  const badge = title?.querySelector<HTMLElement>('.badge')
+  const buttons = el.querySelector<HTMLElement>(':scope > .actions')
+  if (!title || !name || !badge || !buttons) return null
+  const gap = (e: HTMLElement): number => parseFloat(getComputedStyle(e).columnGap) || 0
+  // Each part's whole width, even while it is cut short (scrollWidth: the name and status are cut with "…").
+  const items = [...buttons.children] as HTMLElement[]
+  const actionsNeed = items.reduce((n, c) => n + c.scrollWidth, 0) + gap(buttons) * Math.max(0, items.length - 1)
+  const status = badge.querySelector<HTMLElement>('.badge-text')
+  const badgeNeed = badge.offsetWidth + (status ? status.scrollWidth - status.clientWidth : 0)
+  const titleNeed = Math.min(name.scrollWidth, TITLE_MIN) + gap(title) + badgeNeed
+  return Math.ceil(titleNeed + gap(el) + actionsNeed)
+}
 
 /**
  * The project's tabs. When their labels don't fit, they shrink to icons, the active tab keeping its label while that fits;
@@ -274,11 +300,25 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const focusedAgent = useFocusedAgent(project)
   // A narrow header shows its buttons as icons: the batch actions first; tighter, Resume, Stop and Active too (and the
   // status says less), and Remove All, the rarest, moves into ⋯; tighter still (both panels open beside the narrowest
-  // window), the other batch actions follow it. The title gives way before any action does (#216, #291).
-  const [headerRef, headerWidth] = useWidth<HTMLDivElement>()
-  const narrow = headerWidth > 0 && headerWidth < 860
-  const tight = headerWidth > 0 && headerWidth < 640
-  const cramped = headerWidth > 0 && headerWidth < 460
+  // window), the other batch actions follow it. The title gives way to the actions down to its least room (#216, #291);
+  // how far they fold is measured, so a longer language folds sooner (#886).
+  const [headerWidthRef, headerWidth] = useWidth<HTMLDivElement>()
+  const header = useRef<HTMLDivElement | null>(null)
+  const headerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      header.current = el
+      headerWidthRef(el)
+    },
+    [headerWidthRef]
+  )
+  const language = useLanguage()
+  const headerContent = project
+    ? [language, project.name, project.agents.map((a) => `${a.live?.status ?? '-'}`).join(), ...['resumeAll', 'startNewAll', 'archiveAll', 'removeAll'].map((k) => !!runningActions[`${k}:${project.path}`])].join('|')
+    : ''
+  const folds = useFolds(header, headerWidth, headerContent, HEADER_FOLDS, headerNeed)
+  const narrow = folds >= 1
+  const tight = folds >= 2
+  const cramped = folds >= 3
   // The status badge's table as text, for its accessible description (#529).
   const agentsDescription = useAgentsText(project)
 
@@ -381,8 +421,11 @@ export function ProjectView({ visible }: { visible: boolean }) {
             focus
           >
             <span tabIndex={0} aria-description={agentsDescription || undefined} className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'signin' && 'signin', combined?.status === 'finished' && 'success')}>
-              <span className={cx('dot', combined?.status ?? 'idle')} /> {combined ? STATUS_TEXT[combined.status] : tr(M.noSession)}
-              {many && inStatus > 0 && !tight && <span className="faint"> {tr(M.inStatus, { count: inStatus, total: project.agents.length })}</span>}
+              <span className={cx('dot', combined?.status ?? 'idle')} />
+              <span className="badge-text">
+                {combined ? STATUS_TEXT[combined.status] : tr(M.noSession)}
+                {many && inStatus > 0 && !tight && <span className="faint"> {tr(M.inStatus, { count: inStatus, total: project.agents.length })}</span>}
+              </span>
             </span>
           </Tooltip>
         </div>
