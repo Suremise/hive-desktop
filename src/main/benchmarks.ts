@@ -5,6 +5,9 @@ import { BENCHMARK_LIMITS, aboutOf, compareScopeKey, parseArtifact, readEntry, r
 import type { MetricsReport } from '../shared/metrics'
 import { renameRetrying, writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
+import { englishText, withValues } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
+import { errorText, hiveError } from './hiveError'
 import type { WorkspaceService } from './workspace'
 import { ownerOfName } from './projectNames'
 import { existsSync } from 'original-fs'
@@ -69,15 +72,26 @@ export interface BenchContext {
   ownerOf?: (project: string) => string | null
 }
 
+/** Kept comparisons' refusals and notices, which only the window reads (the Performance page's Compare, #850). */
+const M = {
+  closed: msg({ id: 'service.benchmarks.closed', defaultMessage: 'The workspace was closed or switched: nothing was changed.', description: 'An error on the Performance page: the workspace closed, or another opened in its window, while kept comparisons were being changed; nothing changed.' }),
+  cantRead: msg({ id: 'service.benchmarks.cantRead', defaultMessage: 'The kept comparisons can’t be read: {error}', description: "An error on the Performance page: the list of kept comparisons (benchmarks kept to compare) can't be read; {error} is why (the system's words)." }),
+  why: msg({ id: 'service.benchmarks.why', defaultMessage: '{why, select, missing {the list of kept comparisons was missing} damaged {the list of kept comparisons was damaged} entry {an entry of the list of kept comparisons was damaged} other {the list of kept comparisons had too many entries}}', description: "Why Hive rebuilt the list of kept comparisons from their files: it was missing, damaged, had a damaged entry, or had too many entries. A clause, lower case (it follows \"Recovered:\")." }),
+  recovered: msg({ id: 'service.benchmarks.recovered', defaultMessage: 'Recovered: {reason}. {n, plural, one {# kept comparison is} other {# kept comparisons are}} listed again{setAside, select, yes {; the old list is kept as index.damaged-….json} other {}}', description: "A note on the Performance page's Compare after Hive rebuilt its list of kept comparisons: {reason} says why, {n} how many are listed again; with setAside, the damaged list was kept beside it as index.damaged-….json (a file name: keep it)." }),
+  strays: msg({ id: 'service.benchmarks.strays', defaultMessage: '{n, plural, one {# file not in the list was moved to quarantine/.} other {# files not in the list were moved to quarantine/.}}', description: 'A note on the Performance page: kept comparison files the list had no entry for were moved to the quarantine/ folder (a folder name: keep it).' }),
+  invalid: msg({ id: 'service.benchmarks.invalid', defaultMessage: '{n, plural, one {# file that couldn’t be read was moved to quarantine/.} other {# files that couldn’t be read were moved to quarantine/.}}', description: "A note on the Performance page: kept comparison files that couldn't be read were moved to the quarantine/ folder (a folder name: keep it)." }),
+  overflow: msg({ id: 'service.benchmarks.overflow', defaultMessage: '{n, plural, one {# more than can be listed was moved to quarantine/.} other {# more than can be listed were moved to quarantine/.}}', description: 'A note on the Performance page: kept comparisons past the most that can be listed were moved to the quarantine/ folder (a folder name: keep it).' })
+}
+
 /** The context of a workspace now (synchronously: call it before awaiting anything). */
 export function benchContext(w: WorkspaceService): BenchContext {
-  if (!w.path || w.lifetime.aborted) throw new Error('No workspace is open.')
+  if (!w.path || w.lifetime.aborted) throw hiveError(msg({ id: 'service.benchmarks.noWorkspace', defaultMessage: 'No workspace is open.', description: "An error on the Performance page: kept comparisons need a workspace open." }), undefined, { kind: 'conflict' })
   return { dir: join(w.path, '.hive', 'metrics', 'benchmarks'), lifetime: w.lifetime, workspacePath: w.path, idOf: (p) => w.projectIdsNow().byPath.get(join(w.path!, p).toLowerCase()) ?? null, ownerOf: (p) => ownerOfName(w, p) }
 }
 
 /** Refuses work whose workspace closed or switched since it started. */
 function live(ctx: BenchContext): void {
-  if (ctx.lifetime.aborted) throw new Error('The workspace was closed or switched: nothing was changed.')
+  if (ctx.lifetime.aborted) throw hiveError(M.closed, undefined, { kind: 'conflict' })
 }
 
 /** An index entry: a kept comparison, or one being added or removed by change `txn`. */
@@ -165,7 +179,7 @@ function acceptable(index: Index): boolean {
 }
 
 async function writeIndex(ctx: BenchContext, index: Index): Promise<void> {
-  if (!acceptable(index)) throw new Error('Hive refused to write a list of kept comparisons it couldn’t read back: nothing was changed.')
+  if (!acceptable(index)) throw hiveError(msg({ id: 'service.benchmarks.unwritable', defaultMessage: 'Hive refused to write a list of kept comparisons it couldn’t read back: nothing was changed.', description: "An error on the Performance page: the list of kept comparisons Hive was about to write wouldn't read back as valid, so it wasn't written." }))
   await commit(ctx, join(ctx.dir, 'index.json'), JSON.stringify(index, null, 2))
 }
 
@@ -218,32 +232,32 @@ async function readIndex(ctx: BenchContext): Promise<Index> {
   try {
     textValue = await readCapped(join(ctx.dir, 'index.json'), INDEX_BYTES)
   } catch (e) {
-    if (!isMissing(e)) throw new Error(`The kept comparisons can’t be read: ${(e as Error).message}`, { cause: e })
+    if (!isMissing(e)) throw hiveError(M.cantRead, { error: errorText(e) }, { cause: e })
     textValue = null
     missing = true
   }
   const names = await readdir(ctx.dir).catch((e) => {
     if (isMissing(e)) return [] as string[]
-    throw new Error(`The kept comparisons can’t be read: ${(e as Error).message}`, { cause: e })
+    throw hiveError(M.cantRead, { error: errorText(e) }, { cause: e })
   })
   // Staged copies are never authoritative: one left by an interrupted write goes.
   for (const f of names.filter((x) => /\.staged-[0-9a-f]+$/.test(x))) await rm(join(ctx.dir, f), { force: true }).catch(() => undefined)
   const files = names.map((f) => ARTIFACT.exec(f)?.[1]).filter((x): x is string => !!x)
-  if (missing) return files.length ? recover(ctx, 'the list of kept comparisons was missing') : { version: 1, entries: [], selected: {} }
+  if (missing) return files.length ? recover(ctx, 'missing') : { version: 1, entries: [], selected: {} }
   let data: Record<string, unknown> | null = null
   try {
     data = textValue === null ? null : (JSON.parse(textValue) as Record<string, unknown>)
   } catch {
     data = null
   }
-  if (!data || data.version !== 1 || !Array.isArray(data.entries) || data.entries.length > MAX_ENTRIES) return recover(ctx, 'the list of kept comparisons was damaged', data)
+  if (!data || data.version !== 1 || !Array.isArray(data.entries) || data.entries.length > MAX_ENTRIES) return recover(ctx, 'damaged', data)
   const entries: IndexEntry[] = []
   for (const raw of data.entries) {
     const e = readIndexEntry(raw)
-    if (!e || entries.some((x) => x.id === e.id)) return recover(ctx, 'an entry of the list of kept comparisons was damaged', data)
+    if (!e || entries.some((x) => x.id === e.id)) return recover(ctx, 'entry', data)
     entries.push(e)
   }
-  if (entries.filter((e) => !e.state).length > BENCHMARK_LIMITS.kept) return recover(ctx, 'the list of kept comparisons had too many entries', data)
+  if (entries.filter((e) => !e.state).length > BENCHMARK_LIMITS.kept) return recover(ctx, 'tooMany', data)
   const selected: Index['selected'] = {}
   const sel = data.selected && typeof data.selected === 'object' && !Array.isArray(data.selected) ? (data.selected as Record<string, unknown>) : {}
   for (const [k, v] of Object.entries(sel).slice(0, MAX_SELECTED)) {
@@ -281,27 +295,27 @@ async function reconcile(ctx: BenchContext, index: Index, files: Set<string>): P
     if (e.state === 'removing') {
       if (await removeFile(ctx, e.id)) {
         changed = true
-        notice(ctx, 'An interrupted removal was finished.')
+        notice(ctx, tr(msg({ id: 'service.benchmarks.removalFinished', defaultMessage: 'An interrupted removal was finished.', description: 'A note on the Performance page: removing a kept comparison was interrupted earlier, and Hive finished it.' })))
       } else next.push(e)
       continue
     }
     if (!files.has(e.id)) {
       changed = true
-      notice(ctx, 'A kept comparison’s file was gone: it was taken off the list.')
+      notice(ctx, tr(msg({ id: 'service.benchmarks.fileGone', defaultMessage: 'A kept comparison’s file was gone: it was taken off the list.', description: "A note on the Performance page: a kept comparison's file was missing, so it is no longer listed." })))
       continue
     }
     next.push(e)
   }
   const accounted = new Set(next.map((e) => e.id))
   const strays = [...files].filter((id) => !accounted.has(id) && !index.entries.some((e) => e.id === id && e.state === 'adding'))
-  if (strays.length) await quarantine(ctx, strays, `${strays.length} file${strays.length === 1 ? '' : 's'} not in the list ${strays.length === 1 ? 'was' : 'were'} moved to quarantine/`)
+  if (strays.length) await quarantine(ctx, strays, tr(M.strays, { n: strays.length }))
   const result: Index = { ...index, entries: next.map(({ state, txn, ...rest }) => (state ? { ...rest, state, txn } : rest)) }
   if (changed) await writeIndex(ctx, result)
   return result
 }
 
-/** Moves files out of the active folder into quarantine/ (never deleted there except past its cap, the oldest first). */
-async function quarantine(ctx: BenchContext, ids: string[], why: string): Promise<void> {
+/** Moves files out of the active folder into quarantine/ (never deleted there except past its cap, the oldest first), and says so (`said`). */
+async function quarantine(ctx: BenchContext, ids: string[], said: string): Promise<void> {
   live(ctx)
   const q = join(ctx.dir, 'quarantine')
   await mkdir(q, { recursive: true })
@@ -319,7 +333,7 @@ async function quarantine(ctx: BenchContext, ids: string[], why: string): Promis
     .sort((a, b) => a.m[1].localeCompare(b.m[1]) || a.m[2].localeCompare(b.m[2]) || a.m[3].localeCompare(b.m[3]))
   live(ctx)
   for (const { f } of recognised.slice(0, Math.max(0, recognised.length - MAX_QUARANTINE))) await rm(join(q, f), { force: true }).catch(() => undefined)
-  notice(ctx, `${why}.`)
+  notice(ctx, said)
 }
 
 /**
@@ -328,7 +342,7 @@ async function quarantine(ctx: BenchContext, ids: string[], why: string): Promis
  * readable. Nothing is deleted: invalid files, and valid ones past the limit, go to quarantine, so the rebuilt index
  * accounts for every file and stays valid afterwards.
  */
-async function recover(ctx: BenchContext, why: string, old?: Record<string, unknown> | null): Promise<Index> {
+async function recover(ctx: BenchContext, why: 'missing' | 'damaged' | 'entry' | 'tooMany', old?: Record<string, unknown> | null): Promise<Index> {
   live(ctx)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const setAside = await guardedRename(ctx, join(ctx.dir, 'index.json'), join(ctx.dir, `index.damaged-${stamp}-${randomBytes(3).toString('hex')}.json`)).then(
@@ -365,12 +379,12 @@ async function recover(ctx: BenchContext, why: string, old?: Record<string, unkn
   adopted.sort((x, y) => Number(y.pinned) - Number(x.pinned) || y.keptAt.localeCompare(x.keptAt))
   const entries = adopted.slice(0, BENCHMARK_LIMITS.kept)
   const overflow = adopted.slice(BENCHMARK_LIMITS.kept).map((e) => e.id)
-  if (invalid.length) await quarantine(ctx, invalid, `${invalid.length} file${invalid.length === 1 ? '' : 's'} that couldn’t be read ${invalid.length === 1 ? 'was' : 'were'} moved to quarantine/`)
-  if (overflow.length) await quarantine(ctx, overflow, `${overflow.length} more than can be listed ${overflow.length === 1 ? 'was' : 'were'} moved to quarantine/`)
+  if (invalid.length) await quarantine(ctx, invalid, tr(M.invalid, { n: invalid.length }))
+  if (overflow.length) await quarantine(ctx, overflow, tr(M.overflow, { n: overflow.length }))
   const index: Index = { version: 1, entries, selected: {} }
   await writeIndex(ctx, index)
-  notice(ctx, `Recovered: ${why}. ${entries.length} kept comparison${entries.length === 1 ? ' is' : 's are'} listed again${setAside ? '; the old list is kept as index.damaged-….json' : ''}`)
-  log.warn(`Rebuilt the kept comparisons' index (${why}): ${entries.length} listed, ${invalid.length} invalid and ${overflow.length} extra in quarantine`)
+  notice(ctx, tr(M.recovered, { reason: tr(M.why, { why }), n: entries.length, setAside: setAside ? 'yes' : 'no' }))
+  log.warn(`Rebuilt the kept comparisons' index (${englishText(withValues(M.why, { why }))}): ${entries.length} listed, ${invalid.length} invalid and ${overflow.length} extra in quarantine`)
   return index
 }
 
@@ -388,14 +402,14 @@ function keep(ctx: BenchContext, a: Artifact): Promise<KeptEntry> {
     const evicted: IndexEntry[] = []
     while (active.length - evicted.length >= BENCHMARK_LIMITS.kept) {
       const oldest = active.filter((e) => !e.pinned && !evicted.includes(e)).sort((x, y) => x.keptAt.localeCompare(y.keptAt))[0]
-      if (!oldest) throw new Error(`${BENCHMARK_LIMITS.kept} are kept and all are pinned: unpin or remove one first.`)
+      if (!oldest) throw hiveError(msg({ id: 'service.benchmarks.allPinned', defaultMessage: '{n} are kept and all are pinned: unpin or remove one first.', description: 'An error keeping a comparison on the Performance page: the most that can be kept ({n}) are kept, all pinned, so none can make room.' }), { n: BENCHMARK_LIMITS.kept }, { kind: 'conflict' })
       evicted.push(oldest)
     }
     // The change adds one entry to the index (the evicted ones stay, as removing, until their files are gone): refused,
     // before anything is recorded, if that would pass what the index may hold.
     if (index.entries.length + 1 > MAX_ENTRIES) {
       const waiting = index.entries.filter((e) => e.state === 'removing').length
-      throw new Error(`${waiting} removed comparison${waiting === 1 ? '’s file' : 's’ files'} couldn’t be deleted yet (in use?): nothing more can be kept until ${waiting === 1 ? 'it is' : 'they are'}. Hive retries each time it reads the list.`)
+      throw hiveError(msg({ id: 'service.benchmarks.stuck', defaultMessage: '{n, plural, one {# removed comparison’s file couldn’t be deleted yet (in use?): nothing more can be kept until it is.} other {# removed comparisons’ files couldn’t be deleted yet (in use?): nothing more can be kept until they are.}} Hive retries each time it reads the list.', description: "An error keeping a comparison on the Performance page: {n} removed comparisons' files couldn't be deleted yet (another program may have them open), and the list has no room until they are." }), { n: waiting }, { kind: 'conflict' })
     }
     const txn = randomBytes(6).toString('hex')
     const id = randomBytes(6).toString('hex')
@@ -421,7 +435,7 @@ function keep(ctx: BenchContext, a: Artifact): Promise<KeptEntry> {
       const gone = new Set<string>()
       for (const e of evicted) if (await removeFile(ctx, e.id)) gone.add(e.id)
       if (gone.size) await writeIndex(ctx, { ...index, entries: [...others, ...evicted.filter((e) => !gone.has(e.id)).map((e) => ({ ...e, state: 'removing' as const, txn })), entry] }).catch((err) => log.warn('recording evicted comparisons as removed', err))
-      if (gone.size < evicted.length) notice(ctx, 'An evicted comparison couldn’t be removed yet: Hive will try again.')
+      if (gone.size < evicted.length) notice(ctx, tr(msg({ id: 'service.benchmarks.evictedStays', defaultMessage: 'An evicted comparison couldn’t be removed yet: Hive will try again.', description: "A note on the Performance page: an old comparison taken off the list to make room couldn't be deleted yet; Hive tries again later." })))
     }
     return entry
   })
@@ -441,13 +455,13 @@ export async function importBenchmark(ctx: BenchContext, scope: CompareScope, fr
   if (from.token) {
     const p = pending.get(from.token)
     pending.delete(from.token)
-    if (!p || Date.now() - p.at > PENDING_MS || p.lifetime !== ctx.lifetime || p.lifetime.aborted || p.dir !== ctx.dir || p.scope !== compareScopeKey(scope)) return { error: 'That file is no longer waiting: import it again.' }
+    if (!p || Date.now() - p.at > PENDING_MS || p.lifetime !== ctx.lifetime || p.lifetime.aborted || p.dir !== ctx.dir || p.scope !== compareScopeKey(scope)) return { error: tr(msg({ id: 'service.benchmarks.notWaiting', defaultMessage: 'That file is no longer waiting: import it again.', description: 'An error importing a comparison on the Performance page: the file picked earlier is no longer held for the question that was asked about it.' })) }
     path = p.path
   }
-  if (!path) return { error: 'No file.' }
+  if (!path) return { error: tr(msg({ id: 'service.benchmarks.noFile', defaultMessage: 'No file.', description: 'An error importing a comparison on the Performance page: no file was given.' })) }
   const textValue = await readCapped(path, BENCHMARK_LIMITS.fileBytes)
   live(ctx)
-  if (textValue === null) return { error: `It is over ${BENCHMARK_LIMITS.fileBytes / 1024 / 1024} MB.` }
+  if (textValue === null) return { error: tr(msg({ id: 'service.benchmarks.tooLarge', defaultMessage: 'It is over {mb} MB.', description: 'An error importing a comparison on the Performance page: the file is larger than {mb} MB.' }), { mb: BENCHMARK_LIMITS.fileBytes / 1024 / 1024 }) }
   const parsed: ParseResult = parseArtifact(textValue, scope, { useProjectPart: from.useProjectPart })
   if ('error' in parsed) return parsed
   if ('projectPart' in parsed) {
@@ -466,7 +480,7 @@ export async function importBenchmark(ctx: BenchContext, scope: CompareScope, fr
  */
 export async function keepReport(ctx: BenchContext, report: MetricsReport, appVersion: string, label?: string): Promise<KeptEntry> {
   live(ctx)
-  if (report.workspacePath.toLowerCase() !== ctx.workspacePath.toLowerCase()) throw new Error('The workspace was switched: nothing was kept.')
+  if (report.workspacePath.toLowerCase() !== ctx.workspacePath.toLowerCase()) throw hiveError(msg({ id: 'service.benchmarks.switched', defaultMessage: 'The workspace was switched: nothing was kept.', description: "An error keeping the Performance page's report as a comparison: the window opened another workspace meanwhile." }), undefined, { kind: 'conflict' })
   const s = summaryOf(report, report.scope.kind === 'project' ? report.scope.project : undefined)
   const scope: CompareScope = report.scope.kind === 'project' ? { kind: 'project', project: report.scope.project } : report.filters?.own ? { kind: 'workspace', own: true } : { kind: 'workspace' }
   const a: Artifact = { schema: 'hive-metrics/1', kind: 'export', label: (label?.trim() || `Kept ${s.from.slice(0, 10)} to ${s.to.slice(0, 10)}`).slice(0, 80), createdAt: new Date().toISOString(), appVersion, scope, summary: s }
@@ -540,14 +554,14 @@ export async function listBenchmarks(ctx: BenchContext, scope: CompareScope): Pr
 
 /** One kept artifact, if it is this scope's: its index entry, the file itself and the scope asked for must all agree. */
 export async function readBenchmark(ctx: BenchContext, scope: CompareScope, id: string): Promise<Artifact> {
-  if (!ID.test(id)) throw new Error('No such comparison')
+  if (!ID.test(id)) throw hiveError(msg({ id: 'service.benchmarks.noSuch', defaultMessage: 'No such comparison', description: 'An error on the Performance page: the kept comparison asked for is not there.' }), undefined, { kind: 'notFound' })
   const index = await serial(ctx, () => readIndex(ctx))
   const entry = keptOf(index, scope, ctx).find((e) => e.id === id)
-  if (!entry) throw new Error('No such comparison for this scope')
+  if (!entry) throw hiveError(msg({ id: 'service.benchmarks.noSuchHere', defaultMessage: 'No such comparison for this scope', description: "An error on the Performance page: the kept comparison asked for isn't one of the scope shown (the workspace, or a project)." }), undefined, { kind: 'notFound' })
   const a = await readArtifactFile(ctx, id)
   live(ctx)
-  if (!a) throw new Error('That comparison file is missing or damaged: remove it and import it again.')
-  if (compareScopeKey(a.scope) !== compareScopeKey(entry.scope)) throw new Error('That comparison file doesn’t match its scope: remove it and import it again.')
+  if (!a) throw hiveError(msg({ id: 'service.benchmarks.damaged', defaultMessage: 'That comparison file is missing or damaged: remove it and import it again.', description: "An error on the Performance page: a kept comparison's file can't be read." }))
+  if (compareScopeKey(a.scope) !== compareScopeKey(entry.scope)) throw hiveError(msg({ id: 'service.benchmarks.wrongScope', defaultMessage: 'That comparison file doesn’t match its scope: remove it and import it again.', description: "An error on the Performance page: a kept comparison's file is of another scope than its entry in the list says." }))
   return a
 }
 
@@ -564,7 +578,7 @@ export function removeBenchmark(ctx: BenchContext, scope: CompareScope, id: stri
     const txn = randomBytes(6).toString('hex')
     const marked: Index = { ...index, entries: index.entries.map((e) => (e.id === id ? { ...e, state: 'removing' as const, txn } : e)) }
     await writeIndex(ctx, marked)
-    if (!(await removeFile(ctx, id))) throw new Error('It is off the list, but its file couldn’t be removed yet: Hive will try again.')
+    if (!(await removeFile(ctx, id))) throw hiveError(msg({ id: 'service.benchmarks.notRemoved', defaultMessage: 'It is off the list, but its file couldn’t be removed yet: Hive will try again.', description: "An error removing a kept comparison on the Performance page: it is no longer listed, but its file couldn't be deleted yet." }))
     await writeIndex(ctx, { ...index, entries: index.entries.filter((e) => e.id !== id) })
   })
 }

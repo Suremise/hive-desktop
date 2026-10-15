@@ -3,7 +3,9 @@ import { watch, type FSWatcher } from 'original-fs'
 import { readFile } from 'original-fs/promises'
 import { readFileSync } from 'original-fs'
 import { join } from 'path'
-import { ADVANCED_DEFS, advancedDef, advancedFileText, advancedRegExp, advancedRow, checkAdvanced, cliFacing, literalRegExp, parseAdvancedFile, type AdvancedDef, type AdvancedState, type MadeFor } from '../shared/advanced'
+import { ADVANCED_DEFS, advancedDef, advancedFileText, advancedRegExp, advancedRow, checkAdvanced, cliFacing, literalRegExp, parseAdvancedFile, withValues, type AdvancedDef, type AdvancedState, type MadeFor, type Text } from '../shared/advanced'
+import { msg } from '../shared/i18n'
+import { HiveError, hiveError } from './hiveError'
 import type { AppSettings, ProviderId } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'
 import { emit } from './events'
@@ -30,6 +32,8 @@ export class AdvancedStore {
   private madeFor: Record<string, MadeFor> = {}
   private unknown: string[] = []
   private fileError: string | null = null
+  /** `fileError` as text for the window (#850). */
+  private fileErrorText: Text | null = null
   /** The file's text as Hive last read or wrote it: a change from elsewhere is one that differs. */
   private text: string | null = null
   private loaded = false
@@ -72,13 +76,16 @@ export class AdvancedStore {
       this.madeFor = {}
       this.unknown = []
       this.fileError = null
+      this.fileErrorText = null
     } else {
       const parsed = parseAdvancedFile(text)
       if ('error' in parsed) {
         this.fileError = parsed.error
+        this.fileErrorText = parsed.errorText
         log.warn(`advanced.json: ${parsed.error} (keeping the values read before)`)
       } else {
         this.fileError = null
+        this.fileErrorText = null
         this.values = parsed.values
         this.unknown = parsed.unknown
         // A value edited by hand is made for the CLI installed now: its old record was for another value. Written back to
@@ -172,7 +179,7 @@ export class AdvancedStore {
   /** The value Hive uses: the override if it checks out (else the default, warned once), or the workspace's own when given. */
   get<T extends string | number | string[] | boolean>(id: string, workspaceValues?: Record<string, unknown> | null): T {
     const def = advancedDef(id)
-    if (!def) throw new Error(`No advanced setting "${id}"`)
+    if (!def) throw new Error(`No advanced setting "${id}"`) // i18n-ignore: a programming error (an id Hive's code asks for), for the log
     const row = advancedRow(def, { values: this.values, madeFor: this.madeFor, workspace: workspaceValues ?? null, cli: this.cli })
     if (row.problem && !this.warned.has(id)) {
       this.warned.add(id)
@@ -199,7 +206,7 @@ export class AdvancedStore {
 
   /** The state Settings → Advanced shows, with a workspace's own values. */
   state(workspaceValues: Record<string, unknown> | null): AdvancedState {
-    return { file: this.loaded ? this.path : '', fileError: this.fileError, values: { ...this.values }, madeFor: { ...this.madeFor }, unknown: [...this.unknown], workspace: workspaceValues ? { ...workspaceValues } : null, cli: { ...this.cli } }
+    return { file: this.loaded ? this.path : '', fileError: this.fileError, fileErrorText: this.fileErrorText, values: { ...this.values }, madeFor: { ...this.madeFor }, unknown: [...this.unknown], workspace: workspaceValues ? { ...workspaceValues } : null, cli: { ...this.cli } }
   }
 
   /** The overrides as they are (for the settings catalog's tools). */
@@ -228,8 +235,8 @@ export class AdvancedStore {
   /** Sets an override now: only inside transact (or set), in a change's turn. */
   async setNow(id: string, raw: unknown): Promise<void> {
     const def = advancedDef(id)
-    if (!def) throw new Error(`No advanced setting "${id}".`)
-    if (this.fileError) throw new Error(`${this.fileError} Fix advanced.json (Settings → Advanced → Open advanced.json) before changing settings here.`)
+    if (!def) throw hiveError(msg({ id: 'service.advanced.unknown', defaultMessage: 'No advanced setting "{id}".', description: 'An error changing an advanced setting: Hive has none with the id {id}.' }), { id })
+    if (this.fileError) throw hiveError(msg({ id: 'service.advanced.fixFirst', defaultMessage: '{problem} Fix advanced.json (Settings → Advanced → Open advanced.json) before changing settings here.', description: "An error changing an advanced setting while advanced.json (a file name: keep it) can't be read; {problem} says why, a sentence. Settings → Advanced → Open advanced.json is where to open it: use its translated names." }), { problem: this.fileText() })
     const values = { ...this.values }
     const madeFor = { ...this.madeFor }
     if (raw === null || raw === undefined) {
@@ -237,7 +244,7 @@ export class AdvancedStore {
       delete madeFor[id]
     } else {
       const checked = checkAdvanced(def, raw)
-      if ('error' in checked) throw new Error(checked.error)
+      if ('error' in checked) throw new HiveError(checked.errorText)
       if (JSON.stringify(checked.value) === JSON.stringify(def.default)) {
         // The default itself is no override.
         delete values[id]
@@ -255,7 +262,7 @@ export class AdvancedStore {
     return this.serial(async () => {
       const def = advancedDef(id)
       if (!def || !cliFacing(def) || this.values[id] === undefined) return
-      if (this.fileError) throw new Error(this.fileError)
+      if (this.fileError) throw new HiveError(this.fileText())
       await this.write(this.values, { ...this.madeFor, [id]: { version: this.cli[def.group as ProviderId] ?? null, value: this.values[id] } })
     })
   }
@@ -266,7 +273,7 @@ export class AdvancedStore {
    */
   resetAll(): Promise<void> {
     return this.serial(async () => {
-      if (this.fileError) throw new Error(`${this.fileError} Fix or delete advanced.json first (Settings → Advanced → Open advanced.json).`)
+      if (this.fileError) throw hiveError(msg({ id: 'service.advanced.fixOrDelete', defaultMessage: '{problem} Fix or delete advanced.json first (Settings → Advanced → Open advanced.json).', description: "An error resetting every advanced setting while advanced.json (a file name: keep it) can't be read; {problem} says why, a sentence. Settings → Advanced → Open advanced.json is where to open it: use its translated names." }), { problem: this.fileText() })
       await this.write(Object.fromEntries(Object.entries(this.values).filter(([id]) => !advancedDef(id))), {})
     })
   }
@@ -279,7 +286,7 @@ export class AdvancedStore {
     } catch (e) {
       if ((e as Error).message === 'CONFLICT') {
         await this.reload()
-        throw new Error('advanced.json was changed outside Hive meanwhile: Settings shows it now. Try again.', { cause: e })
+        throw hiveError(msg({ id: 'service.advanced.changedOutside', defaultMessage: 'advanced.json was changed outside Hive meanwhile: Settings shows it now. Try again.', description: "An error changing an advanced setting: advanced.json (a file name: keep it) was edited elsewhere meanwhile, so the change wasn't written." }), undefined, { kind: 'conflict', cause: e })
       }
       throw e
     }
@@ -307,6 +314,11 @@ export class AdvancedStore {
     this.writeRecords()
   }
 
+  /** Why advanced.json can't be used, as text (its English when it came from before #850). */
+  private fileText(): Text {
+    return this.fileErrorText ?? withValues(msg({ id: 'service.advanced.asIs', defaultMessage: '{problem}', description: "Why advanced.json can't be used, in English (kept from before Hive translated it). Keep it as {problem} alone." }), { problem: this.fileError ?? '' })
+  }
+
   /** Help → Copy Diagnostics: how many overrides, which (Hive's names, no values), and which need a look. */
   diagnostics(workspaces: (Record<string, unknown> | null)[]): string[] {
     const ids = Object.keys(this.values).filter((id) => advancedDef(id)).sort()
@@ -315,11 +327,11 @@ export class AdvancedStore {
     const other = rows.filter((r) => r.madeForOther).map((r) => r.def.id)
     const own = workspaces.reduce((n, w) => n + Object.keys(w ?? {}).length, 0)
     return [
-      `- Advanced settings: ${ids.length ? `${ids.length} override${ids.length === 1 ? '' : 's'} (${ids.join(', ')})` : 'no overrides'}${own ? `; ${own} workspace value${own === 1 ? '' : 's'}` : ''}`,
-      ...(invalid.length ? [`  - not valid, so the default is used: ${invalid.join(', ')}`] : []),
-      ...(other.length ? [`  - made for another CLI version than the installed one: ${other.join(', ')}`] : []),
-      ...(this.unknown.length ? [`  - unknown to this Hive: ${this.unknown.length}`] : []),
-      ...(this.fileError ? ["  - advanced.json can't be read as it is now"] : [])
+      `- Advanced settings: ${ids.length ? `${ids.length} override${ids.length === 1 ? '' : 's'} (${ids.join(', ')})` : 'no overrides'}${own ? `; ${own} workspace value${own === 1 ? '' : 's'}` : ''}`, // i18n-ignore: Help → Copy Diagnostics, a report in English
+      ...(invalid.length ? [`  - not valid, so the default is used: ${invalid.join(', ')}`] : []), // i18n-ignore: Help → Copy Diagnostics, a report in English
+      ...(other.length ? [`  - made for another CLI version than the installed one: ${other.join(', ')}`] : []), // i18n-ignore: Help → Copy Diagnostics, a report in English
+      ...(this.unknown.length ? [`  - unknown to this Hive: ${this.unknown.length}`] : []), // i18n-ignore: Help → Copy Diagnostics, a report in English
+      ...(this.fileError ? ["  - advanced.json can't be read as it is now"] : []) // i18n-ignore: Help → Copy Diagnostics, a report in English
     ]
   }
 

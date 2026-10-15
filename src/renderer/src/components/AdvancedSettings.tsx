@@ -43,7 +43,7 @@ export function AdvancedSettings({ query, modifiedOnly: outerModified }: { query
       </div>
       {state.fileError && (
         <div className="advanced-note error" role="alert">
-          <Icon name="warning" /> {tr(msg({ id: 'settings.advancedList.fileError', defaultMessage: '{problem} Hive keeps using the values it read before; fix the file to change them.', description: "Above Settings → Advanced's list when advanced.json can't be read. {problem} says why (in English for now)." }), { problem: state.fileError })}
+          <Icon name="warning" /> {tr(msg({ id: 'settings.advancedList.fileError', defaultMessage: '{problem} Hive keeps using the values it read before; fix the file to change them.', description: "Above Settings → Advanced's list when advanced.json can't be read. {problem} says why, a sentence of its own." }), { problem: state.fileErrorText ? shownText(state.fileErrorText) : state.fileError })}
         </div>
       )}
       {state.unknown.length > 0 && (

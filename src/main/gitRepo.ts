@@ -30,7 +30,11 @@ import { samePath } from '../shared/movePaths'
 import { checkProject } from './branchWatch'
 import { samePlace, withFileLock } from './fsutil'
 import { git, type GitResult } from './git'
-import { gitProblem } from './gitTool'
+import { gitProblem, gitTool } from './gitTool'
+import { gitProblemData } from '../shared/gitTool'
+import { englishText, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
+import { fmt, msg, tr, type Msg } from '../shared/i18n'
+import { HiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { mergeSlots } from './mergeSlotHost'
 import { sessions } from './sessions'
@@ -56,21 +60,54 @@ function networkEnv(): NodeJS.ProcessEnv {
 const net = (cwd: string, args: string[]): Promise<GitResult> => git(cwd, args, 16 * 1024 * 1024, undefined, { env: networkEnv(), timeout: NETWORK_MS })
 
 /**
+ * The Git view's words (#850): what an action did, why it was refused or failed. Only the window reads them, so what an
+ * action did is said in its language at once (`tr`), and a refusal is a HiveError (English to the log, the window's
+ * language through IPC). Git's own words stay as git said them.
+ */
+const M = {
+  asShown: msg({ id: 'service.gitRepo.asShown', defaultMessage: '{problem}', description: "Why a Git view action was refused, said in the window's language already. Keep it as {problem} alone." }),
+  gaveUp: msg({ id: 'service.gitRepo.gaveUp', defaultMessage: 'git gave up after {minutes} minutes (no answer from the remote, or a sign-in left open).', description: 'Why fetching, pulling or pushing failed: git waited {minutes} minutes for the remote (or a sign-in window) and stopped.' }),
+  exitCode: msg({ id: 'service.gitRepo.exitCode', defaultMessage: 'exit code {code}', description: 'Why a git command failed when git said nothing: the number it exited with.' }),
+  command: msg({ id: 'service.gitRepo.command', defaultMessage: '{command}: {why}', description: "An error in the Git view: a git command ({command}, as it is: \"git log\") failed; {why} is git's own words, or why git can't run." }),
+  switchFailed: msg({ id: 'service.gitRepo.switchFailed', defaultMessage: "Couldn't switch to {branch}: {why}", description: "An error switching the project folder to the branch {branch}; {why} is git's own words." }),
+  createFailed: msg({ id: 'service.gitRepo.createFailed', defaultMessage: "Couldn't create {name}: {why}", description: "An error creating the branch or tag {name}; {why} is git's own words." }),
+  noCommits: msg({ id: 'service.gitRepo.noCommits', defaultMessage: 'The repository has no commits yet: commit something first.', description: 'An error creating a branch in a repository with no commit yet.' }),
+  noRemote: msg({ id: 'service.gitRepo.noRemote', defaultMessage: "There's no remote {remote}.", description: 'An error pushing or tagging: the repository has no remote called {remote}.' }),
+  fetchFailed: msg({ id: 'service.gitRepo.fetchFailed', defaultMessage: "Couldn't fetch: {why}", description: "An error fetching from the repository's remotes; {why} is git's own words (any password in a URL hidden)." }),
+  badName: msg({ id: 'service.gitRepo.badName', defaultMessage: "{kind, select, tag {{hasName, select, yes {{name} isn't a valid tag name.} other {That isn't a valid tag name.}}} other {{hasName, select, yes {{name} isn't a valid branch name.} other {That isn't a valid branch name.}}}}", description: "An error creating a branch or a tag ({kind}): its name {name} is one git refuses. {hasName} is no when no name was given (then it says That)." })
+}
+
+/** A refusal said in the window's language already (a shared helper's, which formats it at once), as a HiveError. */
+const asShown = (problem: string): HiveError => new HiveError(withValues(M.asShown, { problem }))
+
+/** A refusal or failure from a message and its values. */
+const refusal = (m: Msg, values?: TextValues): HiveError => new HiveError(values ? withValues(m, values) : m)
+
+/**
  * Git's own words for a failure, a few lines of them (a switch lists the files in the way), without its hints, and with
  * every URL it quotes shown without its password or token (`redactUrlsIn`): the message reaches the window and the log.
  */
 export function gitSays(r: GitResult): string {
-  if (r.timedOut) return `git gave up after ${NETWORK_MS / 60_000} minutes (no answer from the remote, or a sign-in left open).`
+  return shownText(gitSaid(r))
+}
+
+/** gitSays as text: git's own lines as they came, Hive's words (it gave up, an exit code alone) as a message. */
+function gitSaid(r: GitResult): TextPart {
+  if (r.timedOut) return withValues(M.gaveUp, { minutes: NETWORK_MS / 60_000 })
   const lines = `${r.err}\n${r.out}`
     .split(/\r?\n/)
     .map((l) => l.replace(/^(error|fatal): /, '').trimEnd())
     .filter((l) => l.trim() && !l.startsWith('hint:'))
-  return redactUrlsIn(lines.slice(0, 8).join('\n')) || `exit code ${r.code}`
+  return redactUrlsIn(lines.slice(0, 8).join('\n')) || withValues(M.exitCode, { code: r.code })
 }
 
-function failed(what: string, r: GitResult): Error {
-  return new Error(`${what}: ${gitProblem() ?? gitSays(r)}`)
+/** A git command's failure: the message `m` with its values and `why` (git's own words, or why git can't run). */
+function failed(m: Msg, values: TextValues, r: GitResult): Error {
+  return refusal(m, { ...values, why: gitProblemData(gitTool()) ?? gitSaid(r) })
 }
+
+/** A failed git command, named as it is ("git log"). */
+const commandFailed = (command: string, r: GitResult): Error => failed(M.command, { command }, r)
 
 const EMPTY: GitRepoSummary = { isRepo: false, branch: null, head: null, state: null, upstream: null, remotes: [], fetchedAt: null }
 
@@ -101,20 +138,20 @@ export async function repoSummary(root: string): Promise<GitRepoSummary> {
   if (!dir.ok) {
     if (gitProblem()) return { ...EMPTY, gitProblem: gitProblem()! }
     if (/not a git repository/i.test(dir.err)) return EMPTY
-    throw failed('git rev-parse', dir)
+    throw commandFailed('git rev-parse', dir) // i18n-ignore: a git command, as it is
   }
   const [gitDir, top] = dir.out.split(/\r?\n/).map((l) => l.trim())
   // A folder inside another repository (a workspace kept in git) shows it, but changes nothing of it.
   const parentRepo = top && !samePlace(top, root) ? resolve(top) : undefined
   const [sym, head, remotes] = await Promise.all([git(root, ['symbolic-ref', '-q', '--short', 'HEAD']), git(root, ['rev-parse', '-q', '--verify', '--short', 'HEAD']), git(root, ['remote'])])
   // symbolic-ref says 1 for a detached HEAD; anything else is a failure, not "detached" (#346).
-  if (!sym.ok && sym.code !== 1) throw failed('git symbolic-ref', sym)
-  if (!remotes.ok) throw failed('git remote', remotes)
+  if (!sym.ok && sym.code !== 1) throw commandFailed('git symbolic-ref', sym) // i18n-ignore: a git command, as it is
+  if (!remotes.ok) throw commandFailed('git remote', remotes) // i18n-ignore: a git command, as it is
   const branch = sym.ok ? sym.out.trim() : null
   let upstream: GitRepoSummary['upstream'] = null
   if (branch) {
     const r = await git(root, ['for-each-ref', '--format=%(refname)%00%(upstream:short)%00%(upstream:remotename)%00%(upstream:track,nobracket)', `refs/heads/${branch}`])
-    if (!r.ok) throw failed('git for-each-ref', r)
+    if (!r.ok) throw commandFailed('git for-each-ref', r) // i18n-ignore: a git command, as it is
     const row = r.out.split('\n').map((l) => l.split('\0')).find((f) => f[0] === `refs/heads/${branch}`)
     if (row?.[1]) upstream = { name: row[1], remote: row[2] && row[2] !== '.' ? row[2] : null, ...parseTrack(row[3] ?? '') }
     if (upstream && !upstream.gone) delete upstream.gone
@@ -185,8 +222,8 @@ export async function repoInfo(root: string): Promise<GitRepoInfo> {
     git(root, ['worktree', 'list', '--porcelain']),
     identity(root)
   ])
-  if (!refs.ok) throw failed('git for-each-ref', refs)
-  if (!remotes.ok) throw failed('git remote', remotes)
+  if (!refs.ok) throw commandFailed('git for-each-ref', refs) // i18n-ignore: a git command, as it is
+  if (!remotes.ok) throw commandFailed('git remote', remotes) // i18n-ignore: a git command, as it is
   const worktrees = wts.ok ? parseWorktrees(wts.out) : []
   const branches: GitBranchRow[] = []
   const remoteBranches: string[] = []
@@ -211,8 +248,8 @@ export async function repoHistory(root: string): Promise<GitHistory> {
     git(root, ['log', '-n', String(HISTORY_COMMITS), '--format=%H%x00%h%x00%an%x00%ae%x00%at%x00%D%x00%s%x1e', 'HEAD', '--']),
     git(root, ['for-each-ref', '--sort=-creatordate', '--format=%(refname:short)%00%(objecttype)%00%(*objectname:short)%00%(objectname:short)%00%(creatordate:unix)%00%(contents:subject)%00%(*subject)', 'refs/tags'])
   ])
-  if (!log_.ok) throw failed('git log', log_)
-  if (!tags.ok) throw failed('git for-each-ref', tags)
+  if (!log_.ok) throw commandFailed('git log', log_) // i18n-ignore: a git command, as it is
+  if (!tags.ok) throw commandFailed('git for-each-ref', tags) // i18n-ignore: a git command, as it is
   const commits = log_.out
     .split('\x1e')
     .map((r) => r.replace(/^\r?\n/, ''))
@@ -261,8 +298,22 @@ async function scrubbed(projectPath: string, e: unknown, urls: string[]): Promis
   const r = await git(projectPath, ['config', '--get-regexp', String.raw`^remote\..*\.(push)?url$`])
   const configured = r.ok ? r.out.split(/\r?\n/).filter(Boolean).map((l) => l.slice(l.indexOf(' ') + 1)) : []
   const secrets = [...new Set([...configured, ...urls].flatMap(urlSecrets))].sort((a, b) => b.length - a.length)
+  // A HiveError's text is cleaned part by part (git's words are values), so the window's language never brings one back.
+  if (e instanceof HiveError) {
+    const text = scrubText(e.text, secrets) as Text
+    return englishText(text) === e.message ? e : new HiveError(text, e.kind ? { kind: e.kind } : undefined)
+  }
   const message = scrubSecrets(e.message, secrets)
   return message === e.message ? e : new Error(message)
+}
+
+/** Text with every part of its own (git's words, a URL) cleaned of `secrets`; messages and numbers as they are. */
+function scrubText(t: TextPart, secrets: string[]): TextPart {
+  if (typeof t === 'string') return scrubSecrets(t, secrets)
+  if (typeof t === 'number' || 'id' in t) return t
+  if ('list' in t) return { ...t, list: t.list.map((x) => scrubText(x, secrets)) }
+  if ('lines' in t) return { lines: t.lines.map((x) => scrubText(x, secrets)) }
+  return { m: t.m, values: Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, scrubText(v, secrets)])) }
 }
 
 /** The project's agents working in its folder (not a worktree), with their sessions' status. */
@@ -289,13 +340,13 @@ function folderSlots(projectPath: string): FolderSlot[] {
  */
 async function changeFolder<T>(projectPath: string, action: GitFolderAction, branch: string | null, fn: () => Promise<T>): Promise<T> {
   const why = folderBusy(await folderAgents(projectPath), folderSlots(projectPath), action)
-  if (why) throw new Error(why)
+  if (why) throw asShown(why)
   const locked = (): Promise<T> =>
     withFileLock(join(projectPath, '.git', 'hive-merge'), async () => {
       // The slot is this action's own now (asUser refuses when anyone else holds or waits for it); without a branch to
       // hold it for (a detached HEAD), the slots are checked again too.
       const now = folderBusy(await folderAgents(projectPath), branch ? [] : folderSlots(projectPath), action)
-      if (now) throw new Error(now)
+      if (now) throw asShown(now)
       return fn()
     })
   return branch ? mergeSlots.asUser(projectPath, branch, locked) : locked()
@@ -309,10 +360,10 @@ async function changed(projectPath: string): Promise<void> {
 
 async function summaryOf(projectPath: string): Promise<GitRepoSummary> {
   const s = await repoSummary(projectPath)
-  if (s.gitProblem) throw new Error(s.gitProblem)
-  if (!s.isRepo) throw new Error(`${projectPath} isn't a git repository.`)
+  if (s.gitProblem) throw new HiveError(gitProblemData(gitTool()) ?? withValues(M.asShown, { problem: s.gitProblem }))
+  if (!s.isRepo) throw refusal(msg({ id: 'service.gitRepo.notRepo', defaultMessage: "{folder} isn't a git repository.", description: 'An error in the Git view: the project folder {folder} is not in a git repository.' }), { folder: projectPath })
   const parent = parentRepoText(s)
-  if (parent) throw new Error(parent)
+  if (parent) throw asShown(parent)
   return s
 }
 
@@ -325,17 +376,19 @@ export async function switchBranch(projectPath: string, target: string): Promise
   projectPath = workspace.assertProject(projectPath)
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (target === s.branch) return `Already on ${target}.`
+    if (target === s.branch) return tr(msg({ id: 'service.gitRepo.alreadyOn', defaultMessage: 'Already on {branch}.', description: 'After switching branch in the Git view: the project folder was on {branch} already.' }), { branch: target })
     const info = await repoInfo(projectPath)
     const local = info.branches.find((b) => b.name === target) ?? ((await git(projectPath, ['show-ref', '--verify', '-q', `refs/heads/${target}`])).ok ? { worktree: null } : null)
     const remote = !local && info.remoteBranches.includes(target)
-    if (!local && !remote) throw new Error(`There's no branch ${target}.`)
-    if (local?.worktree) throw new Error(`${target} is checked out in another worktree (${local.worktree}): a branch can be in only one folder at a time.`)
+    if (!local && !remote) throw refusal(msg({ id: 'service.gitRepo.noBranch', defaultMessage: "There's no branch {branch}.", description: 'An error switching branch in the Git view: the repository has no branch called {branch}.' }), { branch: target })
+    if (local?.worktree) throw refusal(msg({ id: 'service.gitRepo.inWorktree', defaultMessage: '{branch} is checked out in another worktree ({folder}): a branch can be in only one folder at a time.', description: 'An error switching branch in the Git view: the branch {branch} is checked out in the worktree {folder}.' }), { branch: target, folder: local.worktree })
     const r = await changeFolder(projectPath, 'switch', s.branch, () => git(projectPath, local ? ['checkout', '-q', target, '--'] : ['checkout', '-q', '--track', target, '--']))
-    if (!r.ok) throw failed(`Couldn't switch to ${target}`, r)
+    if (!r.ok) throw failed(M.switchFailed, { branch: target }, r)
     log.info(`Switched ${userText(projectPath)} to ${userText(target)}`)
     await changed(projectPath)
-    return local ? `Switched to ${target}.` : `Switched to ${target.slice(target.indexOf('/') + 1)}, tracking ${target}.`
+    return local
+      ? tr(msg({ id: 'service.gitRepo.switched', defaultMessage: 'Switched to {branch}.', description: 'After switching branch in the Git view: the project folder is on {branch} now.' }), { branch: target })
+      : tr(msg({ id: 'service.gitRepo.switchedTracking', defaultMessage: 'Switched to {branch}, tracking {remote}.', description: 'After switching to a remote branch in the Git view: a new local branch {branch} was made, following the remote branch {remote} (origin/x).' }), { branch: target.slice(target.indexOf('/') + 1), remote: target })
   })
 }
 
@@ -345,19 +398,19 @@ export async function createBranch(projectPath: string, name: string, stay = fal
   name = name.trim()
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (!name || name.startsWith('-') || !(await refFormatOk(projectPath, ['--branch', name]))) throw new Error(`${name || 'That'} isn't a valid branch name.`)
-    if (!s.head) throw new Error('The repository has no commits yet: commit something first.')
+    if (!name || name.startsWith('-') || !(await refFormatOk(projectPath, ['--branch', name]))) throw refusal(M.badName, { kind: 'branch', hasName: name ? 'yes' : 'no', name })
+    if (!s.head) throw refusal(M.noCommits)
     if (stay) {
       const r = await git(projectPath, ['branch', '--no-track', name])
-      if (!r.ok) throw failed(`Couldn't create ${name}`, r)
+      if (!r.ok) throw failed(M.createFailed, { name }, r)
       log.info(`Created branch ${userText(name)} in ${userText(projectPath)}`)
-      return `Created ${name} at ${s.head}.`
+      return tr(msg({ id: 'service.gitRepo.createdAt', defaultMessage: 'Created {name} at {commit}.', description: 'After creating a branch in the Git view without switching to it: {name} starts at the commit {commit} (a short hash).' }), { name, commit: s.head })
     }
     const r = await changeFolder(projectPath, 'create', s.branch, () => git(projectPath, ['checkout', '-q', '--no-track', '-b', name, '--']))
-    if (!r.ok) throw failed(`Couldn't create ${name}`, r)
+    if (!r.ok) throw failed(M.createFailed, { name }, r)
     log.info(`Created and switched to ${userText(name)} in ${userText(projectPath)}`)
     await changed(projectPath)
-    return `Created ${name} and switched to it.`
+    return tr(msg({ id: 'service.gitRepo.createdSwitched', defaultMessage: 'Created {name} and switched to it.', description: 'After creating a branch in the Git view: the project folder is on the new branch {name}.' }), { name })
   })
 }
 
@@ -366,13 +419,13 @@ export async function addRemote(projectPath: string, name: string, url: string):
   name = name.trim()
   url = url.trim()
   const problem = remoteNameProblem(name) ?? remoteUrlProblem(url)
-  if (problem) throw new Error(problem)
+  if (problem) throw asShown(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     const r = await git(projectPath, ['remote', 'add', '--', name, url])
-    if (!r.ok) throw failed(`Couldn't add ${name}`, r)
+    if (!r.ok) throw failed(msg({ id: 'service.gitRepo.addFailed', defaultMessage: "Couldn't add {remote}: {why}", description: "An error adding the remote {remote} in the Git view; {why} is git's own words." }), { remote: name }, r)
     log.info(`Added remote ${userText(name)} to ${userText(projectPath)}`)
-    return `Added ${name}.`
+    return tr(msg({ id: 'service.gitRepo.added', defaultMessage: 'Added {remote}.', description: 'After adding a remote in the Git view: {remote} is its name.' }), { remote: name })
   }, [url])
 }
 
@@ -381,13 +434,13 @@ export async function setRemoteUrl(projectPath: string, name: string, url: strin
   projectPath = workspace.assertProject(projectPath)
   url = url.trim()
   const problem = remoteUrlProblem(url)
-  if (problem) throw new Error(problem)
+  if (problem) throw asShown(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     const r = await git(projectPath, ['remote', 'set-url', '--', name, url])
-    if (!r.ok) throw failed(`Couldn't change ${name}'s URL`, r)
+    if (!r.ok) throw failed(msg({ id: 'service.gitRepo.urlFailed', defaultMessage: "Couldn't change {remote}'s URL: {why}", description: "An error changing the address of the remote {remote} in the Git view; {why} is git's own words." }), { remote: name }, r)
     log.info(`Changed remote ${userText(name)}'s URL in ${userText(projectPath)}`)
-    return `Changed ${name}'s URL.`
+    return tr(msg({ id: 'service.gitRepo.urlChanged', defaultMessage: "Changed {remote}'s URL.", description: 'After changing the address of the remote {remote} in the Git view.' }), { remote: name })
   }, [url])
 }
 
@@ -396,12 +449,12 @@ export async function fetchAll(projectPath: string): Promise<string> {
   projectPath = workspace.assertProject(projectPath)
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (!s.remotes.length) throw new Error('This repository has no remotes to fetch from: add one first.')
+    if (!s.remotes.length) throw refusal(msg({ id: 'service.gitRepo.noRemotesFetch', defaultMessage: 'This repository has no remotes to fetch from: add one first.', description: 'An error fetching in the Git view: the repository has no remote.' }))
     const r = await net(projectPath, ['fetch', '--all'])
-    if (!r.ok) throw failed("Couldn't fetch", r)
+    if (!r.ok) throw failed(M.fetchFailed, {}, r)
     log.info(`Fetched ${userText(projectPath)}`)
     void checkProject(projectPath)
-    return `Fetched ${s.remotes.join(', ')}.`
+    return tr(msg({ id: 'service.gitRepo.fetched', defaultMessage: 'Fetched {remotes}.', description: "After fetching in the Git view: {remotes} lists the remotes fetched from (their names), in the language's way." }), { remotes: fmt.list(s.remotes) })
   })
 }
 
@@ -413,26 +466,26 @@ export async function pull(projectPath: string): Promise<string> {
   projectPath = workspace.assertProject(projectPath)
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (!s.branch) throw new Error('HEAD is detached: switch to a branch to pull.')
-    if (!s.upstream) throw new Error(`${s.branch} tracks no remote branch: push it first, or switch to one that does.`)
-    if (s.state) throw new Error(`Git is in the middle of a ${s.state}: finish or abort it first.`)
+    if (!s.branch) throw refusal(msg({ id: 'service.gitRepo.detachedPull', defaultMessage: 'HEAD is detached: switch to a branch to pull.', description: 'An error pulling in the Git view: the project folder is on no branch (a detached HEAD: keep HEAD as it is).' }))
+    if (!s.upstream) throw refusal(msg({ id: 'service.gitRepo.noUpstream', defaultMessage: '{branch} tracks no remote branch: push it first, or switch to one that does.', description: 'An error pulling in the Git view: the branch {branch} follows no remote branch.' }), { branch: s.branch })
+    if (s.state) throw refusal(msg({ id: 'service.gitRepo.midOperation', defaultMessage: 'Git is in the middle of a {state}: finish or abort it first.', description: "An error pulling in the Git view: a git operation is under way in the project folder; {state} is git's word for it (merge, rebase, cherry-pick, revert or bisect: keep it as it is)." }), { state: s.state })
     // Refused before the fetch too, so a pull that can't go ahead doesn't wait on the network first.
     const why = folderBusy(await folderAgents(projectPath), folderSlots(projectPath), 'pull')
-    if (why) throw new Error(why)
+    if (why) throw asShown(why)
     if (s.upstream.remote) {
       const f = await net(projectPath, ['fetch', '--', s.upstream.remote])
-      if (!f.ok) throw failed("Couldn't fetch", f)
+      if (!f.ok) throw failed(M.fetchFailed, {}, f)
     }
     const now = await summaryOf(projectPath)
     const u = now.upstream
-    if (!u || u.gone) throw new Error(`${s.upstream.name} is gone from the remote.`)
-    if (u.behind === 0) return `${now.branch} is up to date with ${u.name}.`
-    if (u.ahead > 0) throw new Error(`${now.branch} and ${u.name} have diverged (${u.ahead} commit${u.ahead === 1 ? '' : 's'} here, ${u.behind} there), so pulling needs a merge or rebase. Do that in a terminal, or ask an agent to.`)
+    if (!u || u.gone) throw refusal(msg({ id: 'service.gitRepo.upstreamGone', defaultMessage: '{upstream} is gone from the remote.', description: 'An error pulling in the Git view: the remote branch {upstream} the branch follows was deleted there.' }), { upstream: s.upstream.name })
+    if (u.behind === 0) return tr(msg({ id: 'service.gitRepo.upToDate', defaultMessage: '{branch} is up to date with {upstream}.', description: 'After pulling in the Git view: the branch {branch} has every commit of the remote branch {upstream} already.' }), { branch: now.branch ?? '', upstream: u.name })
+    if (u.ahead > 0) throw refusal(msg({ id: 'service.gitRepo.diverged', defaultMessage: '{branch} and {upstream} have diverged ({ahead, plural, one {# commit} other {# commits}} here, {behind} there), so pulling needs a merge or rebase. Do that in a terminal, or ask an agent to.', description: 'An error pulling in the Git view: the branch {branch} has {ahead} commits the remote branch {upstream} hasn\'t, and it has {behind} the branch hasn\'t; Hive pulls only when no merge is needed.' }), { branch: now.branch ?? '', upstream: u.name, ahead: u.ahead, behind: u.behind })
     const r = await changeFolder(projectPath, 'pull', now.branch, () => git(projectPath, ['merge', '--ff-only', '@{upstream}']))
-    if (!r.ok) throw failed("Couldn't pull", r)
+    if (!r.ok) throw failed(msg({ id: 'service.gitRepo.pullFailed', defaultMessage: "Couldn't pull: {why}", description: "An error pulling in the Git view; {why} is git's own words." }), {}, r)
     log.info(`Pulled ${userText(projectPath)}`)
     await changed(projectPath)
-    return `Pulled ${u.behind} commit${u.behind === 1 ? '' : 's'} from ${u.name}.`
+    return tr(msg({ id: 'service.gitRepo.pulled', defaultMessage: 'Pulled {n, plural, one {# commit} other {# commits}} from {upstream}.', description: 'After pulling in the Git view: {n} commits came from the remote branch {upstream}.' }), { n: u.behind, upstream: u.name })
   })
 }
 
@@ -441,8 +494,8 @@ export async function push(projectPath: string, remote?: string): Promise<string
   projectPath = workspace.assertProject(projectPath)
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (!s.branch) throw new Error('HEAD is detached: switch to a branch to push.')
-    if (!s.head) throw new Error('The repository has no commits yet: nothing to push.')
+    if (!s.branch) throw refusal(msg({ id: 'service.gitRepo.detachedPush', defaultMessage: 'HEAD is detached: switch to a branch to push.', description: 'An error pushing in the Git view: the project folder is on no branch (a detached HEAD: keep HEAD as it is).' }))
+    if (!s.head) throw refusal(msg({ id: 'service.gitRepo.nothingToPush', defaultMessage: 'The repository has no commits yet: nothing to push.', description: 'An error pushing in the Git view: the repository has no commit yet.' }))
     let args: string[]
     let to: string
     if (s.upstream?.remote && !s.upstream.gone && !remote) {
@@ -452,19 +505,19 @@ export async function push(projectPath: string, remote?: string): Promise<string
       to = s.upstream.name
     } else {
       const r = remote ?? (s.remotes.length === 1 ? s.remotes[0] : s.remotes.includes('origin') ? 'origin' : null)
-      if (!r) throw new Error(s.remotes.length ? 'Choose the remote to push to.' : 'This repository has no remotes: add one first.')
-      if (!s.remotes.includes(r)) throw new Error(`There's no remote ${r}.`)
+      if (!r) throw s.remotes.length ? refusal(msg({ id: 'service.gitRepo.chooseRemote', defaultMessage: 'Choose the remote to push to.', description: 'An error pushing in the Git view: the repository has several remotes and none was chosen.' })) : refusal(msg({ id: 'service.gitRepo.noRemotes', defaultMessage: 'This repository has no remotes: add one first.', description: 'An error pushing in the Git view: the repository has no remote.' }))
+      if (!s.remotes.includes(r)) throw refusal(M.noRemote, { remote: r })
       args = ['push', '--set-upstream', '--', r, `refs/heads/${s.branch}:refs/heads/${s.branch}`]
       to = `${r}/${s.branch}`
     }
     const r = await net(projectPath, args)
     if (!r.ok) {
-      if (/\[rejected\]|non-fast-forward|fetch first/i.test(r.err)) throw new Error(`${to} has commits ${s.branch} hasn't, so the push was refused (Hive never forces a push). Pull first, or merge them in a terminal.`)
-      throw failed(`Couldn't push to ${to}`, r)
+      if (/\[rejected\]|non-fast-forward|fetch first/i.test(r.err)) throw refusal(msg({ id: 'service.gitRepo.rejected', defaultMessage: "{to} has commits {branch} hasn't, so the push was refused (Hive never forces a push). Pull first, or merge them in a terminal.", description: "An error pushing the branch {branch} in the Git view: the remote branch {to} has commits it hasn't, so the remote refused." }), { to, branch: s.branch })
+      throw failed(msg({ id: 'service.gitRepo.pushFailed', defaultMessage: "Couldn't push to {to}: {why}", description: "An error pushing to the remote branch {to} in the Git view; {why} is git's own words." }), { to }, r)
     }
     log.info(`Pushed ${userText(projectPath)} to ${userText(to)}`)
     void checkProject(projectPath)
-    return `Pushed ${s.branch} to ${to}.`
+    return tr(msg({ id: 'service.gitRepo.pushed', defaultMessage: 'Pushed {branch} to {to}.', description: 'After pushing in the Git view: the branch {branch} went to the remote branch {to}.' }), { branch: s.branch, to })
   })
 }
 
@@ -475,16 +528,16 @@ export async function createTag(projectPath: string, name: string, message: stri
   message = message.trim()
   return oneAtATime(projectPath, async () => {
     const s = await summaryOf(projectPath)
-    if (!s.head) throw new Error('The repository has no commits yet: nothing to tag.')
-    if (!name || name.startsWith('-') || !(await refFormatOk(projectPath, [`refs/tags/${name}`]))) throw new Error(`${name || 'That'} isn't a valid tag name.`)
-    if (pushTo && !s.remotes.includes(pushTo)) throw new Error(`There's no remote ${pushTo}.`)
+    if (!s.head) throw refusal(msg({ id: 'service.gitRepo.nothingToTag', defaultMessage: 'The repository has no commits yet: nothing to tag.', description: 'An error tagging in the Git view: the repository has no commit yet.' }))
+    if (!name || name.startsWith('-') || !(await refFormatOk(projectPath, [`refs/tags/${name}`]))) throw refusal(M.badName, { kind: 'tag', hasName: name ? 'yes' : 'no', name })
+    if (pushTo && !s.remotes.includes(pushTo)) throw refusal(M.noRemote, { remote: pushTo })
     const r = await git(projectPath, message ? ['tag', '-a', '-m', message, name, 'HEAD'] : ['tag', name, 'HEAD'])
-    if (!r.ok) throw failed(`Couldn't create ${name}`, r)
+    if (!r.ok) throw failed(M.createFailed, { name }, r)
     log.info(`Tagged ${userText(projectPath)} ${userText(name)}`)
-    if (!pushTo) return `Tagged ${s.head} ${name}.`
+    if (!pushTo) return tr(msg({ id: 'service.gitRepo.tagged', defaultMessage: 'Tagged {commit} {name}.', description: 'After tagging in the Git view: the commit {commit} (a short hash) has the tag {name}.' }), { commit: s.head, name })
     const p = await net(projectPath, ['push', '--', pushTo, `refs/tags/${name}:refs/tags/${name}`])
-    if (!p.ok) throw failed(`Tagged ${s.head} ${name}, but couldn't push it to ${pushTo}`, p)
-    return `Tagged ${s.head} ${name} and pushed it to ${pushTo}.`
+    if (!p.ok) throw failed(msg({ id: 'service.gitRepo.tagPushFailed', defaultMessage: "Tagged {commit} {name}, but couldn't push it to {remote}: {why}", description: "An error in the Git view: the commit {commit} was tagged {name}, but pushing the tag to the remote {remote} failed; {why} is git's own words." }), { commit: s.head, name, remote: pushTo }, p)
+    return tr(msg({ id: 'service.gitRepo.taggedPushed', defaultMessage: 'Tagged {commit} {name} and pushed it to {remote}.', description: 'After tagging in the Git view: the commit {commit} has the tag {name}, which went to the remote {remote} too.' }), { commit: s.head, name, remote: pushTo })
   })
 }
 
@@ -494,15 +547,17 @@ export async function setIdentity(projectPath: string, name: string, email: stri
   name = name.trim()
   email = email.trim()
   const problem = identityProblem(name, email)
-  if (problem) throw new Error(problem)
+  if (problem) throw asShown(problem)
   return oneAtATime(projectPath, async () => {
     await summaryOf(projectPath)
     for (const [key, value] of [['user.name', name], ['user.email', email]] as const) {
       const r = value ? await git(projectPath, ['config', '--local', key, value]) : await git(projectPath, ['config', '--local', '--unset-all', key])
       // --unset-all says 5 when there was none to remove.
-      if (!r.ok && !(r.code === 5 && !value)) throw failed(`Couldn't set ${key}`, r)
+      if (!r.ok && !(r.code === 5 && !value)) throw failed(msg({ id: 'service.gitRepo.setFailed', defaultMessage: "Couldn't set {key}: {why}", description: "An error setting the repository's commit identity in the Git view: the git setting {key} (user.name or user.email: keep it) couldn't be set; {why} is git's own words." }), { key }, r)
     }
     log.info(`Set the commit identity of ${userText(projectPath)}`)
-    return name || email ? 'Set this repository\'s commit identity.' : 'Removed this repository\'s own identity: your global one applies.'
+    return name || email
+      ? tr(msg({ id: 'service.gitRepo.identitySet', defaultMessage: "Set this repository's commit identity.", description: "After setting the repository's own commit name and email in the Git view." }))
+      : tr(msg({ id: 'service.gitRepo.identityRemoved', defaultMessage: "Removed this repository's own identity: your global one applies.", description: "After clearing the repository's own commit name and email in the Git view: git uses the user's global ones." }))
   })
 }

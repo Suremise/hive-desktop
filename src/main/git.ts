@@ -3,8 +3,12 @@ import { resolve, sep } from 'path'
 import { lstat, readFile, readlink } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { insideReal } from './fsutil'
-import { gitProblem, noteGitMissing, noteGitRan } from './gitTool'
+import { gitProblem, gitTool, noteGitMissing, noteGitRan } from './gitTool'
 import type { GitDiff, GitStatus } from '../shared/types'
+import { gitProblemData } from '../shared/gitTool'
+import { withValues } from '../shared/advanced'
+import { msg, tr } from '../shared/i18n'
+import { hiveError } from './hiveError'
 
 const MAX_DIFF_BYTES = 2 * 1024 * 1024
 
@@ -74,9 +78,16 @@ export async function gitReading(cwd: string, args: string[]): Promise<GitResult
   return r
 }
 
-/** Why a git command failed, for an error the window shows: git missing, else git's own first line. */
-function failure(what: string, r: GitResult): Error {
-  return new Error(`${what} failed: ${gitProblem() ?? (r.err.split(/\r?\n/)[0] || `exit code ${r.code}`)}`)
+/** The Changes tab's refusals and notes, in the window's language (#850): only the window reads them. */
+const M = {
+  failed: msg({ id: 'service.git.failed', defaultMessage: '{command} failed: {why}', description: "An error in the Changes tab: a git command ({command}, as it is: \"git status\") failed; {why} is git's own first line, or why git can't run." }),
+  exitCode: msg({ id: 'service.git.exitCode', defaultMessage: 'exit code {code}', description: 'Why a git command failed when git said nothing: the number it exited with.' }),
+  outside: msg({ id: 'service.git.outside', defaultMessage: 'Path is outside the project', description: "An error showing a file's changes: its path leads out of the project." })
+}
+
+/** Why a git command failed, for an error the window shows: git missing, else git's own first line. `command` is the git command, as it is. */
+function failure(command: string, r: GitResult): Error {
+  return hiveError(M.failed, { command, why: gitProblemData(gitTool()) ?? (r.err.split(/\r?\n/)[0] || withValues(M.exitCode, { code: r.code })) })
 }
 
 /** The commit where HEAD left base, or null if there is none (git's exit 1). Throws when git can't say (#346). */
@@ -84,7 +95,7 @@ async function mergeBase(cwd: string, base: string): Promise<string | null> {
   const r = await git(cwd, ['merge-base', base, 'HEAD'])
   if (r.ok) return r.out.trim()
   if (r.code === 1 && !r.err) return null
-  throw failure(`git merge-base ${base}`, r)
+  throw failure(`git merge-base ${base}`, r) // i18n-ignore: a git command, as it is
 }
 
 /**
@@ -98,7 +109,7 @@ export async function gitStatus(projectPath: string, base?: string): Promise<Git
   if (!mb) return status
   const r = await gitReading(projectPath, ['diff', '--name-status', '--no-renames', '-z', mb])
   // A failed diff is no list of changes: the tab shows the error, not an empty list (#346).
-  if (!r.ok) throw failure('git diff', r)
+  if (!r.ok) throw failure('git diff', r) // i18n-ignore: a git command, as it is
   const files: GitStatus['files'] = []
   const parts = r.out.split('\0').filter(Boolean)
   for (let i = 0; i + 1 < parts.length; i += 2) {
@@ -139,7 +150,7 @@ async function workingStatus(projectPath: string): Promise<{ status: GitStatus; 
     const problem = gitProblem()
     if (problem) return { status: { isRepo: false, gitProblem: problem, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
     if (/not a git repository/i.test(r.err)) return { status: { isRepo: false, branch: null, ahead: 0, behind: 0, files: [] }, inWorktree }
-    throw failure('git status', r)
+    throw failure('git status', r) // i18n-ignore: a git command, as it is
   }
   const parts = r.out.split('\0').filter(Boolean)
   const status: GitStatus = { isRepo: true, branch: null, ahead: 0, behind: 0, files: [] }
@@ -173,7 +184,7 @@ function isBinary(buf: Buffer): boolean {
 
 export async function gitDiff(projectPath: string, file: string, base?: string): Promise<GitDiff> {
   const abs = resolve(projectPath, file)
-  if (!abs.toLowerCase().startsWith(resolve(projectPath).toLowerCase() + sep)) throw new Error('Path is outside the project')
+  if (!abs.toLowerCase().startsWith(resolve(projectPath).toLowerCase() + sep)) throw hiveError(M.outside)
   const ref = (base && (await mergeBase(projectPath, base))) || 'HEAD'
   const head = await git(projectPath, ['show', `${ref}:${file.replace(/\\/g, '/')}`], MAX_DIFF_BYTES * 2)
   const original = head.ok ? head.buf : Buffer.alloc(0)
@@ -184,8 +195,8 @@ export async function gitDiff(projectPath: string, file: string, base?: string):
     if (s.isSymbolicLink()) modified = Buffer.from(await readlink(abs), 'utf8')
     else {
       // Nor a file reached through a linked folder that leads outside.
-      if (!insideReal(abs, [projectPath])) throw Object.assign(new Error('Path is outside the project'), { outside: true })
-      if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: `File is too large to diff (${Math.round(s.size / 1024)} KB).`, binary: true }
+      if (!insideReal(abs, [projectPath])) throw Object.assign(hiveError(M.outside), { outside: true })
+      if (s.size > MAX_DIFF_BYTES) return { path: file, original: '', modified: tr(msg({ id: 'service.git.tooLarge', defaultMessage: 'File is too large to diff ({kb} KB).', description: "Shown in place of a file's changes in the Changes tab: the file is too large ({kb} KB) to compare." }), { kb: Math.round(s.size / 1024) }), binary: true }
       modified = await readFile(abs)
     }
   } catch (e) {

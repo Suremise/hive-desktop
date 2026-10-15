@@ -9,6 +9,8 @@ import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } f
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
 import { advancedDef, checkAdvanced } from '../shared/advanced'
+import { fmt, msg, tr } from '../shared/i18n'
+import { HiveError, hiveError } from './hiveError'
 import type { AgentDef, AgentInfo, HiddenProject, HiveEvent, KeptUsage, LiveSessionState, ProjectConfig, ProjectInfo, RemovedData, SessionRecord, WorkspaceConfig, WorkspaceInfo, WorkspaceMoved } from '../shared/types'
 import { config } from './config'
 import { emit, emitTo } from './events'
@@ -23,6 +25,13 @@ import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, typ
 
 const log = createLogger('workspace')
 
+/** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
+const M = {
+  noWorkspace: msg({ id: 'service.workspace.none', defaultMessage: 'No workspace is open', description: 'An error: the action needs a workspace, and none is open in this window.' }),
+  closed: msg({ id: 'service.workspace.closed', defaultMessage: 'The workspace was closed', description: 'An error: the workspace was closed (or the window opened another) while the action was under way.' })
+}
+
+// i18n-ignore: the .hive folder's README, a file committed with the workspace
 const WORKSPACE_README = `# .hive
 
 This folder is managed by [Hive](https://github.com/) and is meant to be committed.
@@ -35,6 +44,7 @@ This folder is managed by [Hive](https://github.com/) and is meant to be committ
 MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
 `
 
+// i18n-ignore: the handovers folder's README, a file committed with the workspace
 const HANDOVER_README = `# Handovers
 
 Notes written at the end of a session so the next session (or another project) can pick up where it left off.
@@ -129,7 +139,7 @@ export class WorkspaceService {
   }
 
   get hiveDir(): string {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     return join(this.path, HIVE_DIR)
   }
 
@@ -168,7 +178,7 @@ export class WorkspaceService {
 
   /** Where new worktrees are created, next to the workspace folder. */
   get worktreesRoot(): string {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     return worktreesRoot(this.path)
   }
 
@@ -178,16 +188,16 @@ export class WorkspaceService {
 
   async open(path: string): Promise<WorkspaceInfo> {
     const abs = resolve(path)
-    if (!(await isDir(abs))) throw new Error(`Folder not found: ${abs}`)
+    if (!(await isDir(abs))) throw hiveError(msg({ id: 'service.workspace.notFound', defaultMessage: 'Folder not found: {folder}', description: 'An error opening a workspace: the folder {folder} is not there.' }), { folder: abs })
     // One workspace inside another would make its projects belong to both. Windows claim their folders one
     // at a time, so two opening at once can't both pass the check before either has claimed its own.
     const admit = admission.then(async () => {
       // By real paths: the same folder by another name (an 8.3 short name, a junction) is the same workspace (#455).
       for (const w of services) {
         if (w === this || !w.path) continue
-        if (samePlace(abs, w.path)) throw new Error(`${abs} is already open in another window.`)
-        if (containsPlace(w.path, abs)) throw new Error(`${abs} is inside the workspace ${w.path}, which is open in another window. Close that workspace first, or open this folder's projects from there.`)
-        if (containsPlace(abs, w.path)) throw new Error(`The workspace ${w.path}, open in another window, is inside ${abs}. Close it first to open ${basename(abs)} as a workspace.`)
+        if (samePlace(abs, w.path)) throw hiveError(msg({ id: 'service.workspace.openElsewhere', defaultMessage: '{folder} is already open in another window.', description: 'An error opening a workspace: the folder {folder} is the workspace of another Hive window.' }), { folder: abs }, { kind: 'conflict' })
+        if (containsPlace(w.path, abs)) throw hiveError(msg({ id: 'service.workspace.insideOpen', defaultMessage: "{folder} is inside the workspace {workspace}, which is open in another window. Close that workspace first, or open this folder's projects from there.", description: 'An error opening a workspace: the folder {folder} is inside {workspace}, the workspace of another Hive window (a workspace inside another would share its projects).' }), { folder: abs, workspace: w.path }, { kind: 'conflict' })
+        if (containsPlace(abs, w.path)) throw hiveError(msg({ id: 'service.workspace.holdsOpen', defaultMessage: 'The workspace {workspace}, open in another window, is inside {folder}. Close it first to open {name} as a workspace.', description: "An error opening a workspace: another Hive window's workspace {workspace} is inside the folder {folder} (its name: {name})." }), { folder: abs, workspace: w.path, name: basename(abs) }, { kind: 'conflict' })
       }
       await this.close()
       this.generation++
@@ -226,7 +236,7 @@ export class WorkspaceService {
 
   async close(): Promise<void> {
     this.generation++
-    this.life.abort(new Error('The workspace was closed'))
+    this.life.abort(hiveError(M.closed, undefined, { kind: 'conflict' }))
     const closing = this.path
     if (closing) {
       for (const l of WorkspaceService.closingListeners) {
@@ -520,10 +530,10 @@ export class WorkspaceService {
    * one left out stays. Saved in workspace.json; the window hears of it as a workspace change.
    */
   async setLoops(patch: { rounds?: number; waitHours?: number }): Promise<void> {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     const whole = (v: unknown, max: number): boolean => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max)
-    if (!whole(patch.rounds, LANE_MAX_ROUNDS)) throw new Error(`Card loop rounds take a whole number from 1 to ${LANE_MAX_ROUNDS}.`)
-    if (!whole(patch.waitHours, LOOP_WAIT_MAX_HOURS)) throw new Error(`Card loop wait takes a whole number of hours from 1 to ${LOOP_WAIT_MAX_HOURS}.`)
+    if (!whole(patch.rounds, LANE_MAX_ROUNDS)) throw hiveError(msg({ id: 'service.workspace.loopRounds', defaultMessage: 'Card loop rounds take a whole number from 1 to {max}.', description: "An error in Settings → Workspace: a card loop's rounds (how many reviews a card gets before the user is asked) must be a whole number from 1 to {max}." }), { max: LANE_MAX_ROUNDS })
+    if (!whole(patch.waitHours, LOOP_WAIT_MAX_HOURS)) throw hiveError(msg({ id: 'service.workspace.loopWait', defaultMessage: 'Card loop wait takes a whole number of hours from 1 to {max}.', description: "An error in Settings → Workspace: a card loop's wait (hours with no change before the user is told) must be a whole number from 1 to {max}." }), { max: LOOP_WAIT_MAX_HOURS })
     this.wsConfig.loops = { ...this.wsConfig.loops, ...(patch.rounds !== undefined ? { rounds: patch.rounds } : {}), ...(patch.waitHours !== undefined ? { waitHours: patch.waitHours } : {}) }
     await this.saveWorkspaceConfig()
     this.scheduleRefresh()
@@ -531,14 +541,14 @@ export class WorkspaceService {
 
   /** Sets the workspace's own value of an advanced setting a workspace can set (#367), or removes it (null: Hive's again). */
   async setAdvanced(id: string, raw: unknown): Promise<void> {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     const def = advancedDef(id)
-    if (!def?.workspace) throw new Error(`${def?.title ?? id} can't be set for a workspace.`)
+    if (!def?.workspace) throw hiveError(msg({ id: 'service.workspace.advancedNotHere', defaultMessage: "{setting} can't be set for a workspace.", description: 'An error: the advanced setting {setting} (its title, or its id) has no value of its own for a workspace, only for Hive.' }), { setting: def?.text.title ?? id })
     const own = { ...this.wsConfig.advanced }
     if (raw === null || raw === undefined) delete own[id]
     else {
       const checked = checkAdvanced(def, raw)
-      if ('error' in checked) throw new Error(checked.error)
+      if ('error' in checked) throw new HiveError(checked.errorText)
       own[id] = checked.value
     }
     if (Object.keys(own).length) this.wsConfig.advanced = own
@@ -563,7 +573,7 @@ export class WorkspaceService {
   }
 
   assertProject(p: string): string {
-    if (!this.isProjectPath(p)) throw new Error(`Not a project in the open workspace: ${p}`)
+    if (!this.isProjectPath(p)) throw hiveError(msg({ id: 'service.workspace.notProject', defaultMessage: 'Not a project in the open workspace: {path}', description: "An error: {path} isn't one of the open workspace's projects (a folder in it, not hidden)." }), { path: p }, { kind: 'notFound' })
     return resolve(p)
   }
 
@@ -571,7 +581,7 @@ export class WorkspaceService {
   assertRoot(p: string): string {
     if (this.isProjectPath(p)) return resolve(p)
     if (this.roots.has(resolve(p).toLowerCase())) return resolve(p)
-    throw new Error(`Not a project or agent worktree in the open workspace: ${p}`)
+    throw hiveError(msg({ id: 'service.workspace.notRoot', defaultMessage: 'Not a project or agent worktree in the open workspace: {path}', description: "An error: {path} is neither one of the open workspace's projects nor the worktree of one of their agents." }), { path: p }, { kind: 'notFound' })
   }
 
   /**
@@ -615,7 +625,7 @@ export class WorkspaceService {
     let next: AgentDef | undefined
     await this.mutateProjectConfig(projectPath, (cfg) => {
       const current = projectAgents(cfg).find((a) => a.id === agentId)
-      if (!current) throw new Error('That agent no longer exists.')
+      if (!current) throw hiveError(msg({ id: 'service.workspace.agentGone', defaultMessage: 'That agent no longer exists.', description: "An error changing an agent's settings: it was removed meanwhile." }), undefined, { kind: 'notFound' })
       const def: AgentDef = { ...current, ...patch, id: agentId }
       next = def
       return { agents: projectAgents(cfg).map((a) => (a.id === agentId ? def : a)) }
@@ -785,14 +795,14 @@ export class WorkspaceService {
   private refreshReported = 0
 
   async refresh(): Promise<WorkspaceInfo> {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     const gen = this.generation
     const seq = ++this.refreshes
     const projects: ProjectInfo[] = []
     for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
     const assistant = await this.projectInfo(this.assistantHome).catch((e) => (log.warn('the Assistant', e), null))
     // Closed or switched meanwhile: the new workspace's own refresh reports it.
-    if (gen !== this.generation || !this.path) throw new Error('The workspace was closed')
+    if (gen !== this.generation || !this.path) throw hiveError(M.closed, undefined, { kind: 'conflict' })
     // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
     // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).
     if (seq < this.refreshReported && this.cached) return this.cached
@@ -825,9 +835,12 @@ export class WorkspaceService {
     // The one to rename: the last project's, alphabetically, given its own project's prefix.
     const first = fresh[0].agents[fresh[0].agents.length - 1] as (typeof all)[number]
     const suggestion = suggestAgentName(first.name, first.project, all.map((a) => a.name))
-    const shared = fresh.map((d) => `${d.name} is in ${d.agents.map((a) => a.project).join(' and ')}`).join('; ')
-    const message = `Agent names are unique across the workspace now, so each agent can be told apart. ${shared}: they keep working, but rename one of each, e.g. ${first.project}'s ${first.name} to ${suggestion}.`
-    this.emit({ type: 'toast', toast: { id: randomUUID(), level: 'warning', title: fresh.length === 1 ? `Two agents are called ${fresh[0].name}` : 'Agents share names', message, actions: [{ label: `Rename ${first.project}'s ${first.name}…`, command: 'agent.settings', args: [first.path, first.id] }], source: first.path, timestamp: new Date().toISOString() } })
+    // The window's notice (never sent to agents), in its language.
+    const shared = fmt.list(fresh.map((d) => tr(msg({ id: 'service.workspace.nameIn', defaultMessage: '{name} is in {projects}', description: 'Part of the notice that agents of several projects share a name: {name} is the name, {projects} the projects (a list, in the language\'s way: "alpha and beta").' }), { name: d.name, projects: fmt.list(d.agents.map((a) => a.project)) })), 'unit')
+    const message = tr(msg({ id: 'service.workspace.sharedNames', defaultMessage: "Agent names are unique across the workspace now, so each agent can be told apart. {shared}: they keep working, but rename one of each, e.g. {project}'s {agent} to {suggestion}.", description: "A notice: agents of several projects share names from before names were unique. {shared} says which (\"R1 is in alpha and beta\"); {suggestion} is a free name for the agent {agent} of the project {project}." }), { shared, project: first.project, agent: first.name, suggestion })
+    const title = fresh.length === 1 ? tr(msg({ id: 'service.workspace.twoCalled', defaultMessage: 'Two agents are called {name}', description: "A notice's title: agents of two projects share the name {name}." }), { name: fresh[0].name }) : tr(msg({ id: 'service.workspace.namesShared', defaultMessage: 'Agents share names', description: "A notice's title: agents of several projects share names." }))
+    const label = tr(msg({ id: 'service.workspace.renameAgent', defaultMessage: "Rename {project}'s {agent}…", description: "The notice's button: opens the settings of the agent {agent} of the project {project}, to rename it." }), { project: first.project, agent: first.name })
+    this.emit({ type: 'toast', toast: { id: randomUUID(), level: 'warning', title, message, actions: [{ label, command: 'agent.settings', args: [first.path, first.id] }], source: first.path, timestamp: new Date().toISOString() } })
   }
 
   info(): WorkspaceInfo | null {
@@ -842,13 +855,13 @@ export class WorkspaceService {
   }
 
   async createProject(name: string): Promise<WorkspaceInfo> {
-    if (!this.path) throw new Error('No workspace is open')
+    if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     const clean = name.trim()
     if (!clean || /[<>:"/\\|?*\x00-\x1f]/.test(clean) || clean.startsWith('.') || /[. ]$/.test(clean)) {
-      throw new Error('Project names cannot start with "." or contain < > : " / \\ | ? *')
+      throw hiveError(msg({ id: 'service.workspace.badName', defaultMessage: 'Project names cannot start with "." or contain {chars}', description: "An error making a project: a project's name (its folder's) can't start with a dot or hold the characters {chars}, which Windows doesn't allow in a folder's name." }), { chars: '< > : " / \\ | ? *' }, { kind: 'invalid' })
     }
     const p = join(this.path, clean)
-    if (existsSync(p)) throw new Error(`A folder named "${clean}" already exists`)
+    if (existsSync(p)) throw hiveError(msg({ id: 'service.workspace.folderExists', defaultMessage: 'A folder named "{name}" already exists', description: 'An error making a project: the workspace already has a folder called {name}.' }), { name: clean })
     await mkdir(p)
     await this.ensureProject(p)
     return this.refresh()

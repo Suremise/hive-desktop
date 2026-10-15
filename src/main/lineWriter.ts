@@ -58,12 +58,12 @@ export function onLineComing(fn: (projectPath: string, agentId: string) => boole
  */
 export function whyNoLine(projectPath: string, agentId: string, need: DeliveryNeed = 'idle'): string | null {
   const st = sessions.liveFor(projectPath, agentId)
-  if (!st) return "it isn't running"
-  if (writing.has(agentKey(projectPath, agentId))) return 'Hive is already typing a line into it'
-  if (!readyFor(st, need)) return st.status === 'watching' ? 'it is waiting on cards, and takes no new work until it is woken' : `it is ${st.status}`
-  if (sessions.userMayBeTyping(projectPath, agentId)) return 'the user has just typed in its terminal and may still be writing there'
-  if (sessions.lineWaiting(projectPath, agentId)) return "its CLI hasn't taken the line Hive typed before"
-  if (lineComing(projectPath, agentId)) return "a watch's wake goes first"
+  if (!st) return "it isn't running" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (writing.has(agentKey(projectPath, agentId))) return 'Hive is already typing a line into it' // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (!readyFor(st, need)) return st.status === 'watching' ? 'it is waiting on cards, and takes no new work until it is woken' : `it is ${st.status}` // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (sessions.userMayBeTyping(projectPath, agentId)) return 'the user has just typed in its terminal and may still be writing there' // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (sessions.lineWaiting(projectPath, agentId)) return "its CLI hasn't taken the line Hive typed before" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (lineComing(projectPath, agentId)) return "a watch's wake goes first" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   return null
 }
 export const canTypeLine = (projectPath: string, agentId: string, need: DeliveryNeed = 'idle'): boolean => whyNoLine(projectPath, agentId, need) === null
@@ -101,13 +101,13 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
     // confirmation never takes an earlier prompt for this one.
     let before: { runId: string; count: number } | null = null
     await sessions.sendPrompt(projectPath, agentId, line, () => {
-      if (!wanted()) throw new Error('It is no longer wanted.')
-      if (!readyFor(sessions.liveFor(projectPath, agentId), need)) throw new Error('The agent got busy.')
-      if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.')
+      if (!wanted()) throw new Error('It is no longer wanted.') // i18n-ignore: why a line wasn't typed, for the log
+      if (!readyFor(sessions.liveFor(projectPath, agentId), need)) throw new Error('The agent got busy.') // i18n-ignore: why a line wasn't typed, for the log
+      if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.') // i18n-ignore: why a line wasn't typed, for the log
       before = sessions.promptsTaken(projectPath, agentId)
     })
     log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
-    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, line, opts.follow))
+    if (before) inBackground('checking a wake was taken', confirmTaken(projectPath, agentId, before, line, opts.follow)) // i18n-ignore: what failed, for the log
     return true
   } catch (e) {
     log.info(`Wake for ${userText(agentId)} put off: ${(e as Error).message}`)

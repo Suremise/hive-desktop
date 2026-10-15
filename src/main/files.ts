@@ -8,6 +8,8 @@ import { attachmentsDir, movedAttachment } from './attachmentsFolder'
 import { emit } from './events'
 import { heldOpen, insideReal, isInUse, trashAllOrNothing, withFileLock } from './fsutil'
 import { INDEX_BUSY, git } from './git'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { workspace } from './workspace'
@@ -24,6 +26,14 @@ export const servableType = (p: string): string => SERVABLE_TYPES[p.slice(p.last
 
 const toRel = (root: string, abs: string): string => relative(root, abs).split(sep).join('/')
 
+/** The Files and Attachments tabs' refusals, in the window's language (#850): only the window reads them. */
+const M = {
+  outside: msg({ id: 'service.files.outside', defaultMessage: 'Path is outside the project', description: "An error in the Files tab: a file's path leads out of the project." }),
+  exists: msg({ id: 'service.files.exists', defaultMessage: '"{name}" already exists', description: 'An error making or renaming a file or folder in the Files tab: one called {name} is already there.' }),
+  notKept: msg({ id: 'service.files.notKept', defaultMessage: 'Not one of the session attachments Hive keeps.', description: "An error deleting a session's attachment (a file pasted or dropped into a session): it isn't one Hive keeps, or it is a link." }),
+  inUse: msg({ id: 'service.files.inUse', defaultMessage: 'Another program has this file open. Close it, then try again.', description: "An error deleting a session's attachment: another program has the file open, so Windows won't move it." })
+}
+
 /**
  * Resolves a project-relative path, refusing anything outside the project. '' is the project root.
  * A link (symlink or junction) inside the project can't lead outside it: reading or writing through
@@ -35,16 +45,16 @@ function inProject(projectPath: string, rel: string, allowRoot = false, entry = 
   const abs = resolve(root, rel || '.')
   if (abs === root) {
     if (allowRoot) return abs
-    throw new Error('This action needs a file or folder inside the project')
+    throw hiveError(msg({ id: 'service.files.needsEntry', defaultMessage: 'This action needs a file or folder inside the project', description: "An error in the Files tab: the action (rename, move, delete…) was given the project's own folder, not something in it." }))
   }
-  if (!abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw new Error('Path is outside the project')
-  if (!insideReal(entry ? dirname(abs) : abs, [root])) throw new Error('Path leads outside the project (through a link)')
+  if (!abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw hiveError(M.outside)
+  if (!insideReal(entry ? dirname(abs) : abs, [root])) throw hiveError(msg({ id: 'service.files.throughLink', defaultMessage: 'Path leads outside the project (through a link)', description: "An error in the Files tab: a file's path goes through a link (a symbolic link or junction) to somewhere outside the project." }))
   return abs
 }
 
 function validName(name: string): string {
   const n = name.trim()
-  if (!n || n === '.' || n === '..' || /[\\/:*?"<>|]/.test(n)) throw new Error(`"${name}" is not a valid name`)
+  if (!n || n === '.' || n === '..' || /[\\/:*?"<>|]/.test(n)) throw hiveError(msg({ id: 'service.files.badName', defaultMessage: '"{name}" is not a valid name', description: "An error making or renaming a file or folder: {name} is empty, . or .., or has a character Windows can't have in a name." }), { name })
   return n
 }
 
@@ -163,9 +173,9 @@ export async function create(projectPath: string, parentRel: string, name: strin
   const parent = inProject(projectPath, parentRel, true)
   // Allow "sub/dir/file.txt" to create intermediate folders, like VS Code.
   const parts = name.split(/[\\/]/).filter(Boolean).map(validName)
-  if (!parts.length) throw new Error('A name is required')
+  if (!parts.length) throw hiveError(msg({ id: 'service.files.nameRequired', defaultMessage: 'A name is required', description: 'An error making a file or folder with no name.' }))
   const abs = inProject(projectPath, toRel(projectPath, join(parent, ...parts)))
-  if (existsSync(abs)) throw new Error(`"${parts.join('/')}" already exists`)
+  if (existsSync(abs)) throw hiveError(M.exists, { name: parts.join('/') })
   if (isDir) await mkdir(abs, { recursive: true })
   else {
     await mkdir(dirname(abs), { recursive: true })
@@ -180,7 +190,7 @@ export async function renameEntry(projectPath: string, rel: string, newName: str
   const dest = join(dirname(abs), validName(newName))
   if (dest === abs) return rel
   // A case-only rename on Windows is the same file, so existsSync would be true.
-  if (existsSync(dest) && dest.toLowerCase() !== abs.toLowerCase()) throw new Error(`"${newName}" already exists`)
+  if (existsSync(dest) && dest.toLowerCase() !== abs.toLowerCase()) throw hiveError(M.exists, { name: newName })
   await rename(abs, dest)
   return toRel(projectPath, dest)
 }
@@ -188,7 +198,7 @@ export async function renameEntry(projectPath: string, rel: string, newName: str
 function assertNotInside(src: string, destDir: string): void {
   const s = src.toLowerCase()
   const d = destDir.toLowerCase()
-  if (d === s || d.startsWith(s + sep)) throw new Error(`Cannot put "${basename(src)}" inside itself`)
+  if (d === s || d.startsWith(s + sep)) throw hiveError(msg({ id: 'service.files.insideItself', defaultMessage: 'Cannot put "{name}" inside itself', description: 'An error moving a folder ({name}) into itself, or into a folder inside it.' }), { name: basename(src) })
 }
 
 /** Moves entries into destRel. Returns their new relative paths. */
@@ -207,7 +217,7 @@ export async function move(projectPath: string, rels: string[], destRel: string)
     }
     assertNotInside(src, destDir)
     const dest = join(destDir, basename(src))
-    if (existsSync(dest) || taken.has(dest.toLowerCase())) throw new Error(`"${basename(src)}" already exists in ${destRel || 'the project root'}`)
+    if (existsSync(dest) || taken.has(dest.toLowerCase())) throw hiveError(msg({ id: 'service.files.existsIn', defaultMessage: '{root, select, yes {"{name}" already exists in the project root} other {"{name}" already exists in {folder}}}', description: 'An error moving files: the folder they go to already has one called {name}. {root} is yes when that folder is the project\'s own (its root), else {folder} is its path in the project.' }), { name: basename(src), root: destRel ? 'no' : 'yes', folder: destRel })
     taken.add(dest.toLowerCase())
     plan.push({ src, dest, rel })
   }
@@ -457,7 +467,7 @@ async function attachmentsRoot(host: string): Promise<string | null> {
 /** Throws unless p is a real folder or file (not a link) inside the attachments root, as Hive keeps them. */
 async function assertOwnAttachment(root: string, p: string, kind: 'dir' | 'file'): Promise<void> {
   const st = await lstat(p).catch(() => null)
-  if (!st || st.isSymbolicLink() || (kind === 'dir' ? !st.isDirectory() : !st.isFile()) || !insideReal(p, [root])) throw new Error('Not one of the session attachments Hive keeps.')
+  if (!st || st.isSymbolicLink() || (kind === 'dir' ? !st.isDirectory() : !st.isFile()) || !insideReal(p, [root])) throw hiveError(M.notKept)
 }
 
 /** The attachments root and the session folder of a path in it (`<root>\<session>\<file>`); throws for anything else. */
@@ -465,7 +475,7 @@ async function attachmentAt(projectPath: string, path: string): Promise<{ root: 
   const root = await attachmentsRoot(projectPath)
   const abs = resolve(path)
   const parts = root ? relative(root, abs).split(sep) : []
-  if (!root || parts.length !== 2 || parts[0] === '..') throw new Error('Not a session attachment')
+  if (!root || parts.length !== 2 || parts[0] === '..') throw hiveError(msg({ id: 'service.files.notAttachment', defaultMessage: 'Not a session attachment', description: "An error opening or deleting a session's attachment: the path isn't a file in a session's attachments folder." }))
   return { root, sessionId: assertSessionId(parts[0]), abs }
 }
 
@@ -519,7 +529,7 @@ export async function trashAttachment(projectPath: string, path: string): Promis
   await sessions.whileStopped(projectPath, sessionId, async () => {
     await assertOwnAttachment(root, join(root, sessionId), 'dir')
     await assertOwnAttachment(root, abs, 'file')
-    if (await heldOpen(abs)) throw new Error('Another program has this file open. Close it, then try again.')
+    if (await heldOpen(abs)) throw hiveError(M.inUse)
     await toTrash(abs)
   })
 }
@@ -533,7 +543,7 @@ export async function trashAttachmentGroup(projectPath: string, sessionId: strin
   projectPath = workspace.assertSessionHost(projectPath)
   assertSessionId(sessionId)
   const root = await attachmentsRoot(projectPath)
-  if (!root) throw new Error('Not one of the session attachments Hive keeps.')
+  if (!root) throw hiveError(M.notKept)
   const dir = join(root, sessionId)
   // Reserved and not running from here to the end: it can't resume (and paste) while its attachments go.
   const n = await sessions.whileStopped(projectPath, sessionId, async () => {
@@ -543,7 +553,7 @@ export async function trashAttachmentGroup(projectPath: string, sessionId: strin
     try {
       await trashAllOrNothing(files, (f) => toTrash(f))
     } catch (e) {
-      if (isInUse(e)) throw new Error('Another program has one of these files open. Close it, then try again.', { cause: e })
+      if (isInUse(e)) throw hiveError(msg({ id: 'service.files.groupInUse', defaultMessage: 'Another program has one of these files open. Close it, then try again.', description: "An error deleting a session's attachments: another program has one of them open, so none was moved." }), undefined, { cause: e })
       throw e
     }
     // The folder goes too once empty (Hive makes it again for the next attachment).
