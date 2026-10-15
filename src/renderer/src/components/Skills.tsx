@@ -9,6 +9,7 @@ import { Icon, IconButton, Tooltip } from './ui'
 import { confirm, notify, prompt, set, showView, useStore } from '../store'
 import { cx } from '../util'
 import { msg, tr, tRich, type Msg } from '@shared/i18n'
+import { shownText } from '@shared/advanced'
 
 /**
  * Skills in Hive: the workspace's Hive skills (given to project agents, the Assistant or both, as each one's
@@ -126,6 +127,9 @@ const AUDIENCE_TIP: Record<SkillAudience, Msg> = {
 }
 
 /** A Hive skill nobody gets, because its header can't be read or names an audience Hive doesn't know: why, and how to fix it. */
+/** Why nobody gets a Hive skill, in the window's language (#849): its header's problem as text, else main's English. */
+export const skillProblem = (s: Pick<SkillInfo, 'problem' | 'problemText'>): string | undefined => (s.problemText ? shownText(s.problemText) : s.problem)
+
 export function ProblemBadge({ problem, small }: { problem: string; small?: boolean }) {
   return (
     <Tooltip content={tr(M.notGivenTip, { problem })}>
@@ -196,7 +200,7 @@ export async function deleteSkill(s: SkillInfo): Promise<boolean> {
   const ok = await confirm({
     title: tr(M.deleteTitle),
     message: tr(M.deleteMessage, { name: s.name }),
-    detail: hive ? (s.problem ? tr(M.deleteNobody, { problem: s.problem }) : tr(M.deleteHive, { audience: s.audience ?? 'agents' })) : tr(M.deleteLocal, agentsOf(s)),
+    detail: hive ? (s.problem ? tr(M.deleteNobody, { problem: skillProblem(s) ?? '' }) : tr(M.deleteHive, { audience: s.audience ?? 'agents' })) : tr(M.deleteLocal, agentsOf(s)),
     confirmLabel: tr(M.delete),
     danger: true
   })
@@ -236,7 +240,7 @@ async function copyToWorkspace(s: SkillInfo): Promise<void> {
   // A project's own skill: its copy there stays, said in a sentence of its own after the notice's.
   const local = s.level === 'local' ? [tr(M.stillLocal, agentsOf(s))] : []
   // Copied, but its header can't be read or names no audience Hive knows: nobody gets it until that's fixed.
-  if (r.problem) notify('warning', tr(M.copiedNobody, { name: s.name }), [tr(M.copiedNobodyDetail, { problem: r.problem }), ...local].join(' '))
+  if (r.problem) notify('warning', tr(M.copiedNobody, { name: s.name }), [tr(M.copiedNobodyDetail, { problem: skillProblem(r) ?? '' }), ...local].join(' '))
   else notify('success', tr(M.copied, { name: s.name }), [tr(M.copiedDetail, { audience: r.audience ?? 'agents' }), ...local].join(' '))
   bump()
 }
@@ -256,7 +260,7 @@ export function SkillRow({ skill, selected, onSelect, actionsFor }: { skill: Ski
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="label" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {skill.name} {skill.plugin && <span className="desc">· {skill.plugin}</span>} {missing && <span className="badge">{tr(M.deletedBadge)}</span>}{skill.updateAvailable && <span className="badge accent">{tr(M.updateBadge)}</span>}
-          {skill.level === 'hive' && skill.problem && <ProblemBadge problem={skill.problem} small />}
+          {skill.level === 'hive' && skill.problem && <ProblemBadge problem={skillProblem(skill) ?? ''} small />}
           {skill.level === 'hive' && !skill.problem && skill.audience && skill.audience !== 'agents' && <AudienceBadge audience={skill.audience} small />}
         </div>
         {skill.description && (
@@ -307,7 +311,7 @@ export function SkillDetail({ skill, where: place, onDeleted, onRestored }: { sk
               {skill.plugin ? ` · ${skill.plugin}` : ''}
             </span>
           </Tooltip>
-          {skill.level === 'hive' && (skill.problem ? <ProblemBadge problem={skill.problem} /> : <AudienceBadge audience={skill.audience} />)}
+          {skill.level === 'hive' && (skill.problem ? <ProblemBadge problem={skillProblem(skill) ?? ''} /> : <AudienceBadge audience={skill.audience} />)}
           {missing && (
             <>
               <span className="badge warn">{tr(M.deletedHere)}</span>

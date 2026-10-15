@@ -171,7 +171,7 @@ describe('Hive keeps agent names unique across the workspace', () => {
   it("a template's load takes the names chosen for it, and is refused while one is another project's", async () => {
     const plan = await run(() => templates.templatePlan(beta, 'workspace', 'pair.json'))
     expect([plan.templateNames, plan.taken]).toEqual([['B1', 'R1'], [{ name: 'B1', project: 'alpha' }, { name: 'R1', project: 'alpha' }]])
-    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids(beta)))).rejects.toThrow(/B1, R1 are already agents in alpha/)
+    await expect(run(() => templates.loadTemplate(beta, 'workspace', 'pair.json', ids(beta)))).rejects.toThrow(/B1 and R1 are already agents in alpha/)
     // Names that can't be used: refused, saying why.
     await expect(run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['X']))).rejects.toThrow(/no longer match the template/)
     await expect(run(() => templates.templatePlan(beta, 'workspace', 'pair.json', undefined, ['X', ' x ']))).rejects.toThrow(/Two of its agents would be called "x"/)

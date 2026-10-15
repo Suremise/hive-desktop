@@ -4,6 +4,8 @@ import { basename, join } from 'path'
 import { DEFAULT_PERSONA, newPersonaText, parsePersona, personaId } from '../shared/assistant'
 import type { AssistantControl, PersonaInfo } from '../shared/types'
 import { controlRules } from '../shared/hiveGuidance'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { bundledDir, bundledStatus, restoreBundled } from './bundled'
 import { workspace } from './workspace'
 import { trash } from './trash'
@@ -50,9 +52,9 @@ export async function listPersonas(): Promise<PersonaInfo[]> {
 
 export async function createPersona(name: string): Promise<PersonaInfo> {
   const id = personaId(name)
-  if (!validId(id)) throw new Error('Give the mode a name with letters or numbers.')
+  if (!validId(id)) throw hiveError(msg({ id: 'content.persona.badName', defaultMessage: 'Give the mode a name with letters or numbers.', description: "An error making a new mode for the Hive Assistant: its name has no letters or numbers to name its file after." }), undefined, { kind: 'invalid' })
   const path = join(workspace.personasDir, `${id}.md`)
-  if (existsSync(path)) throw new Error(`There is already a mode called "${id}".`)
+  if (existsSync(path)) throw hiveError(msg({ id: 'content.persona.exists', defaultMessage: 'There is already a mode called "{mode}".', description: "An error making a new mode for the Hive Assistant: the workspace already has one called {mode}." }), { mode: id }, { kind: 'conflict' })
   await mkdir(workspace.personasDir, { recursive: true })
   await writeFile(path, newPersonaText(name.trim()), { flag: 'wx' })
   return info(path, id)
@@ -60,7 +62,7 @@ export async function createPersona(name: string): Promise<PersonaInfo> {
 
 /** Moves a persona's file to the Recycle Bin. */
 export async function deletePersona(id: string): Promise<void> {
-  if (!validId(id)) throw new Error('Invalid mode')
+  if (!validId(id)) throw hiveError(msg({ id: 'content.persona.invalid', defaultMessage: 'Invalid mode', description: "An error deleting a mode of the Hive Assistant: its id isn't one Hive could have made." }), undefined, { kind: 'invalid' })
   const path = join(workspace.personasDir, `${id}.md`)
   if (existsSync(path)) await trash(path)
 }
@@ -68,7 +70,7 @@ export async function deletePersona(id: string): Promise<void> {
 /** Puts back a bundled persona as this version of Hive ships it; the workspace's copy goes to the Recycle Bin. */
 export async function restorePersona(id: string): Promise<PersonaInfo> {
   const src = join(bundledPersonasDir(), `${id}.md`)
-  if (!validId(id) || !existsSync(src)) throw new Error(`"${id}" isn't one of Hive's modes.`)
+  if (!validId(id) || !existsSync(src)) throw hiveError(msg({ id: 'content.persona.notBundled', defaultMessage: '"{mode}" isn\'t one of Hive\'s modes.', description: "An error restoring a mode Hive ships: Hive ships no mode called {mode}." }), { mode: id }, { kind: 'notFound' })
   const dest = join(workspace.personasDir, `${id}.md`)
   if (existsSync(dest)) await trash(dest)
   await restoreBundled('personas', id)
@@ -95,7 +97,7 @@ export async function assistantInstructions(personaIdValue: string, control: Ass
   const ws = workspace.path ?? ''
   const projects = (await workspace.listProjectPaths()).map((p) => basename(p))
   const persona = (await readPersona(personaIdValue)) ?? (await readPersona(DEFAULT_PERSONA))
-  const personaText = persona ? `# Your mode: ${persona.name}\n\n${persona.body}` : ''
+  const personaText = persona ? `# Your mode: ${persona.name}\n\n${persona.body}` : '' // i18n-ignore: the Assistant's instructions (agent-facing)
   const text = [
     `You are the Hive Assistant: the overseer of the workspace "${basename(ws)}" (${ws}), in Hive's side panel. The user talks to you here while coding agents work in its projects (at launch: ${projects.length ? projects.join(', ') : 'none yet'}). You work in the workspace folder, so you can read any project's files; agents, cards, notes and usage come from the hive tools.`,
     controlRules(control, changeSettings),

@@ -6,15 +6,24 @@ import { HIVE_DIR } from '../shared/defaults'
 import { isProjectId } from '../shared/projectIds'
 import type { NoteFile } from '../shared/types'
 import { hashText, insideReal, readKeptJson, withFileLock, writeKeptJson, writeTextAtomic } from './fsutil'
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { nameJournal, nameJournalNow as nameJournalNowOf, ownerOfName, ownersOfName } from './projectNames'
 import { currentWorkspace, workspace, type WorkspaceService } from './workspace'
 import { trash } from './trash'
 
+/** Shared notes' refusals the window shows in its language (#849); agents (the Agent API's notes) read their English. */
+const M = {
+  outside: msg({ id: 'content.notes.outside', defaultMessage: 'Path is outside the shared notes folder', description: "An error: a shared note's path leads out of the workspace's shared notes folder (.hive/shared)." }),
+  exists: msg({ id: 'content.notes.exists', defaultMessage: '"{name}" already exists', description: 'An error making or renaming a shared note or folder: one called {name} is already there.' }),
+  closed: msg({ id: 'content.notes.closed', defaultMessage: 'The workspace was closed or switched: nothing was changed.', description: 'An error: the workspace closed, or another opened in its window, while a handover was being renamed; nothing changed.' })
+}
+
 function assertInShared(p: string): string {
   const root = resolve(workspace.sharedDir)
   const abs = resolve(root, p)
-  if (abs !== root && !abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw new Error('Path is outside the shared notes folder')
-  if (!insideReal(abs, [root])) throw new Error('Path is outside the shared notes folder')
+  if (abs !== root && !abs.toLowerCase().startsWith(root.toLowerCase() + sep)) throw hiveError(M.outside)
+  if (!insideReal(abs, [root])) throw hiveError(M.outside)
   return abs
 }
 
@@ -47,10 +56,10 @@ export async function notesTree(root: string | null = workspace.path ? workspace
 
 export async function createNote(relPath: string, isDir: boolean): Promise<string> {
   let rel = relPath.trim().replace(/^[\\/]+/, '')
-  if (!rel) throw new Error('Name is required')
+  if (!rel) throw hiveError(msg({ id: 'content.notes.nameRequired', defaultMessage: 'Name is required', description: 'An error making a shared note or folder with no name.' }), undefined, { kind: 'invalid' })
   if (!isDir && !/\.[a-z0-9]+$/i.test(rel)) rel += '.md'
   const abs = assertInShared(rel)
-  if (existsSync(abs)) throw new Error(`"${rel}" already exists`)
+  if (existsSync(abs)) throw hiveError(M.exists, { name: rel })
   if (isDir) await mkdir(abs, { recursive: true })
   else {
     await mkdir(dirname(abs), { recursive: true })
@@ -62,18 +71,18 @@ export async function createNote(relPath: string, isDir: boolean): Promise<strin
 
 export async function deleteNote(p: string): Promise<void> {
   const abs = assertInShared(p)
-  if (abs === resolve(workspace.sharedDir)) throw new Error('Cannot delete the shared folder itself')
+  if (abs === resolve(workspace.sharedDir)) throw hiveError(msg({ id: 'content.notes.deleteRoot', defaultMessage: 'Cannot delete the shared folder itself', description: "An error: the shared notes folder itself (.hive/shared) can't be deleted, only what is in it." }))
   // To the Recycle Bin, like files, skills, personas and sessions.
   if (existsSync(abs)) await trash(abs)
 }
 
 export async function renameNote(p: string, newName: string): Promise<string> {
   const abs = assertInShared(p)
-  if (!newName.trim() || /[\\/:*?"<>|]/.test(newName)) throw new Error('Invalid name')
+  if (!newName.trim() || /[\\/:*?"<>|]/.test(newName)) throw hiveError(msg({ id: 'content.notes.badName', defaultMessage: 'Invalid name', description: 'An error renaming a shared note: the new name is empty or has a character Windows can\'t have in a name (such as / or :).' }), undefined, { kind: 'invalid' })
   const dest = assertInShared(join(dirname(abs), newName.trim()))
   // Only its letters' case changed: the same file (Windows), renamed.
   const caseOnly = abs !== dest && abs.toLowerCase() === dest.toLowerCase()
-  if (!caseOnly && existsSync(dest)) throw new Error(`"${newName}" already exists`)
+  if (!caseOnly && existsSync(dest)) throw hiveError(M.exists, { name: newName })
   const at = workspaceAt(currentWorkspace())
   if (!at || resolve(dirname(abs)).toLowerCase() !== resolve(at.shared, 'handovers').toLowerCase()) {
     await rename(abs, dest)
@@ -134,7 +143,7 @@ function workspaceAt(ws: WorkspaceService): WorkspaceAt | null {
   return { ws, shared: join(path, HIVE_DIR, 'shared'), owners: join(path, HIVE_DIR, 'handover-owners.json'), open: () => !life.aborted && ws.lifetime === life && ws.path === path }
 }
 function stillOpen(at: WorkspaceAt): void {
-  if (!at.open()) throw new Error('The workspace was closed or switched: nothing was changed.')
+  if (!at.open()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
 }
 
 /** The workspace's handovers, as files of shared/handovers (its README aside). */
@@ -300,7 +309,7 @@ export async function createHandover(project: string, title: string, content: st
   // All in the workspace it began in (a window switched meanwhile writes nothing into the next one).
   const ws = currentWorkspace()
   const at = workspaceAt(ws)
-  if (!at) throw new Error('No workspace is open')
+  if (!at) throw new Error('No workspace is open') // i18n-ignore: the Agent API's handover (agents read English)
   const dir = join(at.shared, 'handovers')
   await mkdir(dir, { recursive: true })
   stillOpen(at)
@@ -333,6 +342,7 @@ export class NoteConflict extends Error {
     expected: string,
     public current: string | null
   ) {
+    // i18n-ignore: agents only (the Agent API's note write, with expectedRevision)
     super(current ? `${rel} has changed since revision ${expected}: it is now at revision ${current}. Read it again, merge your change and write it with expectedRevision ${current}.` : `${rel} no longer exists. Write it without expectedRevision to create it again.`)
   }
 }

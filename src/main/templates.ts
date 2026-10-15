@@ -35,12 +35,16 @@ import { sessions } from './sessions'
 import { endReviews, releaseAgentCards } from './tasks'
 import { workspace, workspaceOf } from './workspace'
 import * as wt from './worktrees'
-import { gitProblem } from './gitTool'
+import { gitTool } from './gitTool'
+import { gitProblemData } from '../shared/gitTool'
+import { listOf, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
+import { fmt, msg, tr, type Msg } from '../shared/i18n'
+import { errorText, HiveError, shownError } from './hiveError'
 import { unusedWorktreesNamed } from './unusedWorktrees'
 import { trash } from './trash'
 import { withAgentNames, workspaceAgents } from './agentNames'
 import { hiveBranchNumber } from '../shared/hiveBranches'
-import { agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames'
+import { AGENT_NAME_MAX, agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames'
 
 /**
  * Agent templates (#126): a project's agents and layout saved under a name, in the workspace (`<workspace>/.hive/
@@ -53,11 +57,31 @@ import { agentNameProblem, nameTaken, sameAgentName } from '../shared/agentNames
 
 const log = createLogger('templates')
 
-/** A template that isn't there, or can't be used: the caller says so as it is. */
-export class TemplateError extends Error {}
+/** A template that isn't there, or can't be used: the caller says so as it is, in the window's language (#849). */
+export class TemplateError extends HiveError {}
+
+/** A refusal from a message and its values. */
+const refusal = (m: Msg, values?: TextValues, kind?: 'invalid' | 'notFound' | 'conflict'): TemplateError => new TemplateError(values ? withValues(m, values) : m, kind ? { kind } : undefined)
+
+/** Templates' refusals and the load plan's reasons, which only the window reads (#849): IPC shows them in its language. */
+const M = {
+  gone: msg({ id: 'content.templates.gone', defaultMessage: 'That template is no longer there.', description: 'An error: the template was deleted or renamed meanwhile.' }),
+  asShown: msg({ id: 'content.templates.asShown', defaultMessage: '{problem}', description: "A template's problem, said in the window's language already (why it isn't one Hive can use). Keep it as {problem} alone." }),
+  nameTaken: msg({ id: 'content.templates.nameTaken', defaultMessage: 'There is already a template called "{name}" there.', description: 'An error renaming or editing a template: another template where it is kept (the workspace or a project) is called {name}.' }),
+  provider: msg({ id: 'content.templates.provider', defaultMessage: '{problem, select, unknown {This Hive doesn\'t know the coding agent "{provider}" (update Hive)} off {{provider} is turned off (Settings → Providers)} other {{provider} isn\'t installed (Agent Setup)}}', description: "Why a template can't be loaded: a coding agent CLI it needs. {problem} is why: unknown ({provider} is the id the template gives, which this version of Hive doesn't know), off (turned off in Settings → Providers), or not installed (Agent Setup is a Help window). {provider} is otherwise its name (\"Codex\")." }),
+  neededBy: msg({ id: 'content.templates.neededBy', defaultMessage: '{problem, select, unknown {This Hive doesn\'t know the coding agent "{provider}" (update Hive), needed by {agents}.} off {{provider} is turned off (Settings → Providers), needed by {agents}.} other {{provider} isn\'t installed (Agent Setup), needed by {agents}.}}', description: "Why a template can't be loaded: a coding agent CLI its agents {agents} (their names, listed in the language's way: \"Builder and Reviewer\") need. {problem} and {provider} as in the reason without the agents." }),
+  needsIt: msg({ id: 'content.templates.needsIt', defaultMessage: '{problem, select, unknown {This Hive doesn\'t know the coding agent "{provider}" (update Hive): {agent} needs it.} off {{provider} is turned off (Settings → Providers): {agent} needs it.} other {{provider} isn\'t installed (Agent Setup): {agent} needs it.}}', description: "An error adding one agent from a template: the coding agent CLI it needs. {agent} is its name; {problem} and {provider} as in the reason a template can't be loaded." }),
+  taken: msg({ id: 'content.templates.taken', defaultMessage: '{names} {count, plural, one {is already an agent} other {are already agents}} in {projects}: agent names are unique across the workspace, so rename {count, plural, one {it} other {them}}.', description: "Why a template can't be loaded: agents of other projects ({projects}) have its agents' names {names} ({count} of them). {names} and {projects} are lists, in the language's way (\"B1 and R1\")." }),
+  takenNothing: msg({ id: 'content.templates.takenNothing', defaultMessage: '{names} {count, plural, one {is already an agent} other {are already agents}} in {projects}: agent names are unique across the workspace, so rename {count, plural, one {it} other {them}}. Nothing was changed.', description: "An error loading a template: agents of other projects ({projects}) took its agents' names {names} ({count} of them) while it loaded, so nothing changed. {names} and {projects} are lists, in the language's way (\"B1 and R1\")." }),
+  inUse: msg({ id: 'content.templates.inUse', defaultMessage: "another agent works in {branch}'s worktree", description: "Why a template's agent gets a new worktree: another agent works in the one of its name, on {branch}. A clause, lower case." }),
+  nothing: msg({ id: 'content.templates.nothing', defaultMessage: '{problem} Nothing was changed.', description: "An error loading a template, nothing changed: {problem} is why, a sentence of its own (how many agents a project can have)." })
+}
+
+/** A template's problem, already in the window's language (readTemplate's), as a refusal's text. */
+const asShown = (problem: string): Text => withValues(M.asShown, { problem })
 
 const checkScope = (scope: unknown): TemplateScope => {
-  if (scope !== 'workspace' && scope !== 'project') throw new TemplateError(`Unknown scope "${String(scope)}": workspace or project.`)
+  if (scope !== 'workspace' && scope !== 'project') throw refusal(msg({ id: 'content.templates.scope', defaultMessage: 'Unknown scope "{scope}": workspace or project.', description: 'An error: where a template is kept must be workspace or project (keep those two words: they are the values to use).' }), { scope: String(scope) }, 'invalid')
   return scope
 }
 
@@ -68,7 +92,7 @@ const checkScope = (scope: unknown): TemplateScope => {
 function folder(d: TemplateDest): string {
   if (checkScope(d.scope) === 'project') return join(workspace.assertProject(String(d.project ?? '')), HIVE_DIR, 'templates')
   const ws = d.project ? workspaceOf(d.project).path : workspace.path
-  if (!ws) throw new TemplateError('Open a workspace first.')
+  if (!ws) throw refusal(msg({ id: 'content.templates.noWorkspace', defaultMessage: 'Open a workspace first.', description: "An error: the workspace's templates need a workspace open." }))
   return join(ws, HIVE_DIR, 'templates')
 }
 
@@ -78,7 +102,7 @@ const place = (d: TemplateDest): TemplateDest => (d.scope === 'project' ? { scop
 async function readOne(d: TemplateDest, file: string): Promise<TemplateEntry> {
   const where = place(d)
   const raw = await readKeptJson<unknown>(join(folder(d), file), null)
-  const t = raw === null ? "It couldn't be read." : readTemplate(raw)
+  const t = raw === null ? tr(msg({ id: 'content.templates.unreadable', defaultMessage: "It couldn't be read.", description: "Why a template can't be used: its file couldn't be read." })) : readTemplate(raw)
   if (typeof t === 'string') {
     const name = raw && typeof raw === 'object' && typeof (raw as { name?: unknown }).name === 'string' ? String((raw as { name: string }).name).slice(0, TEMPLATE_NAME_MAX) : file.replace(/\.json$/, '')
     return { ...where, file, name, savedAt: null, layout: 'auto', agents: [], problem: t }
@@ -113,9 +137,9 @@ export async function listAllTemplates(): Promise<TemplateEntry[]> {
 
 /** One template's file, after checking it is one Hive could have made (never a path) and is there. */
 function fileOf(ref: TemplateRef): string {
-  if (!isTemplateFile(ref.file)) throw new TemplateError('That template is no longer there.')
+  if (!isTemplateFile(ref.file)) throw refusal(M.gone, undefined, 'notFound')
   const f = join(folder(ref), ref.file)
-  if (!existsSync(f)) throw new TemplateError('That template is no longer there.')
+  if (!existsSync(f)) throw refusal(M.gone, undefined, 'notFound')
   return f
 }
 
@@ -123,15 +147,15 @@ function fileOf(ref: TemplateRef): string {
 async function usable(ref: TemplateRef): Promise<TemplateEntry & { template: AgentTemplate }> {
   fileOf(ref)
   const e = await readOne(ref, ref.file)
-  if (e.problem) throw new TemplateError(`"${e.name}" can't be used: ${e.problem}`)
+  if (e.problem) throw refusal(msg({ id: 'content.templates.cantUse', defaultMessage: '"{name}" can\'t be used: {problem}', description: "An error: the template {name} can't be used; {problem} says why (a sentence)." }), { name: e.name, problem: e.problem })
   return { ...e, template: { version: 1, name: e.name, savedAt: e.savedAt ?? '', layout: e.layout, ...(e.description ? { description: e.description } : {}), agents: e.agents } }
 }
 
 /** A template name as saved: one line, trimmed, refused (saying why) if empty or too long. */
 function cleanName(name: unknown): string {
   const clean = typeof name === 'string' ? name.replace(/\s+/g, ' ').trim() : ''
-  if (!clean) throw new TemplateError('Enter a name for the template.')
-  if (clean.length > TEMPLATE_NAME_MAX) throw new TemplateError(`A template's name is at most ${TEMPLATE_NAME_MAX} characters.`)
+  if (!clean) throw refusal(msg({ id: 'content.templates.enterName', defaultMessage: 'Enter a name for the template.', description: "An error saving or renaming a template with no name." }), undefined, 'invalid')
+  if (clean.length > TEMPLATE_NAME_MAX) throw refusal(msg({ id: 'content.templates.nameTooLong', defaultMessage: "A template's name is at most {max} characters.", description: "An error saving or renaming a template whose name is longer than {max} characters." }), { max: TEMPLATE_NAME_MAX }, 'invalid')
   return clean
 }
 
@@ -168,7 +192,7 @@ export async function saveTemplate(projectPath: string, scope: TemplateScope, na
   const clean = cleanName(name)
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
-  if (!agents.length) throw new TemplateError('This project has no agents to save.')
+  if (!agents.length) throw refusal(msg({ id: 'content.templates.noAgents', defaultMessage: 'This project has no agents to save.', description: "An error saving a project's agents as a template: it has none." }))
   const t = templateFrom(clean, agents, cfg.layout, (a) => agentProvider(a, cfg, config.settings))
   return changing(d, async () => {
     // The same name: its file (replaced when asked). Another name whose file name would be the same: a file of its own.
@@ -185,7 +209,7 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
   const clean = cleanName(name)
   return changing(ref, async () => {
     const t = await usable(ref)
-    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw new TemplateError(`There is already a template called "${clean}" there.`)
+    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw refusal(M.nameTaken, { name: clean }, 'conflict')
     const renamed = await write(ref, ref.file, { ...t.template, name: clean })
     log.info(`Renamed template ${userText(t.name)} to ${userText(clean)}`)
     return renamed
@@ -202,11 +226,11 @@ export async function renameTemplate(ref: TemplateRef, name: string): Promise<Te
 export async function updateTemplate(ref: TemplateRef, edited: unknown, savedAt: string | null): Promise<TemplateEntry> {
   const clean = cleanName(edited && typeof edited === 'object' ? (edited as { name?: unknown }).name : '')
   const t = readTemplate({ ...(edited as object), version: TEMPLATE_VERSION, name: clean, savedAt: new Date().toISOString() })
-  if (typeof t === 'string') throw new TemplateError(t)
+  if (typeof t === 'string') throw new TemplateError(asShown(t), { kind: 'invalid' })
   return changing(ref, async () => {
     const now = await usable(ref)
-    if ((now.savedAt ?? null) !== (savedAt ?? null)) throw new TemplateError(`"${now.name}" changed since you started editing it (saved again meanwhile): nothing was saved. Close the editor to see it as it is now.`)
-    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw new TemplateError(`There is already a template called "${clean}" there.`)
+    if ((now.savedAt ?? null) !== (savedAt ?? null)) throw refusal(msg({ id: 'content.templates.editedMeanwhile', defaultMessage: '"{name}" changed since you started editing it (saved again meanwhile): nothing was saved. Close the editor to see it as it is now.', description: 'An error saving an edited template: it was saved again elsewhere after the editor opened it.' }), { name: now.name }, 'conflict')
+    if ((await listIn(ref)).some((e) => e.file !== ref.file && e.name.toLowerCase() === clean.toLowerCase())) throw refusal(M.nameTaken, { name: clean }, 'conflict')
     const saved = await write(ref, ref.file, t)
     log.info(`Edited template ${userText(clean)} (${ref.scope}, ${t.agents.length} agents)`)
     return saved
@@ -262,16 +286,16 @@ export async function exportTemplate(ref: TemplateRef, dest: string): Promise<vo
 /** A file to import, read and checked (untrusted): the template, or refused saying why. Nothing is written. */
 export async function readImport(path: string): Promise<AgentTemplate> {
   const info = await stat(path).catch(() => null)
-  if (!info?.isFile()) throw new TemplateError("That file isn't there.")
-  if (info.size > TEMPLATE_IMPORT_MAX) throw new TemplateError(`It isn't a Hive agent template (over ${TEMPLATE_IMPORT_MAX / 1024} KB).`)
+  if (!info?.isFile()) throw refusal(msg({ id: 'content.templates.noFile', defaultMessage: "That file isn't there.", description: 'An error importing a template: the file chosen is gone.' }), undefined, 'notFound')
+  if (info.size > TEMPLATE_IMPORT_MAX) throw refusal(msg({ id: 'content.templates.importTooLarge', defaultMessage: "It isn't a Hive agent template (over {kb} KB).", description: 'An error importing a template: the file is larger than {kb} KB, more than any template.' }), { kb: TEMPLATE_IMPORT_MAX / 1024 })
   let raw: unknown
   try {
     raw = JSON.parse((await readFile(path, 'utf8')).replace(/^﻿/, ''))
   } catch {
-    throw new TemplateError("It isn't a Hive agent template (not JSON).")
+    throw refusal(msg({ id: 'content.templates.importNotJson', defaultMessage: "It isn't a Hive agent template (not JSON).", description: "An error importing a template: the file isn't JSON." }))
   }
   const t = readTemplate(raw)
-  if (typeof t === 'string') throw new TemplateError(t)
+  if (typeof t === 'string') throw new TemplateError(asShown(t))
   return t
 }
 
@@ -300,12 +324,12 @@ export async function importTemplate(path: string, to: TemplateDest, onClash?: '
   })
 }
 
-/** Why a provider can't run here (unknown to this Hive, off, or not installed), or null. */
-function providerProblem(id: ProviderId): string | null {
-  if (!isKnownProvider(id)) return `This Hive doesn't know the coding agent "${id}" (update Hive)`
+/** Why a provider can't run here (unknown to this Hive, off, or not installed), with the name it goes by (its id when unknown), or null. */
+function providerProblem(id: ProviderId): { problem: NonNullable<TemplateLoadPlan['missing'][number]['problem']>; provider: string } | null {
+  if (!isKnownProvider(id)) return { problem: 'unknown', provider: id }
   const name = providerDescriptor(id).name
-  if (!isProviderEnabled(config.settings, id)) return `${name} is turned off (Settings → Providers)`
-  if (!providerService.info(id).found) return `${name} isn't installed (Agent Setup)`
+  if (!isProviderEnabled(config.settings, id)) return { problem: 'off', provider: name }
+  if (!providerService.info(id).found) return { problem: 'notInstalled', provider: name }
   return null
 }
 
@@ -333,13 +357,13 @@ function statusReads(projectPath: string, reads: wt.RepoReads): StatusOf {
 async function notReusable(w: Reuse, base: string, listed: { path: string; branch: string | null }[], status: StatusOf): Promise<string | null> {
   const here = placeKey(w.path)
   const there = listed.find((x) => placeKey(x.path) === here)
-  if (!there) return `git doesn't list ${w.path} as a worktree any more`
-  if (there.branch !== w.branch) return `its worktree is on ${there.branch ?? 'no branch'}, not ${w.branch}`
+  if (!there) return tr(msg({ id: 'content.templates.notListed', defaultMessage: "git doesn't list {folder} as a worktree any more", description: "Why a template's agent gets a new worktree, not the one of its name: git no longer lists that folder as a worktree. A clause, lower case." }), { folder: w.path })
+  if (there.branch !== w.branch) return there.branch ? tr(msg({ id: 'content.templates.otherBranch', defaultMessage: 'its worktree is on {current}, not {branch}', description: "Why a template's agent gets a new worktree: the one of its name has another branch checked out ({current}) than its own ({branch}). A clause, lower case." }), { current: there.branch, branch: w.branch }) : tr(msg({ id: 'content.templates.noBranch', defaultMessage: 'its worktree is on no branch, not {branch}', description: "Why a template's agent gets a new worktree: the one of its name has no branch checked out (a detached HEAD), not its own {branch}. A clause, lower case." }), { branch: w.branch })
   try {
     const { dirty } = await status({ path: there.path, branch: w.branch, base })
-    return dirty ? `${w.branch} has ${dirty} uncommitted ${dirty === 1 ? 'file' : 'files'}` : null
+    return dirty ? tr(msg({ id: 'content.templates.dirty', defaultMessage: '{branch} has {n, plural, one {# uncommitted file} other {# uncommitted files}}', description: "Why a template's agent gets a new worktree: the one of its name, on {branch}, has work not committed. A clause." }), { branch: w.branch, n: dirty }) : null
   } catch (e) {
-    return `Hive couldn't check ${w.branch} (${(e as Error).message.split('\n')[0]})`
+    return tr(msg({ id: 'content.templates.cantCheck', defaultMessage: "Hive couldn't check {branch} ({error})", description: "Why a template's agent gets a new worktree: git couldn't read the state of the one of its name, on {branch}; {error} is why (often git's own words)." }), { branch: w.branch, error: shownError(e).split('\n')[0] })
   }
 }
 
@@ -353,7 +377,7 @@ async function notReusable(w: Reuse, base: string, listed: { path: string; branc
  */
 async function reusableWorktree(projectPath: string, name: string, base: string, own: Reuse | undefined, inUse: ReadonlySet<string>, listed: { path: string; branch: string | null }[], status: StatusOf): Promise<{ reuse: Reuse } | { why: string } | null> {
   if (own) {
-    if (inUse.has(placeKey(own.path))) return { why: `another agent works in ${own.branch}'s worktree` }
+    if (inUse.has(placeKey(own.path))) return { why: tr(M.inUse, { branch: own.branch }) }
     const why = await notReusable(own, base, listed, status)
     return why ? { why } : { reuse: { path: resolve(own.path), branch: own.branch } }
   }
@@ -366,20 +390,20 @@ async function reusableWorktree(projectPath: string, name: string, base: string,
   const mine = listed.filter((w) => !!w.branch && placeKey(dirname(w.path)) === root && numbered(basename(w.path).toLowerCase(), slug) && hiveBranchNumber(w.branch, home, name) !== null)
   if (!mine.length) return null
   const free = mine.filter((w) => !inUse.has(placeKey(w.path)))
-  if (!free.length) return { why: `another agent works in ${mine[0].branch}'s worktree` }
+  if (!free.length) return { why: tr(M.inUse, { branch: mine[0].branch ?? '' }) }
   const checked = await Promise.all(free.map(async (w) => ({ w: { path: w.path, branch: w.branch! }, why: await notReusable({ path: w.path, branch: w.branch! }, base, listed, status) })))
   const clean = checked.filter((c) => !c.why)
   const exact = clean.find((c) => basename(c.w.path).toLowerCase() === slug && hiveBranchNumber(c.w.branch, home, name) === 0)
   if (exact) return { reuse: exact.w }
   if (clean.length === 1) return { reuse: clean[0].w }
-  if (clean.length > 1) return { why: `several clean worktrees could be its (${clean.map((c) => c.w.branch).join(', ')})` }
+  if (clean.length > 1) return { why: tr(msg({ id: 'content.templates.several', defaultMessage: 'several clean worktrees could be its ({branches})', description: "Why a template's agent gets a new worktree: more than one unused worktree made for its name could be its own ({branches}: their branches, listed in the language's way), so Hive takes none. A clause, lower case." }), { branches: fmt.list(clean.map((c) => c.w.branch)) }) }
   return { why: checked[0].why! }
 }
 
-/** Names another project's agents have, in a refusal: "B1, R1 are already agents in amberlight: … rename them". */
-function takenText(taken: { name: string; project: string }[]): string {
-  const where = [...new Set(taken.map((t) => t.project))].join(', ')
-  return `${taken.map((t) => t.name).join(', ')} ${taken.length === 1 ? 'is' : 'are'} already ${taken.length === 1 ? 'an agent' : 'agents'} in ${where}: agent names are unique across the workspace, so rename ${taken.length === 1 ? 'it' : 'them'}.`
+/** Names another project's agents have, in a refusal: "B1, R1 are already agents in amberlight: … rename them" (and nothing changed, at the load's end). */
+function takenText(taken: { name: string; project: string }[], nothingChanged = false): Text {
+  const where = listOf([...new Set(taken.map((t) => t.project))])
+  return withValues(nothingChanged ? M.takenNothing : M.taken, { names: listOf(taken.map((t) => t.name)), count: taken.length, projects: where })
 }
 
 /** Whether an agent is running or starting (a start reserved, not yet live): either way, not safe to remove. */
@@ -393,6 +417,11 @@ const busy = (projectPath: string, agentId: string): boolean => !!sessions.liveF
  * branches, worktrees and current branch, and each worktree's status; `reads`: a load's, which it goes on using.
  */
 export async function templatePlan(projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[], reads?: wt.RepoReads): Promise<TemplateLoadPlan> {
+  return (await planFor(projectPath, scope, file, from, names, reads)).plan
+}
+
+/** The plan, with what stops it as text (`why`, which `blocked` says in the window's language): a load refuses with it. */
+async function planFor(projectPath: string, scope: TemplateScope, file: string, from?: string, names?: string[], reads?: wt.RepoReads): Promise<{ plan: TemplateLoadPlan; why: TextPart[] }> {
   projectPath = workspace.assertProject(projectPath)
   const repo = reads ?? new wt.RepoReads(projectPath)
   const status = statusReads(projectPath, repo)
@@ -401,7 +430,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
   const cfg = await workspace.projectConfig(projectPath)
   const current = projectAgents(cfg)
   const remove: TemplateLoadPlan['remove'] = []
-  const blocked: string[] = []
+  const blocked: TextPart[] = []
   for (const a of current) {
     const running = busy(projectPath, a.id)
     let dirty = 0
@@ -410,19 +439,22 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
       try {
         dirty = (await status(a.worktree)).dirty
       } catch (e) {
-        blocked.push(`Hive couldn't check ${a.name}'s worktree (${a.worktree.path}): ${(e as Error).message.split('\n')[0]}`)
+        blocked.push(withValues(msg({ id: 'content.templates.checkFailed', defaultMessage: "Hive couldn't check {agent}'s worktree ({folder}): {error}", description: "Why a template can't be loaded: git couldn't tell whether the worktree {folder} of the agent {agent} it would remove has uncommitted work; {error} is why (often git's own words)." }), { agent: a.name, folder: a.worktree.path, error: firstLine(e) }))
       }
     }
     remove.push({ id: a.id, name: a.name, running, dirty, ...(a.worktree ? { worktree: { path: a.worktree.path, branch: a.worktree.branch } } : {}) })
-    if (running) blocked.push(`${a.name} is running or starting: stop it first.`)
-    if (dirty) blocked.push(`${a.name} has uncommitted work in its worktree (${a.worktree!.path}): commit or discard it first.`)
+    if (running) blocked.push(withValues(msg({ id: 'content.templates.running', defaultMessage: '{agent} is running or starting: stop it first.', description: "Why a template can't be loaded: the agent {agent} it would replace is running." }), { agent: a.name }))
+    if (dirty) blocked.push(withValues(msg({ id: 'content.templates.uncommitted', defaultMessage: '{agent} has uncommitted work in its worktree ({folder}): commit or discard it first.', description: "Why a template can't be loaded: the worktree {folder} of the agent {agent} it would replace has work not committed." }), { agent: a.name, folder: a.worktree!.path }))
   }
   const missing: TemplateLoadPlan['missing'] = []
   for (const id of [...new Set(t.agents.map((a) => a.provider))]) {
     const why = providerProblem(id)
-    if (why) missing.push({ provider: id, reason: why, agents: t.agents.filter((a) => a.provider === id).map((a) => a.name) })
+    if (why) {
+      const agents = t.agents.filter((a) => a.provider === id).map((a) => a.name)
+      missing.push({ provider: id, reason: tr(M.provider, why), agents, problem: why.problem })
+      blocked.push(withValues(M.neededBy, { ...why, agents: listOf(agents) }))
+    }
   }
-  for (const m of missing) blocked.push(`${m.reason}, needed by ${m.agents.join(', ')}.`)
   // It replaces the project's agents: all of them have to fit (#562).
   const limit = agentLimit(projectPath)
   if (t.agents.length > limit) blocked.push(templateLimitText(t.agents.length, limit))
@@ -461,7 +493,7 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     if (!a.worktree || reused.has(placeKey(a.worktree.path))) continue
     const check = await wt.worktreeCheck(projectPath, a.worktree, repo)
     mergedInto = check.into
-    oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? 'not checked' }) })
+    oldWorktrees.push({ agent: a.name, path: a.worktree.path, branch: a.worktree.branch, removable: check.removable, ...(check.removable ? {} : { why: check.reason ?? tr(msg({ id: 'content.templates.notChecked', defaultMessage: 'not checked', description: "Why a worktree the template's load would leave can't be removed with it: Hive couldn't check it. A clause, lower case." })) }) })
   }
   // Names another project's agent has (#702): this project's own don't count, as the load replaces them.
   const others = (await workspaceAgents(projectPath)).filter((a) => a.project.toLowerCase() !== basename(projectPath).toLowerCase())
@@ -469,7 +501,14 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
     const owner = nameTaken(a.name, others)
     return owner ? [{ name: a.name, project: owner.project }] : []
   })
-  return { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, templateNames: original.agents.map((a) => a.name), taken: takenNames, worktrees, setup, oldWorktrees, mergedInto, missing, blocked }
+  const plan = { scope: t.scope, file: t.file, name: t.name, layout: t.layout, remove, create: t.agents, templateNames: original.agents.map((a) => a.name), taken: takenNames, worktrees, setup, oldWorktrees, mergedInto, missing, blocked: blocked.map(shownText) }
+  return { plan, why: blocked }
+}
+
+/** An error's first line as text (git's message can run on), its descriptor when it is Hive's and one line. */
+function firstLine(e: unknown): TextPart {
+  const text = errorText(e)
+  return typeof text === 'string' || shownText(text).includes('\n') ? shownText(text).split('\n')[0] : text
 }
 
 /**
@@ -478,14 +517,15 @@ export async function templatePlan(projectPath: string, scope: TemplateScope, fi
  */
 function withNames(agents: TemplateAgent[], names: unknown): TemplateAgent[] {
   if (names === undefined || names === null) return agents
-  if (!Array.isArray(names) || names.length !== agents.length || names.some((n) => typeof n !== 'string')) throw new TemplateError('The names given for its agents no longer match the template: open it again.')
+  if (!Array.isArray(names) || names.length !== agents.length || names.some((n) => typeof n !== 'string')) throw refusal(msg({ id: 'content.templates.namesChanged', defaultMessage: 'The names given for its agents no longer match the template: open it again.', description: 'An error loading a template: the names chosen for its agents in the Load template dialog no longer fit it (it was edited meanwhile).' }), undefined, 'conflict')
   const clean = (names as string[]).map((n) => n.replace(/\s+/g, ' ').trim())
   for (const n of clean) {
-    const why = agentNameProblem(n)
-    if (why) throw new TemplateError(`${why.replace(/\.$/, '')} for each of its agents.`)
+    if (!agentNameProblem(n)) continue
+    if (!n) throw refusal(msg({ id: 'content.templates.nameEach', defaultMessage: 'Enter a name for each of its agents.', description: "An error loading a template: a name given for one of its agents is empty." }), undefined, 'invalid')
+    throw refusal(msg({ id: 'content.templates.nameEachTooLong', defaultMessage: 'A name is at most {max} characters for each of its agents.', description: "An error loading a template: a name given for one of its agents is longer than {max} characters." }), { max: AGENT_NAME_MAX }, 'invalid')
   }
   const twice = clean.find((n, i) => clean.findIndex((m) => sameAgentName(m, n)) !== i)
-  if (twice) throw new TemplateError(`Two of its agents would be called "${twice}".`)
+  if (twice) throw refusal(msg({ id: 'content.templates.twice', defaultMessage: 'Two of its agents would be called "{name}".', description: 'An error loading a template: the names given for its agents call two of them {name}.' }), { name: twice }, 'invalid')
   return agents.map((a, i) => ({ ...a, name: clean[i] }))
 }
 
@@ -493,13 +533,13 @@ function withNames(agents: TemplateAgent[], names: unknown): TemplateAgent[] {
  * Why a template's worktree agents can't have worktrees here (#702: why a template couldn't be loaded into a project
  * without git): git can't run, the project isn't a repository, or it isn't on a branch (detached, or no commit yet).
  */
-async function needsGit(projectPath: string, names: string[], reads: wt.RepoReads): Promise<string> {
-  const who = `its worktree ${names.length === 1 ? 'agent' : 'agents'} (${names.join(', ')})`
-  const fix = 'or edit the template to put them in the project folder'
-  if (gitProblem()) return `${gitProblem()}, so ${who} can't have worktrees of their own: fix git (Agent Setup), ${fix}.`
+async function needsGit(projectPath: string, names: string[], reads: wt.RepoReads): Promise<Text> {
+  const who = { count: names.length, names: listOf(names) }
+  const problem = gitProblemData(gitTool())
+  if (problem) return withValues(msg({ id: 'content.templates.gitBroken', defaultMessage: "{problem}, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own: fix git (Agent Setup), or edit the template to put them in the project folder.", description: "Why a template can't be loaded: git can't run ({problem}: \"Git isn't installed (or isn't on Hive's PATH)\"), so its {count} agents with worktrees of their own ({names}) can't have them. Agent Setup is a Help window." }), { ...who, problem })
   const project = basename(projectPath)
-  if (!(await reads.worktrees()).length) return `${project} isn't a git repository, so ${who} can't have worktrees of their own. Make it a repository with a first commit, ${fix}.`
-  return `${project} isn't on a branch (a detached HEAD, or no commit yet), so ${who} have nothing to branch from. Check out a branch or make a first commit, ${fix}.`
+  if (!(await reads.worktrees()).length) return withValues(msg({ id: 'content.templates.notRepo', defaultMessage: "{project} isn't a git repository, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own. Make it a repository with a first commit, or edit the template to put them in the project folder.", description: "Why a template can't be loaded into the project {project}: it isn't a git repository, so the template's {count} agents with worktrees of their own ({names}) can't have them." }), { ...who, project })
+  return withValues(msg({ id: 'content.templates.notOnBranch', defaultMessage: "{project} isn't on a branch (a detached HEAD, or no commit yet), so its worktree {count, plural, one {agent} other {agents}} ({names}) have nothing to branch from. Check out a branch or make a first commit, or edit the template to put them in the project folder.", description: "Why a template can't be loaded into the project {project}: it has no branch checked out, so the template's {count} agents with worktrees of their own ({names}) have no branch to start theirs from." }), { ...who, project })
 }
 
 /** Seams for unit tests: called after each of a load's agents is staged (its name), before the load is published. */
@@ -535,19 +575,19 @@ const loading = new Set<string>()
 export async function loadTemplate(projectPath: string, scope: TemplateScope, file: string, expected: string[], from?: string, removeOld?: { paths: string[]; mergedInto: string | null }, names?: string[]): Promise<{ created: string[]; removed: string[]; oldWorktrees: OldWorktreeOutcome[] }> {
   projectPath = workspace.assertProject(projectPath)
   const key = projectPath.toLowerCase()
-  if (loading.has(key)) throw new TemplateError('A template is already being loaded into this project.')
+  if (loading.has(key)) throw refusal(msg({ id: 'content.templates.loading', defaultMessage: 'A template is already being loaded into this project.', description: 'An error loading a template while another load into the same project is under way.' }), undefined, 'conflict')
   loading.add(key)
-  const unfence = sessions.fenceStarts(projectPath, 'A template is being loaded into this project')
+  const unfence = sessions.fenceStarts(projectPath, 'A template is being loaded into this project') // i18n-ignore: why starts are fenced, which the sessions' refusal says (E10c's)
   try {
     // Before the plan looks at the worktrees: one removed since then isn't worked in again (#289).
     const mark = claimMark()
     // The plan's reads of the repository, which staging goes on using (#732): read again only after it makes a worktree.
     const reads = new wt.RepoReads(projectPath)
-    const plan = await templatePlan(projectPath, scope, file, from, names, reads)
-    if (plan.blocked.length) throw new TemplateError(`The template can't be loaded yet:\n${plan.blocked.map((b) => `• ${b}`).join('\n')}`)
+    const { plan, why } = await planFor(projectPath, scope, file, from, names, reads)
+    if (why.length) throw new TemplateError({ lines: [msg({ id: 'content.templates.cantLoad', defaultMessage: "The template can't be loaded yet:", description: "An error loading a template, above the list of what stops it (each line a reason)." }), ...why.map((item) => withValues(msg({ id: 'content.templates.bullet', defaultMessage: '• {item}', description: 'A line of a list of reasons: a bullet, then the reason {item}.' }), { item }))] })
     const changed = (ids: string[]): boolean => !Array.isArray(expected) || ids.length !== expected.length || ids.some((id, i) => id !== expected[i])
-    if (changed(plan.remove.map((a) => a.id))) throw new TemplateError("The project's agents changed since you looked: open the template again.")
-    if (plan.taken.length) throw new TemplateError(takenText(plan.taken))
+    if (changed(plan.remove.map((a) => a.id))) throw refusal(msg({ id: 'content.templates.changedSince', defaultMessage: "The project's agents changed since you looked: open the template again.", description: "An error loading a template: the project's agents changed after the Load template dialog showed them." }), undefined, 'conflict')
+    if (plan.taken.length) throw new TemplateError(takenText(plan.taken), { kind: 'conflict' })
     const cfg = await workspace.projectConfig(projectPath)
     const staged: { def: AgentDef; discard: () => Promise<void> }[] = []
     let old: AgentDef[] = []
@@ -567,15 +607,15 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
           const owner = nameTaken(s.def.name, others)
           return owner ? [{ name: s.def.name, project: owner.project }] : []
         })
-        if (clash.length) throw new TemplateError(`${takenText(clash)} Nothing was changed.`)
+        if (clash.length) throw new TemplateError(takenText(clash, true), { kind: 'conflict' })
         await workspace.mutateProjectConfig(projectPath, (now) => {
           const list = projectAgents(now)
-          if (changed(list.map((a) => a.id))) throw new TemplateError("The project's agents changed while the template was loading: nothing was changed. Open the template again.")
-          if (list.some((a) => busy(projectPath, a.id))) throw new TemplateError('An agent started meanwhile: nothing was changed. Stop it first.')
+          if (changed(list.map((a) => a.id))) throw refusal(msg({ id: 'content.templates.changedWhile', defaultMessage: "The project's agents changed while the template was loading: nothing was changed. Open the template again.", description: "An error loading a template: the project's agents changed while it loaded, so nothing changed." }), undefined, 'conflict')
+          if (list.some((a) => busy(projectPath, a.id))) throw refusal(msg({ id: 'content.templates.started', defaultMessage: 'An agent started meanwhile: nothing was changed. Stop it first.', description: "An error loading a template: one of the project's agents started while it loaded, so nothing changed." }), undefined, 'conflict')
           // The limit as it is now: Settings may have lowered it since the plan.
           const limit = agentLimit(projectPath)
-          if (staged.length > limit) throw new TemplateError(`${templateLimitText(staged.length, limit)} Nothing was changed.`)
-          if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw new TemplateError('A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.')
+          if (staged.length > limit) throw refusal(M.nothing, { problem: templateLimitText(staged.length, limit) })
+          if (staged.some((s) => s.def.worktree && (removedSince(s.def.worktree.path, mark) || !existsSync(s.def.worktree.path)))) throw refusal(msg({ id: 'content.templates.removing', defaultMessage: 'A worktree it would work in again is being removed, or was just removed: nothing was changed. Open the template again.', description: "An error loading a template: a worktree one of its agents would work in again was removed while it loaded, so nothing changed." }), undefined, 'conflict')
           old = list
           // A worktree whose setup never ran keeps that (#289): an agent working in it again runs it first, and one kept
           // without an agent is remembered for the next.
@@ -594,12 +634,12 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
       })
     } catch (e) {
       for (const s of staged) await s.discard()
-      throw e instanceof TemplateError ? e : new TemplateError(`Nothing was changed: ${(e as Error).message}`)
+      throw e instanceof TemplateError ? e : refusal(msg({ id: 'content.templates.failed', defaultMessage: 'Nothing was changed: {error}', description: "An error loading a template: making its agents failed, so nothing changed; {error} is why (often git's own words)." }), { error: errorText(e) })
     }
     const project = basename(projectPath)
     for (const a of old) {
       await releaseAgentCards(project, a.id, { kind: 'user' }).catch((err) => log.warn('Could not take back the cards of a removed agent', err))
-      await endReviews(project, a.id, 'the agent was removed', workspaceOf(projectPath)).catch(() => undefined)
+      await endReviews(project, a.id, 'the agent was removed', workspaceOf(projectPath)).catch(() => undefined) // i18n-ignore: a ReviewEnd key (tasks.ts words it)
     }
     log.info(`Loaded template ${userText(plan.name)} into ${userText(projectPath)}: ${old.length} agents removed, ${staged.length} created`)
     const oldWorktrees = await removeOldWorktrees(projectPath, old, removeOld)
@@ -633,7 +673,7 @@ async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOl
     try {
       release = reserveForRemoval(tree.path)
     } catch (e) {
-      out.push({ branch: tree.branch, removed: false, why: (e as Error).message })
+      out.push({ branch: tree.branch, removed: false, why: shownError(e) })
       continue
     }
     try {
@@ -643,11 +683,11 @@ async function removeOldWorktrees(projectPath: string, old: AgentDef[], removeOl
         return {}
       })
       if (owned) {
-        out.push({ branch: tree.branch, removed: false, why: 'an agent works in it now' })
+        out.push({ branch: tree.branch, removed: false, why: tr(msg({ id: 'content.templates.inUseNow', defaultMessage: 'an agent works in it now', description: "Why a worktree the user chose to remove with a template's load was kept: one of the new agents works in it. A clause, lower case." })) })
         continue
       }
       await testHooks.removing?.(tree.branch)
-      const done = await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), removeOld?.mergedInto ?? null).catch((e: Error) => ({ deleted: false, reason: e.message.split('\n')[0] }))
+      const done = await wt.removeCheckedWorktree(projectPath, tree, await wt.worktreeCheck(projectPath, tree), removeOld?.mergedInto ?? null).catch((e: Error) => ({ deleted: false, reason: shownError(e).split('\n')[0] }))
       // The folder went but its branch stayed (a ref moved in the last step): said, so the notice doesn't claim both went.
       out.push({ branch: tree.branch, removed: done.deleted, ...('branchKept' in done && done.branchKept ? { branchKept: true as const } : {}), ...(done.reason ? { why: done.reason } : {}) })
       // A removed worktree's setup isn't pending any more.
@@ -664,9 +704,9 @@ export async function addAgentFromTemplate(projectPath: string, scope: TemplateS
   projectPath = workspace.assertProject(projectPath)
   const t = await usable(refFor(projectPath, scope, file, from))
   const a = Number.isInteger(index) ? t.agents[index] : undefined
-  if (!a) throw new TemplateError('That agent is no longer in the template.')
+  if (!a) throw refusal(msg({ id: 'content.templates.agentGone', defaultMessage: 'That agent is no longer in the template.', description: 'An error adding one agent from a template: the template no longer has it (edited meanwhile).' }), undefined, 'notFound')
   const why = providerProblem(a.provider)
-  if (why) throw new TemplateError(`${why}: ${a.name} needs it.`)
+  if (why) throw refusal(M.needsIt, { ...why, agent: a.name })
   const agents = projectAgents(await workspace.projectConfig(projectPath))
   // Unique across the workspace (#702): a name any agent of it has gets a number ("Builder 2"), never a prefix.
   const name = uniqueName(a.name, (await workspaceAgents(projectPath)).map((x) => x.name))
