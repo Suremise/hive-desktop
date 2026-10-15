@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "– wyłączony",
   "project.overview.updated": "Zaktualizowano {when}. Częstotliwość aktualizacji: Ustawienia → Sesje → Aktualizacje przeglądu.",
   "project.period.all": "Cały okres",
-  "project.period.month": "30 dni",
   "project.period.today": "Dziś",
-  "project.period.week": "7 dni",
   "project.refresh": "Odśwież",
   "project.retry": "Ponów",
   "project.running.context": "{used} tokenów kontekstu",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Umiejętności",
   "project.tab.tasks": "Zadania",
   "project.tab.templates": "Szablony",
-  "project.tabs.errorLabel": "Ta zakładka",
   "project.tabs.tip": "{tab} ({key})"
 }

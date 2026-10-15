@@ -34,6 +34,17 @@ describe('the settings catalog', () => {
     expect(settingEntry('assistant.persona')?.readOnly).toContain('working mode')
   })
 
+  it("a tip giving a setting's range takes it from the setting, as values, not written into the words (#911)", () => {
+    const ranged = SETTINGS_CATALOG.filter((e) => e.text.tip && typeof e.text.tip === 'object' && 'values' in e.text.tip && 'min' in e.text.tip.values)
+    expect(ranged.map((e) => e.id).sort()).toEqual(['agents.backgroundTaskMinutes', 'sessions.usageCacheSize'])
+    for (const e of ranged) {
+      const values = (e.text.tip as { values: Record<string, unknown> }).values
+      expect(values, e.id).toEqual({ min: e.min, max: e.max })
+    }
+    expect(entry('sessions.usageCacheSize').tip).toMatch(/ 100 to 50,000\.$/)
+    expect(entry('agents.backgroundTaskMinutes').tip).toMatch(/ 10 to 480 minutes\.$/)
+  })
+
   it('gives every entry a unique id, a title and a description or a reason to have none', () => {
     expect(ids.size).toBe(SETTINGS_CATALOG.length)
     for (const e of SETTINGS_CATALOG) {

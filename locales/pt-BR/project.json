@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "— desativado",
   "project.overview.updated": "Atualizado: {when}. A frequência de atualização fica em Configurações → Sessões → Atualizações da visão geral.",
   "project.period.all": "Tudo",
-  "project.period.month": "30 dias",
   "project.period.today": "Hoje",
-  "project.period.week": "7 dias",
   "project.refresh": "Atualizar",
   "project.retry": "Tentar de novo",
   "project.running.context": "{used} tokens de contexto",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Skills",
   "project.tab.tasks": "Tarefas",
   "project.tab.templates": "Modelos",
-  "project.tabs.errorLabel": "esta aba",
   "project.tabs.tip": "{tab} ({key})"
 }

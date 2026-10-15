@@ -238,9 +238,7 @@
   "project.overview.turnedOff": "– ausgeschaltet",
   "project.overview.updated": "Aktualisiert: {when}. Wie oft das geschieht: Einstellungen → Sitzungen → Aktualisierung der Übersicht.",
   "project.period.all": "Gesamt",
-  "project.period.month": "30 Tage",
   "project.period.today": "Heute",
-  "project.period.week": "7 Tage",
   "project.refresh": "Aktualisieren",
   "project.retry": "Erneut versuchen",
   "project.running.context": "{used} Tokens Kontext",
@@ -317,6 +315,5 @@
   "project.tab.skills": "Skills",
   "project.tab.tasks": "Aufgaben",
   "project.tab.templates": "Vorlagen",
-  "project.tabs.errorLabel": "Dieser Tab",
   "project.tabs.tip": "{tab} ({key})"
 }

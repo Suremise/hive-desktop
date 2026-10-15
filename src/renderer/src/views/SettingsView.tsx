@@ -4,7 +4,7 @@ import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor, columnName } from '@s
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, SETTINGS_TEXT, shownSetting, type SettingEntry, type SettingsSection, type SettingsSectionInfo } from '@shared/settingsCatalog'
-import { effortName, effortText, effortUnknown, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
+import { effortName, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, installSourceText, offeredModes, permissionLabel, providerDescriptor, providerSettings, shownText as providerText } from '@shared/providers'
 import { personaName, usePersonas } from '../components/Assistant'
@@ -599,7 +599,9 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const info = useStore((s) => s.providers[provider])
   const cliDefault = info?.defaultModel ?? null
   const runModel = a.model || g.defaultModel || cliDefault
-  const effortLabel = effortUnknown(provider, g.defaultEffort, runModel, info, settings) ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : effortText(provider, g.defaultEffort, runModel, info, settings, tr)
+  // The level itself, "Default (Medium)": effortText's "Medium, default" would say default twice (#911).
+  const effortLevel = g.defaultEffort && g.defaultEffort !== 'inherit' ? g.defaultEffort : modelCaps(provider, runModel, info, settings).defaultEffort
+  const effortLabel = !effortLevel ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : effortName(provider, effortLevel, settings, tr)
   return (
     <div className="agent-form assistant-defaults">
       <label>{tr(msg({ id: 'settings.assistantProvider.model.title', defaultMessage: 'Model', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's model." }))}</label>

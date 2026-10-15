@@ -21,8 +21,8 @@ const runnable = (tip: Tip): boolean => {
   return !!c && !c.hidden?.() && (!c.when || c.when())
 }
 
-/** A tip's words in the language shown (#767); its {key} as nothing, for searching. */
-const words = (t: string | Msg): string => (typeof t === 'string' ? t : tr(t, { key: '' }))
+/** A tip's title or text in the language shown (#767), with its values; its {key} as nothing, for searching. */
+const words = (tip: Tip, t: string | Msg): string => (typeof t === 'string' ? t : tr(t, { ...tip.values?.(), key: '' }))
 
 /** Where a tip's {key} goes in its text, whatever the language put around it. */
 const KEY = { key: true } as const
@@ -30,7 +30,7 @@ const KEY = { key: true } as const
 /** A tip's text with its shortcut as it is now: {key} shows the user's shortcut for the tip's `key` command. */
 function TipText({ tip }: { tip: Tip }) {
   if (typeof tip.text === 'string') return <>{tip.text}</>
-  const parts = tRich<typeof KEY>(tip.text, { key: KEY })
+  const parts = tRich<typeof KEY>(tip.text, { ...tip.values?.(), key: KEY })
   return (
     <>
       {parts.map((p, i) => {
@@ -162,10 +162,10 @@ export function TipCard() {
     <div ref={ref} className={cx('tip-card', over && 'stepped-aside')} role="complementary" aria-label={tr(msg({ id: 'tips.ui.tip', defaultMessage: 'Tip', description: 'The name, for screen readers, of the tip card.' }))} aria-hidden={over || undefined}>
       <div className="tip-head">
         <Icon name="lightbulb" />
-        <span className="grow">{tr(msg({ id: 'tips.ui.counter', defaultMessage: 'Tip · {n} of {total}', description: "The tip card's heading: which tip of how many it is." }), { n: TIPS.indexOf(tip) + 1, total: TIPS.length })}</span>
+        <span className="grow">{tr(msg({ id: 'tips.ui.counter', defaultMessage: '{total, plural, one {Tip · {n, number} of #} other {Tip · {n, number} of #}}', description: "The tip card's heading: which tip ({n}) of how many ({total}) it is. A plural on {total}, for a language whose words change with it." }), { n: TIPS.indexOf(tip) + 1, total: TIPS.length })}</span>
         <IconButton icon="close" action="close-tip" title={tr(msg({ id: 'tips.ui.close', defaultMessage: 'Close', description: 'Closes the tip card or Help → Tips.' }))} onClick={closeTip} />
       </div>
-      <div className="tip-title">{words(tip.title)}</div>
+      <div className="tip-title">{words(tip, tip.title)}</div>
       <div className="tip-text">
         <TipText tip={tip} />
       </div>
@@ -193,7 +193,7 @@ export function TipsDialog() {
     setQuery('')
   }
   const q = query.trim().toLowerCase()
-  const found = TIPS.filter((t) => !q || `${words(t.title)} ${words(t.text)} ${tr(TIP_GROUP_TEXT[t.group])}`.toLowerCase().includes(q))
+  const found = TIPS.filter((t) => !q || `${words(t, t.title)} ${words(t, t.text)} ${tr(TIP_GROUP_TEXT[t.group])}`.toLowerCase().includes(q))
   return (
     <Modal
       title={tr(msg({ id: 'tips.ui.title', defaultMessage: 'Tips', description: 'The title of Help → Tips.' }))}
@@ -222,7 +222,7 @@ export function TipsDialog() {
               {list.map((t) => (
                 <div key={t.id} className="tips-item" data-tip={t.id}>
                   <div className="grow">
-                    <div className="tip-title">{words(t.title)}</div>
+                    <div className="tip-title">{words(t, t.title)}</div>
                     <div className="tip-text">
                       <TipText tip={t} />
                     </div>

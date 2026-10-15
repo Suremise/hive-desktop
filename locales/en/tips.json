@@ -64,16 +64,16 @@
     "description": "A tip's title."
   },
   "tips.assistantBatch.text": {
-    "defaultMessage": "The Assistant can move or label up to 100 cards in one step, each card still listed on its own. The step counts as one of its 30 changes for a message, so it never stops part-way through them.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "The Assistant can move or label up to {cards, plural, one {# card} other {# cards}} in one step, each card still listed on its own. The step counts as one of its {changes, plural, one {# change} other {# changes}} for a message, so it never stops part-way through them.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {cards} is how many cards one step can change (100), {changes} how many changes the Assistant may make for one message (30)."
   },
   "tips.assistantBatch.title": {
     "defaultMessage": "Many cards in one step",
     "description": "A tip's title."
   },
   "tips.assistantCompact.text": {
-    "defaultMessage": "The Assistant usually works with a bigger context than your agents, so its Compact button turns orange later: past 500,000 tokens by default. Settings → Assistant → Highlight Compact over changes that, or Never turns it off.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "The Assistant usually works with a bigger context than your agents, so its Compact button turns orange later: past {tokens, plural, one {# token} other {# tokens}} by default. Settings → Assistant → Highlight Compact over changes that, or Never turns it off.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {tokens} is the default (500,000)."
   },
   "tips.assistantCompact.title": {
     "defaultMessage": "When the Assistant suggests compacting",
@@ -104,7 +104,7 @@
     "description": "A tip's title."
   },
   "tips.assistantLanes.text": {
-    "defaultMessage": "When the Assistant starts an agent on its next set of cards, it gives it a new conversation in the same step (the old one stays in the Sessions tab). Short conversations cost much less: ask it to do the same for any new task.",
+    "defaultMessage": "When the Assistant starts an agent on its next set of cards, it gives it a new conversation in the same step (the old one stays in the Sessions tab). Short conversations cost much less: ask it to do the same for any new card.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.assistantLanes.title": {
@@ -112,7 +112,7 @@
     "description": "A tip's title."
   },
   "tips.assistantMessages.text": {
-    "defaultMessage": "The Assistant can't give a waiting or working agent a new task, but it can leave it a message, such as your answer: delivered as soon as the agent can take it. Its pane shows ✉ 1 unread until then; click to cancel.",
+    "defaultMessage": "The Assistant can't give a waiting or working agent a new task, but it can leave it a message, such as your answer: delivered as soon as the agent can take it. Its pane shows it as unread (✉) until then; click that to cancel it.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.assistantMessages.title": {
@@ -208,7 +208,7 @@
     "description": "A tip's title."
   },
   "tips.boardArchiveAll.text": {
-    "defaultMessage": "A column's ⋯ has Archive All in Done (n)…, and the board's ⋯ Archive All Cards…. Cards agents are on are skipped unless you say, and Undo puts everything back where it was.",
+    "defaultMessage": "A column's ⋯ has Archive All in Done (n)…, and the board's ⋯ has Archive All Cards… for every column. Cards agents are on are skipped unless you say, and Undo puts everything back where it was.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.boardArchiveAll.title": {
@@ -256,8 +256,8 @@
     "description": "A tip's title."
   },
   "tips.cardCost.text": {
-    "defaultMessage": "A card's panel says what its agents used while they held it, \"cost: ≈ $1.84 · 2 rounds\", with the builder's and reviewer's parts and tokens on hover. Performance lists every card's cost, and a lane's hover in the Progress panel its overhead.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "A card's panel says what its agents used while they held it, \"{example}\", with the builder's and reviewer's parts and tokens on hover. Performance lists every card's cost, and a lane's hover in the Progress panel its overhead.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {example} is a card's cost line as the board shows it (\"cost: ≈ $1.84 · 2 rounds\")."
   },
   "tips.cardCost.title": {
     "defaultMessage": "What a card cost",
@@ -380,8 +380,8 @@
     "description": "A tip's title."
   },
   "tips.dateFormat.text": {
-    "defaultMessage": "Hive shows dates as 2026-10-04 and times as 14:05. Settings → General → Date format and Time format change them everywhere, sessions named by when they started too.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "Hive shows dates as {date} and times as {time}. Settings → General → Date format and Time format change them everywhere, sessions named by when they started too.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {date} and {time} are an example date and time (4 October 2026, 14:05) in the formats chosen now."
   },
   "tips.dateFormat.title": {
     "defaultMessage": "Dates your way",
@@ -444,8 +444,8 @@
     "description": "A tip's title."
   },
   "tips.gitView.text": {
-    "defaultMessage": "The Git tab shows its branch, remotes, history and tags, and lets you switch or create a branch, fetch, pull, push, tag and set its commit identity. The status bar shows \"main · origin · ↑2 ↓0\": click it to get there.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "The Git tab shows its branch, remotes, history and tags, and lets you switch or create a branch, fetch, pull, push, tag and set its commit identity. The status bar shows \"{example}\": click it to get there.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {example} is the status bar's git item as Hive shows it (\"main · origin · ↑2 ↓0\": the branch, its remote, and how many commits it is ahead and behind)."
   },
   "tips.gitView.title": {
     "defaultMessage": "See and change a project's git",
@@ -524,7 +524,7 @@
     "description": "A tip's title."
   },
   "tips.inboxNotices.text": {
-    "defaultMessage": "A message the Assistant leaves a working agent reaches it at its next tool call, or before its turn ends, as a short notice from Hive: nothing is typed over its work. The agent reads it from its inbox and acks it; its pane shows ✉ 1 unread until it does.",
+    "defaultMessage": "A message the Assistant leaves a working agent reaches it at its next tool call, or before its turn ends, as a short notice from Hive: nothing is typed over its work. The agent reads it from its inbox and acks it; its pane shows it as unread (✉) until it does.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.inboxNotices.title": {
@@ -556,8 +556,8 @@
     "description": "A tip's title."
   },
   "tips.loopDefaults.text": {
-    "defaultMessage": "Settings → Workspace → Card loop rounds and Card loop wait set what loops use when you don't say (10 rounds and 6 hours to start with); a project can have its own. Saying \"rounds: 3\" when you start one still wins.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "Settings → Workspace → Card loop rounds and Card loop wait set what loops use when you don't say ({rounds, plural, one {# round} other {# rounds}} and {hours, plural, one {# hour} other {# hours}} to start with); a project can have its own. Saying \"rounds: 3\" when you start one still wins.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {rounds} and {hours} are the defaults (10 and 6). \"rounds: 3\" is what the user types to an agent: keep it in English."
   },
   "tips.loopDefaults.title": {
     "defaultMessage": "Your rounds and wait for every loop",
@@ -612,8 +612,8 @@
     "description": "A tip's title."
   },
   "tips.messageReceipts.text": {
-    "defaultMessage": "Every message the Assistant leaves an agent has an id and is kept, even across a restart: it is received once the agent reads its inbox, and acked once the agent acted on it. One not acked in 30 minutes shows as ✉ 1 overdue in its pane.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "Every message the Assistant leaves an agent has an id and is kept, even across a restart: it is received once the agent reads its inbox, and acked once the agent acted on it. One not acked within {minutes, plural, one {# minute} other {# minutes}} shows as overdue (✉) in its pane.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {minutes} is how long before a message shows as overdue (30)."
   },
   "tips.messageReceipts.title": {
     "defaultMessage": "See where a message got to",
@@ -628,12 +628,12 @@
     "description": "A tip's title."
   },
   "tips.moreAgents.text": {
-    "defaultMessage": "Need more than twelve agents in a project? Raise Agents per project in Settings → Advanced, up to 24, for every workspace or just this one. Above 12 it shows what they cost on your computer: the memory your running agents take, and how much is free.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "Need more than {usual, plural, one {# agent} other {# agents}} in a project? Raise Agents per project in Settings → Advanced, up to {most, number}, for every workspace or just this one. Above {usual, number} it shows what they cost on your computer: the memory your running agents take, and how much is free.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {usual} is how many agents a project can have by default (12), {most} the most it can be raised to (24)."
   },
   "tips.moreAgents.title": {
-    "defaultMessage": "More than twelve agents",
-    "description": "A tip's title."
+    "defaultMessage": "More than {usual, plural, one {# agent} other {# agents}}",
+    "description": "A tip's title. {usual} is how many agents a project can have by default (12)."
   },
   "tips.myPrices.text": {
     "defaultMessage": "Claude Code's cost is its own figure, from its price table. On other rates (a discount, another tier)? Set Session costs to My prices, and Hive prices every session from your table instead.",
@@ -748,8 +748,8 @@
     "description": "A tip's title."
   },
   "tips.progressHistory.text": {
-    "defaultMessage": "Recent in the Progress panel shows the last 10 runs; Show all scrolls through the last 200, even after Hive restarts. The project filter applies to them all.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "Recent in the Progress panel shows the last {recent, plural, one {# run} other {# runs}}; Show all scrolls through the last {kept, plural, one {# run} other {# runs}}, even after Hive restarts. The project filter applies to them all.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {recent} is how many runs Recent shows (10), {kept} how many Show all keeps (200)."
   },
   "tips.progressHistory.title": {
     "defaultMessage": "What ran this morning?",
@@ -868,8 +868,8 @@
     "description": "A tip's title."
   },
   "tips.sessionCleanup.text": {
-    "defaultMessage": "The Sessions tab's Clean Up Old Sessions… button archives or deletes every session last active more than 24 hours, 7 days or 30 days ago. Running sessions and the one you're reading are left alone.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+    "defaultMessage": "The Sessions tab's Clean Up Old Sessions… button archives or deletes every session last active more than {hours, plural, one {# hour} other {# hours}}, {week, plural, one {# day} other {# days}} or {month, plural, one {# day} other {# days}} ago. Running sessions and the one you're reading are left alone.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {hours}, {week} and {month} are its choices of age (24 hours, 7 days and 30 days)."
   },
   "tips.sessionCleanup.title": {
     "defaultMessage": "Clear out old sessions",
@@ -1000,8 +1000,8 @@
     "description": "Closes the tip card or Help → Tips."
   },
   "tips.ui.counter": {
-    "defaultMessage": "Tip · {n} of {total}",
-    "description": "The tip card's heading: which tip of how many it is."
+    "defaultMessage": "{total, plural, one {Tip · {n, number} of #} other {Tip · {n, number} of #}}",
+    "description": "The tip card's heading: which tip ({n}) of how many ({total}) it is. A plural on {total}, for a language whose words change with it."
   },
   "tips.ui.learnMore": {
     "defaultMessage": "Learn more",

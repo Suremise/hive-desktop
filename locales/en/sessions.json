@@ -108,11 +108,11 @@
     "description": "An error's title: archiving, unarchiving or deleting many sessions (the Hive Assistant's: conversations) failed."
   },
   "sessions.bulk.skipCount": {
-    "defaultMessage": "{n, number} {reason}",
-    "description": "How many sessions were passed over for one reason ({reason}: \"running\", \"in use\"), listed after \"n skipped:\"."
+    "defaultMessage": "{reason, select, live {{n, plural, one {# running} other {# running}}} inUse {{n, plural, one {# in use} other {# in use}}} reading {{n, plural, one {# being read by Hive} other {# being read by Hive}}} open {{n, plural, one {# open in another Hive window} other {# open in other Hive windows}}} external {{n, plural, one {# started outside Hive} other {# started outside Hive}}} shown {{n, plural, one {# open here} other {# open here}}} current {{n, plural, one {# current Assistant conversation} other {# current Assistant conversations}}} other {{n, plural, one {# failed} other {# failed}}}}",
+    "description": "How many sessions were passed over for one reason, listed after \"n skipped:\" (\"2 running, 1 in use\"). {reason} picks why: running, files in use, Hive is reading it, open in another Hive window, started outside Hive, open in this tab, the Hive Assistant's current conversation, or it failed (other)."
   },
   "sessions.bulk.skipNote": {
-    "defaultMessage": "{running, plural, =0 {Running sessions are skipped, and} one {# running now is skipped, as are} other {# running now are skipped, as are}} any whose files are in use; the result says which.",
+    "defaultMessage": "{running, plural, =0 {Running sessions are skipped, and so are any whose files are in use; the result says which.} one {# running now is skipped, as are any whose files are in use; the result says which.} other {# running now are skipped, as are any whose files are in use; the result says which.}}",
     "description": "In the confirmation before archiving or deleting many sessions: running sessions ({running} of them now; none: a general note) and any whose files are in use are passed over, and the result lists them."
   },
   "sessions.bulk.skipReason": {

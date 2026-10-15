@@ -195,7 +195,6 @@
   "shell.error.stopBackground": "No se pudo detener la sesión en segundo plano",
   "shell.error.switchModes": "No se pudieron cambiar los modos de permisos",
   "shell.errorBoundary.logs": "Abrir registros",
-  "shell.errorBoundary.named": "{view} tuvo un problema y no se pudo mostrar.",
   "shell.errorBoundary.reload": "Recargar la ventana",
   "shell.errorBoundary.save": "{n, plural, one {Guardar # archivo sin guardar} many {Guardar # archivos sin guardar} other {Guardar # archivos sin guardar}}",
   "shell.errorBoundary.saveFailed": "No se pudo guardar: {why}",
@@ -254,7 +253,6 @@
   "shell.quit.stopping.watching": "Su ciclo de tarjetas se pausa hasta que se reanude",
   "shell.quit.stopping.working": "Se interrumpirá",
   "shell.quit.stoppingColumn": "Al detenerlo",
-  "shell.quit.stops": "{how, select, workspace {Cerrar el espacio de trabajo detiene} switch {Cambiar de espacio de trabajo detiene} window {Cerrar esta ventana detiene} allWindows {Salir cierra las {windows} ventanas y detiene} other {Salir detiene}} {busy, select, yes {{n, plural, one {la sesión} many {{all, select, yes {las {n} sesiones} other {las {n} sesiones}}} other {{all, select, yes {las {n} sesiones} other {las {n} sesiones}}}}} other {{n, plural, one {la sesión en ejecución} many {las # sesiones en ejecución} other {las # sesiones en ejecución}}}}{how, select, workspace { de este espacio de trabajo} switch { de este espacio de trabajo} window { de este espacio de trabajo} other {}}{everywhere, select, yes {, en todos los espacios de trabajo} other {}}.",
   "shell.quit.title": "{how, select, workspace {¿Cerrar este espacio de trabajo?} switch {¿Cambiar de espacio de trabajo?} window {¿Cerrar esta ventana?} allWindows {¿Salir de Hive y cerrar las {windows} ventanas?} other {¿Salir de Hive?}}",
   "shell.quit.unsaved": "{n, plural, one {# archivo tiene cambios sin guardar.} many {# archivos tienen cambios sin guardar.} other {# archivos tienen cambios sin guardar.}}",
   "shell.quit.when": "{action, select, saveAndClose {Guardar y cerrar} closeWorkspace {Cerrar el espacio de trabajo} switchWorkspace {Cambiar de espacio de trabajo} closeWindow {Cerrar la ventana} saveAndQuit {Guardar y salir} other {Salir}} cuando {working, plural, one {termine el agente} many {terminen los agentes} other {terminen los agentes}}",
@@ -360,8 +358,5 @@
   "shell.tip.workspace.repairMove": "El espacio de trabajo o un proyecto se movió a otra carpeta: reparar lo que aún apunta a la anterior",
   "shell.titlebar.pin": "Siempre visible",
   "shell.titlebar.pinTip": "{on, select, yes {Siempre visible (activado)} other {Siempre visible (desactivado)}}",
-  "shell.toast.dismiss": "Descartar",
-  "shell.view.assistant": "El Asistente",
-  "shell.view.devConsole": "La consola de desarrollador",
-  "shell.view.progress": "El panel Progreso"
+  "shell.toast.dismiss": "Descartar"
 }
