@@ -2,11 +2,12 @@
 import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, RETIRED_PERSONAS, assistantPersona, assistantProjectConfig, assistantStatusLine, modeMessage, modeSummary, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, RETIRED_PERSONAS, assistantPersona, assistantProjectConfig, modeMessage, modeSummary, newPersonaText, parsePersona, personaId } from '../src/shared/assistant'
 import { DEFAULT_APP_CONFIG, DEFAULT_PROJECT_CONFIG, DEFAULT_SETTINGS, compactThreshold, mergeDefaults } from '../src/shared/defaults'
 import { agentLaunchSettings } from '../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../src/shared/types'
 import { assistantTools, controlAllows } from '../src/shared/assistantTools'
+import { assistantStatusLine } from '../src/shared/assistantStatus'
 import { controlRules } from '../src/shared/hiveGuidance'
 import { promptArg } from '../src/main/providers/common'
 

@@ -47,10 +47,17 @@ export function isMac(): boolean {
   return window.hive.platform === 'darwin'
 }
 
+/** A key combination as the window shows it ("Mod+Shift+P" → "Strg+Umschalt+P"): the keys keyboards in the language name differently in its words (#885). */
 export function formatKeybinding(k: string): string {
+  const key = (p: string): string => {
+    if (p === 'Mod' || p === 'Ctrl') return isMac() && p === 'Mod' ? '⌘' : tr(msg({ id: 'actions.keys.ctrl', defaultMessage: 'Ctrl', description: "The Ctrl key's name as shortcuts show it (\"Ctrl+B\"): as printed on keyboards in the language (German: Strg)." }))
+    if (p === 'Shift') return tr(msg({ id: 'actions.keys.shift', defaultMessage: 'Shift', description: "The Shift key's name as shortcuts show it (\"Shift+Alt+C\"): as printed on keyboards in the language (German: Umschalt, Spanish: Mayús)." }))
+    if (p === 'Del' || p === 'Delete') return tr(msg({ id: 'actions.keys.delete', defaultMessage: 'Del', description: "The Delete key's name as shortcuts show it (in a menu, beside Delete): as printed on keyboards in the language (German: Entf, Spanish: Supr)." }))
+    return p.replace(/^Arrow(?=.)/, '')
+  }
   return k
     .split(' ')
-    .map((chord) => chord.split('+').map((p) => (p === 'Mod' ? (isMac() ? '⌘' : tr(msg({ id: 'actions.keys.ctrl', defaultMessage: 'Ctrl', description: "The Ctrl key's name as shortcuts show it (\"Ctrl+B\"): as printed on keyboards in the language (German: Strg)." }))) : p.replace(/^Arrow(?=.)/, ''))).join('+'))
+    .map((chord) => chord.split('+').map(key).join('+'))
     .join(' ')
 }
 

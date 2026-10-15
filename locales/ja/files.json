@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "無視",
   "files.details.modified": "更新日時",
+  "files.details.modifiedAt": "{when}<faint>（{ago}）</faint>",
   "files.details.none": "ファイルまたはフォルダーを選択してください",
   "files.details.noneHint": "ファイルを選択すると、表示や編集ができます。右クリックでほかの操作も選べます。<kbd>F2</kbd>で名前を変更、<kbd>Del</kbd>でごみ箱に移動、<kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd>でコピー、切り取り、貼り付けができます。",
   "files.details.rename": "名前を変更",

@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m} 分钟",
   "actions.duration.seconds": "{s} 秒",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Del",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "无法更改布局",
   "actions.mcp.add": "添加",
   "actions.mcp.addFailed": "无法添加服务器",

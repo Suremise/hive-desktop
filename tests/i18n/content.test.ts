@@ -252,7 +252,8 @@ describe("lists in the language's way, never joined with English commas", () => 
     setLanguage('de', GERMAN)
     expect(mcp.mcpRuns(def)).toEqual(['Startet: node', 'Umgebung: TOKEN (gesetzt), REF=${REF}', 'Headers: A (gesetzt), B (gesetzt)'])
     setLanguage('ja', {})
-    expect(mcp.mcpRuns(def)).toEqual(['Runs: node', 'Environment: TOKEN (set) REF=${REF}', 'Headers: A (set) B (set)'])
+    // Japanese's unit list joins with 、 (CLDR's joins with spaces, #893).
+    expect(mcp.mcpRuns(def)).toEqual(['Runs: node', 'Environment: TOKEN (set)、REF=${REF}', 'Headers: A (set)、B (set)'])
     setLanguage('en', {})
     expect(mcp.mcpRuns(def)).toEqual(['Runs: node', 'Environment: TOKEN (set), REF=${REF}', 'Headers: A (set), B (set)'])
   })

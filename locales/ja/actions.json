@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m}分",
   "actions.duration.seconds": "{s}秒",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Del",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "レイアウトを変更できませんでした",
   "actions.mcp.add": "追加",
   "actions.mcp.addFailed": "サーバーを追加できませんでした",

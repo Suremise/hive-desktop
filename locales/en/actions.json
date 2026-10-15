@@ -179,6 +179,14 @@
     "defaultMessage": "Ctrl",
     "description": "The Ctrl key's name as shortcuts show it (\"Ctrl+B\"): as printed on keyboards in the language (German: Strg)."
   },
+  "actions.keys.delete": {
+    "defaultMessage": "Del",
+    "description": "The Delete key's name as shortcuts show it (in a menu, beside Delete): as printed on keyboards in the language (German: Entf, Spanish: Supr)."
+  },
+  "actions.keys.shift": {
+    "defaultMessage": "Shift",
+    "description": "The Shift key's name as shortcuts show it (\"Shift+Alt+C\"): as printed on keyboards in the language (German: Umschalt, Spanish: Mayús)."
+  },
   "actions.layout.failed": {
     "defaultMessage": "Could not change layout",
     "description": "An error's title: changing the project's layout failed."

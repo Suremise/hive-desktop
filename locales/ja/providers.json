@@ -67,7 +67,7 @@
   "providers.readiness.update": "{provider} {version}が利用できます。",
   "providers.settings.hooksOff": "{source, select, inline {「追加の引数」の--settings} other {設定ファイル{file}（「追加の引数」の--settings）}}がすべてのフックをオフにしています（disableAllHooks）。Hiveはエージェントのステータス、ファイルロック、ステータスラインにフックを使います。「エージェント設定」または「設定」→「Claude Code」で削除してください。",
   "providers.settings.noFile": "そのファイルはありません",
-  "providers.settings.noValue": "「追加の引数」の最後の--settingsに値がありません。設定ファイルかインラインのJSONを指定するか（--settings '<file or JSON>'）、「エージェント設定」または「設定」→「Claude Code」で削除してください。",
+  "providers.settings.noValue": "「追加の引数」の最後の--settingsに値がありません。設定ファイルかインラインのJSONを指定するか（--settings '''<file or JSON>'''）、「エージェント設定」または「設定」→「Claude Code」で削除してください。",
   "providers.settings.notAFile": "ファイルではありません",
   "providers.settings.notJson": "設定ファイル{file}（「追加の引数」の--settings）が有効なJSONではありません（{why}）。「エージェント設定」または「設定」→「Claude Code」で修正するか削除してください。",
   "providers.settings.notList": "{source, select, inline {「追加の引数」の--settings} other {設定ファイル{file}（「追加の引数」の--settings）}}が{key}をリスト以外の値に設定しているため、Hiveのフックが届きません。リスト（[ … ]）にするか、「エージェント設定」または「設定」→「Claude Code」で削除してください。",

@@ -12,7 +12,7 @@
  */
 import { createIntl, createIntlCache, type IntlShape } from '@formatjs/intl'
 import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
-import { PSEUDO_LANGUAGE, SOURCE_LANGUAGE } from './languages'
+import { PSEUDO_LANGUAGE, SOURCE_LANGUAGE, languageOf } from './languages'
 import { setFormatLocale } from './locale'
 import type { MessageArgs, Msg, Values } from './msg'
 
@@ -121,7 +121,8 @@ export const fmt = {
   /** A date and time in the language's medium form: "13 Oct 2026, 23:40", "13 paź 2026, 23:40". */
   dateTime: (d: Date | number): string => intl.formatDate(d, { dateStyle: 'medium', timeStyle: 'short' }),
   /** "Claude, Codex and Copilot", "Claude, Codex i Copilot"; unit: "5 running, 2 failed" (no "and"). */
-  list: (items: readonly string[], type: 'conjunction' | 'disjunction' | 'unit' = 'conjunction'): string => intl.formatList(items, { type, style: type === 'unit' ? 'short' : 'long' })
+  list: (items: readonly string[], type: 'conjunction' | 'disjunction' | 'unit' = 'conjunction'): string =>
+    type === 'unit' && languageOf(current)?.unitList === 'narrow' ? intl.formatList(items, { type: 'conjunction', style: 'narrow' }) : intl.formatList(items, { type, style: type === 'unit' ? 'short' : 'long' })
 }
 
 // --- The pseudo-locale: every message's text accented and about 30% longer, in [brackets], its placeholders, plurals

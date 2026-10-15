@@ -9,7 +9,7 @@ import { TerminalView } from './TerminalView'
 import { UpdateStatusRow } from './Updates'
 import { discardDrafts, saveAllDrafts, unsavedFiles } from './FileView'
 import type { ProviderId, ProviderTask, QuitChoice, QuitSession, SessionStatus, TestedCli } from '@shared/types'
-import { PROVIDERS, enabledProviders, isProviderEnabled, providerDescriptor } from '@shared/providers'
+import { PROVIDERS, enabledProviders, installSourceText, isProviderEnabled, providerDescriptor } from '@shared/providers'
 import { distinguishingParents } from '@shared/folderLabels'
 import { GIT_DOWNLOAD, GIT_MIN, gitFixText, gitOldText, gitProblemText } from '@shared/gitTool'
 import { testedNote, testedSummary } from '@shared/testedClis'
@@ -431,7 +431,7 @@ export function AboutDialog() {
     [tr(msg({ id: 'shell.about.version', defaultMessage: 'Version', description: "A row of Help → About: Hive's version." })), info.version],
     ...PROVIDERS.map((p): [string, string] => {
       const i = providers[p.id]
-      return [p.name, i?.found ? tr(msg({ id: 'shell.about.cli', defaultMessage: 'CLI {version} ({source})', description: "A row of Help → About, a coding agent's: its CLI's version and where Hive found it." }), { version: i.version ?? '', source: i.source ?? '' }) : tr(msg({ id: 'shell.about.noCli', defaultMessage: 'CLI not installed', description: "A row of Help → About, a coding agent's, when its CLI isn't installed." }))]
+      return [p.name, i?.found ? tr(msg({ id: 'shell.about.cli', defaultMessage: 'CLI {version} ({source})', description: "A row of Help → About, a coding agent's: its CLI's version and where Hive found it." }), { version: i.version ?? '', source: installSourceText(i.source, tr) }) : tr(msg({ id: 'shell.about.noCli', defaultMessage: 'CLI not installed', description: "A row of Help → About, a coding agent's, when its CLI isn't installed." }))]
     }),
     // Names of software, the same in every language.
     ['Electron', info.electron], // i18n-ignore: a name
@@ -837,7 +837,7 @@ export function AgentSetupDialog() {
         <div className="setup-tabs">
           {PROVIDERS.map((x) => (
             <button key={x.id} className={cx('setup-tab', tab === x.id && 'selected')} disabled={running} onClick={() => { setTab(x.id); setFinished(null) }}>
-              <ProviderIcon provider={x.id} /> {isProviderEnabled(settings, x.id) ? x.name : tRich(msg({ id: 'shell.setup.tabOff', defaultMessage: '{provider}<faint> (off)</faint>', description: 'A tab of Agent Setup for a provider that is turned off. {provider} is its name; <faint> is greyed.' }), { provider: x.name, faint })}
+              <ProviderIcon provider={x.id} /> {isProviderEnabled(settings, x.id) ? x.name : <span>{tRich(msg({ id: 'shell.setup.tabOff', defaultMessage: '{provider}<faint> (off)</faint>', description: 'A tab of Agent Setup for a provider that is turned off. {provider} is its name; <faint> is greyed.' }), { provider: x.name, faint })}</span>}
             </button>
           ))}
         </div>
@@ -864,7 +864,7 @@ export function AgentSetupDialog() {
           <Icon name="pass-filled" className="" />
           <div className="grow">
             <div>
-              {tRich(msg({ id: 'shell.setup.found', defaultMessage: '<b>{provider} {version}</b> <muted>— found via {source}</muted>', description: 'Agent Setup: the CLI Hive found. {provider} is its name, {version} its version, {source} where it was found (PATH, an install folder); <b> is bold, <muted> greyed.' }), { provider: p.name, version: info.version ?? '', source: info.source ?? '', b: bold, muted })}
+              {tRich(msg({ id: 'shell.setup.found', defaultMessage: '<b>{provider} {version}</b> <muted>— found via {source}</muted>', description: 'Agent Setup: the CLI Hive found. {provider} is its name, {version} its version, {source} where it was found (PATH, an install folder); <b> is bold, <muted> greyed.' }), { provider: p.name, version: info.version ?? '', source: installSourceText(info.source, tr), b: bold, muted })}
             </div>
             <div className="setup-path muted mono" title={info.path ?? undefined}>
               {info.path}

@@ -4,7 +4,7 @@
   "service.advanced.fixFirst": "{problem} Popraw plik advanced.json (Ustawienia → Zaawansowane → Otwórz advanced.json), zanim zmienisz tu ustawienia.",
   "service.advanced.fixOrDelete": "{problem} Najpierw popraw lub usuń plik advanced.json (Ustawienia → Zaawansowane → Otwórz advanced.json).",
   "service.advanced.newer": "Plik advanced.json pochodzi z nowszej wersji Hive (format {format}): ta wersja odczytuje format {supported}.",
-  "service.advanced.notJson": "Plik advanced.json nie jest poprawnym JSON-em: {error}.",
+  "service.advanced.notJson": "Plik advanced.json nie jest poprawnym JSON-em ({error}).",
   "service.advanced.notObject": "Plik advanced.json powinien zawierać obiekt: {example}.",
   "service.advanced.notValues": "Pole „values” w pliku advanced.json powinno być obiektem ustawienie → wartość.",
   "service.advanced.unknown": "Nie ma ustawienia zaawansowanego „{id}”.",

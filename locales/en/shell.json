@@ -1391,6 +1391,10 @@
     "defaultMessage": "Sort by {column}",
     "description": "Tooltip of a table's column heading: sorts by it. {column} is the heading."
   },
+  "shell.text.sentences": {
+    "defaultMessage": "{first} {second}",
+    "description": "Two sentences one after the other, each ending in its own full stop: put the space your language leaves between sentences (none in Japanese or Chinese)."
+  },
   "shell.tip.app.quit": {
     "defaultMessage": "Quit Hive",
     "description": "What a command does, on hover in the menus."

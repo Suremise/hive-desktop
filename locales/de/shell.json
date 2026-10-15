@@ -347,6 +347,7 @@
   "shell.table.selectAll": "{n, plural, one {# Zeile auswählen} other {Alle # Zeilen auswählen}}",
   "shell.table.selectAllMatching": "{n, plural, one {# passende Zeile auswählen} other {Alle # passenden Zeilen auswählen}}",
   "shell.table.sortBy": "Nach {column} sortieren",
+  "shell.text.sentences": "{first} {second}",
   "shell.tip.app.quit": "Hive beenden",
   "shell.tip.app.quitAll": "Alle {n} Fenster schließen und die Agenten in jedem Arbeitsbereich stoppen",
   "shell.tip.help.devConsole": "Was jede CLI an Hive sendet, neben dem, was Hive daraus gemacht hat, in einem eigenen Fenster",

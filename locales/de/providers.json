@@ -67,7 +67,7 @@
   "providers.readiness.update": "{provider} {version} ist verfügbar.",
   "providers.settings.hooksOff": "{source, select, inline {Das --settings in den zusätzlichen Argumenten} other {Die Einstellungsdatei {file} (--settings in den zusätzlichen Argumenten)}} schaltet alle Hooks aus (disableAllHooks), die Hive für den Status des Agenten, Dateisperren und die Statuszeile braucht. Entferne es in den Agent-Einstellungen oder unter Einstellungen → Claude Code.",
   "providers.settings.noFile": "die Datei gibt es nicht",
-  "providers.settings.noValue": "Das letzte --settings in den zusätzlichen Argumenten hat keinen Wert. Gib eine Einstellungsdatei oder JSON direkt an (--settings '<Datei oder JSON>') oder entferne es in den Agent-Einstellungen oder unter Einstellungen → Claude Code.",
+  "providers.settings.noValue": "Das letzte --settings in den zusätzlichen Argumenten hat keinen Wert. Gib eine Einstellungsdatei oder JSON direkt an (--settings '''<Datei oder JSON>''') oder entferne es in den Agent-Einstellungen oder unter Einstellungen → Claude Code.",
   "providers.settings.notAFile": "es ist keine Datei",
   "providers.settings.notJson": "Die Einstellungsdatei {file} (--settings in den zusätzlichen Argumenten) ist kein gültiges JSON ({why}). Korrigiere oder entferne sie in den Agent-Einstellungen oder unter Einstellungen → Claude Code.",
   "providers.settings.notList": "{source, select, inline {Das --settings in den zusätzlichen Argumenten} other {Die Einstellungsdatei {file} (--settings in den zusätzlichen Argumenten)}} setzt {key} auf etwas anderes als eine Liste, sodass die Hooks von Hive dort nicht ankommen. Mach daraus eine Liste ([ … ]) oder entferne es in den Agent-Einstellungen oder unter Einstellungen → Claude Code.",

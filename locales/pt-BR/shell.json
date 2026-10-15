@@ -347,6 +347,7 @@
   "shell.table.selectAll": "{n, plural, =0 {Selecionar todas as # linhas} one {Selecionar # linha} other {Selecionar todas as # linhas}}",
   "shell.table.selectAllMatching": "{n, plural, =0 {Selecionar todas as # linhas correspondentes} one {Selecionar # linha correspondente} other {Selecionar todas as # linhas correspondentes}}",
   "shell.table.sortBy": "Ordenar por {column}",
+  "shell.text.sentences": "{first} {second}",
   "shell.tip.app.quit": "Sair do Hive",
   "shell.tip.app.quitAll": "Fechar todas as {n} janelas e parar os agentes em todos os espaços de trabalho",
   "shell.tip.help.devConsole": "O que cada CLI envia ao Hive, ao lado do que o Hive entendeu, numa janela própria",

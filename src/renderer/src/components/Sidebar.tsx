@@ -74,6 +74,8 @@ const M = {
   sharedNotes: msg({ id: 'assistant.sidebar.sharedNotes', defaultMessage: 'Shared Notes', description: "The Shared Notes sidebar's heading." }),
   newFolder: msg({ id: 'assistant.sidebar.newFolder', defaultMessage: 'New Folder', description: "Shared Notes: the dialog's title." }),
   newNote: msg({ id: 'assistant.sidebar.newNote', defaultMessage: 'New Note', description: "Shared Notes: the dialog's title." }),
+  notePlaceholder: msg({ id: 'assistant.sidebar.notePlaceholder', defaultMessage: 'note-name.md', description: "Placeholder of the New Note dialog's name box: an example file name (lower case, a dash, .md). Keep .md." }),
+  folderPlaceholder: msg({ id: 'assistant.sidebar.folderPlaceholder', defaultMessage: 'folder-name', description: "Placeholder of the New Folder dialog's name box (Shared Notes): an example folder name (lower case, a dash)." }),
   folderMessage: msg({ id: 'assistant.sidebar.folderMessage', defaultMessage: 'Folder inside .hive/shared', description: 'Shared Notes, New Folder. Keep .hive/shared as it is.' }),
   noteMessage: msg({ id: 'assistant.sidebar.noteMessage', defaultMessage: 'Markdown note inside .hive/shared. Agents can read it through the Hive MCP tools.', description: 'Shared Notes, New Note. Keep .hive/shared as it is.' }),
   create: msg({ id: 'assistant.sidebar.create', defaultMessage: 'Create', description: "New Note's, New Folder's and New MCP Server's button." }),
@@ -568,7 +570,7 @@ function NotesPanel() {
     const name = await prompt({
       title: tr(isDir ? M.newFolder : M.newNote),
       message: tr(isDir ? M.folderMessage : M.noteMessage),
-      placeholder: isDir ? 'folder-name' : 'note-name.md', // i18n-ignore: example file names
+      placeholder: isDir ? tr(M.folderPlaceholder) : tr(M.notePlaceholder),
       initial: parent ? `${parent}/` : '',
       confirmLabel: tr(M.create)
     })
@@ -769,7 +771,7 @@ function McpPanel() {
     const name = await prompt({
       title: tr(M.newServerTitle),
       message: tr(M.newServerMessage, { file: '.hive/mcp/<name>.json' }),
-      placeholder: 'server-name', // i18n-ignore: an example server name
+      placeholder: tr(msg({ id: 'actions.mcp.namePlaceholder', defaultMessage: 'server-name', description: "Placeholder of the server's name box: an example name (lower case, a dash)." })),
       confirmLabel: tr(M.create),
       validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v.trim()) && v.trim() !== 'hive' ? null : tr(M.serverNameRule))
     })

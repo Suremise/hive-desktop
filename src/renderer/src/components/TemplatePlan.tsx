@@ -4,7 +4,8 @@ import { ProviderIcon } from './ProviderIcon'
 import { Icon, Tooltip } from './ui'
 import { AGENT_NAME_MAX } from '@shared/agentNames'
 import { cx } from '../util'
-import { locale, msg, tr } from '@shared/i18n'
+import { locale, msg, tr, tRich } from '@shared/i18n'
+import { Children, type ReactNode } from 'react'
 
 const M = {
   removed: msg({ id: 'assistant.templatePlan.removed', defaultMessage: 'Removed', description: 'Load template: the heading over the agents that go.' }),
@@ -20,6 +21,7 @@ const M = {
   fromTip: msg({ id: 'assistant.templatePlan.fromTip', defaultMessage: 'Its name in the template', description: "Load template's table: tooltip on an agent's name as the template has it, beside the box for its new name." }),
   nameLabel: msg({ id: 'assistant.templatePlan.nameLabel', defaultMessage: 'Name of agent {n}', description: "Load template's table: the accessible name of the box for agent number {n}'s name." }),
   newBadge: msg({ id: 'assistant.templatePlan.newBadge', defaultMessage: 'new', description: 'Load template\'s table: a badge on an agent that replaces one of the same name.' }),
+  withNote: msg({ id: 'assistant.templatePlan.withNote', defaultMessage: '{thing} <faint>{note}</faint>', description: "Load template: a name or a setting ({thing}), then a note about it in brackets ({note}, which brings its brackets: \"(default)\"), greyed. Keep the <faint> tags around {note}. Japanese and Chinese: no space before full-width brackets." }),
   isDefault: msg({ id: 'assistant.templatePlan.default', defaultMessage: '(default)', description: "Load template's table, after a model, effort or mode: the template leaves it to the project's or Hive's defaults." }),
   folder: msg({ id: 'assistant.templatePlan.folder', defaultMessage: 'project folder', description: "Load template's table, Where: the agent works in the project's folder." }),
   ownWorktree: msg({ id: 'assistant.templatePlan.ownWorktree', defaultMessage: 'own worktree', description: "Load template's table, Where: the agent gets a worktree of its own." }),
@@ -46,8 +48,7 @@ export function TemplatePlan({ view, edit }: { view: TemplateLoadView; edit?: Na
           <ul className="template-plan-removed">
             {view.removed.map((a) => (
               <li key={a.name} data-agent={a.name}>
-                <strong>{a.name}</strong>
-                {a.replaced && <span className="faint"> {tr(M.replaced)}</span>}
+                {a.replaced ? withNote(<strong>{a.name}</strong>, tr(M.replaced), 'faint') : <strong>{a.name}</strong>}
                 {a.note && <div className="faint">{tr(M.noteSentence, { note: capitalised(a.note) })}</div>}
               </li>
             ))}
@@ -121,13 +122,13 @@ export interface NameEdit {
   onName: (index: number, name: string) => void
 }
 
+/** A name or setting with a note in brackets after it, spaced as the language does (#893: none before （ in Japanese). */
+function withNote(thing: ReactNode, note: string, className: string): ReactNode[] {
+  return Children.toArray(tRich<ReactNode>(M.withNote, { thing, note, faint: (chunks) => <span className={className}>{chunks}</span> }))
+}
+
 function Setting({ s }: { s: SettingShown }) {
-  return (
-    <>
-      {s.text}
-      {s.isDefault && <span className="faint template-plan-default"> {tr(M.isDefault)}</span>}
-    </>
-  )
+  return <>{s.isDefault ? withNote(s.text, tr(M.isDefault), 'faint template-plan-default') : s.text}</> // i18n-ignore: class names
 }
 
 function Place({ w }: { w: PlaceShown }) {

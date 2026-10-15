@@ -4,7 +4,7 @@
   "service.advanced.fixFirst": "{problem} Corrige advanced.json (Configuración → Avanzado → Abrir advanced.json) antes de cambiar la configuración aquí.",
   "service.advanced.fixOrDelete": "{problem} Primero corrige o elimina advanced.json (Configuración → Avanzado → Abrir advanced.json).",
   "service.advanced.newer": "advanced.json es de una versión más reciente de Hive (formato {format}): esta lee el formato {supported}.",
-  "service.advanced.notJson": "advanced.json no es un JSON válido: {error}",
+  "service.advanced.notJson": "advanced.json no es un JSON válido ({error}).",
   "service.advanced.notObject": "advanced.json debe contener un objeto: {example}.",
   "service.advanced.notValues": "El campo “values” de advanced.json debe ser un objeto de configuración → valor.",
   "service.advanced.unknown": "No existe la configuración avanzada “{id}”.",

@@ -416,6 +416,7 @@ interface HiveMessageValues {
   'board.slots.held': { holder: string | number; sofar: string | number; left: string | number }
   'board.slots.heldOver': { holder: string | number; sofar: string | number }
   'board.slots.into': { branch: string | number }
+  'board.slots.line': { name: string | number; state: string | number }
   'board.slots.minutes': { n: number }
   'board.slots.note': { who: string | number; branch: string | number; waiting: number }
   'board.slots.release': undefined

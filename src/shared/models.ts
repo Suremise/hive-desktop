@@ -206,5 +206,10 @@ export function effortText(provider: ProviderId, chosen: string | null | undefin
   return def ? `${effortName(provider, def, settings)}, default` : 'default' // i18n-ignore: English without tr (pickers in other areas pass tr once converted)
 }
 
+/** Whether a choice comes to the CLI's own default effort without the CLI having said what that is (effortText's "default"). */
+export function effortUnknown(provider: ProviderId, chosen: string | null | undefined, model: string | null | undefined, info: Info, settings: Settings): boolean {
+  return !(chosen && chosen !== 'inherit') && !modelCaps(provider, model, info, settings).defaultEffort
+}
+
 /** The key observedDefaultEffort keeps a model's effort under. */
 export const observedEffortKey = modelKey

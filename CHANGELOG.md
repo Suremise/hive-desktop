@@ -5,6 +5,8 @@
 ### Language
 - **Choose the language Hive shows.** Settings → General → Language: *Automatic* follows Windows' display language, or choose a language by its own name; the change shows at once. Languages translated by AI are marked, and improvements are welcome. Hive's text is being translated for this release, so much of it is still English. Agents and the Hive Assistant are still spoken to in English. `--lang=<code>` starts Hive in a language for one run.
 - **Date format: System now follows Windows' regional format**, not the language Hive shows.
+- **Less English left in a translated window.** The permission and file lock modes' names in Settings, the default provider and effort, where a provider's models come from, the board's column colours, the Assistant's status line and its modes' descriptions, where a CLI was found, and key names in menus (Strg, Entf in German) now show in the language you chose.
+- **Japanese and Chinese read better.** Lists are joined with 、, a weekday reads as one beside its time, sentences follow each other without a space, lines don't start with small kana or closing punctuation and labels break between phrases, paths show \ rather than ¥, and the "Hive can't start" window uses the language's own font.
 
 ### Agents
 - **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.

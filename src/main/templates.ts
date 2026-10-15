@@ -575,7 +575,7 @@ export async function loadTemplate(projectPath: string, scope: TemplateScope, fi
   const key = projectPath.toLowerCase()
   if (loading.has(key)) throw refusal(msg({ id: 'content.templates.loading', defaultMessage: 'A template is already being loaded into this project.', description: 'An error loading a template while another load into the same project is under way.' }), undefined, 'conflict')
   loading.add(key)
-  const unfence = sessions.fenceStarts(projectPath, 'A template is being loaded into this project') // i18n-ignore: why starts are fenced, which the sessions' refusal says (E10c's)
+  const unfence = sessions.fenceStarts(projectPath, msg({ id: 'content.templates.fenced', defaultMessage: 'A template is being loaded into this project', description: "Why an agent can't start (followed by \", so its agents can't start now.\"): a template is replacing the project's agents. A sentence without its full stop." }))
   try {
     // Before the plan looks at the worktrees: one removed since then isn't worked in again (#289).
     const mark = claimMark()

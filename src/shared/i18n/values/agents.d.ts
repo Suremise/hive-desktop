@@ -143,6 +143,9 @@ interface HiveMessageValues {
   'agents.handOver.stopped': { who: string; from: string | number; other: string | number }
   'agents.handOver.title': { agent: string | number }
   'agents.handOver.writes': { who: string; from: string | number; other: string | number }
+  'agents.installSource.native': undefined
+  'agents.installSource.settings': undefined
+  'agents.installSource.standalone': undefined
   'agents.keys.clipboard': { key: string | number }
   'agents.keys.escape': undefined
   'agents.keys.shiftOnly': undefined

@@ -44,6 +44,7 @@
   "files.details.git": "Git",
   "files.details.ignored": "Ignoré",
   "files.details.modified": "Modifié",
+  "files.details.modifiedAt": "{when} <faint>({ago})</faint>",
   "files.details.none": "Sélectionne un fichier ou un dossier",
   "files.details.noneHint": "Sélectionne un fichier pour l’afficher ou le modifier. Clic droit pour plus d’options. <kbd>F2</kbd> renomme, <kbd>Del</kbd> place dans la Corbeille, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copient, coupent et collent.",
   "files.details.rename": "Renommer",

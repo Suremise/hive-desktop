@@ -67,7 +67,7 @@
   "providers.readiness.update": "{provider} {version} est disponible.",
   "providers.settings.hooksOff": "{source, select, inline {Le --settings des arguments supplémentaires} other {Le fichier de paramètres {file} (--settings des arguments supplémentaires)}} désactive tous les hooks (disableAllHooks), dont Hive a besoin pour l’état de l’agent, les verrous de fichiers et la ligne d’état. Retire-le dans Paramètres de l’agent ou dans Paramètres → Claude Code.",
   "providers.settings.noFile": "ce fichier n’existe pas",
-  "providers.settings.noValue": "Le dernier --settings des arguments supplémentaires n’a pas de valeur. Donne-lui un fichier de paramètres ou du JSON en ligne (--settings '<file or JSON>'), ou retire-le dans Paramètres de l’agent ou dans Paramètres → Claude Code.",
+  "providers.settings.noValue": "Le dernier --settings des arguments supplémentaires n’a pas de valeur. Donne-lui un fichier de paramètres ou du JSON en ligne (--settings '''<file or JSON>'''), ou retire-le dans Paramètres de l’agent ou dans Paramètres → Claude Code.",
   "providers.settings.notAFile": "ce n’est pas un fichier",
   "providers.settings.notJson": "Le fichier de paramètres {file} (--settings des arguments supplémentaires) n’est pas du JSON valide ({why}). Corrige-le ou retire-le dans Paramètres de l’agent ou dans Paramètres → Claude Code.",
   "providers.settings.notList": "{source, select, inline {Le --settings des arguments supplémentaires} other {Le fichier de paramètres {file} (--settings des arguments supplémentaires)}} donne à {key} une valeur qui n’est pas une liste, ce qui empêche les hooks de Hive de l’atteindre. Fais-en une liste ([ … ]) ou retire-le dans Paramètres de l’agent ou dans Paramètres → Claude Code.",

@@ -1659,6 +1659,10 @@
     "defaultMessage": "into <code>{branch}</code>",
     "description": "Where a merge goes: into a branch ({branch}, shown as code; keep the <code> tags around it)."
   },
+  "board.slots.line": {
+    "defaultMessage": "<branch>{name}</branch>: {state}",
+    "description": "A merge slot in the Progress panel: its branch ({name}, shown as code: keep the <branch> tags around it) and who holds it or waits for it ({state}). Your language's punctuation goes around the colon."
+  },
   "board.slots.minutes": {
     "defaultMessage": "{n, number} min",
     "description": "How long a merge has held the merge slot (or has left), in whole minutes (\"48 min\"). Keep it short: an abbreviation."

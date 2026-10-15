@@ -414,6 +414,7 @@
   "board.slots.held": "{holder} (bisher {sofar}, {left} übrig)",
   "board.slots.heldOver": "{holder} (bisher {sofar}, Zeit überschritten)",
   "board.slots.into": "in <code>{branch}</code>",
+  "board.slots.line": "<branch>{name}</branch>: {state}",
   "board.slots.minutes": "{n, number} min",
   "board.slots.note": "{who} in {branch} (der Merge-Slot). Der Merge wartet, bis der Slot frei ist{waiting, plural, =0 {} other {; # warten}}.",
   "board.slots.release": "Freigeben",

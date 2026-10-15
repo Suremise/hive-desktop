@@ -21,6 +21,16 @@ export interface Language {
   /** The note under the picker, in its own words, so someone choosing it from another language can read it. */
   aiNote?: string
   dir: 'ltr' | 'rtl'
+  /**
+   * A list of units ("5 running, 2 failed") joined as a narrow conjunction: where CLDR's unit list joins with spaces
+   * (Japanese) or nothing (Chinese), its narrow conjunction gives 、 (#893).
+   */
+  unitList?: 'narrow'
+  /**
+   * Windows' UI font for its script, for the windows Hive draws without Chromium (the "Hive can't start" window): Segoe
+   * UI has no CJK, so Windows' fallback mixes typefaces and narrows ，。 (#893). Segoe UI when not set.
+   */
+  uiFont?: string
 }
 
 export const SOURCE_LANGUAGE = 'en'
@@ -36,8 +46,8 @@ export const LANGUAGES: readonly Language[] = [
   { code: 'fr', name: 'Français', english: 'French', ai: true, aiMark: '(IA)', aiNote: 'Traduit par IA : les améliorations sont les bienvenues.', dir: 'ltr' },
   { code: 'pl', name: 'Polski', english: 'Polish', ai: true, aiMark: '(AI)', aiNote: 'Przetłumaczone przez AI, poprawki mile widziane.', dir: 'ltr' },
   { code: 'pt-BR', name: 'Português (Brasil)', english: 'Portuguese (Brazil)', ai: true, aiMark: '(IA)', aiNote: 'Traduzido por IA: melhorias são bem-vindas.', dir: 'ltr' },
-  { code: 'ja', name: '日本語', english: 'Japanese', ai: true, aiMark: '(AI)', aiNote: 'AI による翻訳です。改善を歓迎します。', dir: 'ltr' },
-  { code: 'zh-CN', name: '简体中文', english: 'Chinese (Simplified)', ai: true, aiMark: '(AI)', aiNote: '由 AI 翻译，欢迎改进。', dir: 'ltr' }
+  { code: 'ja', name: '日本語', english: 'Japanese', ai: true, aiMark: '(AI)', aiNote: 'AI による翻訳です。改善を歓迎します。', dir: 'ltr', unitList: 'narrow', uiFont: 'Yu Gothic UI' }, // i18n-ignore: names: the language's English name (for the log) and a font's
+  { code: 'zh-CN', name: '简体中文', english: 'Chinese (Simplified)', ai: true, aiMark: '(AI)', aiNote: '由 AI 翻译，欢迎改进。', dir: 'ltr', unitList: 'narrow', uiFont: 'Microsoft YaHei UI' } // i18n-ignore: names: the language's English name (for the log) and a font's
 ]
 
 /**

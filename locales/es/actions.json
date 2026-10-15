@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Supr",
+  "actions.keys.shift": "Mayús",
   "actions.layout.failed": "No se pudo cambiar el diseño",
   "actions.mcp.add": "Agregar",
   "actions.mcp.addFailed": "No se pudo agregar el servidor",

@@ -193,6 +193,12 @@ async function newNote(ctx) {
   return shown(ctx, ctx.page.locator('.dialog').last(), 'New Note')
 }
 
+/** New Folder's dialog: its example name in the window's language (#885). */
+async function newFolder(ctx) {
+  await iconButton(ctx, '.sidebar .pane-header', 'new-folder').click()
+  return shown(ctx, ctx.page.locator('.dialog').last(), 'New Folder')
+}
+
 /** The MCP view, with a server whose definition has a literal secret: its warning, from main, in the window's language. */
 async function mcp(ctx) {
   const name = 'tokens'
@@ -313,6 +319,7 @@ module.exports = {
     { name: 'skill-delete', open: skillDelete, close: cancelDialog },
     { name: 'notes', open: notes, close: closeMenu },
     { name: 'new-note', open: newNote, close: cancelDialog },
+    { name: 'new-folder', open: newFolder, close: cancelDialog },
     { name: 'mcp', open: mcp },
     { name: 'new-mcp', open: newMcp, close: cancelDialog },
     { name: 'project-menu', open: projectMenu, close: closeMenu },

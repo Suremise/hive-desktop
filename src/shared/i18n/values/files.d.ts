@@ -47,6 +47,7 @@ interface HiveMessageValues {
   'files.details.git': undefined
   'files.details.ignored': undefined
   'files.details.modified': undefined
+  'files.details.modifiedAt': { when: string | number; ago: string | number }
   'files.details.none': undefined
   'files.details.noneHint': undefined
   'files.details.rename': undefined

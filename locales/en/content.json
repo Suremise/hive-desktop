@@ -208,8 +208,8 @@
     "description": "An error deleting a skill in a project's folder that is Hive's copy of a workspace skill (Hive puts it there for a coding agent)."
   },
   "content.skill.metadata": {
-    "defaultMessage": "its metadata isn't a set of fields (metadata:, then audience: … indented under it)",
-    "description": "Why nobody gets a Hive skill: the metadata field of its SKILL.md header isn't a set of fields. Keep metadata: and audience: as they are. It starts in lower case (it follows a colon)."
+    "defaultMessage": "its metadata isn't a set of fields (`metadata:`, then `audience: …` indented under it)",
+    "description": "Why nobody gets a Hive skill: the metadata field of its SKILL.md header isn't a set of fields. Keep what is between backticks (`metadata:`, `audience: …`) as it is, backticks included: they mark YAML. It starts in lower case (it follows a colon)."
   },
   "content.skill.noLocalFolder": {
     "defaultMessage": "{cli} has no project skills folder.",
@@ -232,8 +232,8 @@
     "description": "Why nobody gets a Hive skill: its SKILL.md header (front matter, between --- lines) doesn't end within its first {kb} KB. It follows \"Nobody gets this skill until its header is fixed:\", so it starts in lower case."
   },
   "content.skill.notFields": {
-    "defaultMessage": "its header isn't a list of fields (name: …, description: …)",
-    "description": "Why nobody gets a Hive skill: its SKILL.md header is YAML but not a set of fields. Keep name: and description: as they are. It starts in lower case (it follows a colon)."
+    "defaultMessage": "its header isn't a list of fields (`name: …`, `description: …`)",
+    "description": "Why nobody gets a Hive skill: its SKILL.md header is YAML but not a set of fields. Keep what is between backticks (`name: …`, `description: …`) as it is, backticks included: they mark YAML. It starts in lower case (it follows a colon)."
   },
   "content.skill.notSkill": {
     "defaultMessage": "Not a skill folder (no SKILL.md)",
@@ -310,6 +310,10 @@
   "content.templates.failed": {
     "defaultMessage": "Nothing was changed: {error}",
     "description": "An error loading a template: making its agents failed, so nothing changed; {error} is why (often git's own words)."
+  },
+  "content.templates.fenced": {
+    "defaultMessage": "A template is being loaded into this project",
+    "description": "Why an agent can't start (followed by \", so its agents can't start now.\"): a template is replacing the project's agents. A sentence without its full stop."
   },
   "content.templates.gitBroken": {
     "defaultMessage": "{problem}, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own: fix git (Agent Setup), or edit the template to put them in the project folder.",

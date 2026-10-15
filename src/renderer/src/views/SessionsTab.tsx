@@ -12,7 +12,7 @@ import { call, errorMessage } from '../api'
 import { PaneResizer, usePaneSize } from '../components/Resizer'
 import { Icon, IconButton, InfoTip, LoadFailed, Markdown, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { agentProviderOf, confirm, focusedAgentId, notify, openInSessionsTab, prompt, revealAgent, set, setAssistantOpen, useDateStyle, useLanguage, useStore } from '../store'
-import { cx, formatDuration, formatTokens, sessionLabel, timeAgo } from '../util'
+import { cx, formatDuration, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { useSessions } from './ProjectTabs'
 import { useScopedLoad } from '../scopedLoad'
 import { sessionOrigin, type SessionOrigin } from '@shared/sessionOrigin'
@@ -322,7 +322,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     if (s.source === 'hive') entries.push({ label: tr(msg({ id: 'sessions.menu.rename', defaultMessage: 'Rename…', description: 'Menu item on a session: renames it.' })), icon: 'tag', keybinding: 'F2', onClick: () => void rename(s) })
     entries.push({ separator: true })
     if (s.source === 'hive' && !live) entries.push({ label: s.archived ? tr(UNARCHIVE) : tr(ARCHIVE), icon: s.archived ? 'unarchive' : 'archive', onClick: () => void archive(s, !s.archived) })
-    entries.push({ label: tr(msg({ id: 'sessions.menu.delete', defaultMessage: '{kind, select, conversation {Delete Conversation…} other {Delete Session…}}', description: "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation." }), { kind }), icon: 'trash', keybinding: 'Del', danger: true, disabled: live, onClick: () => void remove(s) }) // i18n-ignore: 'Del' is the key's name in the shortcut column
+    entries.push({ label: tr(msg({ id: 'sessions.menu.delete', defaultMessage: '{kind, select, conversation {Delete Conversation…} other {Delete Session…}}', description: "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation." }), { kind }), icon: 'trash', keybinding: formatKeybinding('Del'), danger: true, disabled: live, onClick: () => void remove(s) }) // i18n-ignore: a key's id, which formatKeybinding names
     if (n.children.length) entries.push({ separator: true }, ...branchEntries(n))
     entries.push({ separator: true }, { label: tr(msg({ id: 'sessions.menu.copyId', defaultMessage: 'Copy Session ID', description: "Menu item on a session: copies its id (the CLI's session id) to the clipboard." })), icon: 'copy', onClick: () => copyText(s.id) })
     return entries
@@ -841,7 +841,7 @@ function SessionRow(props: {
         ) : (
           <span>{timeAgo(s.lastActivity)}</span>
         )}
-        {s.usage && <span>{tr(msg({ id: 'sessions.row.context', defaultMessage: '{tokens} context', description: 'A session row in the list: how many tokens its context holds ({tokens}: "120K"). Keep it short.' }), { tokens: formatTokens(s.usage.contextTokens) })}</span>}
+        {s.usage && <span className="session-row-context">{tr(msg({ id: 'sessions.row.context', defaultMessage: '{tokens} context', description: 'A session row in the list: how many tokens its context holds ({tokens}: "120K"). Keep it short.' }), { tokens: formatTokens(s.usage.contextTokens) })}</span>}
         <TranscriptSize s={s} warnMB={props.warnMB} assistant={props.assistant} />
         {origin && (
           <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{origin.detail}</span>}>

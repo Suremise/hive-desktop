@@ -13,16 +13,16 @@ import { gitFixText, gitProblemText } from '@shared/gitTool'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
 import { agentProviderOf, bumpUnused, confirm, focusAfterRemoving, notify, projectKey, set, setActivity, showAgent, useLanguage, useStore } from '../store'
-import { msg, tr, tRich } from '@shared/i18n'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
 import { formatSize } from '@shared/units'
 import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
-import { effortText, modelCaps } from '@shared/models'
+import { effortText, effortUnknown, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
-import { BusyButton, Icon, Modal, useBusy } from './ui'
+import { BusyButton, Icon, Modal, sentences, useBusy } from './ui'
 
 /** Markup in messages (tRich): <code> and <b>, keyed by their text. */
 const CODE = (chunks: ReactNode[]): ReactNode => <code key={String(chunks)}>{chunks}</code>
@@ -148,7 +148,11 @@ export function Overrides({
   // What would run: the choice here, else what it inherits.
   const runModel = model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || cliDefault
   const runMode = permission || (pc.permissionMode !== 'inherit' ? pc.permissionMode : g.defaultPermissionMode)
-  const projectEffort = effortText(provider, pc.effort !== 'inherit' ? pc.effort : g.defaultEffort, runModel, info, settings, tr)
+  const chosenEffort = pc.effort !== 'inherit' ? pc.effort : g.defaultEffort
+  // The CLI's own default, when it hasn't said which level that is: "Default (Claude Code default)", not "Default (default)".
+  const projectEffort = effortUnknown(provider, chosenEffort, runModel, info, settings)
+    ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name })
+    : effortText(provider, chosenEffort, runModel, info, settings, tr)
   return (
     <div className="agent-form">
       <label>{tr(msg({ id: 'agents.overrides.model', defaultMessage: 'Model', description: "Label of an agent's model choice (Add Agent, Agent Settings)." }))}</label>
@@ -490,24 +494,19 @@ export function AddAgentDialog() {
                 )}
                 {match?.reusable ? (
                   <div className="faint span2" data-worktree-match="reuse">
-                    {tRich<ReactNode>(msg({ id: 'agents.add.reuses', defaultMessage: 'Reuses <code>{path}</code>, the unused worktree already on <code>{branch}</code>: it is merged into {base} and clean, so Hive brings it up to {base}.', description: 'Under the branch name in the Add Agent dialog: the new agent reuses an unused worktree ({path}, on {branch}) that is merged into {base}. Keep the <code> tags.' }), { path: match.path, branch: match.branch, base: match.base, code: CODE })}
-                    {setup ? (
-                      <>
-                        {' '}
-                        {tRich<ReactNode>(msg({ id: 'agents.add.setupAgain', defaultMessage: '<code>{setup}</code> runs again only if a lockfile changed.', description: "Under a reused worktree in the Add Agent dialog: the project's setup command ({setup}) runs again only when a lockfile changed. Keep the <code> tags." }), { setup, code: CODE })}
-                      </>
-                    ) : null}
+                    {/* Sentences joined as the language does (#893: no space after 。). */}
+                    {(() => {
+                      const reuses = tRich<ReactNode>(msg({ id: 'agents.add.reuses', defaultMessage: 'Reuses <code>{path}</code>, the unused worktree already on <code>{branch}</code>: it is merged into {base} and clean, so Hive brings it up to {base}.', description: 'Under the branch name in the Add Agent dialog: the new agent reuses an unused worktree ({path}, on {branch}) that is merged into {base}. Keep the <code> tags.' }), { path: match.path, branch: match.branch, base: match.base, code: CODE })
+                      return setup ? sentences(reuses, tRich<ReactNode>(msg({ id: 'agents.add.setupAgain', defaultMessage: '<code>{setup}</code> runs again only if a lockfile changed.', description: "Under a reused worktree in the Add Agent dialog: the project's setup command ({setup}) runs again only when a lockfile changed. Keep the <code> tags." }), { setup, code: CODE })) : reuses
+                    })()}
                   </div>
                 ) : (
                 <div className="faint span2">
-                  {tRich<ReactNode>(msg({ id: 'agents.add.createdIn', defaultMessage: 'Created in <code>{folder}</code>{copied, select, none {} other {, with <code>{copied}</code> copied from the project folder}}.', description: "Under the branch name in the Add Agent dialog: where the new worktree goes ({folder}, a path), and the files copied into it from the project folder ({copied}, a list; none: leave that branch empty). Keep the <code> tags." }), { folder: `${git?.worktreesRoot ?? ''}\\${slugify(name)}`, copied: copy.split(/[\n,]/).map((s) => s.trim()).filter(Boolean).join(', ') || 'none', code: CODE })}
-                  {setup ? (
-                    <>
-                      {' '}
-                      {tRich<ReactNode>(msg({ id: 'agents.add.setupRuns', defaultMessage: "<code>{setup}</code> runs in the agent's pane before {cli} starts.", description: "Under the branch name in the Add Agent dialog: the project's setup command ({setup}) runs in the new agent's pane before its CLI ({cli}) starts. Keep the <code> tags." }), { setup, cli: providerDescriptor(provider).name, code: CODE })}
-                    </>
-                  ) : (
-                    ` ${tr(msg({ id: 'agents.add.setupNone', defaultMessage: 'Set a setup command (e.g. npm install) in Project Settings → Agents.', description: 'Under the branch name in the Add Agent dialog when the project has no setup command: where to set one. npm install is a command: keep it. Project Settings → Agents: use their translated names.' }))}`
+                  {sentences(
+                    tRich<ReactNode>(msg({ id: 'agents.add.createdIn', defaultMessage: 'Created in <code>{folder}</code>{copied, select, none {} other {, with <code>{copied}</code> copied from the project folder}}.', description: "Under the branch name in the Add Agent dialog: where the new worktree goes ({folder}, a path), and the files copied into it from the project folder ({copied}, a list; none: leave that branch empty). Keep the <code> tags." }), { folder: `${git?.worktreesRoot ?? ''}\\${slugify(name)}`, copied: fmt.list(copy.split(/[\n,]/).map((s) => s.trim()).filter(Boolean), 'unit') || 'none', code: CODE }),
+                    setup
+                      ? tRich<ReactNode>(msg({ id: 'agents.add.setupRuns', defaultMessage: "<code>{setup}</code> runs in the agent's pane before {cli} starts.", description: "Under the branch name in the Add Agent dialog: the project's setup command ({setup}) runs in the new agent's pane before its CLI ({cli}) starts. Keep the <code> tags." }), { setup, cli: providerDescriptor(provider).name, code: CODE })
+                      : tr(msg({ id: 'agents.add.setupNone', defaultMessage: 'Set a setup command (e.g. npm install) in Project Settings → Agents.', description: 'Under the branch name in the Add Agent dialog when the project has no setup command: where to set one. npm install is a command: keep it. Project Settings → Agents: use their translated names.' }))
                   )}
                 </div>
                 )}

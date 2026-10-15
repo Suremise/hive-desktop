@@ -2,13 +2,16 @@ import { dirname, join } from 'path'
 import { readdir, writeFile } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR } from '../shared/defaults'
-import { language, msg, tr } from '../shared/i18n'
-import { FIRST_COMMIT_MESSAGE, gitignoreName, gitignoreText, isGitignoreChoice, type GitInitCheck, type GitInitOptions } from '../shared/gitInit'
-import { identityProblem, type GitIdentityPart } from '../shared/gitRepo'
+import { msg } from '../shared/i18n'
+import { capitalised, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { FIRST_COMMIT_MESSAGE, gitignoreNameText, gitignoreText, isGitignoreChoice, type GitInitCheck, type GitInitOptions } from '../shared/gitInit'
+import { identityProblemData, type GitIdentityPart } from '../shared/gitRepo'
+import { gitProblemData } from '../shared/gitTool'
 import { samePlace } from './fsutil'
 import { git, type GitResult } from './git'
-import { gitSays, oneAtATime, parseIdentity } from './gitRepo'
-import { gitProblem } from './gitTool'
+import { gitSaid, oneAtATime, parseIdentity } from './gitRepo'
+import { gitTool } from './gitTool'
+import { HiveError, errorText, hiveError } from './hiveError'
 import { ensureHiveExcluded, otherVcsOf, vcsOf } from './hiveVcs'
 import { createLogger, userText } from './logger'
 import { excludeCopies } from './providers/common'
@@ -59,16 +62,18 @@ async function isEmpty(projectPath: string): Promise<boolean> {
 export async function initCheck(projectPath: string): Promise<GitInitCheck> {
   projectPath = workspace.assertProject(projectPath)
   const base = { identity: {}, hasGitignore: existsSync(join(projectPath, '.gitignore')), empty: await isEmpty(projectPath) }
-  const problem = gitProblem()
-  if (problem) return { ...base, refused: tr(msg({ id: 'main.gitInit.noGit', defaultMessage: '{problem}: Agent Setup says how to fix it.', description: "Why a folder can't be made a git repository (the Initialise Git Repository dialog): git is missing or broken. {problem} says what's wrong. Agent Setup is a view's name." }), { problem }) }
+  // Refused: its English for the log and the error initRepo throws (#881), its text for the window.
+  const refuse = (text: Text): GitInitCheck => ({ ...base, refused: englishText(text), refusedText: text })
+  const problem = gitProblemData(gitTool())
+  if (problem) return refuse(withValues(msg({ id: 'main.gitInit.noGit', defaultMessage: '{problem}: Agent Setup says how to fix it.', description: "Why a folder can't be made a git repository (the Initialise Git Repository dialog): git is missing or broken. {problem} says what's wrong. Agent Setup is a view's name." }), { problem }))
   // Looked for at every level whatever git is there: a colocated Jujutsu repository has .git beside .jj.
   const other = otherVcsOf(projectPath)
-  if (other) return { ...base, refused: tr(msg({ id: 'main.gitInit.otherVcs', defaultMessage: '{vcs} keeps this folder (in {root}): Hive makes a git repository only where no other version control system is.', description: "Why a folder can't be made a git repository: another version control system (Jujutsu, Mercurial…), {vcs}, keeps it. {root} is the folder it keeps." }), { vcs: other.name, root: other.root }) }
+  if (other) return refuse(withValues(msg({ id: 'main.gitInit.otherVcs', defaultMessage: '{vcs} keeps this folder (in {root}): Hive makes a git repository only where no other version control system is.', description: "Why a folder can't be made a git repository: another version control system (Jujutsu, Mercurial…), {vcs}, keeps it. {root} is the folder it keeps." }), { vcs: other.name, root: other.root }))
   const found = vcsOf(projectPath)
   if (found && samePlace(found.root, projectPath)) {
     const head = await git(projectPath, ['rev-parse', '-q', '--verify', 'HEAD'])
-    if (head.ok) return { ...base, refused: tr(msg({ id: 'main.gitInit.already', defaultMessage: 'This folder is a git repository already.', description: "Why a folder can't be made a git repository again." })) }
-    if (head.code !== 1) return { ...base, refused: tr(msg({ id: 'main.gitInit.unreadable', defaultMessage: "Git couldn't read this repository: {why}", description: "Why a folder can't be made a git repository. {why} is git's own message." }), { why: gitProblem() ?? gitSays(head) }) }
+    if (head.ok) return refuse(msg({ id: 'main.gitInit.already', defaultMessage: 'This folder is a git repository already.', description: "Why a folder can't be made a git repository again." }))
+    if (head.code !== 1) return refuse(withValues(msg({ id: 'main.gitInit.unreadable', defaultMessage: "Git couldn't read this repository: {why}", description: "Why a folder can't be made a git repository. {why} is git's own message." }), { why: gitProblemData(gitTool()) ?? gitSaid(head) }))
     // No commit yet: taken on from there, its identity read from it (what it will commit as, exactly).
     return { ...base, refused: null, resume: true, identity: await repoIdentity(projectPath) }
   }
@@ -83,37 +88,37 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
   if (!isGitignoreChoice(choice)) throw new Error(`There's no starter .gitignore ${String(choice)}.`) // i18n-ignore: a programming error, the dialog offers only these
   const name = typeof opts.name === 'string' ? opts.name.trim() : ''
   const email = typeof opts.email === 'string' ? opts.email.trim() : ''
-  const problem = identityProblem(name, email)
-  if (problem) throw new Error(problem)
+  // Refusals are HiveErrors (#881): their English in the log, the window's language in the dialog.
+  const problem = identityProblemData(name, email)
+  if (problem) throw new HiveError(problem)
   return oneAtATime(projectPath, async () => {
     // Checked again here: the folder may have changed since the dialog asked.
     const check = await initCheck(projectPath)
-    if (check.refused) throw new Error(check.refused)
-    if (check.parentRepo && opts.nested !== true) throw new Error(tr(msg({ id: 'main.gitInit.nested', defaultMessage: 'This folder is inside the git repository in {root}. Confirm that you want a repository of its own inside it.', description: "Why a folder wasn't made a git repository yet: it is inside another one, {root}, and the user didn't confirm a repository of its own." }), { root: check.parentRepo }))
+    if (check.refusedText) throw new HiveError(check.refusedText)
+    if (check.parentRepo && opts.nested !== true) throw hiveError(msg({ id: 'main.gitInit.nested', defaultMessage: 'This folder is inside the git repository in {root}. Confirm that you want a repository of its own inside it.', description: "Why a folder wasn't made a git repository yet: it is inside another one, {root}, and the user didn't confirm a repository of its own." }), { root: check.parentRepo })
     // With conditional includes, only the new repository knows its identity: checked once it exists, below.
-    if (!check.conditionalIdentity && !check.identity.name && !name) throw new Error(tr(msg({ id: 'main.gitInit.noName', defaultMessage: 'Git has no name to make the first commit as: enter one.', description: 'Why a folder was not made a git repository: no name to commit as is set, and the user entered none.' })))
-    if (!check.conditionalIdentity && !check.identity.email && !email) throw new Error(tr(msg({ id: 'main.gitInit.noEmail', defaultMessage: 'Git has no email to make the first commit as: enter one.', description: 'Why a folder was not made a git repository: no email address to commit as is set, and the user entered none.' })))
+    if (!check.conditionalIdentity && !check.identity.name && !name) throw hiveError(msg({ id: 'main.gitInit.noName', defaultMessage: 'Git has no name to make the first commit as: enter one.', description: 'Why a folder was not made a git repository: no name to commit as is set, and the user entered none.' }))
+    if (!check.conditionalIdentity && !check.identity.email && !email) throw hiveError(msg({ id: 'main.gitInit.noEmail', defaultMessage: 'Git has no email to make the first commit as: enter one.', description: 'Why a folder was not made a git repository: no email address to commit as is set, and the user entered none.' }))
 
     // Each step that worked, so a failure says plainly where it stopped (there's no undo): clauses, the first
     // capitalised where they start a sentence.
-    const done: string[] = []
+    const done: Text[] = []
     // At most four (initialise, identity, .gitignore, commit): the message joins them as the language does.
-    const steps = (): string => {
+    const steps = (): Text => {
       const [a = '', b = '', c = '', d = ''] = done
-      const list = tr(msg({ id: 'main.gitInit.steps', defaultMessage: '{count, plural, =1 {{a}} =2 {{a} and {b}} =3 {{a}, {b} and {c}} other {{a}, {b}, {c} and {d}}}', description: 'The steps that worked in making a git repository, joined as a list (main.gitInit.step.*): {count} is how many (1 to 4), {a} to {d} the steps in order. Hive capitalises the first letter of the whole.' }), { count: done.length, a, b, c, d })
-      return list.charAt(0).toLocaleUpperCase(language()) + list.slice(1)
+      return capitalised(withValues(msg({ id: 'main.gitInit.steps', defaultMessage: '{count, plural, =1 {{a}} =2 {{a} and {b}} =3 {{a}, {b} and {c}} other {{a}, {b}, {c} and {d}}}', description: 'The steps that worked in making a git repository, joined as a list (main.gitInit.step.*): {count} is how many (1 to 4), {a} to {d} the steps in order. Hive capitalises the first letter of the whole.' }), { count: done.length, a, b, c, d }))
     }
-    const stop = (what: string, why: string): Error =>
-      new Error(
+    const stop = (what: Text, why: TextPart): HiveError =>
+      new HiveError(
         done.length
-          ? tr(msg({ id: 'main.gitInit.stoppedAfter', defaultMessage: '{done}, but {what}: {why}', description: "Why making a git repository stopped part way. {done} lists the steps that worked (main.gitInit.step.*), {what} what failed (main.gitInit.failed.*), {why} why (git's message, or what to do)." }), { done: steps(), what, why })
-          : tr(msg({ id: 'main.gitInit.stopped', defaultMessage: '{what}: {why}', description: 'Why making a git repository failed at its first step. {what} is what failed (main.gitInit.failed.*, which starts with a small letter in English), {why} why.' }), { what, why })
+          ? withValues(msg({ id: 'main.gitInit.stoppedAfter', defaultMessage: '{done}, but {what}: {why}', description: "Why making a git repository stopped part way. {done} lists the steps that worked (main.gitInit.step.*), {what} what failed (main.gitInit.failed.*), {why} why (git's message, or what to do)." }), { done: steps(), what, why })
+          : withValues(msg({ id: 'main.gitInit.stopped', defaultMessage: '{what}: {why}', description: 'Why making a git repository failed at its first step. {what} is what failed (main.gitInit.failed.*, which starts with a small letter in English), {why} why.' }), { what, why })
       )
 
     if (!check.resume) {
       const init = await git(projectPath, ['init', '-q', '-b', 'main'])
-      if (!init.ok) throw stop(tr(msg({ id: 'main.gitInit.failed.init', defaultMessage: "couldn't initialise the repository", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' })), gitProblem() ?? gitSays(init))
-      done.push(tr(msg({ id: 'main.gitInit.step.init', defaultMessage: 'initialised a git repository on main', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. main is the branch\'s name: keep it.' })))
+      if (!init.ok) throw stop(msg({ id: 'main.gitInit.failed.init', defaultMessage: "couldn't initialise the repository", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' }), gitProblemData(gitTool()) ?? gitSaid(init))
+      done.push(msg({ id: 'main.gitInit.step.init', defaultMessage: 'initialised a git repository on main', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. main is the branch\'s name: keep it.' }))
       log.info(`Initialised a git repository in ${userText(projectPath)}`)
     }
 
@@ -122,12 +127,12 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
     try {
       ex = await ensureHiveExcluded(projectPath)
     } catch (e) {
-      throw stop(tr(msg({ id: 'main.gitInit.failed.exclude', defaultMessage: "couldn't keep .hive out of git", description: "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name." })), e instanceof Error ? e.message : String(e))
+      throw stop(msg({ id: 'main.gitInit.failed.exclude', defaultMessage: "couldn't keep .hive out of git", description: "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name." }), errorText(e))
     }
     if (!ex?.excluded)
       throw stop(
-        tr(msg({ id: 'main.gitInit.failed.ignored', defaultMessage: "git still doesn't ignore .hive here (a rule in a .gitignore may bring it back), so nothing was committed", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive and .gitignore are names.' })),
-        tr(msg({ id: 'main.gitInit.fix.ignored', defaultMessage: 'fix that, then choose Make first commit on the Git tab', description: 'What to do after .hive was found not ignored by git (main.gitInit.failed.ignored). Make first commit is a button on the Git tab: use its name as shown.' }))
+        msg({ id: 'main.gitInit.failed.ignored', defaultMessage: "git still doesn't ignore .hive here (a rule in a .gitignore may bring it back), so nothing was committed", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive and .gitignore are names.' }),
+        msg({ id: 'main.gitInit.fix.ignored', defaultMessage: 'fix that, then choose Make first commit on the Git tab', description: 'What to do after .hive was found not ignored by git (main.gitInit.failed.ignored). Make first commit is a button on the Git tab: use its name as shown.' })
       )
     await excludeCopies(projectPath).catch((e) => log.warn('excluding skill copies after git init', e))
 
@@ -138,18 +143,18 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
     for (const [key, part, value] of [['user.name', 'name', name], ['user.email', 'email', email]] as const) {
       if (has[part] || !value) continue
       const r = await git(projectPath, ['config', '--local', key, value])
-      if (!r.ok) throw stop(tr(msg({ id: 'main.gitInit.failed.config', defaultMessage: "couldn't set {key}", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). {key} is a git setting (user.name, user.email).' }), { key }), gitSays(r))
+      if (!r.ok) throw stop(withValues(msg({ id: 'main.gitInit.failed.config', defaultMessage: "couldn't set {key}", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). {key} is a git setting (user.name, user.email).' }), { key }), gitSaid(r))
       saved = true
     }
-    if (saved) done.push(tr(msg({ id: 'main.gitInit.step.identity', defaultMessage: "set this repository's commit identity", description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list: the name and email the commits are made as.' })))
+    if (saved) done.push(msg({ id: 'main.gitInit.step.identity', defaultMessage: "set this repository's commit identity", description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list: the name and email the commits are made as.' }))
     const now = saved ? await repoIdentity(projectPath) : has
     const lacking = (['name', 'email'] as const).filter((k) => !now[k])
     // Nothing else is written yet: the dialog asks for it, and taking the repository on from here finishes the job.
     if (lacking.length) {
       const which = lacking.length > 1 ? 'both' : lacking[0]
       throw stop(
-        tr(msg({ id: 'main.gitInit.failed.identity', defaultMessage: '{which, select, name {git has no name to make the first commit as here} email {git has no email to make the first commit as here} other {git has no name or email to make the first commit as here}}', description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter): git has no identity to commit as. {which} says what it lacks.' }), { which }),
-        tr(msg({ id: 'main.gitInit.fix.identity', defaultMessage: '{which, select, name {enter it and choose Make first commit} email {enter it and choose Make first commit} other {enter them and choose Make first commit}}', description: 'What to do when git has no name or email to commit as (main.gitInit.failed.identity). Make first commit is a button: use its name as shown.' }), { which })
+        withValues(msg({ id: 'main.gitInit.failed.identity', defaultMessage: '{which, select, name {git has no name to make the first commit as here} email {git has no email to make the first commit as here} other {git has no name or email to make the first commit as here}}', description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter): git has no identity to commit as. {which} says what it lacks.' }), { which }),
+        withValues(msg({ id: 'main.gitInit.fix.identity', defaultMessage: '{which, select, name {enter it and choose Make first commit} email {enter it and choose Make first commit} other {enter them and choose Make first commit}}', description: 'What to do when git has no name or email to commit as (main.gitInit.failed.identity). Make first commit is a button: use its name as shown.' }), { which })
       )
     }
 
@@ -158,20 +163,20 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
       try {
         await writeFile(join(projectPath, '.gitignore'), template, { flag: 'wx' })
       } catch (e) {
-        throw stop(tr(msg({ id: 'main.gitInit.failed.gitignore', defaultMessage: "couldn't write the .gitignore", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .gitignore is a file name.' })), (e as NodeJS.ErrnoException).code ?? String(e))
+        throw stop(msg({ id: 'main.gitInit.failed.gitignore', defaultMessage: "couldn't write the .gitignore", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .gitignore is a file name.' }), (e as NodeJS.ErrnoException).code ?? String(e))
       }
-      done.push(tr(msg({ id: 'main.gitInit.step.gitignore', defaultMessage: 'added {gitignore}', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. {gitignore} names the starter .gitignore (a Node .gitignore).' }), { gitignore: gitignoreName(choice) }))
+      done.push(withValues(msg({ id: 'main.gitInit.step.gitignore', defaultMessage: 'added {gitignore}', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. {gitignore} names the starter .gitignore (a Node .gitignore).' }), { gitignore: gitignoreNameText(choice) }))
     }
 
     const add = await git(projectPath, ['add', '-A', '--', '.'])
-    if (!add.ok) throw stop(tr(msg({ id: 'main.gitInit.failed.stage', defaultMessage: "couldn't stage the folder's files", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' })), gitSays(add))
+    if (!add.ok) throw stop(msg({ id: 'main.gitInit.failed.stage', defaultMessage: "couldn't stage the folder's files", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' }), gitSaid(add))
     // A last check that git's ignore did its job: nothing of .hive staged.
     const staged = await git(projectPath, ['diff', '--cached', '--name-only', '-z', '--', HIVE_DIR])
     if (!staged.ok || staged.out.replace(/\0/g, '')) {
       await git(projectPath, ['reset', '-q'])
       throw stop(
-        tr(msg({ id: 'main.gitInit.failed.staged', defaultMessage: '.hive was staged, so nothing was committed', description: "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name." })),
-        tr(msg({ id: 'main.gitInit.fix.staged', defaultMessage: 'check the .gitignore for a rule that brings .hive back', description: 'What to do after .hive was staged (main.gitInit.failed.staged).' }))
+        msg({ id: 'main.gitInit.failed.staged', defaultMessage: '.hive was staged, so nothing was committed', description: "What failed in making a git repository, a clause (main.gitInit.stoppedAfter). .hive is a folder's name." }),
+        msg({ id: 'main.gitInit.fix.staged', defaultMessage: 'check the .gitignore for a rule that brings .hive back', description: 'What to do after .hive was staged (main.gitInit.failed.staged).' })
       )
     }
     const files = await git(projectPath, ['diff', '--cached', '--name-only', '-z'])
@@ -179,19 +184,19 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
     const commit = await git(projectPath, ['commit', '-q', '--allow-empty', '-m', FIRST_COMMIT_MESSAGE])
     if (!commit.ok)
       throw stop(
-        tr(msg({ id: 'main.gitInit.failed.commit', defaultMessage: "couldn't make the first commit", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' })),
-        tr(msg({ id: 'main.gitInit.fix.commit', defaultMessage: '{git}. Commit in a terminal, or ask an agent to', description: "Why the first commit failed and what to do. {git} is git's own message." }), { git: gitSays(commit) })
+        msg({ id: 'main.gitInit.failed.commit', defaultMessage: "couldn't make the first commit", description: 'What failed in making a git repository, a clause (main.gitInit.stoppedAfter).' }),
+        withValues(msg({ id: 'main.gitInit.fix.commit', defaultMessage: '{git}. Commit in a terminal, or ask an agent to', description: "Why the first commit failed and what to do. {git} is git's own message." }), { git: gitSaid(commit) })
       )
     done.push(
       count
-        ? tr(msg({ id: 'main.gitInit.step.commit', defaultMessage: '{n, plural, one {committed # file} other {committed # files}}', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. {n} is how many files the first commit has.' }), { n: count })
-        : tr(msg({ id: 'main.gitInit.step.empty', defaultMessage: 'made an empty first commit', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list.' }))
+        ? withValues(msg({ id: 'main.gitInit.step.commit', defaultMessage: '{n, plural, one {committed # file} other {committed # files}}', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list. {n} is how many files the first commit has.' }), { n: count })
+        : msg({ id: 'main.gitInit.step.empty', defaultMessage: 'made an empty first commit', description: 'A step that worked in making a git repository: a clause in a list of them ("Initialised a git repository on main, added a Node .gitignore and committed 3 files."); Hive capitalises the first of the list.' })
     )
     log.info(`Made the first commit in ${userText(projectPath)} (${count} files)`)
 
     await workspaceOf(projectPath)
       .refresh()
       .catch((e) => log.warn('refreshing after git init', e))
-    return tr(msg({ id: 'main.gitInit.done', defaultMessage: '{steps}. .hive stays out of git. Agents can work in worktrees now.', description: "What making a git repository did. {steps} lists the steps (main.gitInit.step.*), its first capitalised. .hive is a folder's name." }), { steps: steps() })
+    return shownText(withValues(msg({ id: 'main.gitInit.done', defaultMessage: '{steps}. .hive stays out of git. Agents can work in worktrees now.', description: "What making a git repository did. {steps} lists the steps (main.gitInit.step.*), its first capitalised. .hive is a folder's name." }), { steps: steps() }))
   })
 }

@@ -46,6 +46,8 @@ interface HiveMessageValues {
   'actions.duration.minutes': { m: string | number }
   'actions.duration.seconds': { s: string | number }
   'actions.keys.ctrl': undefined
+  'actions.keys.delete': undefined
+  'actions.keys.shift': undefined
   'actions.layout.failed': undefined
   'actions.mcp.add': undefined
   'actions.mcp.addFailed': undefined
