@@ -544,13 +544,44 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   await call(workspaceToken, 'POST', `/v1/progress/${longId}/finish`, { ok: true })
 
   // A run whose agent was removed since: its details say so rather than offering to show it.
-  const cara = await lib.addAgent(inv, beta, { name: 'Cara' })
+  const cara = await lib.addAgent(inv, beta, { name: 'Cara Featherstonehaugh' })
   await inv('session:start', beta, { agentId: cara.id })
   await until(async () => (await live(cara.id))?.status === 'ready', 20000)
   const caraSession = (await live(cara.id))?.sessionId
   const caraToken = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((l) => l.sessionId === caraSession).at(-1)?.env?.HIVE_API_TOKEN
   r = await call(caraToken, 'POST', '/v1/progress', { title: 'cara builds' })
   const caraRun = r.body?.id
+  // The run's header (#905): the reporter's name shows whole while there is room, and a narrower panel cuts the project
+  // name first: the name is cut only once the project is gone. Each width is set and measured in the same call.
+  const caraRow = panel.locator(`.progress-run[data-run="${caraRun}"]`)
+  await until(async () => (await caraRow.count()) === 1, HUNG_MS)
+  const widths = Array.from({ length: 111 }, (_, i) => 640 - i * 4)
+  const header = await caraRow.evaluate((runEl, list) => {
+    const panelEl = runEl.closest('.progress-panel')
+    const was = panelEl.style.width
+    const agent = runEl.querySelector('.progress-agent')
+    const project = runEl.querySelector('.progress-project')
+    const out = list.map((w) => {
+      panelEl.style.width = `${w}px`
+      return { w, agentCut: agent.scrollWidth > agent.clientWidth, projectShown: project.clientWidth, projectCut: project.scrollWidth > project.clientWidth }
+    })
+    panelEl.style.width = was
+    return out
+  }, widths)
+  const sizes = (list) => list.map((x) => `${x.w}px: name ${x.agentCut ? 'cut' : 'whole'}, project ${x.projectCut ? `cut to ${x.projectShown}px` : 'whole'}`).join('; ')
+  check('the run header, panel 640px: the name and the project show whole', !header[0].agentCut && !header[0].projectCut, sizes(header.slice(0, 1)))
+  check('…narrower, the project is cut while the name stays whole', header.some((x) => x.projectCut && x.projectShown > 0 && !x.agentCut), sizes(header.filter((_, i) => i % 10 === 0)))
+  const early = header.filter((x) => x.agentCut && x.projectShown > 0)
+  check('…the name is cut only once the project is gone', !early.length, sizes(early.slice(0, 4)))
+  await panel.evaluate((el) => (el.style.width = '400px'))
+  await caraRow.screenshot({ path: path.join(shots, 'dark-run-header.png') })
+  await panel.evaluate((el, px) => (el.style.width = px), panelWidth)
+  const band = header.find((x) => x.projectCut && x.projectShown > 0 && !x.agentCut)
+  if (band) {
+    await panel.evaluate((el, px) => (el.style.width = `${px}px`), band.w)
+    await caraRow.screenshot({ path: path.join(shots, 'dark-run-header-narrow.png') })
+    await panel.evaluate((el, px) => (el.style.width = px), panelWidth)
+  }
   await call(caraToken, 'POST', `/v1/progress/${caraRun}/finish`, { ok: true })
   await inv('session:stop', beta, cara.id)
   await until(async () => !(await live(cara.id)), 15000)
@@ -558,7 +589,7 @@ const near = (a, b) => Math.abs(a - b) < 0.001
   const caraItem = panel.locator(`.progress-recent-item[data-run="${caraRun}"]`)
   await until(async () => (await caraItem.count()) === 1, 20000)
   await caraItem.locator('.progress-recent').click()
-  check('a removed agent: its run says so, with nothing to show', !!(await until(async () => /Cara has been removed from beta/.test(await caraItem.locator('.progress-details').innerText().catch(() => '')), HUNG_MS)) && (await caraItem.locator('button', { hasText: 'Show the agent' }).count()) === 0)
+  check('a removed agent: its run says so, with nothing to show', !!(await until(async () => /Cara Featherstonehaugh has been removed from beta/.test(await caraItem.locator('.progress-details').innerText().catch(() => '')), HUNG_MS)) && (await caraItem.locator('button', { hasText: 'Show the agent' }).count()) === 0)
   await page.keyboard.press('Escape')
 
   // --- Recent keeps more than it shows (#352): the newest 10, then "Show all n", which unfolds every kept run in a box
