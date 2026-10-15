@@ -66,7 +66,8 @@ Say a German button reads badly.
    ```
    `i18n:check` fails on a translation that would show wrong: a renamed or missing placeholder, broken ICU, a plural
    without `other`, a tag that isn't the English's, an id the English doesn't have, invalid JSON. It never fails on a
-   missing translation.
+   missing translation. The unit tests read the translations from the files rather than expecting their words, so a
+   wording change needs no change to a test.
 5. **Record what you translated from.** If `i18n:coverage` listed the message as **outdated** (its English changed
    since it was translated) and you have brought it up to date, record that:
    `npm run i18n:coverage -- --record de <id>`. If you added new translations, `npm run i18n:coverage -- --record de`

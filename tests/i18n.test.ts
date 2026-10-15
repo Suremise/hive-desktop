@@ -208,8 +208,12 @@ describe('the translations', () => {
   })
 
   it("load a language's areas merged; {} for English, the pseudo-locale and a language without files", async () => {
-    const pl = await loadCatalogue('pl')
-    expect(pl['language.setting.title']).toBe('Język')
+    // #792: compared with the files themselves, not their wording, so a translator's change needs no test change.
+    const files = globSync('locales/pl/*.json', { cwd: ROOT })
+    expect(files.length).toBeGreaterThan(0)
+    const onDisk = Object.assign({}, ...files.map((f) => JSON.parse(readFileSync(join(ROOT, f), 'utf8')) as Record<string, string>))
+    expect(Object.keys(onDisk).length).toBeGreaterThan(0)
+    expect(await loadCatalogue('pl')).toEqual(onDisk)
     expect(await loadCatalogue('en')).toEqual({})
     expect(await loadCatalogue(PSEUDO_LANGUAGE)).toEqual({})
     expect(await loadCatalogue('xx')).toEqual({})

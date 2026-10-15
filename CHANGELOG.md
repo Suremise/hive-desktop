@@ -18,6 +18,7 @@
 
 ### Card loops
 - **An agent's question for you no longer sits unseen on a card.** A builder or reviewer that needs your decision now blocks the card with its question as well as notifying you, so the card shows as blocked, the Assistant's lane watch picks it up, and the agent clears it once you decide. Before, a reviewer could ask only in a comment, which nothing flagged (#840).
+- **A lane's merge that waits on you no longer sits unseen.** A builder whose merge at the lane's end needs your OK (its CLI refused a commit, for example) now blocks the last card saying what it needs, as well as notifying you. And if a lane's cards have all passed while its builder sits idle for 10 minutes with no merge slot claimed, the Assistant's lane watch is woken: the lane's merge is stalled (#869).
 - **A review left without a verdict shows as stalled.** A reviewer that started reviewing a card and then went back to waiting on it for 15 minutes, with no verdict and no question blocking the card, now stalls it, on the board, in the Progress panel and for the Assistant's lane watch, so a question left only in a comment no longer waits unseen (#843).
 
 ### Hive Assistant
