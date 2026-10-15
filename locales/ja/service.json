@@ -122,7 +122,6 @@
   "service.providers.stillLooking": "Hiveはまだ{cli}を探しています。少し待ってから、もう一度お試しください。",
   "service.providers.stillLookingAll": "Hiveはまだコーディングエージェントの各CLIを探しています。少し待ってから、もう一度お試しください。",
   "service.providers.stopFirst": "{cli}を更新する前に、実行中の{cli}のエージェントをすべて停止してください。",
-  "service.providers.stoppedBusy": "30秒間ビジー状態が続いた",
   "service.providers.stoppedClosed": "ターミナルが閉じられた",
   "service.providers.task": "{task, select, install {{cli}のインストール} update {{cli}の更新} login {{cli}のサインイン} other {{cli}のセットアップ}}",
   "service.providers.taskDone": "{task}が完了しました",

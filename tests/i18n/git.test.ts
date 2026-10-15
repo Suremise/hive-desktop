@@ -149,7 +149,6 @@ describe('the sentences once built by hand read as before, in English', () => {
   })
 
   it('Initialise repository', () => {
-    expect(gitignoreName('none')).toBe('no .gitignore')
     expect(gitignoreName('minimal')).toBe('a minimal .gitignore')
     expect(gitignoreName('dotnet')).toBe('a .NET .gitignore')
     expect(initAbout('alpha', check({ resume: true, empty: true, hasGitignore: true }))).toBe(

@@ -96,7 +96,6 @@
   "panes.pages.next": "エージェントの次のページ",
   "panes.pages.previous": "エージェントの前のページ",
   "panes.pages.tip": "{button, select, none {ページ{page}} other {{button}（ページ{page}）}}：{count, plural, other {エージェント{first}–{last}}}{added, select, yes {、アシスタントが追加したエージェントあり} other {}}{key, select, none {} other {（次のページは{key}）}}",
-  "panes.processes.andMore": "{shown}、ほか{n, plural, other {#個のプロセス}}",
   "panes.processes.count": "{n, plural, other {#個のプロセス}}",
   "panes.resume.allSessions": "すべてのセッション（{n, number}件）…",
   "panes.resume.button": "再開",

@@ -387,10 +387,6 @@
     "defaultMessage": "{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}",
     "description": "Tooltip of a page button on the agent strip: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
   },
-  "panes.processes.andMore": {
-    "defaultMessage": "{shown} and {n, plural, one {# process} other {# processes}} more",
-    "description": "The processes an agent left running, cut short: the first few ({shown}: \"node serve.js, 4 × tail -f\") and how many more."
-  },
   "panes.processes.count": {
     "defaultMessage": "{n, plural, one {# process} other {# processes}}",
     "description": "How many processes an agent left running (\"2 processes\")."

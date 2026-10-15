@@ -96,7 +96,6 @@
   "panes.pages.next": "下一页智能体",
   "panes.pages.previous": "上一页智能体",
   "panes.pages.tip": "{button, select, none {第 {page} 页} other {{button}（第 {page} 页）}}：{count, plural, =1 {智能体 {first}} other {智能体 {first}–{last}}}{added, select, yes {，含一个由助手添加的智能体} other {}}{key, select, none {} other {（按 {key} 转到下一页）}}",
-  "panes.processes.andMore": "{shown}，以及另外 {n, plural, other {# 个进程}}",
   "panes.processes.count": "{n, plural, other {# 个进程}}",
   "panes.resume.allSessions": "全部 {n, number} 个会话…",
   "panes.resume.button": "恢复",

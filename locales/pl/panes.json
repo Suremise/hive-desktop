@@ -96,7 +96,6 @@
   "panes.pages.next": "Następna strona agentów",
   "panes.pages.previous": "Poprzednia strona agentów",
   "panes.pages.tip": "{button, select, none {Strona {page}} other {{button} (strona {page})}}: {count, plural, one {agent {first}} few {agenci {first}–{last}} many {agenci {first}–{last}} other {agenci {first}–{last}}}{added, select, yes {, w tym agent dodany przez Asystenta} other {}}{key, select, none {} other { ({key} – następna strona)}}",
-  "panes.processes.andMore": "{shown} i {n, plural, one {# proces} few {# procesy} many {# procesów} other {# procesu}} więcej",
   "panes.processes.count": "{n, plural, one {# proces} few {# procesy} many {# procesów} other {# procesu}}",
   "panes.resume.allSessions": "Wszystkie sesje ({n, number})…",
   "panes.resume.button": "Wznów",
