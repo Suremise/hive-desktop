@@ -251,10 +251,16 @@ same code while every required check still runs:
   (RELEASING.md, with the real tier: `--all --real`), when `--affected` selects it (above), and **on request** (the
   user, or a reviewer who says why). Run the real tier on its own (`--all --only-real`) **after updating Claude Code
   or Codex**.
-- **When a change could make tests flaky** (the runner, `lib.cjs`, running suites side by side, waits), run it several
-  times: `npm run e2e -- --all --build --record --repeat 3`. The repeat stops at the first run that fails, and its one
-  record is valid only if every run passed on the same code. A failure means fix it and start a new repeat: a later
-  passing run doesn't make up for an earlier failure.
+- **A flake fix, or a change to a suite's waits**, is proven by focused repeats under load (the `investigate-flake`
+  skill): the suite with its neighbours (its area's suites in `affected.mjs`, filling the four jobs) five times,
+  `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The merge's `--affected` run is the full-set check;
+  the full set repeated (`--all --repeat 5`) runs only when the user asks: it holds a heavy slot for over an hour while
+  other lanes queue, and under that load it fails on their flakes (a failure in another lane's suite is a card of its
+  own, not a reason to fail the fix).
+- **When a change could make every suite flaky** (the runner, `lib.cjs`, the run context, how suites run side by side),
+  run the full set several times: `npm run e2e -- --all --build --record --repeat 3`.
+- A repeat stops at the first run that fails, and its one record is valid only if every run passed on the same code. A
+  failure means fix it and start a new repeat: a later passing run doesn't make up for an earlier failure.
 
 `--affected` errs towards more: a change to a file every part of Hive goes through (the IPC contract, types, the store,
 `lib.cjs`, the fake Claude Code, the runner and the scenario harness: `EVERYTHING` in `affected.mjs`) or to any file no
