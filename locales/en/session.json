@@ -227,6 +227,10 @@
     "defaultMessage": "Keep Running",
     "description": "A notice's button: keeps the processes the agent left running, and stops listing them."
   },
+  "session.leftovers.more": {
+    "defaultMessage": "{n, plural, one {# more process} other {# more processes}}",
+    "description": "The last item of a list of the processes an agent left running, after the first few: how many more there are. Hive joins it to the list (\"node serve.js, 2 × tail -f capture.log and 3 more processes\")."
+  },
   "session.leftovers.notEnded": {
     "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the agent's pane header, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the agent's pane header, to try again or keep.}}",
     "description": "Ending the processes an agent left running failed. {n} is how many are still running; the pane header lists them with End and Keep."
@@ -234,6 +238,10 @@
   "session.leftovers.notEndedBody": {
     "defaultMessage": "{processes}. {n, plural, one {It was started by the agent and may hold the project's folder or ports. Hive couldn't end it by itself.} other {They were started by the agent and may hold the project's folder or ports. Hive couldn't end them by itself.}}",
     "description": "The notice of processes an agent left running, which Hive tried to end and couldn't. {processes} lists them (\"node serve.js, 4 × tail -f …\"); {n} is how many."
+  },
+  "session.leftovers.times": {
+    "defaultMessage": "{n, number} × {label}",
+    "description": "A process an agent left running, in a list of them, when several run the same command: how many, and the command ({label}: \"tail -f capture.log\")."
   },
   "session.leftovers.title": {
     "defaultMessage": "{agent} left {processes} running",
@@ -360,8 +368,8 @@
     "description": "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name."
   },
   "session.mode.why.busy": {
-    "defaultMessage": "{provider} stayed busy for 30 seconds",
-    "description": "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name."
+    "defaultMessage": "{seconds, plural, one {{provider} stayed busy for # second} other {{provider} stayed busy for # seconds}}",
+    "description": "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name; {seconds} how many seconds Hive waited."
   },
   "session.mode.why.ended": {
     "defaultMessage": "its session ended",
@@ -640,8 +648,8 @@
     "description": "The notice that Hive can't track agents' processes: what that means."
   },
   "session.tracker.helperFailed": {
-    "defaultMessage": "its PowerShell helper didn't start ({why})",
-    "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop; \"its\" is Hive's process tracker). {why} is a technical detail, as it came (\"exit 1\")."
+    "defaultMessage": "The PowerShell helper of Hive's process tracker didn't start ({why})",
+    "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop). {why} is a technical detail, as it came (\"exit 1\")."
   },
   "session.tracker.lost": {
     "defaultMessage": "{launches, plural, =0 {What agents start isn't tracked until they restart.} one {What the running agent starts isn't tracked until it restarts.} other {What the # running agents start isn't tracked until they restart.}}",
@@ -668,8 +676,8 @@
     "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop). Constrained Language Mode is PowerShell's term."
   },
   "session.tracker.slowHelper": {
-    "defaultMessage": "its PowerShell helper didn't start within {seconds} s",
-    "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop; \"its\" is Hive's process tracker). {seconds} is a number of seconds."
+    "defaultMessage": "The PowerShell helper of Hive's process tracker didn't start within {seconds, plural, one {# second} other {# seconds}}",
+    "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop). {seconds} is how many seconds Hive waited."
   },
   "session.tracker.stopped": {
     "defaultMessage": "Hive's process tracker stopped ({why})",
@@ -684,7 +692,7 @@
     "description": "Why Hive can't track the processes agents start, when it doesn't know why (a notice's first sentence, without its full stop)."
   },
   "session.tracker.windowsOnly": {
-    "defaultMessage": "tracking processes needs Windows",
+    "defaultMessage": "Tracking processes needs Windows",
     "description": "Why Hive can't track the processes agents start (a notice's first sentence, without its full stop)."
   }
 }

@@ -374,7 +374,7 @@ async function recordDone(ws: WorkspaceService, hosts: string[], all: boolean): 
 
 const trimList = (list: string[], max = 5): string =>
   list.length > max
-    ? tr(msg({ id: 'main.move.andMore', defaultMessage: '{list} and {n, number} more', description: "The end of a long list in Repair's report (after a workspace moved): the first few, and how many more. {list} is the first few." }), { list: fmt.list(list.slice(0, max), 'unit'), n: list.length - max })
+    ? fmt.list([...list.slice(0, max), tr(msg({ id: 'main.move.more', defaultMessage: '{n, plural, one {# more} other {# more}}', description: "The last item of a long list in Repair's report (after a workspace moved), after the first few: how many more there are (folders, files or names). Hive joins it to the list (\"A, B, C and 3 more\")." }), { n: list.length - max })])
     : fmt.list(list, 'unit')
 
 /**
@@ -503,10 +503,10 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
     let sessionsOk = true
     try {
       const n = await sessionCwds(ws, h.path, moves, true)
-      if (n) report.done.push(tr(msg({ id: 'main.move.sessions', defaultMessage: '{n, plural, one {{host}: # session now points to the new folder.} other {{host}: # sessions now point to the new folder.}}', description: "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {n} is how many sessions." }), { host: h.name, n }))
+      if (n) report.done.push(tr(msg({ id: 'main.move.sessions', defaultMessage: '{n, plural, one {{host}: # session now points to the new folder.} other {{host}: # sessions now point to the new folder.}}', description: "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {n} is how many sessions." }), { host: h.name, n }))
     } catch (e) {
       sessionsOk = false
-      report.failed.push(tr(msg({ id: 'main.move.sessionsFailed', defaultMessage: "{host}: the sessions' folders couldn't be updated ({why}). Repair tries again.", description: "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {agent} an agent. {why} is the system's message." }), { host: h.name, why: e instanceof Error ? e.message : String(e) }))
+      report.failed.push(tr(msg({ id: 'main.move.sessionsFailed', defaultMessage: "{host}: the sessions' folders couldn't be updated ({why}). Repair tries again.", description: "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {host} is the project (or the Assistant) it is about; {why} is the system's message." }), { host: h.name, why: e instanceof Error ? e.message : String(e) }))
     }
     // Copied, never moved; the old folders stay.
     for (const m of moves) {

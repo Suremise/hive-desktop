@@ -48,7 +48,9 @@ Say a German button reads badly.
    („…“, «…»), which need no escaping.
 3. **Keep the message's structure** (the check below fails if you don't):
    - **Placeholders** in braces stay exactly as they are: `{name}`, `{count}`. Move them wherever the sentence needs
-     them, but never translate or rename them.
+     them, but never translate or rename them. A few messages offer a second form of a placeholder for languages that
+     want it, and their description says so (`{quotedNames}`: the same names, each in its own quotation marks): write
+     it in place of the first, and the check accepts it.
    - **Plurals and choices** are ICU MessageFormat. In `{n, plural, one {# card} other {# cards}}` translate only the
      text inside the inner braces. `#` is the number. Use your language's plural forms: Polish needs `one`, `few`,
      `many` and `other`; Japanese and Chinese need only `other`. In `{who, select, assistant {…} other {…}}` keep the

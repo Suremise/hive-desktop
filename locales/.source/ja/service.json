@@ -122,7 +122,6 @@
   "service.providers.stillLooking": "Hive is still looking for {cli}. Try again in a moment.",
   "service.providers.stillLookingAll": "Hive is still looking for the coding agent CLIs. Try again in a moment.",
   "service.providers.stopFirst": "Stop all running {cli} agents before updating it.",
-  "service.providers.stoppedBusy": "it stayed busy for 30 seconds",
   "service.providers.stoppedClosed": "its terminal closed",
   "service.providers.task": "{task, select, install {{cli} install} update {{cli} update} login {{cli} sign-in} other {{cli} setup}}",
   "service.providers.taskDone": "{task} finished",

@@ -5,7 +5,7 @@
 ### Language
 - **Choose the language Hive shows.** Settings → General → Language: *Automatic* follows Windows' display language, or choose a language by its own name; the change shows at once. Languages translated by AI are marked, and improvements are welcome. Hive's text is being translated for this release, so much of it is still English. Agents and the Hive Assistant are still spoken to in English. `--lang=<code>` starts Hive in a language for one run.
 - **Date format: System now follows Windows' regional format**, not the language Hive shows.
-- **Less English left in a translated window.** The permission and file lock modes' names in Settings, the default provider and effort, where a provider's models come from, the board's column colours, the Assistant's status line and its modes' descriptions, where a CLI was found, and key names in menus (Strg, Entf in German) now show in the language you chose.
+- **Less English left in a translated window.** The permission and file lock modes' names in Settings, the default provider and effort, where a provider's models come from, the board's column colours, the Assistant's status line and its modes' descriptions, where a CLI was found, and key names in menus (Strg, Entf in German) now show in the language you chose. So do the 5-hour and weekly limits in plan-usage warnings and the processes an agent left running, listed when Hive starts or quits; counts in notifications and the tray menu now agree with their number in every language.
 - **Japanese and Chinese read better.** Lists are joined with 、, a weekday reads as one beside its time, sentences follow each other without a space, lines don't start with small kana or closing punctuation and labels break between phrases, paths show \ rather than ¥, and the "Hive can't start" window uses the language's own font.
 
 ### Agents
@@ -44,6 +44,7 @@
 - **The developer console's window fits the display it opens on too.** Opened on a smaller display than the one it was last on, it no longer runs off the display's edge (#862).
 - **Save stays in view in a narrow Files pane.** The file toolbar's buttons pushed Save out of sight when the pane was narrow or the labels long in the window's language; they now show as icons (named in tooltips), and wrap onto a second row when even those don't fit (#814).
 - **Retry in the Skills and Templates views shows the skill or template you then select.** When their list couldn't be read, Retry in the sidebar listed them again, but selecting one still showed the failed read (Skills) or nothing (Templates) until you left the view and came back (#841).
+- **The Git tab's Changes fits a narrow window.** With the Projects sidebar and the Progress panel open in a small window, the list of changes kept its full width and pushed the unused worktrees or the diff out of sight behind Progress, where they couldn't be clicked. The list now gets narrower first, then moves above them when there's no room for both (#906).
 - **The Progress panel's filter applies to merges too.** Filtered to a project (or one of its agents), the panel still showed every project's merge on top; it now shows only that project's, or that agent's (#810).
 
 ## 0.7.1 — 13 October 2026

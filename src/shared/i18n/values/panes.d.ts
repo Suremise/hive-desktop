@@ -98,7 +98,6 @@ interface HiveMessageValues {
   'panes.pages.next': undefined
   'panes.pages.previous': undefined
   'panes.pages.tip': { button: string; page: string | number; count: number; first: string | number; last: string | number; added: string; key: string }
-  'panes.processes.andMore': { shown: string | number; n: number }
   'panes.processes.count': { n: number }
   'panes.resume.allSessions': { n: number }
   'panes.resume.button': undefined

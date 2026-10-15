@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes } from 'crypto'
-import { msg, onLanguageChange, tr } from '../shared/i18n'
+import { fmt, msg, onLanguageChange, tr } from '../shared/i18n'
 import { englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { capturedText, hiveError, HiveError, shownError } from './hiveError'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
@@ -1893,7 +1893,7 @@ class SessionManager {
               if (!same()) return stop(msg({ id: 'session.mode.why.ended', defaultMessage: 'its session ended', description: "Why Hive stopped switching an agent's permission mode (a clause: \"Hive didn't switch to Auto, as its session ended.\")." }))
               if (asking()) return stop(withValues(msg({ id: 'session.mode.why.asking', defaultMessage: '{provider} is asking you something', description: "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name." }), { provider: name }))
               if (st.status !== 'working' && !l.adapter.busyScreen?.(l.screen?.text() ?? '')) return true
-              if (Date.now() - t0 >= 30_000) return stop(withValues(msg({ id: 'session.mode.why.busy', defaultMessage: '{provider} stayed busy for 30 seconds', description: "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name." }), { provider: name }))
+              if (Date.now() - t0 >= 30_000) return stop(withValues(msg({ id: 'session.mode.why.busy', defaultMessage: '{seconds, plural, one {{provider} stayed busy for # second} other {{provider} stayed busy for # seconds}}', description: "Why Hive stopped switching an agent's permission mode (a clause). {provider} is the coding agent's name; {seconds} how many seconds Hive waited." }), { provider: name, seconds: 30 }))
             }
           }
         })
@@ -2528,7 +2528,7 @@ class SessionManager {
     if (this.shuttingDown) return
     const n = left.processes.length + left.more
     if (!n) return
-    const summary = leftoversSummary(left, undefined, tr)
+    const summary = leftoversSummary(left, undefined, { tr, list: fmt.list })
     toast(
       'warning',
       tr(msg({ id: 'session.leftovers.title', defaultMessage: '{agent} left {processes} running', description: "A notice's title: an agent's processes still run after it stopped. {agent} is the agent; {processes} how many (\"2 processes\")." }), { agent: label, processes: processCount(n, tr) }),

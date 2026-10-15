@@ -3,7 +3,7 @@ import { readdir, writeFile } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { HIVE_DIR } from '../shared/defaults'
 import { msg } from '../shared/i18n'
-import { capitalised, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { capitalised, englishText, listOf, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { FIRST_COMMIT_MESSAGE, gitignoreNameText, gitignoreText, isGitignoreChoice, type GitInitCheck, type GitInitOptions } from '../shared/gitInit'
 import { identityProblemData, type GitIdentityPart } from '../shared/gitRepo'
 import { gitProblemData } from '../shared/gitTool'
@@ -103,11 +103,8 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
     // Each step that worked, so a failure says plainly where it stopped (there's no undo): clauses, the first
     // capitalised where they start a sentence.
     const done: Text[] = []
-    // At most four (initialise, identity, .gitignore, commit): the message joins them as the language does.
-    const steps = (): Text => {
-      const [a = '', b = '', c = '', d = ''] = done
-      return capitalised(withValues(msg({ id: 'main.gitInit.steps', defaultMessage: '{count, plural, =1 {{a}} =2 {{a} and {b}} =3 {{a}, {b} and {c}} other {{a}, {b}, {c} and {d}}}', description: 'The steps that worked in making a git repository, joined as a list (main.gitInit.step.*): {count} is how many (1 to 4), {a} to {d} the steps in order. Hive capitalises the first letter of the whole.' }), { count: done.length, a, b, c, d }))
-    }
+    // At most four (initialise, identity, .gitignore, commit), joined as the language joins a list.
+    const steps = (): Text => capitalised(listOf(done))
     const stop = (what: Text, why: TextPart): HiveError =>
       new HiveError(
         done.length
@@ -159,7 +156,7 @@ export async function initRepo(projectPath: string, opts: GitInitOptions): Promi
     }
 
     const template = check.hasGitignore || existsSync(join(projectPath, '.gitignore')) ? null : gitignoreText(choice)
-    if (template) {
+    if (template && choice !== 'none') {
       try {
         await writeFile(join(projectPath, '.gitignore'), template, { flag: 'wx' })
       } catch (e) {

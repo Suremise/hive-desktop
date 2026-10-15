@@ -124,7 +124,7 @@ interface HiveMessageValues {
   'service.providers.stillLooking': { cli: string | number }
   'service.providers.stillLookingAll': undefined
   'service.providers.stopFirst': { cli: string | number }
-  'service.providers.stoppedBusy': undefined
+  'service.providers.stoppedBusy': { seconds: number }
   'service.providers.stoppedClosed': undefined
   'service.providers.task': { task: string; cli: string | number }
   'service.providers.taskDone': { task: string | number }

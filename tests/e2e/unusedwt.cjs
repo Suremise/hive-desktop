@@ -98,6 +98,30 @@ function pathWithoutGit() {
   await shot('changes-list-light')
   await theme('dark')
 
+  // --- A narrow window with the Projects sidebar, Progress and the Assistant's rail (#906): the list goes above the
+  // detail, which keeps the tab's width (not squeezed to nothing behind Progress), its buttons clickable; then a wide one
+  // as before, the list beside it.
+  const command = (id, ...args) => app.evaluate(({ BrowserWindow }, ev) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', ev), { type: 'menu-command', command: id, args })
+  const layout = () =>
+    page.evaluate(() => {
+      const box = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null
+      const [split, list, heading, progress] = ['.changes-split', '.changes-split .split-list', '#unused-worktrees', '.progress-panel'].map(box)
+      const pane = document.querySelector('.unused-worktrees-pane')
+      if (!split || !list || !heading || !pane) return null
+      return { split: Math.round(split.width), list: Math.round(list.width), heading: Math.round(heading.width), stacked: list.bottom <= heading.top, beside: list.right <= heading.left, inside: heading.left >= split.left && heading.right <= split.right + 0.5 && (!progress || split.right <= progress.left + 0.5), scrolls: pane.scrollWidth > pane.clientWidth + 1 }
+    })
+  const progressShown = () => page.locator('.progress-panel').count()
+  if (!(await progressShown())) await command('progress.toggle')
+  await lib.fitWindow(app, page, { width: 900, height: 860 })
+  let narrow = null
+  check('a narrow window with Progress open: the list above the detail, which keeps the tab\'s width inside it (#906)', !!(await lib.until(async () => (narrow = await layout()) !== null && (await progressShown()) === 1 && narrow.split < 520 && narrow.stacked && narrow.inside && narrow.heading > 150 && !narrow.scrolls, HUNG_MS)), JSON.stringify(narrow))
+  check('…its rows\' buttons can be clicked (none under Progress)', await aheadRow.getByRole('button', { name: 'Remove anyway…' }).click({ trial: true, timeout: HUNG_MS }).then(() => true, () => false))
+  await shot('changes-list-narrow')
+  await command('progress.toggle')
+  await lib.fitWindow(app, page, { width: 1400, height: 900 })
+  let wide = null
+  check('…a wide window: the list beside the detail again, at its own width', !!(await lib.until(async () => (wide = await layout()) !== null && (await progressShown()) === 0 && wide.beside && wide.list === 280 && wide.inside && !wide.scrolls, HUNG_MS)), JSON.stringify(wide))
+
   // --- Open the unmerged one: its changes since it left main, and Merge (#400).
   await aheadRow.getByRole('button', { name: 'Open' }).click()
   const fileRow = page.locator('.split-list .row', { hasText: 'work.txt' })

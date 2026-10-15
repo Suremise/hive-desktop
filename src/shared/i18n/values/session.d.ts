@@ -58,8 +58,10 @@ interface HiveMessageValues {
   'session.leftovers.body': { processes: string | number; n: number }
   'session.leftovers.end': undefined
   'session.leftovers.keep': undefined
+  'session.leftovers.more': { n: number }
   'session.leftovers.notEnded': { n: number }
   'session.leftovers.notEndedBody': { processes: string | number; n: number }
+  'session.leftovers.times': { n: number; label: string | number }
   'session.leftovers.title': { agent: string | number; processes: string | number }
   'session.lock.allow': undefined
   'session.lock.anotherAgent': undefined
@@ -91,7 +93,7 @@ interface HiveMessageValues {
   'session.mode.typing': undefined
   'session.mode.unconfirmed': { provider: string | number; mode: string | number }
   'session.mode.why.asking': { provider: string | number }
-  'session.mode.why.busy': { provider: string | number }
+  'session.mode.why.busy': { seconds: number; provider: string | number }
   'session.mode.why.ended': undefined
   'session.mode.working': { provider: string | number }
   'session.modeOffer.many': { n: number; agents: string | number }
@@ -168,7 +170,7 @@ interface HiveMessageValues {
   'session.tracker.noPowerShell': { error: string | number }
   'session.tracker.noStart': undefined
   'session.tracker.refused': undefined
-  'session.tracker.slowHelper': { seconds: string | number }
+  'session.tracker.slowHelper': { seconds: number }
   'session.tracker.stopped': { why: string | number }
   'session.tracker.title': undefined
   'session.tracker.unavailable': undefined

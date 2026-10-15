@@ -179,7 +179,7 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
     const notice = p2.locator('.toast', { hasText: "Hive can't keep track of agents' processes" })
     check('Hive says once that it can’t track agents’ processes', (await notice.first().waitFor({ timeout: 5000 }).then(() => notice.count(), () => 0)) === 1)
     const diag = await inv2('app:diagnostics')
-    check('Diagnostics says why', /Agents' processes: not tracked: its PowerShell helper didn't start within 3 s/.test(diag), diag.split('\n').find((l) => l.includes("Agents' processes")))
+    check('Diagnostics says why', /Agents' processes: not tracked: The PowerShell helper of Hive's process tracker didn't start within 3 seconds/.test(diag), diag.split('\n').find((l) => l.includes("Agents' processes")))
   } finally {
     await second.app.close().catch(() => undefined)
     lib.endExactly([...ids.values()])
