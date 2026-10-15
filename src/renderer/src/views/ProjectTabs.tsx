@@ -4,7 +4,7 @@ import { CardChip } from '../components/CardChip'
 import { KeybindingsEditor } from '../components/Keybindings'
 import type { CompactionEvent, GitDiff, GitStatus, McpServerInfo, MemorySource, PlanLimit, ProjectConfig, ProjectInfo, ProviderId, SessionListItem, SessionUsage, SkillInfo, UnusedWorktree } from '@shared/types'
 import { unpricedModel, unpricedText, usesOwnPrices } from '@shared/prices'
-import { formatDateTime } from '@shared/dates'
+import { formatDateTime, formatDayLabel } from '@shared/dates'
 import { agentChoosesMcp, agentGetsMcp, agentMcpText, serverOnIn } from '@shared/agentMcp'
 import { gitFixText, gitProblemText } from '@shared/gitTool'
 import { UnusedHeading, UnusedWorkNotice, UnusedWorktreesLine, UnusedWorktreesSection, useUnusedWorktrees } from '../components/UnusedWorktrees'
@@ -41,7 +41,7 @@ import { InitRepoButton } from '../components/InitRepo'
 import { MergeSlotList, projectSlots, useMergeSlots } from '../components/MergeSlots'
 import { cx, formatDuration, formatNumber, formatTokens, resetsIn, timeAgo } from '../util'
 import { useLiveUsage, useNow } from '../usage'
-import { fmt, locale, msg, tr, tRich } from '@shared/i18n'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
 
 const M = {
   loading: msg({ id: 'project.loading', defaultMessage: 'Loading…', description: 'A project tab while its data loads.' }),
@@ -83,7 +83,7 @@ const M = {
   plan: msg({ id: 'project.running.plan', defaultMessage: 'Plan', description: "In a running agent's row: it is in plan mode." }),
   contextOf: msg({ id: 'project.running.contextOf', defaultMessage: '{used} of {window} tokens of context', description: "Tooltip on a running agent's context: tokens used of the model's context window, both formatted." }),
   contextUsed: msg({ id: 'project.running.context', defaultMessage: '{used} tokens of context', description: "Tooltip on a running agent's context when the window size is unknown." }),
-  contextShort: msg({ id: 'project.running.contextShort', defaultMessage: '{tokens} context', description: "A running agent's context in its row, such as \"120k context\"." }),
+  contextShort: msg({ id: 'project.running.contextShort', defaultMessage: '{tokens} context{percent, select, none {} other { · {percent}}}', description: "A running agent's context in its row, such as \"120k context · 45%\": its tokens, then (when the window is known) the share of it used, already formatted." }),
   unknownCost: msg({ id: 'project.running.unknownCost', defaultMessage: 'Unknown', description: "A running agent's cost when its model has no price." }),
   colWhen: msg({ id: 'project.col.when', defaultMessage: 'When', description: 'Column of the compaction history.' }),
   colTrigger: msg({ id: 'project.col.trigger', defaultMessage: 'Trigger', description: 'Column of the compaction history: what started it (auto or manual).' }),
@@ -123,7 +123,7 @@ const M = {
   output: msg({ id: 'project.card.output', defaultMessage: 'Output', description: 'A figure: output tokens.' }),
   outputDetail: msg({ id: 'project.card.outputDetail', defaultMessage: '{requests, plural, one {# request} other {# requests}} · {prompts, plural, one {# prompt} other {# prompts}}', description: 'Under Output.' }),
   input: msg({ id: 'project.card.input', defaultMessage: 'Input', description: 'A figure: input tokens.' }),
-  fromCache: msg({ id: 'project.card.fromCache', defaultMessage: '{percent}% read from cache', description: 'Under Input.' }),
+  fromCache: msg({ id: 'project.card.fromCache', defaultMessage: '{share, number, ::percent} read from cache', description: 'Under Input: the share of input tokens read from the prompt cache ("85%").' }),
   inputTip: msg({ id: 'project.card.inputTip', defaultMessage: 'All input tokens: uncached input, cache writes and cache reads.', description: 'The (i) beside Input.' }),
   cacheWrites: msg({ id: 'project.card.cacheWrites', defaultMessage: 'Cache writes', description: 'A figure: tokens written to cache.' }),
   writtenToCache: msg({ id: 'project.card.writtenToCache', defaultMessage: 'tokens written to cache', description: 'Under Cache writes.' }),
@@ -378,7 +378,7 @@ export { PERIODS, activeIn, costText, dailyTotals, money, periodFrom, sumUsage, 
 /** A small bar per day (tokens), for the 7- and 30-day periods; hover a day for its numbers. */
 export function DailyChart({ days }: { days: DayTotal[] }) {
   const max = Math.max(1, ...days.map((d) => d.tokens))
-  const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
+  const label = (day: string): string => formatDayLabel(`${day}T12:00:00`)
   return (
     <div className="daily-chart" role="img" aria-label={tr(M.tokensPerDay)}>
       <div className="daily-bars">
@@ -576,7 +576,7 @@ export function RunningAgent({ project, a, label, onOpen, assistant }: { project
       </div>
       <Tooltip content={window ? tr(M.contextOf, { used: fmt.number(ctx), window: fmt.number(window) }) : tr(M.contextUsed, { used: fmt.number(ctx) })}>
         <div className="running-ctx">
-          <span className="small">{tr(M.contextShort, { tokens: formatTokens(ctx) })}{pct !== null ? ` · ${pct}%` : ''}</span>
+          <span className="small">{tr(M.contextShort, { tokens: formatTokens(ctx), percent: pct === null ? 'none' : fmt.percent(pct / 100) })}</span>
           {pct !== null && (
             <div className={cx('meter', pct >= 90 ? 'danger' : pct >= 75 && 'caution')}>
               <div style={{ width: `${pct}%` }} />
@@ -744,7 +744,7 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
               )}
               <Card title={tr(M.compactionsCard)} value={u.compactions.length} sub={u.compactions.length ? tr(M.lastCompaction, { when: timeAgo(u.compactions[u.compactions.length - 1].timestamp) }) : tr(M.noneYet)} tip={tr(M.compactionsTip, { provider: provider.name })} />
               <Card title={tr(M.output)} value={formatTokens(u.outputTokens)} sub={tr(M.outputDetail, { requests: u.requests, prompts: u.userMessages })} />
-              <Card title={tr(M.input)} value={formatTokens(u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens)} sub={tr(M.fromCache, { percent: hitRate })} tip={tr(M.inputTip)}>
+              <Card title={tr(M.input)} value={formatTokens(u.inputTokens + u.cacheWriteTokens + u.cacheReadTokens)} sub={tr(M.fromCache, { share: hitRate / 100 })} tip={tr(M.inputTip)}>
                 <div className="meter">
                   <div style={{ width: `${hitRate}%` }} />
                 </div>
@@ -812,7 +812,7 @@ export function PlanLimits({ provider }: { provider: ProviderId }) {
   useNow(60000)
   const p = providerDescriptor(provider)
   const card = (id: ProviderId, l: PlanLimit): React.ReactNode => (
-    <Card key={l.id} title={tr(M.limitTitle, { window: limitWindow(l), label: `${l.label.charAt(0).toUpperCase()}${l.label.slice(1)}` })} value={`${Math.round(l.usedPercent)}%`} sub={l.resetsAt ? tr(M.limitResets, { when: resetsIn(l.resetsAt) }) : tr(M.limitUsed)} tip={tr(M.limitTip, { window: limitWindow(l), label: l.label, provider: providerName(id) })} accent={l.usedPercent >= 80}>
+    <Card key={l.id} title={tr(M.limitTitle, { window: limitWindow(l), label: `${l.label.charAt(0).toUpperCase()}${l.label.slice(1)}` })} value={fmt.percent(l.usedPercent / 100)} sub={l.resetsAt ? tr(M.limitResets, { when: resetsIn(l.resetsAt) }) : tr(M.limitUsed)} tip={tr(M.limitTip, { window: limitWindow(l), label: l.label, provider: providerName(id) })} accent={l.usedPercent >= 80}>
       <div className={cx('meter', l.usedPercent >= 95 ? 'danger' : l.usedPercent >= 80 && 'caution')}>
         <div style={{ width: `${Math.min(100, l.usedPercent)}%` }} />
       </div>

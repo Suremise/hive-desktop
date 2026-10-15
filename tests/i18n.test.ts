@@ -277,7 +277,8 @@ describe("main's language", () => {
 describe('agent-facing scripts never load the translations', () => {
   // hive-mcp.js and hive-progress.js run outside the asar with Node built-ins and Hive's own chunks only (AGENTS.md):
   // a shared module they import that imports FormatJS would break them, and agent-facing text stays English. msg.ts and
-  // the modules of messages and languages import nothing, so data modules (the settings catalogue) may hold messages.
+  // the modules of messages and languages import nothing, so data modules (the settings catalogue) may hold messages;
+  // locale.ts neither, so dates.ts can word its dates in the language (#851).
   const resolveImport = (from: string, spec: string): string | null => {
     if (!spec.startsWith('.')) return null
     const base = resolve(dirname(from), spec)
@@ -304,7 +305,7 @@ describe('agent-facing scripts never load the translations', () => {
   it.each(['src/main/mcp/hive-mcp.ts', 'src/main/progressReporters/hive-progress.ts'])('%s', (entry) => {
     const { files, packages } = reach(join(ROOT, entry))
     expect(files.length).toBeGreaterThan(1)
-    expect(files.filter((f) => f.startsWith('src/shared/i18n/') && !/\/(msg|languages|languageText)\.ts$/.test(f))).toEqual([])
+    expect(files.filter((f) => f.startsWith('src/shared/i18n/') && !/\/(msg|languages|languageText|locale)\.ts$/.test(f))).toEqual([])
     expect(packages.filter((p) => p.startsWith('@formatjs/'))).toEqual([])
   })
 })

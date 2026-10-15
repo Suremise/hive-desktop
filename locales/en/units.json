@@ -1,0 +1,30 @@
+{
+  "units.size.bytes": {
+    "defaultMessage": "{n} B",
+    "description": "A size in bytes (\"160 B\"): files, attachments, transcripts. {n} is the number, already formatted."
+  },
+  "units.size.gigabytes": {
+    "defaultMessage": "{n} GB",
+    "description": "A size in gigabytes, of 1024 MB (\"2.4 GB\", \"16.0 GB\"): storage, memory. {n} is the number, already formatted."
+  },
+  "units.size.kilobytes": {
+    "defaultMessage": "{n} KB",
+    "description": "A size in kilobytes, of 1024 bytes (\"1.5 KB\", \"820 KB\"). {n} is the number, already formatted."
+  },
+  "units.size.megabytes": {
+    "defaultMessage": "{n} MB",
+    "description": "A size in megabytes, of 1024 KB (\"6.1 MB\", \"118 MB\"). {n} is the number, already formatted."
+  },
+  "units.tokens.billions": {
+    "defaultMessage": "{n}B",
+    "description": "A token count in billions, compact (\"12.9B\", \"150B\"). {n} is the number, already formatted. Keep it as short as possible."
+  },
+  "units.tokens.millions": {
+    "defaultMessage": "{n}M",
+    "description": "A token count in millions, compact (\"5.5M\", \"12M\"). {n} is the number, already formatted. Keep it as short as possible."
+  },
+  "units.tokens.thousands": {
+    "defaultMessage": "{n}k",
+    "description": "A token count in thousands, compact (\"12.3k\", \"450k\"): context, usage and cost figures. {n} is the number, already formatted. Keep it as short as possible."
+  }
+}

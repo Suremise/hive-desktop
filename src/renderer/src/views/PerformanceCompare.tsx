@@ -43,11 +43,11 @@ function fmt(def: MeasureDef | undefined, v: number | undefined | null): string 
     case 'usd':
       return money(v)
     case 'ms':
-      return `${Math.round(v).toLocaleString()} ms`
+      return `${Math.round(v).toLocaleString('en')} ms`
     case 's':
       return `${Math.round(v)} s`
     default:
-      return Math.abs(v) < 10 && !Number.isInteger(v) ? v.toFixed(1) : Math.round(v).toLocaleString()
+      return Math.abs(v) < 10 && !Number.isInteger(v) ? v.toFixed(1) : Math.round(v).toLocaleString('en')
   }
 }
 

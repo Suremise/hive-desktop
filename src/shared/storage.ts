@@ -12,15 +12,6 @@ const DAY = 24 * 60 * 60 * 1000
 
 export const DEFAULT_CLEANUP: CleanupOptions = { archivedAttachmentsDays: 90, orphanAttachments: false, archivedBackupsDays: null, goneBackups: false }
 
-/** A size for Storage: "820 KB", "6.1 MB", "2.4 GB". */
-export function formatSize(n: number): string {
-  if (n < 1024 * 1024) return n === 0 ? '0 KB' : `${Math.max(1, Math.round(n / 1024))} KB`
-  const mb = n / (1024 * 1024)
-  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
-  const gb = mb / 1024
-  return `${gb < 10 ? gb.toFixed(1) : Math.round(gb)} GB`
-}
-
 /** One of a project's sessions, as Clean Up sees it. */
 export interface CleanupSession {
   id: string

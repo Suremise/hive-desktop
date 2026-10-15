@@ -1,6 +1,7 @@
 // Project Settings → Storage: which files Clean Up… removes, and how sizes read.
 import { describe, expect, it } from 'vitest'
-import { formatSize, planCleanup, type CleanupFacts, type CleanupSession } from '../src/shared/storage'
+import { planCleanup, type CleanupFacts, type CleanupSession } from '../src/shared/storage'
+import { formatSize } from '../src/shared/units'
 import type { CleanupOptions } from '../src/shared/types'
 
 const DAY = 24 * 60 * 60 * 1000

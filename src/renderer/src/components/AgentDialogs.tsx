@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, formatBytes, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
+import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
 import { useAgentLimit } from '../advanced'
 import { shownText as inLanguage } from '@shared/advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, modeOption, offeredModes, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings, shownText } from '@shared/providers'
@@ -17,6 +17,7 @@ import { msg, tr, tRich } from '@shared/i18n'
 import { confirmDangerousMode } from './PermissionMode'
 import { ProviderIcon } from './ProviderIcon'
 import { cx } from '../util'
+import { formatSize } from '@shared/units'
 import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
 import { effortText, modelCaps } from '@shared/models'
@@ -974,7 +975,7 @@ export function HandOverDialog() {
             <div className="faint">
               {!idle(from)
                 ? tr(BUSY_AGENT)
-                : tr(msg({ id: 'agents.handOver.selfNote', defaultMessage: 'Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}', description: "Under the agent's own choice in the Continue with… dialog; then how big its conversation's file is ({size}: \"6.1 MB\"; none: leave that branch empty)." }), { size: from.live?.transcriptBytes ? formatBytes(from.live.transcriptBytes) : 'none' })}
+                : tr(msg({ id: 'agents.handOver.selfNote', defaultMessage: 'Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}', description: "Under the agent's own choice in the Continue with… dialog; then how big its conversation's file is ({size}: \"6.1 MB\"; none: leave that branch empty)." }), { size: from.live?.transcriptBytes ? formatSize(from.live.transcriptBytes) : 'none' })}
             </div>
           </div>
         </label>

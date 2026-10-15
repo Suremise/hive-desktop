@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ProjectInfo, UnusedWorktree, UnusedWorktreePreview, UnusedWorktreeRemoval, UnusedWorktrees } from '@shared/types'
-import { formatSize } from '@shared/storage'
+import { formatSize } from '@shared/units'
 import { RecentCache } from '@shared/recentCache'
 import { CHANGES_ABOUT, UNUSED_WORKTREES_GUIDE, holdsWork, lostByRemoving, originLabel, unusedState, unusedSummary, unusedWorkNotice } from '@shared/unusedWorktrees'
 import { call, errorMessage } from '../api'

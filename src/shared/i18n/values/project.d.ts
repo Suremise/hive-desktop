@@ -37,7 +37,7 @@ interface HiveMessageValues {
   'project.card.cost': undefined
   'project.card.estimated': undefined
   'project.card.expired': undefined
-  'project.card.fromCache': { percent: string | number }
+  'project.card.fromCache': { share: number }
   'project.card.input': undefined
   'project.card.inputTip': undefined
   'project.card.lastActivity': { when: string | number }
@@ -247,7 +247,7 @@ interface HiveMessageValues {
   'project.retry': undefined
   'project.running.context': { used: string | number }
   'project.running.contextOf': { used: string | number; window: string | number }
-  'project.running.contextShort': { tokens: string | number }
+  'project.running.contextShort': { tokens: string | number; percent: string }
   'project.running.plan': undefined
   'project.running.unknownCost': undefined
   'project.session.agentLabel': undefined

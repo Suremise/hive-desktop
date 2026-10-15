@@ -144,8 +144,8 @@
     "description": "The cache figure: the prompt cache has expired."
   },
   "project.card.fromCache": {
-    "defaultMessage": "{percent}% read from cache",
-    "description": "Under Input."
+    "defaultMessage": "{share, number, ::percent} read from cache",
+    "description": "Under Input: the share of input tokens read from the prompt cache (\"85%\")."
   },
   "project.card.input": {
     "defaultMessage": "Input",
@@ -984,8 +984,8 @@
     "description": "Tooltip on a running agent's context: tokens used of the model's context window, both formatted."
   },
   "project.running.contextShort": {
-    "defaultMessage": "{tokens} context",
-    "description": "A running agent's context in its row, such as \"120k context\"."
+    "defaultMessage": "{tokens} context{percent, select, none {} other { · {percent}}}",
+    "description": "A running agent's context in its row, such as \"120k context · 45%\": its tokens, then (when the window is known) the share of it used, already formatted."
   },
   "project.running.plan": {
     "defaultMessage": "Plan",
