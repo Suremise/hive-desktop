@@ -232,7 +232,7 @@ export function autoCompactLine(provider: ProviderId, contextWindow: number | nu
   if (at !== null && window && auto?.percent) at = Math.min(at, Math.round((window * auto.percent) / 100))
   // In the window's words (#800): the source and estimate are what the launch's settings said, as they said it.
   if (tr) {
-    const why = [auto?.source, auto?.percent ? tr(msg({ id: 'agents.provider.compactPercent', defaultMessage: 'at {percent}% of it', description: "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({percent}) of its context window. Lower case: it follows a settings file's name." }), { percent: auto.percent }) : null].filter(Boolean).join(', ')
+    const why = [auto?.source, auto?.percent ? tr(msg({ id: 'agents.provider.compactPercent', defaultMessage: 'at {share, number, ::percent} of it', description: "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({share}: \"80%\") of its context window. Lower case: it follows a settings file's name." }), { share: auto.percent / 100 }) : null].filter(Boolean).join(', ')
     const values = { provider: name, source: auto?.source ?? '', why: why || 'none', estimate: auto?.estimate || 'none', at: at ?? 0, window: window ?? 0 } // i18n-ignore: select keys, not text
     if (auto?.window === 'off') return tr(msg({ id: 'agents.provider.compactOff', defaultMessage: "{provider} doesn't compact by itself: auto-compaction is off ({source}){estimate, select, none {} other { ({estimate})}}", description: "A context tooltip (an agent's footer, the Usage tab): the CLI ({provider}) won't compact its conversation by itself. {source} says where that is set (a settings file, in its words); {estimate} why the figure is an estimate (none: leave that branch empty)." }), values)
     if (typeof auto?.window === 'number') return tr(msg({ id: 'agents.provider.compactWindow', defaultMessage: '{provider} compacts by itself at about {at, number}: its auto-compact window is {window, number} ({why}){estimate, select, none {} other { ({estimate})}}', description: "A context tooltip: where the CLI ({provider}) compacts its conversation by itself, in tokens ({at}), as its settings set its window ({window}, tokens; {why}: where that is set, in a settings file's words, and any percentage; {estimate}: why the figure is an estimate, none: leave that branch empty)." }), values)
@@ -243,7 +243,7 @@ export function autoCompactLine(provider: ProviderId, contextWindow: number | nu
   const est = auto?.estimate ? ` (${auto.estimate})` : ''
   if (auto?.window === 'off') return `${name} doesn't compact by itself: auto-compaction is off (${auto.source})${est}` // i18n-ignore: English without tr (its callers in other areas pass tr once converted)
   if (at === null || !window) return null
-  const n = (x: number): string => x.toLocaleString()
+  const n = (x: number): string => x.toLocaleString('en')
   const why = [auto?.source, auto?.percent ? `at ${auto.percent}% of it` : null].filter(Boolean).join(', ') // i18n-ignore: English without tr
   if (typeof auto?.window === 'number') return `${name} compacts by itself at about ${n(at)}: its auto-compact window is ${n(window)} (${why})${est}` // i18n-ignore: English without tr
   if (auto) return `${name} compacts by itself at about ${n(at)}, its default for this window${why ? ` (${why})` : ''}${est}` // i18n-ignore: English without tr
@@ -255,7 +255,7 @@ export function autoCompactLine(provider: ProviderId, contextWindow: number | nu
  * output, thinking included; then where the CLI compacts by itself (autoCompactLine; `auto` from the running session).
  */
 export function contextLines(u: { provider: ProviderId; contextTokens: number; contextInputTokens?: number; lastOutputTokens?: number; contextWindow: number | null }, auto?: AutoCompactSetting | null, tr?: Tr): string[] {
-  const n = (x: number): string => x.toLocaleString()
+  const n = (x: number): string => x.toLocaleString('en')
   const lines: string[] = []
   if (tr) {
     lines.push(

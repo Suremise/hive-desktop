@@ -10,8 +10,9 @@ import { failedStart, type StartFailure } from '../shared/startFailure'
 import { BrowserWindow, Notification, app, clipboard } from 'electron'
 import { ASSISTANT_DIR, ASSISTANT_NAME } from '../shared/assistant'
 import { formatDateTime } from '../shared/dates'
+import { formatSize } from '../shared/units'
 import { assistantTools } from '../shared/assistantTools'
-import { HIVE_DIR, isCompacting, agentPtyKey, assertSessionId, cliRename, formatBytes, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
+import { HIVE_DIR, isCompacting, agentPtyKey, assertSessionId, cliRename, isSessionId, projectAgents, resumeRecord, transcriptWarnLimit } from '../shared/defaults'
 import { agentLaunchSettings, defaultProviderPending, extraArgsProblem, isProviderEnabled, modeAllowed, permissionLabel, providerDescriptor, providerSettings, splitArgs, tasksWillWake } from '../shared/providers'
 import { resolvedModel } from '../shared/models'
 import type {
@@ -3051,15 +3052,15 @@ class SessionManager {
     const advice = assistant
       ? msg({ id: 'session.long.adviceAssistant', defaultMessage: 'Start a new conversation (⋯ → New Conversation) to keep things quick.', description: "The notice that the Assistant's conversation is long: what to do. ⋯ → New Conversation is the Assistant's menu command." })
       : msg({ id: 'session.long.advice', defaultMessage: "Hand it over to a new conversation (Hand Over to…) to keep things quick. Compacting doesn't shrink the file.", description: "The notice that an agent's conversation is long: what to do. Hand Over to… is a command." })
-    log.info(`${userText(label)}: transcript is ${formatBytes(bytes)}, over ${limitMB} MB`)
+    log.info(`${userText(label)}: transcript is ${(bytes / 1024 ** 2).toFixed(1)} MB, over ${limitMB} MB`)
     toast(
       'warning',
       tr(M.longConversation, { agent: label }),
-      tr(msg({ id: 'session.long.toast', defaultMessage: 'Its transcript is {size}, which slows down the CLI and Hive. {advice}', description: "The notice that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatBytes(bytes), advice: tr(advice) }),
+      tr(msg({ id: 'session.long.toast', defaultMessage: 'Its transcript is {size}, which slows down the CLI and Hive. {advice}', description: "The notice that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatSize(bytes), advice: tr(advice) }),
       assistant ? undefined : [{ label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverTo', args: [st.projectPath, st.agentId] }],
       st.projectPath
     )
-    this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(msg({ id: 'session.long.notice', defaultMessage: 'Its transcript is {size}. {advice}', description: "The notification that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatBytes(bytes), advice }), 'notice')
+    this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(msg({ id: 'session.long.notice', defaultMessage: 'Its transcript is {size}. {advice}', description: "The notification that an agent's conversation is long. {size} is its transcript's size (\"48.2 MB\"); {advice} says what to do." }), { size: formatSize(bytes), advice }), 'notice')
   }
 
   /**

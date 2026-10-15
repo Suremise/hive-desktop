@@ -5,7 +5,7 @@ import { LATENCY_BOUNDS_MS, percentile, type GuidanceSeries, type MetricsReport,
 import { DEFAULT_PERF_FILTERS, PERF_RANGES, WORKSPACE_OWN, byRoute, byTool, isEmpty, latencyOrder, pageQuery, providersIn, select, totals, type PerfFilters, type PerfRole, type PerfSelection, type RouteRow, type ToolRow } from '@shared/metricsView'
 import { compareScopeKey, compareScopeOf } from '@shared/benchmark'
 import { money } from '@shared/usageTotals'
-import { formatDateTime, formatWeekdayTime } from '@shared/dates'
+import { formatDateTime, formatDayLabel, formatWeekdayTime } from '@shared/dates'
 import { shownText } from '@shared/advanced'
 import { call } from '../api'
 import { Icon, IconButton, InfoTip, LoadFailed, StaleNote, Tooltip } from '../components/ui'
@@ -29,7 +29,7 @@ import { CardsTable } from './PerformanceCards'
 const REFRESH_MS = 60_000
 
 const ms = (v: number | null, count: number): string => (v === null ? (count ? `> ${LATENCY_BOUNDS_MS.at(-1)! / 1000} s` : '—') : v >= 1000 ? `≤ ${v / 1000} s` : `≤ ${v} ms`)
-const num = (n: number): string => Math.round(n).toLocaleString()
+const num = (n: number): string => Math.round(n).toLocaleString('en')
 const pct = (part: number, whole: number): string => (whole ? `${((part / whole) * 100).toFixed(part && part / whole < 0.01 ? 1 : 0)}%` : '—')
 
 const ROLE_LABEL: Record<PerfRole, string> = { all: 'Everyone', agent: 'Project agents', assistant: 'The Assistant', api: 'Scripts', viewer: 'Viewer apps' }
@@ -374,7 +374,7 @@ function duration(msValue: number): string {
 function Trend({ points, step }: { points: TrendPoint[]; step: 'hour' | 'day' }) {
   const max = Math.max(1, ...points.map((p) => p.requests))
   const slotMs = step === 'hour' ? 3_600_000 : 86_400_000
-  const label = (iso: string): string => (step === 'hour' ? formatWeekdayTime(iso) : new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))
+  const label = (iso: string): string => (step === 'hour' ? formatWeekdayTime(iso) : formatDayLabel(iso))
   return (
     <div className="daily-chart perf-trend">
       <h2 className="section">API requests by {step}</h2>

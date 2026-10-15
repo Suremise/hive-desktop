@@ -8,8 +8,8 @@
     "description": "Tooltip on a worktree agent's merge button."
   },
   "project.agents.off": {
-    "defaultMessage": "(off)",
-    "description": "After a provider's name when it is turned off."
+    "defaultMessage": "{provider} (off)",
+    "description": "A provider's name when it is turned off in Settings → Providers (an agent's provider, and the Provider list)."
   },
   "project.agents.own200k": {
     "defaultMessage": "{on, select, yes {200K context on} other {200K context off}}",
@@ -144,8 +144,8 @@
     "description": "The cache figure: the prompt cache has expired."
   },
   "project.card.fromCache": {
-    "defaultMessage": "{percent}% read from cache",
-    "description": "Under Input."
+    "defaultMessage": "{share, number, ::percent} read from cache",
+    "description": "Under Input: the share of input tokens read from the prompt cache (\"85%\")."
   },
   "project.card.input": {
     "defaultMessage": "Input",
@@ -984,8 +984,8 @@
     "description": "Tooltip on a running agent's context: tokens used of the model's context window, both formatted."
   },
   "project.running.contextShort": {
-    "defaultMessage": "{tokens} context",
-    "description": "A running agent's context in its row, such as \"120k context\"."
+    "defaultMessage": "{tokens} context{percent, select, none {} other { · {percent}}}",
+    "description": "A running agent's context in its row, such as \"120k context · 45%\": its tokens, then (when the window is known) the share of it used, already formatted."
   },
   "project.running.plan": {
     "defaultMessage": "Plan",
@@ -1048,7 +1048,7 @@
     "description": "The choice that takes the global (or workspace) setting. {value} is what that is now."
   },
   "project.settings.inheritList": {
-    "defaultMessage": "Inherit: {value}",
+    "defaultMessage": "Inherit:\n{value}",
     "description": "Placeholder of a box that takes a list when it is empty: Inherit, then the global list on the lines after it. Keep the line break."
   },
   "project.settings.megabytes": {

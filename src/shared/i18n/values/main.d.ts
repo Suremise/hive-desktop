@@ -108,7 +108,7 @@ interface HiveMessageValues {
   'main.plan.pause': undefined
   'main.plan.resetsAt': { time: string | number }
   'main.plan.resetsOn': { when: string | number }
-  'main.plan.used': { percent: string | number; provider: string | number; limit: string | number }
+  'main.plan.used': { share: number; provider: string | number; limit: string | number }
   'main.quit.closed': undefined
   'main.quit.closedBody': { n: number }
   'main.quit.dialogTitle': undefined

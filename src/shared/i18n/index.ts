@@ -13,6 +13,7 @@
 import { createIntl, createIntlCache, type IntlShape } from '@formatjs/intl'
 import { parse, TYPE, type MessageFormatElement } from '@formatjs/icu-messageformat-parser'
 import { PSEUDO_LANGUAGE, SOURCE_LANGUAGE } from './languages'
+import { setFormatLocale } from './locale'
 import type { MessageArgs, Msg, Values } from './msg'
 
 export { msg, type Msg, type Values } from './msg'
@@ -61,6 +62,7 @@ export function setLanguage(code: string, messages: Catalogue, locale = code): v
   current = code
   pseudoCache.clear()
   intl = build(code, code === PSEUDO_LANGUAGE ? SOURCE_LANGUAGE : locale, messages)
+  setFormatLocale(intl.locale)
   for (const l of listeners) l(code)
 }
 
@@ -110,6 +112,10 @@ export const fmt = {
       abs < 60 ? [s, 'second'] : abs < 3600 ? [Math.round(s / 60), 'minute'] : abs < 86400 ? [Math.round(s / 3600), 'hour'] : [Math.round(s / 86400), 'day']
     return intl.formatRelativeTime(v, unit, { numeric: 'auto', style })
   },
+  /** A number with exactly this many decimals and no grouping, for a figure beside a unit: "1.5", "1,5", "450". */
+  figure: (n: number, decimals: number): string => intl.formatNumber(n, { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false }),
+  /** A share (0.25 is a quarter) as a percentage, with at most this many decimals: "25%", "25 %", "0.4%". */
+  percent: (share: number, decimals = 0): string => intl.formatNumber(share, { style: 'percent', maximumFractionDigits: decimals }),
   /** A date and time in the language's medium form: "13 Oct 2026, 23:40", "13 paź 2026, 23:40". */
   dateTime: (d: Date | number): string => intl.formatDate(d, { dateStyle: 'medium', timeStyle: 'short' }),
   /** "Claude, Codex and Copilot", "Claude, Codex i Copilot"; unit: "5 running, 2 failed" (no "and"). */

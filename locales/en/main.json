@@ -428,8 +428,8 @@
     "description": "The end of a plan-usage notice: the limit resets another day. {when} is the day and time."
   },
   "main.plan.used": {
-    "defaultMessage": "{percent}% of your {provider} {limit} limit used",
-    "description": "A notice: how much of a plan's usage limit is used. {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now."
+    "defaultMessage": "{share, number, ::percent} of your {provider} {limit} limit used",
+    "description": "A notice: how much of a plan's usage limit is used ({share}: \"85%\"). {provider} is the coding agent; {limit} names the limit as the provider does (5-hour, weekly), in English for now."
   },
   "main.quit.closed": {
     "defaultMessage": "Hive has closed",

@@ -14,7 +14,8 @@ import { ProviderIcon } from '../components/ProviderIcon'
 import { TaskStrip } from '../components/Board'
 import { DataTable, type DataColumn } from '../components/DataTable'
 import { PlanLimits, RunningAgent } from './ProjectTabs'
-import { fmt, locale, msg, tr, tRich } from '@shared/i18n'
+import { fmt, msg, tr, tRich } from '@shared/i18n'
+import { formatDayLabel } from '@shared/dates'
 
 /** Live updates come at most this often (each checks every project's transcripts against the usage cache). */
 const LIVE_REFRESH_MS = 15_000
@@ -155,7 +156,7 @@ export function Card({ title, value, sub, tip, accent }: { title: string; value:
 /** Tokens per day, stacked by project (the top six, the rest as Other); hover a day for its numbers. */
 function StackedChart({ series, days }: { series: { key: string; label: string }[]; days: (DayTotal & { parts: number[] })[] }) {
   const max = Math.max(1, ...days.map((d) => d.tokens))
-  const label = (day: string): string => new Date(`${day}T12:00:00`).toLocaleDateString(locale(), { weekday: 'short', day: 'numeric', month: 'short' })
+  const label = (day: string): string => formatDayLabel(`${day}T12:00:00`)
   const colour = (i: number): string => (series[i].key ? `var(--series-${i + 1})` : 'var(--series-other)')
   return (
     <div className="daily-chart">

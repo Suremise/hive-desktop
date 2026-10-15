@@ -359,7 +359,7 @@ export function ConsoleApp() {
               <span className="dc-kind-tag">{current.kind}</span>
               {current.provider && <span className="dc-meta">{providerName(current.provider)}</span>}
               <span className="dc-meta">{clockTime(current.at)}</span>
-              <span className="dc-meta">{current.bytes.toLocaleString()} bytes</span>
+              <span className="dc-meta">{current.bytes.toLocaleString('en')} bytes</span>
               {current.truncated && <span className="dc-meta">cut down to its outline</span>}
               <span className="dc-sep" />
               <IconButton icon="close" title="Close (Esc)" onClick={() => setPicked(null)} />

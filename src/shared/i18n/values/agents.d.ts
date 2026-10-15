@@ -267,7 +267,7 @@ interface HiveMessageValues {
   'agents.provider.compactDefault': { provider: string | number; at: number }
   'agents.provider.compactDefaultFor': { provider: string | number; at: number; why: string; estimate: string }
   'agents.provider.compactOff': { provider: string | number; source: string | number; estimate: string }
-  'agents.provider.compactPercent': { percent: string | number }
+  'agents.provider.compactPercent': { share: number }
   'agents.provider.compactWindow': { provider: string | number; at: number; window: number; why: string | number; estimate: string }
   'agents.provider.context': { tokens: number }
   'agents.provider.contextOf': { tokens: number; window: number }

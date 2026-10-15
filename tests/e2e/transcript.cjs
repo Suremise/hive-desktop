@@ -120,6 +120,10 @@ const text = (loc) => loc.textContent({ timeout: 1000 }).then((got) => got ?? ''
   check('command shown with output', (await page.locator('.tx-command').textContent()).includes('/compact keep the test notes') && (await page.locator('.tx-command-output').textContent()) === 'Compacted')
   const divider = await page.locator('.tx-compaction-label').textContent()
   check('compaction divider', divider.includes('180k → 9.0k (30.1k with instructions)') && divider.includes('with instructions'), divider)
+  // #815: the prompt cache is part of the usage line's message, with its separator (it was a fragment whose leading
+  // space the catalogue dropped).
+  const usageLine = await text(page.locator('.transcript-toolbar .path > .faint'))
+  check('usage line ends with the prompt cache, separated', /\d+ prompts? · 1 compaction · cache (expired|warm \S+)$/.test(usageLine), usageLine)
   await page.locator('.tx-tool .tx-fold-head').first().click()
   const result = page.locator('.tx-tool.open .tx-result')
   const res = (await lib.until(async () => { const got = await text(result); return got.startsWith('FAIL login.spec.ts') && got }, HUNG_MS)) || (await text(result))

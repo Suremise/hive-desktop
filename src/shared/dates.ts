@@ -1,8 +1,10 @@
 /**
  * Dates and times as the user chose them (Settings → General → Date format and Time): every date Hive shows goes
  * through these, so one setting changes them all. Each process keeps the current choice (`setDateStyle`, from its
- * settings); a formatter given a style uses that instead.
+ * settings); a formatter given a style uses that instead. The numeric forms are the user's choice, whatever the language;
+ * words (a weekday, a month, AM and PM) are in the language Hive shows (#851).
  */
+import { dateWords } from './i18n/locale'
 
 /** yyyy-mm-dd (2026-10-04), dd/mm/yyyy, mm/dd/yyyy, or Windows' regional format's short date. */
 export type DateFormat = 'ymd' | 'dmy' | 'mdy' | 'system'
@@ -57,19 +59,17 @@ export function formatDate(d: Date | string | number, style: DateStyle = current
     case 'mdy':
       return `${m}/${day}/${y}`
     case 'system':
-      return x.toLocaleDateString(regional)
+      return x.toLocaleDateString(regional) // i18n-ignore: System is Windows' regional format by choice, not the language Hive shows
     default:
       return `${y}-${m}-${day}`
   }
 }
 
-/** The time alone: "14:05", or "2:05 PM". */
+/** The time alone: "14:05", or "2:05 PM" ("午後2:05" in Japanese). */
 export function formatTime(d: Date | string | number, style: DateStyle = current): string {
   const x = toDate(d)
   if (!x) return ''
-  const h = x.getHours()
-  const mm = pad(x.getMinutes())
-  return style.time === '12h' ? `${h % 12 || 12}:${mm} ${h < 12 ? 'AM' : 'PM'}` : `${pad(h)}:${mm}`
+  return style.time === '12h' ? dateWords(x, { hour: 'numeric', minute: '2-digit', hour12: true }) : `${pad(x.getHours())}:${pad(x.getMinutes())}`
 }
 
 /** Date and time: "2026-10-04 14:05". */
@@ -88,5 +88,11 @@ export function formatWhen(d: Date | string | number, now = new Date(), style: D
 /** A weekday and time, for something within the coming week: "Mon 14:05". */
 export function formatWeekdayTime(d: Date | string | number, style: DateStyle = current): string {
   const x = toDate(d)
-  return x ? `${x.toLocaleDateString([], { weekday: 'short' })} ${formatTime(x, style)}` : ''
+  return x ? `${dateWords(x, { weekday: 'short' })} ${formatTime(x, style)}` : ''
+}
+
+/** A day under a chart's bar: its weekday, day and month in the language's words and order ("Mon 4 Oct", "pon., 4 paź"). */
+export function formatDayLabel(d: Date | string | number): string {
+  const x = toDate(d)
+  return x ? dateWords(x, { weekday: 'short', day: 'numeric', month: 'short' }) : ''
 }

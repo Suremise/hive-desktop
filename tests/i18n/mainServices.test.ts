@@ -52,7 +52,7 @@ const { initRepo } = await import('../../src/main/gitInit')
 
 /** A German translation of the messages these tests show (the rest stays English). */
 const GERMAN = {
-  'main.plan.used': '{percent} % Ihres {limit}-Limits für {provider} verbraucht',
+  'main.plan.used': '{share, number, ::percent} Ihres {limit}-Limits für {provider} verbraucht',
   'main.finished.inProject': '{n} Agenten in {project} fertig',
   'main.quit.closed': 'Hive wurde geschlossen',
   'main.move.copied':
@@ -91,7 +91,7 @@ describe('notices: in the language shown, their Agent API title in English', () 
     const [pseudo, german] = told()
     expect(pseudo.user).toMatch(PSEUDO)
     expect(pseudo.api).toBe('96% of your Claude Code 5-hour limit used')
-    expect(german).toEqual({ user: '97 % Ihres 5-hour-Limits für Claude Code verbraucht', api: '97% of your Claude Code 5-hour limit used' })
+    expect(german).toEqual({ user: '97\u00a0% Ihres 5-hour-Limits für Claude Code verbraucht', api: '97% of your Claude Code 5-hour limit used' })
   })
 
   it('Hive closing', () => {
