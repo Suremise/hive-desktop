@@ -213,7 +213,7 @@
   },
   "providers.export.compacted": {
     "defaultMessage": "**Conversation compacted** ({trigger}) · {before} → {after} tokens",
-    "description": "The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3K)."
+    "description": "The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3k)."
   },
   "providers.export.error": {
     "defaultMessage": "**Error:**",

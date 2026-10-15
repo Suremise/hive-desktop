@@ -1,6 +1,7 @@
 import { Children, useCallback, useEffect, useRef, useState } from 'react'
 import type { CleanupItem, CleanupOptions, ProjectStorage, WorkspaceStorage } from '@shared/types'
-import { DEFAULT_CLEANUP, formatSize } from '@shared/storage'
+import { DEFAULT_CLEANUP } from '@shared/storage'
+import { formatSize } from '@shared/units'
 import { call, errorMessage } from '../api'
 import { notify, openProjectSettings, useStore } from '../store'
 import { runCommand } from '../commands'

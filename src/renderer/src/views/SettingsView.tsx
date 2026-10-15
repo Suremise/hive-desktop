@@ -439,7 +439,7 @@ function Control({ def, settings }: { def: SettingDef; settings: AppSettings }) 
       return (
         <div className="flex" style={{ width: '100%' }}>
           <input className="range" type="range" min={def.min} max={def.max} step={def.step} value={Number(value)} onChange={(e) => void update(def, Number(e.target.value))} />
-          <span className="muted" style={{ width: 40, textAlign: 'right' }}>{Math.round(Number(value) * 100)}%</span>
+          <span className="muted" style={{ minWidth: 40, textAlign: 'right', whiteSpace: 'nowrap' }}>{fmt.percent(Number(value))}</span>
         </div>
       )
     case 'number':

@@ -17,7 +17,7 @@ import { GitStatusBarItem } from '../views/GitTab'
 import { AGENT_LIMIT_MAX } from '@shared/defaults'
 import { AgentRowsTable, CARD_COLUMN, PROJECT_COLUMN, STATE_COLUMN, WAITING_COLUMN, agentRow, tableText, type AgentTableData, type AgentTableRow } from './AgentsTable'
 import { limitWindow } from '../views/ProjectTabs'
-import { msg, tr, type Msg } from '@shared/i18n'
+import { fmt, msg, tr, type Msg } from '@shared/i18n'
 
 const M = {
   projects: msg({ id: 'workspace.activity.projects', defaultMessage: 'Projects', description: 'The activity bar (left edge): the Projects view.' }),
@@ -242,7 +242,7 @@ function PlanUsageStatus() {
               {usage.limits.map((l, i) => (
                 <span key={l.id}>
                   {i > 0 && <span className="status-sep">·</span>}
-                  {shortLimit(l)} {Math.round(l.usedPercent)}%
+                  {shortLimit(l)} {fmt.percent(l.usedPercent / 100)}
                 </span>
               ))}
             </div>

@@ -3,6 +3,7 @@ import { englishText, shownText, type Text } from '../../shared/advanced'
 import { msg, tr } from '../../shared/i18n'
 import { isAbsolute } from 'path'
 import { formatDateTime } from '../../shared/dates'
+import { formatTokens } from '../../shared/units'
 import { relativeInside } from '../fsutil'
 
 /**
@@ -99,7 +100,6 @@ function fence(text: string, lang = ''): string {
 }
 
 const when = (ts: string | null): string => (ts ? formatDateTime(ts) : '')
-const tokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n))
 
 /** The conversation as Markdown, with tool calls, thinking and summaries in collapsible sections. */
 export function transcriptMarkdown(items: TranscriptItem[], title: string, subtitle: string, assistant = 'Claude' /* i18n-ignore: the model's name */): string {
@@ -139,7 +139,7 @@ export function transcriptMarkdown(items: TranscriptItem[], title: string, subti
       }
       case 'compaction':
         speaker = null
-        out.push('---', '', `${tr(msg({ id: 'providers.export.compacted', defaultMessage: '**Conversation compacted** ({trigger}) · {before} → {after} tokens', description: 'The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3K).' }), { trigger: item.trigger, before: tokens(item.preTokens), after: tokens(item.postTokens) })}${when(item.timestamp) ? ` · ${when(item.timestamp)}` : ''}`, '')
+        out.push('---', '', `${tr(msg({ id: 'providers.export.compacted', defaultMessage: '**Conversation compacted** ({trigger}) · {before} → {after} tokens', description: 'The Markdown export of a conversation (Sessions tab → Export): where the conversation was compacted. **…** is Markdown bold: keep the marks. {trigger} is how (auto or manual, in English); {before} and {after} its size in tokens (12.3k).' }), { trigger: item.trigger, before: formatTokens(item.preTokens), after: formatTokens(item.postTokens) })}${when(item.timestamp) ? ` · ${when(item.timestamp)}` : ''}`, '')
         if (item.summary) details(tr(msg({ id: 'providers.export.summary', defaultMessage: 'Summary', description: "The Markdown export of a conversation (Sessions tab → Export): the summary of a collapsed section holding a compaction's summary." })), item.summary)
         out.push('---', '')
         break

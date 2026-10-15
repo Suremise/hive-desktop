@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
-import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, formatBytes, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, type TemplateEntry } from '@shared/templates'
@@ -17,6 +17,8 @@ import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, foc
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
+import { formatSize } from '@shared/units'
+import { moneyLabel } from '@shared/usageTotals'
 import { TerminalView } from './TerminalView'
 import { offerTip } from '../tips'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
@@ -1297,7 +1299,7 @@ export function PaneFooter({
               ) : (
                 <>
                   <span className="ctx-tokens">{formatTokens(ctx)} · </span>
-                  {pct}%
+                  {fmt.percent(pct / 100)}
                 </>
               )}
             </span>
@@ -1322,7 +1324,7 @@ export function PaneFooter({
               description: "Hover of a pane footer's transcript size ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
             }),
             {
-              size: formatBytes(bytes),
+              size: formatSize(bytes),
               limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
               advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
             }
@@ -1330,7 +1332,7 @@ export function PaneFooter({
         >
           <span className={cx('pane-foot-item', long ? 'warn' : 'faint')} onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
             <Icon name="file" />
-            <span className="fit-text size-text">{formatBytes(bytes)}</span>
+            <span className="fit-text size-text">{formatSize(bytes)}</span>
           </span>
         </Tooltip>
       )}
@@ -1343,7 +1345,7 @@ export function PaneFooter({
           }
         >
           <span className="pane-foot-item faint foot-cost" onClick={costClick}>
-            {estimated ? '≈' : ''}${cost < 0.01 ? '<0.01' : cost.toFixed(2)}
+            {estimated ? '≈' : ''}{moneyLabel(cost)}
           </span>
         </Tooltip>
       )}

@@ -1064,8 +1064,8 @@
     "description": "A context tooltip (an agent's footer, the Usage tab): the CLI ({provider}) won't compact its conversation by itself. {source} says where that is set (a settings file, in its words); {estimate} why the figure is an estimate (none: leave that branch empty)."
   },
   "agents.provider.compactPercent": {
-    "defaultMessage": "at {percent}% of it",
-    "description": "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({percent}) of its context window. Lower case: it follows a settings file's name."
+    "defaultMessage": "at {share, number, ::percent} of it",
+    "description": "Part of a context tooltip: a setting brings the CLI's compaction to a percentage ({share}: \"80%\") of its context window. Lower case: it follows a settings file's name."
   },
   "agents.provider.compactWindow": {
     "defaultMessage": "{provider} compacts by itself at about {at, number}: its auto-compact window is {window, number} ({why}){estimate, select, none {} other { ({estimate})}}",

@@ -1,6 +1,6 @@
 import type { RecentWorkspace } from '@shared/types'
 import { formatDate, formatWeekdayTime } from '@shared/dates'
-import { msg, tr } from '@shared/i18n'
+import { fmt, msg, tr } from '@shared/i18n'
 
 export function basename(p: string): string {
   return p.split(/[\\/]/).filter(Boolean).pop() ?? p
@@ -8,9 +8,8 @@ export function basename(p: string): string {
 
 export { formatBytes, formatTokens } from '@shared/units'
 
-export function formatNumber(n: number): string {
-  return n.toLocaleString()
-}
+/** A number in the language Hive shows: "12,345", "12 345". */
+export const formatNumber = (n: number): string => fmt.number(n)
 
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return '—'

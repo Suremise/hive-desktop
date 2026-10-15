@@ -2,6 +2,7 @@ import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEve
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
+import { formatGigabytes, formatSize } from './units'
 import { AUTO_PROVIDER, DEFAULT_PROVIDER, PROVIDERS, defaultProviderSettings, isDefaultProviderValue, providerDescriptor } from './providers'
 import { chosenName, effortName, modelIdName, resolvedModel, runsAsName, type ModelInfo } from './models'
 import { msg, tr as trNow, type Msg } from './i18n'
@@ -176,7 +177,7 @@ export const agentLimitText = (limit: number, tr?: Tr): string =>
     ? tr(msg({ id: 'agents.limit.reached', defaultMessage: 'A project can have up to {limit} agents (Settings → Advanced → Agents per project).', description: "Why another agent can't be added to a project. {limit} is a number; \"Settings → Advanced → Agents per project\" is where the setting is: use its translated names." }), { limit })
     : `A project can have up to ${limit} agents (Settings → Advanced → Agents per project).` // i18n-ignore: English for main's error (the window passes tr)
 /** Memory as the agents note says it: MB, or GB from 1 GB. */
-const memoryText = (n: number): string => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : formatBytes(n)) // i18n-ignore: a size (units are the formatting sweep's, F3)
+const memoryText = (n: number): string => (n >= 1024 ** 3 ? formatGigabytes(n) : formatSize(n))
 
 /**
  * Settings → Advanced's note once Agents per project goes over the default (Darren, 11 Oct): what more agents cost, in
@@ -458,17 +459,10 @@ export function transcriptWarnLimit(project: { transcriptWarnMB?: number | null 
   return typeof p === 'number' && p >= 0 ? p : globalMB
 }
 
-/** A size in bytes for the footer: "820 KB", "6.1 MB", "118 MB". */
-export function formatBytes(n: number): string {
-  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`
-  const mb = n / (1024 * 1024)
-  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
-}
-
 /** A session's transcript size in the Sessions list (#671), as the footer shows it: "—" with no file to measure; long once past limitMB (0 never). */
 export function transcriptSizeInfo(bytes: number | null | undefined, limitMB: number): { text: string; long: boolean } {
   if (typeof bytes !== 'number' || !(bytes >= 0)) return { text: '—', long: false }
-  return { text: bytes === 0 ? '0 KB' : formatBytes(bytes), long: limitMB > 0 && bytes >= limitMB * 1024 * 1024 } // i18n-ignore: a size (units are the formatting sweep's, F3)
+  return { text: formatSize(bytes), long: limitMB > 0 && bytes >= limitMB * 1024 * 1024 }
 }
 
 /** Claude Code's plan limits as 0.1 stored them. */

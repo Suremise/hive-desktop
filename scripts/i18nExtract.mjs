@@ -65,9 +65,10 @@ export function hasNativeCli() {
 /** The CLI's bin, run with this Node. */
 export const cliBin = () => join(dirname(require.resolve('@formatjs/cli/package.json')), 'bin', 'formatjs')
 
-/** Messages by id, as `formatjs extract` reads them. Throws with its error (a duplicate id with other text, a file it can't parse). */
+/** Messages by id, as `formatjs extract` reads them, white space kept (#815: a leading space or a line break is part of
+ * the message, and translators work from this English). Throws with its error (a duplicate id with other text, a file it can't parse). */
 export function extractWithCli(root) {
-  const r = spawnSync(process.execPath, [cliBin(), 'extract', 'src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mts', '--ignore', 'src/**/*.d.ts', '--additional-function-names', 'msg', '--throws'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  const r = spawnSync(process.execPath, [cliBin(), 'extract', 'src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mts', '--ignore', 'src/**/*.d.ts', '--additional-function-names', 'msg', '--preserve-whitespace', '--throws'], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
   if (r.status !== 0) throw new Error(`formatjs extract failed: ${(r.stderr || r.stdout || String(r.error)).split(/\r?\n/)[0]}`)
   return JSON.parse(r.stdout)
 }
@@ -85,7 +86,7 @@ function literalText(n) {
   return undefined
 }
 
-/** Messages by id, read with Babel the way `formatjs extract` reads them (its English trimmed, runs of white space as one space). */
+/** Messages by id, read with Babel the way `formatjs extract --preserve-whitespace` reads them (the English as written). */
 export function extractWithJs(root) {
   const out = {}
   for (const rel of sourceFiles(root)) {
@@ -103,7 +104,7 @@ export function extractWithJs(root) {
         const description = field('description') ? literalText(field('description')) : undefined
         const at = `${rel}:${p.node.loc?.start.line}`
         if (id === undefined || english === undefined || (field('description') && description === undefined)) throw new Error(`${at}: a message's id, defaultMessage and description must be literal text`)
-        const m = { defaultMessage: english.trim().replace(/\s+/gm, ' '), ...(description === undefined ? {} : { description }) }
+        const m = { defaultMessage: english, ...(description === undefined ? {} : { description }) }
         if (out[id] && JSON.stringify(out[id]) !== JSON.stringify(m)) throw new Error(`Duplicate message id: "${id}", but the \`description\` and/or \`defaultMessage\` are different (${at}).`)
         out[id] = m
       }
