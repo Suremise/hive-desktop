@@ -218,6 +218,8 @@ interface HiveMessageValues {
   'tips.searchClear.title': undefined
   'tips.searchTranscripts.text': undefined
   'tips.searchTranscripts.title': undefined
+  'tips.sessionCleanup.text': undefined
+  'tips.sessionCleanup.title': undefined
   'tips.sessionSizes.text': undefined
   'tips.sessionSizes.title': undefined
   'tips.sessionTree.text': undefined

@@ -5115,6 +5115,18 @@ body.pane-resizing .monaco-editor {
   margin-top: 3px;
   accent-color: var(--accent);
 }
+/* Sessions → Clean Up… (#895): the ages in a row, what goes under the choices. */
+.cleanup-ages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.cleanup-ages input[type='radio'] {
+  accent-color: var(--accent);
+}
+.cleanup-summary {
+  margin: 14px 0 6px;
+}
 /* Move to Doing: what an option needs (its agent), under it. */
 .doing-sub {
   margin: 0 0 4px 24px;

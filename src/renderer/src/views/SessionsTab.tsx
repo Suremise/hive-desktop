@@ -20,6 +20,8 @@ import { MAX_TREE_PREFS } from '@shared/uiPrefs'
 import { shownText } from '@shared/advanced'
 import { rememberProjectPref } from '../projectPrefs'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
+import type { CleanupPlan, CleanupSkip } from '@shared/sessionCleanup'
+import { SessionCleanup } from './SessionCleanup'
 
 /**
  * Sessions tab: the project's sessions as a tree on the left (provider → agent → session → the sub-sessions it
@@ -44,6 +46,12 @@ function skipText(reason: SessionSkipReason): string {
   return tr(msg({ id: 'sessions.bulk.skipReason', defaultMessage: '{reason, select, live {running} inUse {in use} reading {being read by Hive} open {open in another Hive window} external {started outside Hive} other {failed}}', description: 'Why archiving, unarchiving or deleting passed over a session, in a few words (lower case): it is running, its files are in use, Hive is reading it, another Hive window has it open, it was started outside Hive, or it failed (other).' }), { reason: key })
 }
 
+/** Why Clean Up left an old session alone before asking main, in a few words (running: as main's skips say it). */
+function cleanupSkipText(reason: CleanupSkip): string {
+  if (reason === 'live') return skipText('live')
+  return tr(msg({ id: 'sessions.cleanup.skipReason', defaultMessage: "{reason, select, shown {open here} other {the Assistant's current conversation}}", description: "Why Clean Up passed over an old session, in a few words (lower case): its transcript is open in the Sessions tab, or it is the Hive Assistant's current conversation (other)." }), { reason })
+}
+
 /** "Session" or "Conversation" (the Assistant's) in a few messages' selects. */
 type Kind = 'session' | 'conversation'
 
@@ -52,6 +60,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const limit = useAgentLimit()
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
+  const [cleaningUp, setCleaningUp] = useState(false)
   const kind: Kind = assistant ? 'conversation' : 'session'
   useLanguage()
   const newOne = (): void => {
@@ -420,6 +429,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
           />
           <div className="actions">
             <IconButton icon="add" title={tr(msg({ id: 'sessions.list.new', defaultMessage: '{kind, select, conversation {New Conversation} other {New Session}}', description: "Tooltip of the Sessions tab's + button: starts a new session (the Hive Assistant's: conversation)." }), { kind })} onClick={newOne} />
+            <IconButton icon="clear-all" action="sessions-cleanup" title={tr(msg({ id: 'sessions.list.cleanUp', defaultMessage: '{kind, select, conversation {Clean Up Old Conversations…} other {Clean Up Old Sessions…}}', description: "Tooltip of the Sessions tab's Clean Up button (the Hive Assistant's: conversations): archives or deletes sessions older than an age, after a dialog." }), { kind })} onClick={() => setCleaningUp(true)} disabled={!shown.length} />
             <IconButton icon="refresh" title={tr(msg({ id: 'sessions.list.refresh', defaultMessage: 'Refresh', description: "Tooltip of the Sessions tab's refresh button: reads the list again." }))} onClick={reload} />
             <IconButton icon="expand-all" title={tr(EXPAND_ALL)} onClick={() => setOpen(branchKeys(tree), true)} />
             <IconButton icon="collapse-all" title={tr(COLLAPSE_ALL)} onClick={() => setOpen(branchKeys(tree), false)} />
@@ -633,26 +643,46 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
         )}
       </div>
       {menu.element}
+      {cleaningUp && (
+        <SessionCleanup
+          projectPath={project.path}
+          items={shown}
+          kind={kind}
+          live={isLive}
+          shown={selectedId}
+          current={assistant ? (project.agents[0]?.resume?.id ?? project.agents[0]?.lastSessionId ?? null) : null}
+          skipText={cleanupSkipText}
+          onClose={() => setCleaningUp(false)}
+          onDone={(action, r, skipped) => {
+            reportBulk(action, r, (id) => {
+              const s = byId.get(id)
+              return s ? sessionName(s) : id.slice(0, 8)
+            }, false, skipped)
+            reload()
+          }}
+        />
+      )}
     </div>
   )
 }
 
-/** What a bulk action did: one line, and what it skipped and why. */
-function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: string) => string, closedView: boolean): void {
+/** What a bulk action did: one line, and what it skipped and why (`before`: what Clean Up left alone before asking). */
+function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: string) => string, closedView: boolean, before: CleanupPlan['skipped'] = []): void {
   const n = r.done.length
   const head = { action, n }
   const closed = closedView ? tr(msg({ id: 'sessions.bulk.closedView', defaultMessage: 'The transcript you were reading was one of them: it was closed first.', description: 'In the report of archiving or deleting many sessions: the transcript open in the tab was one of them, so it was closed.' })) : undefined
-  if (!r.skipped.length) return notify('success', tr(msg({ id: 'sessions.bulk.done', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.', description: "A notification's title: how many sessions were archived, unarchived or deleted." }), head), closed)
-  const reasons = new Map<SessionSkipReason, number>()
-  for (const s of r.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1)
+  const skipped = [...before.map((s) => ({ id: s.item.id, why: cleanupSkipText(s.reason), message: undefined as string | undefined })), ...r.skipped.map((s) => ({ id: s.id, why: skipText(s.reason), message: s.message }))]
+  if (!skipped.length) return notify('success', tr(msg({ id: 'sessions.bulk.done', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}.', description: "A notification's title: how many sessions were archived, unarchived or deleted." }), head), closed)
+  const reasons = new Map<string, number>()
+  for (const s of skipped) reasons.set(s.why, (reasons.get(s.why) ?? 0) + 1)
   const why = fmt.list(
-    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n, number} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: skipText(k) })),
+    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n, number} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: k })),
     'unit'
   )
-  const shown = r.skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${skipText(s.reason)}${s.message ? ` (${s.message})` : ''}`)
-  if (r.skipped.length > shown.length) shown.push(tr(msg({ id: 'sessions.bulk.andMore', defaultMessage: '…and {n, number} more', description: 'The last line of the list of sessions passed over, when it is cut short: how many more.' }), { n: r.skipped.length - shown.length }))
+  const shown = skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${s.why}${s.message ? ` (${s.message})` : ''}`)
+  if (skipped.length > shown.length) shown.push(tr(msg({ id: 'sessions.bulk.andMore', defaultMessage: '…and {n, number} more', description: 'The last line of the list of sessions passed over, when it is cut short: how many more.' }), { n: skipped.length - shown.length }))
   if (closed) shown.push(closed)
-  notify(n ? 'warning' : 'error', tr(msg({ id: 'sessions.bulk.doneSkipped', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped, number} skipped: {why}', description: "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")." }), { ...head, skipped: r.skipped.length, why }), shown.join('\n'))
+  notify(n ? 'warning' : 'error', tr(msg({ id: 'sessions.bulk.doneSkipped', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped, number} skipped: {why}', description: "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")." }), { ...head, skipped: skipped.length, why }), shown.join('\n'))
 }
 
 // The words used in several places of the tab, as messages (shown with tr() where they render).

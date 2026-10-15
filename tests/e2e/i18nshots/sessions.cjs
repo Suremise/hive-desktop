@@ -1,5 +1,5 @@
 // Screenshot cases for the `sessions` area (#802): the Sessions tab with its list of sessions (grouped by provider and
-// agent) and one session's transcript open, and a session's menu, reached for the i18nshots route (#756's design,
+// agent) and one session's transcript open, a session's menu and the Clean Up dialog (#895), reached for the i18nshots route (#756's design,
 // section 4) with locale-independent means only: IPC, command ids and structural hooks (data-key, classes), never
 // English text. The panes cases before it leave sessions to list (One and Three said hello). See
 // tests/e2e/i18nshots.cjs for the case format and ctx.
@@ -37,10 +37,26 @@ async function closeMenu(ctx) {
   await ctx.command('project.tab.session')
 }
 
+/** The Sessions tab's Clean Up dialog (#895), from its header button (data-action). */
+async function cleanUp(ctx) {
+  const { page } = ctx
+  await ctx.command('project.tab.sessions')
+  await (await shown(ctx, page.locator('[data-action="sessions-cleanup"]'), "the Sessions tab's Clean Up button")).first().click()
+  return (await shown(ctx, page.locator('.dialog'), 'the Clean Up dialog')).first()
+}
+
+/** Closes the dialog and goes back to the agents' tab. */
+async function closeCleanUp(ctx) {
+  const { page, lib } = ctx
+  if (!(await lib.until(async () => (await page.locator('.dialog').count()) === 0 || (await page.keyboard.press('Escape').then(() => false)), ctx.hungMs))) throw new Error("the Clean Up dialog didn't close")
+  await ctx.command('project.tab.session')
+}
+
 module.exports = {
   area: 'sessions',
   screens: [
     { name: 'sessions', open: sessions },
-    { name: 'session-menu', open: sessionMenu, close: closeMenu }
+    { name: 'session-menu', open: sessionMenu, close: closeMenu },
+    { name: 'session-cleanup', open: cleanUp, close: closeCleanUp }
   ]
 }
