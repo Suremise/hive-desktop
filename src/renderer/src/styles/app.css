@@ -1884,13 +1884,20 @@ p.hint {
 }
 /* The Changes tab's split (#906). Its list gives up width first, down to 200px, so the detail keeps the 320px a drag of
    the divider leaves it; short of room for both, the list sits above the detail (at most 40% of the height, its files
-   scrolling) instead of pushing it out of the tab, behind the panels beside it. */
+   scrolling) instead of pushing it out of the tab, behind the panels beside it. A project's Templates tab does the same
+   (#890: its template's agents were out of reach at the narrowest window), stacking only under 400px: its template
+   needs less room than a diff. */
 .changes-split {
   position: absolute;
   inset: 0;
   container: changes-split / inline-size;
 }
-.changes-split > .split > .split-list {
+.templates-split {
+  position: absolute;
+  inset: 0;
+  container: templates-split / inline-size;
+}
+:is(.changes-split, .templates-split) > .split > .split-list {
   width: var(--list-width, 280px);
   min-width: 200px;
   max-width: calc(100% - 320px);
@@ -1926,6 +1933,25 @@ p.hint {
   .changes-split .unused-wt > .grow {
     flex: 1 1 160px;
     min-width: 0;
+  }
+}
+@container templates-split (max-width: 399px) {
+  .templates-split > .split {
+    flex-direction: column;
+  }
+  .templates-split > .split > .split-list {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: 40%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .templates-split > .split > .split-list > .pane-resizer {
+    display: none;
+  }
+  .templates-split > .split > .split-main {
+    min-height: 0;
   }
 }
 .editor-toolbar {
@@ -4876,11 +4902,35 @@ body.pane-resizing .monaco-editor {
   font-size: 12px;
   margin-right: 6px;
 }
+/* A template's agents wrap between words before the table outgrows its pane (#890: 8 columns); very narrow, the
+   editor's fields put their labels above their boxes. */
 .template-detail-body {
   overflow-x: auto;
+  container-type: inline-size;
 }
-.template-agents td {
+.template-agents th {
+  white-space: normal;
+  vertical-align: bottom;
+}
+/* The agent's name, role and coding agent stay whole, as do the row's buttons; the settings after them wrap. */
+.template-agents td:nth-child(-n + 3),
+.template-agents td:last-child {
   white-space: nowrap;
+}
+@container (max-width: 560px) {
+  .template-agents :is(th, td) {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .template-agents td:nth-child(3) {
+    white-space: normal;
+  }
+}
+@container (max-width: 380px) {
+  .agent-form.template-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
 }
 /* Editing a template (#271): its name, description and layout, then its agents with their actions. */
 .template-fields {
@@ -5177,6 +5227,37 @@ body.pane-resizing .monaco-editor {
   padding: 6px 10px;
   gap: 6px;
   flex-wrap: wrap;
+}
+/* Resume and New Session stay side by side, wrapping under the text as one row when the pane is narrow; the text keeps
+   one line (#890: "Sesja zakończona." broke in two and New Session dropped to a row of its own). */
+.session-ended-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: inherit;
+  margin-left: auto;
+}
+/* In a very narrow pane (three columns beside both side panels) Resume and New Session are their icons only, their
+   names in their tooltips and for screen readers, so both and Resume's ▾ stay inside the pane (#890). */
+.session-ended.compact {
+  container-type: inline-size;
+}
+@container (max-width: 180px) {
+  .session-ended-actions {
+    gap: 4px;
+  }
+  .session-ended-actions .btn-label {
+    display: none;
+  }
+  .session-ended-actions .btn.small {
+    padding: 0 5px;
+  }
+}
+.session-ended.compact > .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .header-agent {
   font-weight: 600;
@@ -7591,9 +7672,9 @@ textarea.input.task-blocked-input {
   height: 24px;
   font-size: 12px;
 }
-/* The archived cards' filters never cut their choice short under a narrow heading (#886: "All" is longer in most
-   languages). */
-.archived-cards .table tr.table-filters .select {
+/* The archived cards' and shortcuts' filters never cut their choice short under a narrow heading (#886, #890: "All" is
+   longer in most languages). */
+:is(.archived-cards, .kb-table) .table tr.table-filters .select {
   field-sizing: content;
   min-width: fit-content;
 }
@@ -9167,6 +9248,10 @@ button.progress-run-show:focus-visible {
 }
 /* Headings, labels and "not set" stay whole; a name wraps between its words and an email (one long word) anywhere, so
    neither crushes the other columns; narrower still, the table scrolls sideways in its own box (#886). */
+/* A git command in a form's hint stays on one line (#890: "git config --local" broke after the first dash). */
+.git-command {
+  white-space: nowrap;
+}
 .git-identity-wrap {
   overflow-x: auto;
   margin-bottom: 18px;

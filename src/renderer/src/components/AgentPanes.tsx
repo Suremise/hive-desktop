@@ -191,8 +191,9 @@ export function ResumeButton({ project, a, className, label }: { project: Projec
   return (
     <span className="split-btn">
       <Tooltip content={resumeTip(project, a)}>
-        <button className={cx('btn', className)} disabled={!a.resume} onClick={() => void actions.resumeLast(project.path, a.id)}>
-          <Icon name="debug-continue" /> {label ?? tr(RESUME)}
+        {/* Its label can fold away in a very narrow bar (#890): the name stays for screen readers. */}
+        <button className={cx('btn', className)} disabled={!a.resume} onClick={() => void actions.resumeLast(project.path, a.id)} aria-label={label ?? tr(RESUME)}>
+          <Icon name="debug-continue" /> <span className="btn-label">{label ?? tr(RESUME)}</span>
         </button>
       </Tooltip>
       <Tooltip content={choose}>
@@ -1510,12 +1511,15 @@ function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a
             </button>
           </>
         ) : (
-          <>
+          // Together, so in a narrow pane they wrap under the text as one row (#890).
+          <span className="session-ended-actions">
             <ResumeButton project={project} a={a} className={cx('act-resume', 'solid', !single && 'small')} />
-            <button className={cx('btn', 'act-start', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)}>
-              <Icon name="add" /> {tr(NEW_SESSION)}
-            </button>
-          </>
+            <Tooltip content={tr(NEW_SESSION)}>
+              <button className={cx('btn', 'act-start', !single && 'small')} onClick={() => void actions.newSession(project.path, a.id)} aria-label={tr(NEW_SESSION)}>
+                <Icon name="add" /> <span className="btn-label">{tr(NEW_SESSION)}</span>
+              </button>
+            </Tooltip>
+          </span>
         )}
       </div>
     )

@@ -1,4 +1,4 @@
-import { Children, useCallback, useEffect, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 import {
@@ -751,7 +751,7 @@ function GitForm({ make, onClose }: { make: () => FormSpec; onClose: () => void 
         </>
       }
     >
-      {spec.about && <p className="hint">{spec.about}</p>}
+      {spec.about && <p className="hint">{gitCommandsWhole(spec.about)}</p>}
       <div className="agent-form git-form">
         {spec.fields.map((f, i) => (
           <FormRow key={f.key} field={f} value={values[f.key]} first={i === 0} onChange={(v) => setValues((x) => ({ ...x, [f.key]: v }))} onEnter={() => void submit()} />
@@ -759,6 +759,19 @@ function GitForm({ make, onClose }: { make: () => FormSpec; onClose: () => void 
       </div>
       {problem && Object.values(values).some((v) => v.trim()) && <div className="field-error">{problem}</div>}
     </Modal>
+  )
+}
+
+/** A form's hint with each git command in it ("git config --local") kept on one line, never split after a dash (#890). */
+function gitCommandsWhole(text: string): ReactNode {
+  return text.split(/(\bgit(?: --?[\w-]+| [a-z][\w-]*)+)/).map((part, i) =>
+    i % 2 ? (
+      <span key={i} className="git-command">
+        {part}
+      </span>
+    ) : (
+      part
+    )
   )
 }
 
