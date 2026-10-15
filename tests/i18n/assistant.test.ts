@@ -9,6 +9,8 @@ import { englishText, shownText, type Text } from '../../src/shared/advanced'
 import { oldWorktreesNotice, templateAgentParts, templateLoadDetail, templateLoadView } from '../../src/shared/templateLoad'
 import { findSecretWarnings } from '../../src/main/mcpSecrets'
 import { LEVEL_NAME } from '../../src/main/assistantControl'
+import { assistantStatusLine } from '../../src/shared/assistantStatus'
+import { installSourceText } from '../../src/shared/providers'
 import type { AppSettings, ProjectConfig } from '../../src/shared/types'
 import type { ModelInfo } from '../../src/shared/models'
 
@@ -216,6 +218,44 @@ describe("the modes Hive ships: their names are window text, their files aren't"
       expect(names, f).toContain(name)
     }
     expect(names).toHaveLength(shipped.length)
+  })
+})
+
+describe("the Assistant panel's status line is window text (#885)", () => {
+  const says = (l: ReturnType<typeof assistantStatusLine>): string => `${l.text}${l.cards.map((n) => `#${n}`).join(' ')}${l.after}`
+  it('every status, a card watch with its chips, and what else wants the user, in the language shown', () => {
+    setLanguage(PSEUDO_LANGUAGE, {})
+    const at = (iso: string): string => iso.slice(11, 16)
+    const watch = { cards: [271, 273], changes: [], column: 'review' as const, label: 'Waiting for #271, #273 → Review', since: '2026-10-07T20:00:00.000Z', limitAt: '2026-10-07T22:22:00.000Z' }
+    const lines = [
+      assistantStatusLine(null, at),
+      assistantStatusLine({ status: 'ready' }, at),
+      assistantStatusLine({ status: 'finished', backgroundTasks: 2 }, at),
+      assistantStatusLine({ status: 'working' }, at),
+      assistantStatusLine({ status: 'background', backgroundTasks: 1 }, at),
+      assistantStatusLine({ status: 'waiting' }, at),
+      assistantStatusLine({ status: 'signin' }, at, ['Stop a busy agent?']),
+      assistantStatusLine({ status: 'error' }, at),
+      assistantStatusLine({ status: 'watching', watch }, at),
+      assistantStatusLine({ status: 'watching', watch: { ...watch, cards: [], agents: ['B6'], label: 'Waiting for B6 to finish' } }, at),
+      assistantStatusLine({ status: 'working', question: { text: 'Which one?', since: '' } }, at),
+      assistantStatusLine({ status: 'ready', untakenLine: { since: '', text: '[Hive] #1' } }, at),
+      assistantStatusLine({ status: 'working' }, at, ['A?', 'B?'])
+    ]
+    for (const l of lines) expect(says(l)).toContain('[')
+    for (const l of lines) expect(says(l)).not.toMatch(/Waiting|Idle|Working|Not running|Error|watch until|approval|question/)
+    // The cards stay chips, between the words before and after them.
+    const cards = lines[8]
+    expect(cards.cards).toEqual([271, 273])
+    expect(cards.after).toContain('22:22')
+  })
+
+  it('names where a CLI was found in the language shown; PATH, npm and WinGet are names', () => {
+    setLanguage(PSEUDO_LANGUAGE, {})
+    expect(installSourceText('settings', tr)).not.toBe('settings')
+    expect(installSourceText('native install', tr)).toContain('[')
+    expect(installSourceText('PATH', tr)).toBe('PATH')
+    expect(installSourceText(null, tr)).toBe('')
   })
 })
 

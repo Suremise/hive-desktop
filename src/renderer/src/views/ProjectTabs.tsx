@@ -1668,7 +1668,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     const m = FILE_LOCK_MODES.find((x) => x.value === mode)
     return m ? tr(m.text[part]) : mode
   }
-  const globalDefault = defaultProviderLabel(settings)
+  const globalDefault = defaultProviderLabel(settings, tr)
   const globalCompact = settings.sessions.compactSuggestTokens ? fmt.number(settings.sessions.compactSuggestTokens) : tr(S.never)
   const globalWarn = settings.sessions.transcriptWarnMB ? tr(S.megabytes, { count: settings.sessions.transcriptWarnMB }) : tr(S.never)
   const inherit = (value: string | number): string => tr(S.inherit, { value })
@@ -1683,7 +1683,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
     const globalModel = g.defaultModel ? runsAsName(id, g.defaultModel, installs[id]) : tr(S.providerDefault, { provider: p.name })
     // The model this project's agents run unless they choose one, whose effort levels the picker offers (#125).
     const runModel = (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || installs[id]?.defaultModel || null
-    const globalEffort = effortText(id, g.defaultEffort, runModel, installs[id], settings)
+    const globalEffort = effortText(id, g.defaultEffort, runModel, installs[id], settings, tr)
     const modes = offeredModes(id, settings)
     const mode = pc.permissionMode === 'inherit' ? g.defaultPermissionMode : pc.permissionMode
     return [

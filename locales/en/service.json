@@ -20,8 +20,8 @@
     "description": "Above Settings → Advanced's list: advanced.json (a file name: keep it) was written by a newer version of Hive, in a format ({format}) this one can't read ({supported} is the one it reads)."
   },
   "service.advanced.notJson": {
-    "defaultMessage": "advanced.json isn't valid JSON: {error}",
-    "description": "Above Settings → Advanced's list: Hive's advanced settings file (advanced.json, a file name: keep it) can't be read as JSON; {error} is the JSON reader's own words (English)."
+    "defaultMessage": "advanced.json isn't valid JSON ({error}).",
+    "description": "Above Settings → Advanced's list: Hive's advanced settings file (advanced.json, a file name: keep it) can't be read as JSON; {error} is the JSON reader's own words (English, with no full stop of its own). A sentence of its own: more follows it."
   },
   "service.advanced.notObject": {
     "defaultMessage": "advanced.json should hold an object: {example}.",

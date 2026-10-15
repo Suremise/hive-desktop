@@ -139,6 +139,22 @@
     "defaultMessage": "Release manager",
     "description": "The name of a mode of the Hive Assistant that ships with Hive: it takes a release through its checklist. Shown in its menus and the Assistant view; keep it short."
   },
+  "assistant.modes.shippedDescription.coordinator": {
+    "defaultMessage": "Runs the work across the agents: state first, short status tables, lane prompts from settled cards, decisions only when they are real.",
+    "description": "What a mode of the Hive Assistant that ships with Hive (Coordinator) is for, in a line: under its name in the mode menu and the Assistant view."
+  },
+  "assistant.modes.shippedDescription.planner": {
+    "defaultMessage": "Shapes work before anyone starts it: the open questions with a recommendation each, options, lanes split by files, complete cards.",
+    "description": "What a mode of the Hive Assistant that ships with Hive (Planner) is for, in a line: under its name in the mode menu and the Assistant view."
+  },
+  "assistant.modes.shippedDescription.qaTriager": {
+    "defaultMessage": "Turns a bug report into a card with evidence: reproduce or read the code to find the likely cause, propose a fix, place it in the right lane.",
+    "description": "What a mode of the Hive Assistant that ships with Hive (QA triager) is for, in a line: under its name in the mode menu and the Assistant view."
+  },
+  "assistant.modes.shippedDescription.releaseManager": {
+    "defaultMessage": "Takes a release through its checklist: notes, licences, packaged checks; the version, tags and publishing only when asked.",
+    "description": "What a mode of the Hive Assistant that ships with Hive (Release manager) is for, in a line: under its name in the mode menu and the Assistant view."
+  },
   "assistant.modes.shipsMissing": {
     "defaultMessage": "Ships with Hive. Restore it to use it.",
     "description": "Under a mode of Hive's own that was deleted from the workspace."
@@ -627,6 +643,10 @@
     "defaultMessage": "Folder inside .hive/shared",
     "description": "Shared Notes, New Folder. Keep .hive/shared as it is."
   },
+  "assistant.sidebar.folderPlaceholder": {
+    "defaultMessage": "folder-name",
+    "description": "Placeholder of the New Folder dialog's name box (Shared Notes): an example folder name (lower case, a dash)."
+  },
   "assistant.sidebar.hiveGroup": {
     "defaultMessage": "Hive",
     "description": "The Skills sidebar: the section of the workspace's Hive skills. Usually kept as Hive."
@@ -758,6 +778,10 @@
   "assistant.sidebar.noteMessage": {
     "defaultMessage": "Markdown note inside .hive/shared. Agents can read it through the Hive MCP tools.",
     "description": "Shared Notes, New Note. Keep .hive/shared as it is."
+  },
+  "assistant.sidebar.notePlaceholder": {
+    "defaultMessage": "note-name.md",
+    "description": "Placeholder of the New Note dialog's name box: an example file name (lower case, a dash, .md). Keep .md."
   },
   "assistant.sidebar.notesTip": {
     "defaultMessage": "Notes, instructions and handovers stored in the workspace's .hive/shared folder. Shared across every project and session.",
@@ -1182,6 +1206,70 @@
   "assistant.skills.whereLocal": {
     "defaultMessage": "{provider}'s local skills",
     "description": "Where a skill is added, inside New Skill and Add Skill from File: a project's own skills of {provider} (Claude Code, Codex…). Lower case: it is part of a sentence."
+  },
+  "assistant.status.also": {
+    "defaultMessage": "{line} · {also, select, approval {waiting for your approval} other {has a question for you}}",
+    "description": "The Assistant panel's status line ({line}: what it is doing) with the user also wanted: one of Hive's questions waits for their answer (approval), or the Assistant asked them something it works on through."
+  },
+  "assistant.status.approval": {
+    "defaultMessage": "Waiting for your approval: {title}",
+    "description": "The Assistant panel's status line: an action of the Assistant waits for the user's answer to one of Hive's questions ({title}: the question, e.g. \"Stop a busy agent?\")."
+  },
+  "assistant.status.approvals": {
+    "defaultMessage": "{n, plural, one {Waiting for your approval (# question)} other {Waiting for your approval (# questions)}}",
+    "description": "The Assistant panel's status line: its actions wait for the user's answers to {n} of Hive's questions (always two or more)."
+  },
+  "assistant.status.background": {
+    "defaultMessage": "{n, plural, one {Waiting on # background task} other {Waiting on # background tasks}}",
+    "description": "The Assistant panel's status line: its turn ended while {n} background tasks it started still run."
+  },
+  "assistant.status.cards": {
+    "defaultMessage": "Waiting for {cards}{until, select, none {} other { (watch until {until})}}",
+    "description": "The Assistant panel's status line while it watches cards: the cards ({cards}: each a chip, \"#12 #13\") and until when ({until}: a time; none: leave that branch empty)."
+  },
+  "assistant.status.cardsInto": {
+    "defaultMessage": "Waiting for {cards} → {column}{until, select, none {} other { (watch until {until})}}",
+    "description": "The Assistant panel's status line while it watches cards move into a board column: the cards ({cards}: each a chip, \"#12 #13\"), the column ({column}) and until when ({until}: a time; none: leave that branch empty)."
+  },
+  "assistant.status.error": {
+    "defaultMessage": "{message, select, none {Error} other {Error: {message}}}",
+    "description": "The Assistant panel's status line: its CLI failed, with what it said ({message}; none: nothing said, leave the colon out)."
+  },
+  "assistant.status.idle": {
+    "defaultMessage": "{n, plural, =0 {Idle} one {Idle · # background task running} other {Idle · # background tasks running}}",
+    "description": "The Assistant panel's status line: its turn has ended, with {n} background tasks it started still running (0: none)."
+  },
+  "assistant.status.notRunning": {
+    "defaultMessage": "Not running",
+    "description": "The Assistant panel's status line (after \"Status:\"): its session isn't running."
+  },
+  "assistant.status.onCards": {
+    "defaultMessage": "Waiting on cards",
+    "description": "The Assistant panel's status line: it waits for cards to change (a card watch)."
+  },
+  "assistant.status.signin": {
+    "defaultMessage": "Waiting for you to sign in",
+    "description": "The Assistant panel's status line: its CLI needs the user to sign in."
+  },
+  "assistant.status.starting": {
+    "defaultMessage": "Starting…",
+    "description": "The Assistant panel's status line: its session is starting."
+  },
+  "assistant.status.untaken": {
+    "defaultMessage": "A line Hive typed wasn't taken: press Enter in its terminal",
+    "description": "The Assistant panel's status line: a line Hive typed into the Assistant's terminal is still waiting there; the user presses Enter in it."
+  },
+  "assistant.status.waiting": {
+    "defaultMessage": "Waiting for you",
+    "description": "The Assistant panel's status line: it asks the user something, or a permission."
+  },
+  "assistant.status.watch": {
+    "defaultMessage": "{watch}{until, select, none {} other { (watch until {until})}}",
+    "description": "The Assistant panel's status line while it watches agents or card loops: what it waits for ({watch}: \"Waiting for B6 to finish\"), and until when ({until}: a time; none: leave that branch empty)."
+  },
+  "assistant.status.working": {
+    "defaultMessage": "Working",
+    "description": "The Assistant panel's status line: it is working on a turn."
   },
   "assistant.template.agentNoName": {
     "defaultMessage": "Agent {n} has no name (or one over 60 characters).",

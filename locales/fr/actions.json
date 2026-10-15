@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Del",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "Impossible de changer la disposition",
   "actions.mcp.add": "Ajouter",
   "actions.mcp.addFailed": "Impossible d’ajouter le serveur",

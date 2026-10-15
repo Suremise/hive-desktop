@@ -710,6 +710,7 @@ export function Markdown({ source, className, onLink }: { source: string; classN
 export interface MenuEntry {
   label?: string
   icon?: string
+  /** Its keys, as shown: formatKeybinding()'s words. */
   keybinding?: string
   disabled?: boolean
   danger?: boolean

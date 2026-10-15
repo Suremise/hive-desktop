@@ -77,6 +77,7 @@
   "content.templates.editedMeanwhile": "“{name}” cambió desde que empezaste a editarla (se volvió a guardar mientras tanto): no se guardó nada. Cierra el editor para verla como está ahora.",
   "content.templates.enterName": "Escribe un nombre para la plantilla.",
   "content.templates.failed": "No se cambió nada: {error}",
+  "content.templates.fenced": "Se está cargando una plantilla en este proyecto",
   "content.templates.gitBroken": "{problem}, así que {count, plural, one {su agente con worktree ({names}) no puede tener un worktree propio} many {sus agentes con worktree ({names}) no pueden tener worktrees propios} other {sus agentes con worktree ({names}) no pueden tener worktrees propios}}: corrige git (Configuración de agentes) o edita la plantilla para usar la carpeta del proyecto.",
   "content.templates.gone": "Esa plantilla ya no existe.",
   "content.templates.importNotJson": "No es una plantilla de agentes de Hive (no es JSON).",

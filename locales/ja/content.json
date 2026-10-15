@@ -77,6 +77,7 @@
   "content.templates.editedMeanwhile": "「{name}」は編集を始めた後に別の場所で保存されたため、何も保存していません。エディターを閉じると現在の内容を確認できます。",
   "content.templates.enterName": "テンプレートの名前を入力してください。",
   "content.templates.failed": "何も変更していません：{error}",
+  "content.templates.fenced": "このプロジェクトにテンプレートを読み込み中です",
   "content.templates.gitBroken": "ワークツリーを使う{count, plural, other {#個のエージェント}}（{names}）に専用のワークツリーを作れません（{problem}）。「エージェントのセットアップ」でgitを使えるようにするか、テンプレートを編集してプロジェクトのフォルダーで作業させてください。",
   "content.templates.gone": "そのテンプレートはもうありません。",
   "content.templates.importNotJson": "Hiveのエージェントテンプレートではありません（JSONではありません）。",

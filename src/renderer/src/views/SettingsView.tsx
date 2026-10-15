@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn, WorkspaceConfig } from '@shared/types'
-import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor } from '@shared/tasks'
+import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor, columnName } from '@shared/tasks'
 import { DEFAULT_PERSONA } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, SETTINGS_TEXT, shownSetting, type SettingEntry, type SettingsSection, type SettingsSectionInfo } from '@shared/settingsCatalog'
-import { effortText, fallbackEfforts, fallbackModels, modelSource, modelSourceText, runsAsName } from '@shared/models'
+import { effortName, effortText, effortUnknown, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
-import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, offeredModes, permissionLabel, providerDescriptor, providerSettings } from '@shared/providers'
-import { usePersonas } from '../components/Assistant'
+import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, installSourceText, offeredModes, permissionLabel, providerDescriptor, providerSettings, shownText as providerText } from '@shared/providers'
+import { personaName, usePersonas } from '../components/Assistant'
 import { ModeCaveat } from '../components/AgentDialogs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
@@ -289,12 +289,13 @@ function ModelFallbackTable({ provider }: { provider: ProviderId }) {
   const info = useStore((s) => s.providers[provider])
   const src = modelSource(provider, info, settings)
   const edited = !!providerSettings(settings, provider).modelFallback?.length
+  const p = providerDescriptor(provider)
   return (
     <div className="fallback-table">
       <div className={cx('fallback-source', src.kind === 'fallback' ? 'warn' : 'faint')}>
-        <Icon name={src.kind === 'fallback' ? 'warning' : 'check'} /> {tr(msg({ id: 'settings.fallback.modelsNow', defaultMessage: 'Models now: {source}', description: "Above a provider's fallback list of models: where the model pickers' models come from now. {source} says it." }), { source: modelSourceText(provider, { ...src, edited }) })}
+        <Icon name={src.kind === 'fallback' ? 'warning' : 'check'} /> {tr(msg({ id: 'settings.fallback.modelsNow', defaultMessage: 'Models now: {source}', description: "Above a provider's fallback list of models: where the model pickers' models come from now. {source} says it." }), { source: modelSourceText(provider, { ...src, edited }, tr) })}
       </div>
-      <FallbackRows provider={provider} kind="models" rows={fallbackModels(provider, settings)} edited={edited} valueLabel={tr(msg({ id: 'settings.fallback.modelId', defaultMessage: 'Model ID', description: "A column of a provider's fallback list of models: the ID Hive passes to the CLI." }))} newLabel={tr(msg({ id: 'settings.fallback.newModel', defaultMessage: 'New model ID', description: 'The name, for screen readers, of the box under a fallback list of models where a new one is typed.' }))} placeholder={providerDescriptor(provider).modelPlaceholder} open={src.kind === 'fallback' || edited} />
+      <FallbackRows provider={provider} kind="models" rows={fallbackModels(provider, settings)} edited={edited} valueLabel={tr(msg({ id: 'settings.fallback.modelId', defaultMessage: 'Model ID', description: "A column of a provider's fallback list of models: the ID Hive passes to the CLI." }))} newLabel={tr(msg({ id: 'settings.fallback.newModel', defaultMessage: 'New model ID', description: 'The name, for screen readers, of the box under a fallback list of models where a new one is typed.' }))} placeholder={providerText(p.modelPlaceholder, p.text?.modelPlaceholder, tr)} open={src.kind === 'fallback' || edited} />
     </div>
   )
 }
@@ -310,7 +311,7 @@ function EffortFallbackTable({ provider }: { provider: ProviderId }) {
       <div className="fallback-source faint">
         <Icon name={perModel ? 'check' : 'info'} />{' '}
         {perModel
-          ? tr(msg({ id: 'settings.fallback.levelsPerModel', defaultMessage: "{source}: each model offers its own levels; this list names them and is used for models it doesn't describe.", description: "Above a provider's fallback list of effort levels, when the CLI reports each model's levels. {source} says where the models come from." }), { source: modelSourceText(provider, modelSource(provider, info, settings)) })
+          ? tr(msg({ id: 'settings.fallback.levelsPerModel', defaultMessage: "{source}: each model offers its own levels; this list names them and is used for models it doesn't describe.", description: "Above a provider's fallback list of effort levels, when the CLI reports each model's levels. {source} says where the models come from." }), { source: modelSourceText(provider, modelSource(provider, info, settings), tr) })
           : tr(msg({ id: 'settings.fallback.levelsUsed', defaultMessage: "Used now: {provider} hasn't reported per-model levels.", description: "Above a provider's fallback list of effort levels, when the CLI reports none per model. {provider} is its name." }), { provider: providerDescriptor(provider).name })}
       </div>
       <FallbackRows provider={provider} kind="efforts" rows={fallbackEfforts(provider, settings)} edited={edited} valueLabel={tr(msg({ id: 'settings.fallback.level', defaultMessage: 'Level', description: "A column of a provider's fallback list of effort levels: the value Hive passes to the CLI." }))} newLabel={tr(msg({ id: 'settings.fallback.newLevel', defaultMessage: 'New level', description: 'The name, for screen readers, of the box under a fallback list of effort levels where a new one is typed.' }))} placeholder={tr(msg({ id: 'settings.fallback.levelPlaceholder', defaultMessage: 'e.g. xhigh', description: "Placeholder of the box where a new effort level is typed. xhigh is a level's value: keep it." }))} open={!perModel || edited} />
@@ -323,10 +324,10 @@ function GlobalEffortPicker({ provider }: { provider: ProviderId }) {
   const settings = useStore((s) => s.settings)
   const info = useStore((s) => s.providers[provider])
   const g = providerSettings(settings, provider)
-  const def = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultEffort')!
+  const setting = SETTINGS.find((d) => d.provider === provider && d.key === 'defaultEffort')!
   const model = g.defaultModel || info?.defaultModel || null
-  const text = effortText(provider, null, model, info, settings)
-  return <EffortPicker provider={provider} model={model} value={g.defaultEffort} base={{ value: '', label: text === 'default' ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: providerDescriptor(provider).name }) : tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: providerDescriptor(provider).name, which: text.replace(/, default$/, '') }) }} onChange={(v) => void update(def, v)} />
+  const def = modelCaps(provider, model, info, settings).defaultEffort
+  return <EffortPicker provider={provider} model={model} value={g.defaultEffort} base={{ value: '', label: !def ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: providerDescriptor(provider).name }) : tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: providerDescriptor(provider).name, which: effortName(provider, def, settings, tr) }) }} onChange={(v) => void update(setting, v)} />
 }
 
 function GlobalModelPicker({ provider }: { provider: ProviderId }) {
@@ -482,7 +483,7 @@ function ProviderStatus({ provider }: { provider: ProviderId }) {
       {info.found ? (
         <Tooltip content={info.path}>
           <span className="badge success">
-            <Icon name="check" /> {info.version} · {info.source}
+            <Icon name="check" /> {info.version} · {installSourceText(info.source, tr)}
           </span>
         </Tooltip>
       ) : (
@@ -543,7 +544,7 @@ function AssistantProviderPicker() {
   useStore((s) => s.providers)
   return (
     <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { provider: e.target.value } })}>
-      <option value="">{tr(msg({ id: 'settings.assistant.defaultProvider', defaultMessage: 'Default provider ({provider})', description: 'The first choice of Settings → Assistant → Provider: the default provider, and which one that is now.' }), { provider: defaultProviderLabel(settings) })}</option>
+      <option value="">{tr(msg({ id: 'settings.assistant.defaultProvider', defaultMessage: 'Default provider ({provider})', description: 'The first choice of Settings → Assistant → Provider: the default provider, and which one that is now.' }), { provider: defaultProviderLabel(settings, tr) })}</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
           {on.includes(p) ? p.name : tr(SETTINGS_TEXT.providerOff, { provider: p.name })}
@@ -555,10 +556,10 @@ function AssistantProviderPicker() {
 
 /** Hive's personas, for choosing a default before a workspace is open. */
 const SHIPPED_PERSONAS = [
-  { id: 'coordinator', name: 'Coordinator', icon: '🧭' }, // i18n-ignore: the shipped modes' names, as their files name them
-  { id: 'planner', name: 'Planner', icon: '🗺️' }, // i18n-ignore: the shipped modes' names, as their files name them
-  { id: 'qa-triager', name: 'QA triager', icon: '🔍' }, // i18n-ignore: the shipped modes' names, as their files name them
-  { id: 'release-manager', name: 'Release manager', icon: '📦' } // i18n-ignore: the shipped modes' names, as their files name them
+  { id: 'coordinator', name: 'Coordinator', icon: '🧭', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
+  { id: 'planner', name: 'Planner', icon: '🗺️', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
+  { id: 'qa-triager', name: 'QA triager', icon: '🔍', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
+  { id: 'release-manager', name: 'Release manager', icon: '📦', bundled: 'same' as const } // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
 ]
 
 function AssistantPersonaPicker() {
@@ -571,7 +572,7 @@ function AssistantPersonaPicker() {
       {list.map((p) => (
         <option key={p.id} value={p.id}>
           {p.icon ? `${p.icon} ` : ''}
-          {p.name}
+          {personaName(p)}
         </option>
       ))}
     </select>
@@ -590,14 +591,13 @@ function AssistantProviderDefaults({ provider }: { provider: ProviderId }) {
   const info = useStore((s) => s.providers[provider])
   const cliDefault = info?.defaultModel ?? null
   const runModel = a.model || g.defaultModel || cliDefault
-  const inherited = effortText(provider, g.defaultEffort, runModel, info, settings)
-  const effortName = inherited === 'default' ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : inherited
+  const effortLabel = effortUnknown(provider, g.defaultEffort, runModel, info, settings) ? tr(msg({ id: 'settings.assistant.providersEffort', defaultMessage: "{provider}'s", description: 'In the Assistant\'s effort list, "Default ({effort})", when it is the CLI\'s own default. {provider} is its name.' }), { provider: p.name }) : effortText(provider, g.defaultEffort, runModel, info, settings, tr)
   return (
     <div className="agent-form assistant-defaults">
       <label>{tr(msg({ id: 'settings.assistantProvider.model.title', defaultMessage: 'Model', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's model." }))}</label>
       <ModelPicker provider={provider} value={a.model} base={{ value: '', label: g.defaultModel ? tr(msg({ id: 'settings.provider.cliDefaultIs', defaultMessage: '{provider} default ({which})', description: "The first choice of a model or effort list: the CLI's own default, and which model or level that is. {provider} is its name." }), { provider: p.name, which: runsAsName(provider, g.defaultModel, info) }) : tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name }) }} onChange={(v) => save({ model: v })} />
       <label>{tr(msg({ id: 'settings.assistantProvider.effort.title', defaultMessage: 'Effort', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's reasoning effort." }))}</label>
-      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortName }) }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
+      <EffortPicker provider={provider} model={runModel} value={a.effort} base={{ value: '', label: tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: effortLabel }) }} onChange={(v) => save({ effort: v as EffortLevel | '' })} />
       <label>{tr(msg({ id: 'settings.assistantProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode." }))}</label>
       <select className="select" value={a.permissionMode} onChange={(e) => save({ permissionMode: e.target.value as PermissionMode | '' })}>
         <option value="">{tr(msg({ id: 'settings.assistant.defaultIs', defaultMessage: 'Default ({value})', description: 'The first choice of a list in Settings → Assistant → With <provider>: what applies when nothing is chosen. {value} says what that is.' }), { value: permissionLabel(provider, p.assistantMode, tr) })}</option>
@@ -635,7 +635,7 @@ function DefaultProviderPicker() {
   useStore((s) => s.providers)
   return (
     <select className="select" value={current} onChange={(e) => void update(def, e.target.value)}>
-      <option value={AUTO_PROVIDER}>{defaultProviderLabel(settings && { ...settings, defaultProvider: AUTO_PROVIDER })}</option>
+      <option value={AUTO_PROVIDER}>{defaultProviderLabel(settings && { ...settings, defaultProvider: AUTO_PROVIDER }, tr)}</option>
       {PROVIDERS.filter((p) => on.includes(p) || p.id === current).map((p) => (
         <option key={p.id} value={p.id}>
           {on.includes(p) ? p.name : tr(SETTINGS_TEXT.providerOff, { provider: p.name })}
@@ -709,12 +709,13 @@ function ColumnColors() {
     <div className={cx('column-colors', !board.columnColors && 'off')}>
       {TASK_COLUMNS.map((c) => {
         const value = draft[c.id] ?? columnColor(board.colors, c.id)
+        const name = columnName(c.id, tr)
         return (
           <label key={c.id} className="column-color">
-            <input type="color" value={value} aria-label={tr(msg({ id: 'settings.columnColors.pick', defaultMessage: '{column} colour', description: "The name, for screen readers, of a board column's colour picker (Settings → Board → Column colours). {column} is the column's name." }), { column: c.label })} onChange={(e) => setDraft((d) => ({ ...d, [c.id]: e.target.value }))} />
-            <span>{c.label}</span>
+            <input type="color" value={value} aria-label={tr(msg({ id: 'settings.columnColors.pick', defaultMessage: '{column} colour', description: "The name, for screen readers, of a board column's colour picker (Settings → Board → Column colours). {column} is the column's name." }), { column: name })} onChange={(e) => setDraft((d) => ({ ...d, [c.id]: e.target.value }))} />
+            <span>{name}</span>
             {value.toLowerCase() !== DEFAULT_COLUMN_COLORS[c.id] && (
-              <IconButton icon="discard" title={tr(msg({ id: 'settings.columnColors.reset', defaultMessage: 'Reset {column} to its default', description: "Button beside a board column's colour: puts back its default colour. {column} is the column's name." }), { column: c.label })} onClick={() => void saveSettings({ board: { colors: { [c.id]: DEFAULT_COLUMN_COLORS[c.id] } } } as SettingsPatch)} />
+              <IconButton icon="discard" title={tr(msg({ id: 'settings.columnColors.reset', defaultMessage: 'Reset {column} to its default', description: "Button beside a board column's colour: puts back its default colour. {column} is the column's name." }), { column: name })} onClick={() => void saveSettings({ board: { colors: { [c.id]: DEFAULT_COLUMN_COLORS[c.id] } } } as SettingsPatch)} />
             )}
           </label>
         )

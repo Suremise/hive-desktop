@@ -77,6 +77,7 @@
   "content.templates.editedMeanwhile": "你开始编辑后，“{name}”已更改（期间又被保存过）：未保存任何内容。关闭编辑器即可查看它现在的样子。",
   "content.templates.enterName": "请输入模板名称。",
   "content.templates.failed": "未做任何更改：{error}",
+  "content.templates.fenced": "正在向此项目加载模板",
   "content.templates.gitBroken": "{problem}，因此使用独立工作树的{count, plural, =1 {智能体} other {智能体}}（{names}）无法拥有自己的工作树：请修复 git（“配置智能体”），或编辑模板，让它们在项目文件夹中工作。",
   "content.templates.gone": "该模板已不存在。",
   "content.templates.importNotJson": "它不是 Hive 智能体模板（不是 JSON）。",

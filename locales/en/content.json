@@ -311,6 +311,10 @@
     "defaultMessage": "Nothing was changed: {error}",
     "description": "An error loading a template: making its agents failed, so nothing changed; {error} is why (often git's own words)."
   },
+  "content.templates.fenced": {
+    "defaultMessage": "A template is being loaded into this project",
+    "description": "Why an agent can't start (followed by \", so its agents can't start now.\"): a template is replacing the project's agents. A sentence without its full stop."
+  },
   "content.templates.gitBroken": {
     "defaultMessage": "{problem}, so its worktree {count, plural, one {agent} other {agents}} ({names}) can't have worktrees of their own: fix git (Agent Setup), or edit the template to put them in the project folder.",
     "description": "Why a template can't be loaded: git can't run ({problem}: \"Git isn't installed (or isn't on Hive's PATH)\"), so its {count} agents with worktrees of their own ({names}) can't have them. Agent Setup is a Help window."

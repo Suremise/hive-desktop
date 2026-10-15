@@ -77,6 +77,7 @@
   "content.templates.editedMeanwhile": "Szablon „{name}” zmienił się, odkąd zaczęto go edytować (w międzyczasie zapisano go ponownie): nic nie zapisano. Zamknij edytor, aby zobaczyć jego obecną wersję.",
   "content.templates.enterName": "Wpisz nazwę szablonu.",
   "content.templates.failed": "Nic nie zmieniono: {error}",
+  "content.templates.fenced": "Do tego projektu jest wczytywany szablon",
   "content.templates.gitBroken": "{problem}, więc {count, plural, one {agent z własnym worktree} few {agenci z własnymi worktree} many {agenci z własnymi worktree} other {agenci z własnymi worktree}} ({names}) nie {count, plural, one {może go dostać} few {mogą ich dostać} many {mogą ich dostać} other {mogą ich dostać}}: napraw gita (Konfiguracja agentów) albo edytuj szablon i przenieś {count, plural, one {go} few {ich} many {ich} other {ich}} do folderu projektu.",
   "content.templates.gone": "Tego szablonu już nie ma.",
   "content.templates.importNotJson": "To nie jest szablon agentów Hive (to nie JSON).",

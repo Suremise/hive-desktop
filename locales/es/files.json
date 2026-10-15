@@ -46,7 +46,7 @@
   "files.details.ignored": "Ignorado",
   "files.details.modified": "Modificado",
   "files.details.none": "Selecciona un archivo o una carpeta",
-  "files.details.noneHint": "Selecciona un archivo para verlo o editarlo. Haz clic derecho para ver más opciones. <kbd>F2</kbd> cambia el nombre, <kbd>Del</kbd> mueve a la Papelera de reciclaje, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copian, cortan y pegan.",
+  "files.details.noneHint": "Selecciona un archivo para verlo o editarlo. Haz clic derecho para ver más opciones. <kbd>F2</kbd> cambia el nombre, <kbd>Supr</kbd> mueve a la Papelera de reciclaje, <kbd>Ctrl+C</kbd> / <kbd>Ctrl+X</kbd> / <kbd>Ctrl+V</kbd> copian, cortan y pegan.",
   "files.details.rename": "Cambiar nombre",
   "files.details.selected": "{count, plural, one {# elemento seleccionado} many {# elementos seleccionados} other {# elementos seleccionados}}",
   "files.details.selectedHint": "Arrástralos a una carpeta para moverlos (mantén presionado Ctrl para copiarlos), o a la pestaña Sesión para pegar sus rutas.",

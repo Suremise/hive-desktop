@@ -13,7 +13,7 @@ import { pasteIntoTerminal } from '../components/TerminalView'
 import { Icon, IconButton, InfoTip, LoadFailed, Modal, SearchInput, StaleNote, Tooltip, useContextMenu, type MenuEntry } from '../components/ui'
 import { confirm, filesListeners, focusedAgentId, get, notify, openInSessionsTab, projectKey, set, setProjectTab, showAgent, useDateStyle, useStore } from '../store'
 import { useScopedLoad } from '../scopedLoad'
-import { cx, formatBytes, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
+import { cx, formatBytes, formatKeybinding, HIVE_FILES_MIME, IMAGE_EXT, imageUrl, quotePath, timeAgo } from '../util'
 
 const parentOf = (rel: string): string => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '')
 const absOf = (project: ProjectInfo, rel: string): string => (rel ? `${project.path}\\${rel.replace(/\//g, '\\')}` : project.path)
@@ -543,7 +543,7 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
     const items = e ? (selected.includes(e.relPath) ? selEntries : [e]) : []
     const dest = e ? (e.isDir ? e.relPath : parentOf(e.relPath)) : ''
     const abs = items.map((i) => absOf(project, i.relPath))
-    const pasteItem: MenuEntry = { label: tr(M.paste), icon: 'clippy', keybinding: 'Ctrl+V', disabled: !fileClipboard, onClick: () => void paste(dest) }
+    const pasteItem: MenuEntry = { label: tr(M.paste), icon: 'clippy', keybinding: formatKeybinding('Ctrl+V'), disabled: !fileClipboard, onClick: () => void paste(dest) }
     if (!e) {
       return [
         { label: tr(M.newFile), icon: 'new-file', onClick: () => startNew(false, '') },
@@ -568,17 +568,16 @@ function FilesBrowser({ project, selector, jump }: { project: ProjectInfo; selec
       { label: tr(FILES_TEXT.revealInExplorer), icon: 'folder-opened', onClick: () => void call('files:reveal', project.path, e.relPath) },
       ...(project.live ? [{ label: tr(M.insertPath), icon: 'terminal', onClick: () => void insertIntoSession(project, abs) }] : []),
       { separator: true },
-      { label: tr(M.cut), icon: 'blank', keybinding: 'Ctrl+X', onClick: () => setClipboard('cut', items) },
-      { label: tr(M.copy), icon: 'copy', keybinding: 'Ctrl+C', onClick: () => setClipboard('copy', items) },
+      { label: tr(M.cut), icon: 'blank', keybinding: formatKeybinding('Ctrl+X'), onClick: () => setClipboard('cut', items) },
+      { label: tr(M.copy), icon: 'copy', keybinding: formatKeybinding('Ctrl+C'), onClick: () => setClipboard('copy', items) },
       pasteItem,
       { label: tr(M.duplicate), icon: 'files', onClick: () => void duplicate(items) },
       { separator: true },
-      { label: tr(M.copyPath), icon: 'blank', keybinding: 'Shift+Alt+C', onClick: () => copyText(abs.join('\n')) },
+      { label: tr(M.copyPath), icon: 'blank', keybinding: formatKeybinding('Shift+Alt+C'), onClick: () => copyText(abs.join('\n')) },
       { label: tr(M.copyRelativePath), icon: 'blank', onClick: () => copyText(items.map((i) => i.relPath).join('\n')) },
       { separator: true },
       ...(single ? [{ label: tr(M.rename), icon: 'tag', keybinding: 'F2', onClick: () => setEditing({ kind: 'rename', rel: e.relPath }) }] : []),
-      // i18n-ignore: a key's name, written as the other menu items' keys are (Ctrl+C, F2)
-      { label: tr(M.delete), icon: 'trash', keybinding: 'Del', danger: true, onClick: () => void trashSelected(items) }
+      { label: tr(M.delete), icon: 'trash', keybinding: formatKeybinding('Del'), danger: true, onClick: () => void trashSelected(items) } // i18n-ignore: a key's id, which formatKeybinding names
     ]
   }
 

@@ -20,7 +20,7 @@ import { cx } from '../util'
 import { formatSize } from '@shared/units'
 import { MergeSlotNote, projectSlots, useMergeSlots } from './MergeSlots'
 import { EffortPicker, ModelPicker } from './ModelPicker'
-import { effortText, modelCaps } from '@shared/models'
+import { effortText, effortUnknown, modelCaps } from '@shared/models'
 import { pasteIntoTerminal } from './TerminalView'
 import { BusyButton, Icon, Modal, useBusy } from './ui'
 
@@ -148,7 +148,11 @@ export function Overrides({
   // What would run: the choice here, else what it inherits.
   const runModel = model || (pc.model && pc.model !== 'inherit' ? pc.model : g.defaultModel) || cliDefault
   const runMode = permission || (pc.permissionMode !== 'inherit' ? pc.permissionMode : g.defaultPermissionMode)
-  const projectEffort = effortText(provider, pc.effort !== 'inherit' ? pc.effort : g.defaultEffort, runModel, info, settings, tr)
+  const chosenEffort = pc.effort !== 'inherit' ? pc.effort : g.defaultEffort
+  // The CLI's own default, when it hasn't said which level that is: "Default (Claude Code default)", not "Default (default)".
+  const projectEffort = effortUnknown(provider, chosenEffort, runModel, info, settings)
+    ? tr(msg({ id: 'settings.provider.cliDefault', defaultMessage: '{provider} default', description: "The first choice of a model or effort list: the CLI's own default. {provider} is its name." }), { provider: p.name })
+    : effortText(provider, chosenEffort, runModel, info, settings, tr)
   return (
     <div className="agent-form">
       <label>{tr(msg({ id: 'agents.overrides.model', defaultMessage: 'Model', description: "Label of an agent's model choice (Add Agent, Agent Settings)." }))}</label>

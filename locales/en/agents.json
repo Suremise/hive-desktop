@@ -567,6 +567,18 @@
     "defaultMessage": "{who, select, self {{from} writes it with Hive's handover tool; {from} continues in a new conversation when it's done.} other {{from} writes it with Hive's handover tool; {other} starts when it's done.} none {{from} writes it with Hive's handover tool; the other agent starts when it's done.}}",
     "description": "Under Ask … to write a handover first: the agent ({from}) writes the handover, then it carries on itself (self), the chosen agent ({other}) starts, or one not chosen yet (none)."
   },
+  "agents.installSource.native": {
+    "defaultMessage": "native install",
+    "description": "Where Hive found a coding agent's CLI: the folder its native installer puts it in. Shown as \"found via native install\" (Agent Setup), in Help → About and in Settings."
+  },
+  "agents.installSource.settings": {
+    "defaultMessage": "Settings",
+    "description": "Where Hive found a coding agent's CLI: the path set in Settings (the provider's page). Shown as \"found via Settings\" (Agent Setup), in Help → About and in Settings."
+  },
+  "agents.installSource.standalone": {
+    "defaultMessage": "standalone install",
+    "description": "Where Hive found a coding agent's CLI: the folder its standalone installer puts it in. Shown as \"found via standalone install\" (Agent Setup), in Help → About and in Settings."
+  },
   "agents.keys.clipboard": {
     "defaultMessage": "Ctrl+{key} is kept for copy, paste and undo.",
     "description": "Why a keyboard shortcut is refused: Ctrl with C, V, X, A, Z or Y ({key}). Ctrl is a key name."

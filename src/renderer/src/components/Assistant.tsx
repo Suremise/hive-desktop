@@ -1,9 +1,10 @@
 import { Children, useEffect, useRef, useState } from 'react'
-import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona, assistantStatusLine } from '@shared/assistant'
+import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
+import { assistantStatusLine } from '@shared/assistantStatus'
 import { compactThreshold, isCompacting, mostUrgent } from '@shared/defaults'
 import { formatDateTime, formatTime } from '@shared/dates'
 import { agentOpenRun, runWords } from '@shared/progress'
-import { columnLabel } from '@shared/tasks'
+import { columnName } from '@shared/tasks'
 import { agentProvider, providerDescriptor } from '@shared/providers'
 import type { AgentInfo, AgentPatch, AssistantAction, EffortLevel, PermissionMode, PersonaInfo, ProgressRun, ProjectInfo, ProviderId } from '@shared/types'
 import * as actions from '../actions'
@@ -167,6 +168,20 @@ const SHIPPED_NAMES: Record<string, Msg> = {
 export function personaName(p: Pick<PersonaInfo, 'id' | 'name' | 'bundled'>): string {
   const shipped = p.bundled ? SHIPPED_NAMES[p.id] : undefined
   return shipped && p.name === shipped.defaultMessage ? tr(shipped) : p.name
+}
+
+/** What the modes Hive ships are for (their files' description), as the window shows them (#885). Display only, as their names. */
+const SHIPPED_DESCRIPTIONS: Record<string, Msg> = {
+  coordinator: msg({ id: 'assistant.modes.shippedDescription.coordinator', defaultMessage: 'Runs the work across the agents: state first, short status tables, lane prompts from settled cards, decisions only when they are real.', description: "What a mode of the Hive Assistant that ships with Hive (Coordinator) is for, in a line: under its name in the mode menu and the Assistant view." }),
+  planner: msg({ id: 'assistant.modes.shippedDescription.planner', defaultMessage: 'Shapes work before anyone starts it: the open questions with a recommendation each, options, lanes split by files, complete cards.', description: "What a mode of the Hive Assistant that ships with Hive (Planner) is for, in a line: under its name in the mode menu and the Assistant view." }),
+  'qa-triager': msg({ id: 'assistant.modes.shippedDescription.qaTriager', defaultMessage: 'Turns a bug report into a card with evidence: reproduce or read the code to find the likely cause, propose a fix, place it in the right lane.', description: "What a mode of the Hive Assistant that ships with Hive (QA triager) is for, in a line: under its name in the mode menu and the Assistant view." }),
+  'release-manager': msg({ id: 'assistant.modes.shippedDescription.releaseManager', defaultMessage: 'Takes a release through its checklist: notes, licences, packaged checks; the version, tags and publishing only when asked.', description: "What a mode of the Hive Assistant that ships with Hive (Release manager) is for, in a line: under its name in the mode menu and the Assistant view." })
+}
+
+/** What a mode is for, in the window: as personaName, one Hive ships in the window's language while its file still has Hive's words. */
+export function personaDescription(p: Pick<PersonaInfo, 'id' | 'description' | 'bundled'>): string {
+  const shipped = p.bundled ? SHIPPED_DESCRIPTIONS[p.id] : undefined
+  return shipped && p.description === shipped.defaultMessage ? tr(shipped) : p.description
 }
 
 /** The workspace's personas, reloaded when they change. */
@@ -495,7 +510,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         .map(
           (p): MenuEntry => ({
             label: `${p.icon ? `${p.icon}  ` : ''}${personaName(p)}`,
-            detail: p.description,
+            detail: personaDescription(p),
             icon: p.id === personaId ? 'check' : undefined,
             onClick: () => void choosePersona(p)
           })
@@ -561,7 +576,7 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
         </span>
       </Tooltip>
       <strong className="assistant-title">{tr(M.title)}</strong>
-      <Tooltip content={persona ? tr(M.personaTip, { name: personaName(persona), description: persona.description }) : tr(M.chooseMode)}>
+      <Tooltip content={persona ? tr(M.personaTip, { name: personaName(persona), description: personaDescription(persona) }) : tr(M.chooseMode)}>
         <button className="btn subtle small assistant-persona" onClick={personaMenu}>
           <span className="assistant-persona-icon">{persona?.icon || '🐝'}</span>
           <span className="assistant-persona-name">{persona ? personaName(persona) : personaId}</span>
@@ -648,7 +663,7 @@ function AssistantStatus({ a }: { a: AgentInfo }) {
                   {line.text}
                   {line.cards.map((n) => {
                     const card = tasks.find((c) => c.number === n && !c.archived) ?? null
-                    return <TaskChip key={n} number={n} column={card?.column ?? null} short label={tr(M.openCard, { number: n, known: card ? 'yes' : 'no', column: card ? columnLabel(card.column) : '' })} />
+                    return <TaskChip key={n} number={n} column={card?.column ?? null} short label={tr(M.openCard, { number: n, known: card ? 'yes' : 'no', column: card ? columnName(card.column, tr) : '' })} />
                   })}
                   {line.after}
                 </>

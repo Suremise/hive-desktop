@@ -4,7 +4,7 @@
   "service.advanced.fixFirst": "{problem} Fix advanced.json (Settings → Advanced → Open advanced.json) before changing settings here.",
   "service.advanced.fixOrDelete": "{problem} Fix or delete advanced.json first (Settings → Advanced → Open advanced.json).",
   "service.advanced.newer": "advanced.json is from a newer Hive (format {format}): this one reads format {supported}.",
-  "service.advanced.notJson": "advanced.json isn't valid JSON: {error}",
+  "service.advanced.notJson": "advanced.json isn't valid JSON ({error}).",
   "service.advanced.notObject": "advanced.json should hold an object: {example}.",
   "service.advanced.notValues": "advanced.json's \"values\" should be an object of setting → value.",
   "service.advanced.unknown": "No advanced setting \"{id}\".",

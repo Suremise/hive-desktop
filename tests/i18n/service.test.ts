@@ -146,7 +146,7 @@ describe("advanced.json's problem: English for the log, text for the window", ()
     const r = parseAdvancedFile('{')
     expect('error' in r).toBe(true)
     if (!('error' in r)) return
-    expect(r.error).toMatch(/^advanced\.json isn't valid JSON: /)
+    expect(r.error).toMatch(/^advanced\.json isn't valid JSON \(.+\)\.$/)
     expect(shownText(r.errorText)).toMatch(/^advanced\.json ist kein gültiges JSON: /)
     expect(englishText(r.errorText)).toBe(r.error)
   })
