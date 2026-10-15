@@ -4,7 +4,7 @@ import { randomBytes, timingSafeEqual } from 'crypto'
 import { app } from 'electron'
 import { basename, dirname, join, resolve as resolvePath } from 'path'
 import { stat } from 'original-fs/promises'
-import type { AgentApiInfo, AssistantControl, LaneInfo, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel } from '../shared/types'
+import type { AgentApiInfo, AssistantControl, LaneInfo, EffortLevel, HiveEvent, LiveSessionState, PermissionMode, ProviderId, SkillInfo, TaskCard, TaskColumn, TaskPatch, TaskStartTarget, ToastLevel, ToastMessage } from '../shared/types'
 import { DEFAULT_API_PORT, HIVE_DIR, projectAgents, stopAsksUser, transcriptWarnLimit } from '../shared/defaults'
 import { PROVIDERS, agentProvider, defaultProviderPending, isKnownProvider, isProviderEnabled, offeredModes, projectDefaultProvider, providerDescriptor, providerName } from '../shared/providers'
 import type { SafeguardNote } from '../shared/safeguards'
@@ -27,6 +27,7 @@ import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, onHiveEvent, toast } from './events'
+import { msg, tr } from '../shared/i18n'
 import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
 import { readLaneCards, readLaneCondition } from '../shared/laneWatch'
 import { agentBusy, AGENT_WATCH_MAX_AGENTS, type AgentNow, type WatchedAgent } from '../shared/agentWatch'
@@ -69,7 +70,7 @@ import { hookTokenMatches, refusedHookNote } from './hookTokens'
 import { unusedWorktreeCounts } from './unusedWorktrees'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { consoleSources } from './devConsoleSources'
-import { englishError, HiveError } from './hiveError'
+import { englishError, HiveError, shownError } from './hiveError'
 import { CONSOLE_KINDS, hiveName, mayRead, type ConsoleEvent, type ConsoleKind, type ConsoleReader, type ConsoleSource } from '../shared/devConsole'
 
 const log = createLogger('servers')
@@ -658,6 +659,11 @@ route('POST', '/v1/projects/:name/input', async ({ params, body }) => {
   return { ok: true }
 })
 
+/** The window's notice that a hand-over an agent or the Assistant asked for failed: in the window's language, the
+    error's text too (the Assistant's activity keeps its English). */
+export const handOverFailedToast = (projectPath: string, to: string, e: unknown): ToastMessage =>
+  toast('error', tr(msg({ id: 'session.handOver.apiFailed', defaultMessage: 'Could not hand over to {agent}', description: "A notice's title: handing an agent's work to another ({agent}) failed, when an agent or the Assistant asked for it; the error follows." }), { agent: to }), shownError(e), undefined, projectPath)
+
 route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   const own = assistantCaller()
   if (!own && !config.settings.agentApi.allowSessionInput) throw new HttpError(403, 'Session input is disabled. Enable it in Settings → Agent API.')
@@ -674,7 +680,7 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   const start = async (): Promise<void> => {
     // It can take minutes (the handover is written first): answer now, report failures in Hive.
     void sessions.handOver(p, from, to, { handover }).catch((e) => {
-      toast('error', 'Could not hand over the work', (e as Error).message, undefined, p)
+      handOverFailedToast(p, name(to), e)
       if (own) assistant.record(own, act, `Hand over in ${basename(p)}`, (e as Error).message, { reason: publicReason(undefined) })
     })
   }
@@ -1531,6 +1537,12 @@ async function handoverAuthor(body: any): Promise<HandoverAuthor | null> {
   }
 }
 
+/** The window's notice of a handover an agent saved, in the window's language (the handover's own title as written). */
+export const handoverCreatedToast = (project: string, title: string, file: string): ToastMessage =>
+  toast('info', tr(msg({ id: 'content.notes.handoverCreated', defaultMessage: 'Handover created', description: "A notice's title: an agent saved a handover in the shared notes; the project and the handover's title follow." })), `${project ? project + ': ' : ''}${title}`, [
+    { label: tr(msg({ id: 'content.notes.openHandover', defaultMessage: 'Open', description: "The notice's button: opens the handover an agent just saved." })), command: 'notes.open', args: [file] }
+  ])
+
 route('POST', '/v1/shared/handovers', async ({ body }) => {
   if (!body?.title || !body?.content) throw new HttpError(400, 'title and content are required')
   // For a named project, its workspace's notes; else the request's workspace.
@@ -1541,7 +1553,7 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
   const by = await handoverAuthor(body)
   const file = await inWorkspace(ws, () => createHandover(name, String(body.title), String(body.content), by))
   emit({ type: 'notes-changed' })
-  toast('info', 'Handover created', `${name ? name + ': ' : ''}${body.title}`, [{ label: 'Open', command: 'notes.open', args: [file] }])
+  handoverCreatedToast(name, String(body.title), file)
   return { ok: true, path: file }
 })
 

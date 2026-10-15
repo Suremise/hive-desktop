@@ -26,7 +26,7 @@ const personas = await import('../../src/main/personas')
 const templates = await import('../../src/main/templates')
 const { switchMode } = await import('../../src/main/assistantMode')
 const { shownError, windowError } = await import('../../src/main/hiveError')
-const { apiErrorReply } = await import('../../src/main/servers')
+const { apiErrorReply, handOverFailedToast, handoverCreatedToast } = await import('../../src/main/servers')
 
 const ROOT = resolve(__dirname, '../..')
 const EN = JSON.parse(readFileSync(join(ROOT, 'locales/en/content.json'), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
@@ -52,7 +52,10 @@ const GERMAN: Record<string, string> = {
   'content.templates.provider': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren)} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter)} other {{provider} ist nicht installiert (Agent-Einrichtung)}}',
   'content.templates.neededBy': '{problem, select, unknown {Dieses Hive kennt den Coding-Agenten „{provider}“ nicht (Hive aktualisieren), gebraucht von {agents}.} off {{provider} ist ausgeschaltet (Einstellungen → Anbieter), gebraucht von {agents}.} other {{provider} ist nicht installiert (Agent-Einrichtung), gebraucht von {agents}.}}',
   'content.templates.cantLoad': 'Die Vorlage kann noch nicht geladen werden:',
-  'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.'
+  'content.templates.nameEach': 'Gib jedem ihrer Agenten einen Namen.',
+  'content.notes.handoverCreated': 'Übergabe erstellt',
+  'content.notes.openHandover': 'Öffnen',
+  'session.handOver.apiFailed': 'Übergabe an {agent} nicht möglich'
 }
 
 const wsPath = join(base, 'ws')
@@ -235,5 +238,24 @@ describe("the Assistant's instructions stay English", () => {
     const told = await run(() => personas.assistantInstructions('tester'))
     expect(told.personaText.startsWith('# Your mode: Tester\n\n')).toBe(true)
     expect(told.text).toContain('You are the Hive Assistant')
+  })
+})
+
+describe("the Agent API's own notices are the window's (#867)", () => {
+  it("tells of a handover an agent saved and a hand-over that failed in the window's language, the error's text too", async () => {
+    setLanguage('de', GERMAN)
+    const created = handoverCreatedToast('beta', 'Where things stand', 'handovers/x.md')
+    expect(created.title).toBe('Übergabe erstellt')
+    expect(created.message).toBe('beta: Where things stand')
+    expect(created.actions).toEqual([{ label: 'Öffnen', command: 'notes.open', args: ['handovers/x.md'] }])
+    const e = await caught(() => notes.createNote('  ', false))
+    const failed = handOverFailedToast(proj, 'Reviewer', e)
+    expect(failed.title).toBe('Übergabe an Reviewer nicht möglich')
+    expect(failed.message).toBe('Ein Name ist nötig')
+    // Readers of the error itself (the Assistant's activity, the log) keep its English.
+    expect(e.message).toBe('Name is required')
+    setLanguage('en', {})
+    expect(handoverCreatedToast('', 'Plan', 'handovers/y.md')).toMatchObject({ title: 'Handover created', message: 'Plan', actions: [{ label: 'Open' }] })
+    expect(handOverFailedToast(proj, 'Reviewer', e)).toMatchObject({ title: 'Could not hand over to Reviewer', message: 'Name is required' })
   })
 })

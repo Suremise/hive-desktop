@@ -143,9 +143,17 @@
     "defaultMessage": "\"{name}\" already exists",
     "description": "An error making or renaming a shared note or folder: one called {name} is already there."
   },
+  "content.notes.handoverCreated": {
+    "defaultMessage": "Handover created",
+    "description": "A notice's title: an agent saved a handover in the shared notes; the project and the handover's title follow."
+  },
   "content.notes.nameRequired": {
     "defaultMessage": "Name is required",
     "description": "An error making a shared note or folder with no name."
+  },
+  "content.notes.openHandover": {
+    "defaultMessage": "Open",
+    "description": "The notice's button: opens the handover an agent just saved."
   },
   "content.notes.outside": {
     "defaultMessage": "Path is outside the shared notes folder",

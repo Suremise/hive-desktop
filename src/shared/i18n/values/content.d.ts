@@ -37,7 +37,9 @@ interface HiveMessageValues {
   'content.notes.closed': undefined
   'content.notes.deleteRoot': undefined
   'content.notes.exists': { name: string | number }
+  'content.notes.handoverCreated': undefined
   'content.notes.nameRequired': undefined
+  'content.notes.openHandover': undefined
   'content.notes.outside': undefined
   'content.persona.badName': undefined
   'content.persona.exists': { mode: string | number }
