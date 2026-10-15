@@ -219,10 +219,6 @@
     "defaultMessage": "Already on {branch}.",
     "description": "After switching branch in the Git view: the project folder was on {branch} already."
   },
-  "service.gitRepo.asShown": {
-    "defaultMessage": "{problem}",
-    "description": "Why a Git view action was refused, said in the window's language already. Keep it as {problem} alone."
-  },
   "service.gitRepo.badName": {
     "defaultMessage": "{kind, select, tag {{hasName, select, yes {{name} isn't a valid tag name.} other {That isn't a valid tag name.}}} other {{hasName, select, yes {{name} isn't a valid branch name.} other {That isn't a valid branch name.}}}}",
     "description": "An error creating a branch or a tag ({kind}): its name {name} is one git refuses. {hasName} is no when no name was given (then it says That)."

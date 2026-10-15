@@ -30,7 +30,7 @@ import type { ProviderId } from './types'
  * errors read its English (`englishText`), so what the Assistant is told never follows the user's language. The
  * settings catalogue's rows hold their text this way too.
  */
-export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: 'conjunction' | 'disjunction' } | { lines: TextPart[] }
+export type Text = Msg | { m: Msg; values: TextValues } | { list: TextPart[]; type?: ListType } | { lines: TextPart[] }
 /** A part of text: text of its own, or a name or a number that is the same in every language. */
 export type TextPart = string | number | Text
 export type TextValues = Record<string, TextPart>
@@ -38,8 +38,11 @@ export type TextValues = Record<string, TextPart>
 /** A message with its values, as data. */
 export const withValues = (m: Msg, values: TextValues): Text => ({ m, values })
 
+/** How a list's items are joined: "A and B", "A or B", or as units, "A, B" (fmt.list's types). */
+export type ListType = 'conjunction' | 'disjunction' | 'unit'
+
 /** Items joined as a list in the language shown: "A and B", "A, B or C", "A i B". */
-export const listOf = (list: TextPart[], type: 'conjunction' | 'disjunction' = 'conjunction'): Text => ({ list, type })
+export const listOf = (list: TextPart[], type: ListType = 'conjunction'): Text => ({ list, type })
 
 /** Parts each on a line of its own. */
 export const linesOf = (lines: TextPart[]): Text => ({ lines })
@@ -48,7 +51,7 @@ const ENGLISH = createIntl({ locale: 'en', defaultLocale: 'en', messages: {}, on
 
 interface Formatter {
   one: (m: Msg, values?: Record<string, string | number>) => string
-  list: (items: string[], type: 'conjunction' | 'disjunction') => string
+  list: (items: string[], type: ListType) => string
 }
 
 function formatText(t: TextPart, f: Formatter): string {
@@ -63,7 +66,7 @@ function formatText(t: TextPart, f: Formatter): string {
 const IN_ENGLISH: Formatter = {
   one: (m, values) => (!values && !/[{}<]|''/.test(m.defaultMessage) ? m.defaultMessage : (ENGLISH.formatMessage(m, values) as string)),
   // Hive's English is British: "A, B and C", as the tools always said it.
-  list: (items, type) => new Intl.ListFormat('en-GB', { type }).format(items)
+  list: (items, type) => new Intl.ListFormat('en-GB', { type, style: type === 'unit' ? 'short' : 'long' }).format(items)
 }
 const AS_SHOWN: Formatter = { one: (m, values) => tr(m, values), list: (items, type) => fmt.list(items, type) }
 
