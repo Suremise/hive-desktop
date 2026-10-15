@@ -276,25 +276,28 @@ export function segmentsThatFit(widthPx: number): number {
   return Math.max(3, Math.floor((widthPx + SEGMENT_GAP_PX) / (SEGMENT_MIN_PX + SEGMENT_GAP_PX)))
 }
 
-/** "#3, #4, #5", or the first eight and how many more. */
-function cardList(ns: number[], tr: Tr): string {
-  const shown = ns.slice(0, 8).map((n) => `#${n}`).join(', ')
-  return ns.length > 8 ? tr(msg({ id: 'board.lane.andMore', defaultMessage: '{cards} and {n} more', description: "A folded lane segment's list of cards (Progress panel), cut short: the first eight card numbers ({cards}: \"#3, #4\") and how many more ({n})." }), { cards: shown, n: ns.length - 8 }) : shown
+/** Joins a list in the window's language (`fmt.list`): this module is also reached from hive-mcp, which never loads the translations. */
+type ListOf = (items: string[], type?: 'conjunction' | 'unit') => string
+
+/** "#3, #4, #5", or the first eight and how many more as the list's last item ("#1, #2 … #8 and 3 more"). */
+function cardList(ns: number[], tr: Tr, list: ListOf): string {
+  const shown = ns.slice(0, 8).map((n) => `#${n}`)
+  return ns.length > 8 ? list([...shown, tr(msg({ id: 'board.lane.andMore', defaultMessage: '{n, plural, one {# more} other {# more}}', description: "The last item of a folded lane segment's list of cards (Progress panel), after the first eight card numbers: how many more there are ({n}). Hive joins it to the list (\"#1, #2 … #8 and 3 more\")." }), { n: ns.length - 8 })]) : list(shown, 'unit')
 }
 
 /**
  * The bar's segments when there's room for `max`: every card while they fit; past that, the finished cards (Passed and
  * Done) fold into one "✓ n" segment at the left, and if that isn't enough either, the last ones fold into "+n".
  */
-export function fitSegments(cards: CardSegment[], max: number, tr: Tr): LaneSegment[] {
+export function fitSegments(cards: CardSegment[], max: number, tr: Tr, list: ListOf): LaneSegment[] {
   if (cards.length <= max) return cards
   const finished = cards.filter((c) => isFinished(c.state))
   const rest = cards.filter((c) => !isFinished(c.state))
-  const out: LaneSegment[] = finished.length ? [{ kind: 'finished', numbers: finished.map((c) => c.number), label: tr(msg({ id: 'board.lane.finished', defaultMessage: '{n} finished: {cards}', description: "A lane segment's label (Progress panel) for its finished cards folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: finished.length, cards: cardList(finished.map((c) => c.number), tr) }) }] : []
+  const out: LaneSegment[] = finished.length ? [{ kind: 'finished', numbers: finished.map((c) => c.number), label: tr(msg({ id: 'board.lane.finished', defaultMessage: '{n, plural, one {# finished: {cards}} other {# finished: {cards}}}', description: "A lane segment's label (Progress panel) for its finished cards folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: finished.length, cards: cardList(finished.map((c) => c.number), tr, list) }) }] : []
   const room = Math.max(1, max - out.length)
   if (rest.length <= room) return [...out, ...rest]
   const more = rest.slice(room - 1)
-  return [...out, ...rest.slice(0, room - 1), { kind: 'more', numbers: more.map((c) => c.number), label: tr(msg({ id: 'board.lane.more', defaultMessage: '{n} more: {cards}', description: "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: more.length, cards: cardList(more.map((c) => c.number), tr) }) }]
+  return [...out, ...rest.slice(0, room - 1), { kind: 'more', numbers: more.map((c) => c.number), label: tr(msg({ id: 'board.lane.more', defaultMessage: '{n, plural, one {# more: {cards}} other {# more: {cards}}}', description: "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")." }), { n: more.length, cards: cardList(more.map((c) => c.number), tr, list) }) }]
 }
 
 /** A lane's header numbers: its finished cards out of all, and the card it is on (currentCard). */

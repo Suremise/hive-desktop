@@ -55,9 +55,9 @@ export function agentCardText(cards: readonly TaskCard[], project: string, agent
   return reviewing ? `reviewing ${reviewing}` : ''
 }
 
-/** A column as an agents table's plain text says it (#572): the words before its cell ("card #12 …"); none for a state or a sentence. */
+/** A column as an agents table's plain text says it (#572): its cell in words ("card #12 …"); none for a state or a sentence. */
 export interface TextColumn {
-  prefix?: string
+  cell?: (text: string) => string
 }
 
 /** A row of an agents table, or a heading across it, as its plain text needs them. */
@@ -72,7 +72,7 @@ export function agentRowsText(columns: readonly TextColumn[], rows: readonly Tex
   return rows
     .map((r) => {
       if ('groupText' in r) return `${r.groupText}:`
-      const cells = columns.flatMap((c, i) => (r.cells[i]?.text ? [`${c.prefix ?? ''}${r.cells[i].text}`] : []))
+      const cells = columns.flatMap((c, i) => (r.cells[i]?.text ? [c.cell ? c.cell(r.cells[i].text) : r.cells[i].text] : []))
       return `• ${r.name}${cells.length ? ` — ${cells.join(' · ')}` : ''}`
     })
     .join('\n')

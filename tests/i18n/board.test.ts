@@ -107,7 +107,7 @@ function windowTexts(): string[] {
     ...cardSegment(6, failed, tr).notes.slice(0, 1),
     cardSegment(9, undefined, tr).label,
     frozenSegment(lane, tr).label,
-    ...fitSegments([1, 2, 3, 4].map((n) => cardSegment(n, card(n, 'done'), tr)), 2, tr).map((s) => s.label),
+    ...fitSegments([1, 2, 3, 4].map((n) => cardSegment(n, card(n, 'done'), tr)), 2, tr, fmt.list).map((s) => s.label),
     inboxStateText(item('waiting')),
     inboxStateText(item('safeguard', { switched: { from: 'Opus', to: 'Sonnet' } })),
     inboxStateText(item('review')),

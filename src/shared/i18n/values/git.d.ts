@@ -148,6 +148,7 @@ interface HiveMessageValues {
   'git.remotes.addTitle': undefined
   'git.remotes.adding': undefined
   'git.remotes.heading': undefined
+  'git.remotes.name': undefined
   'git.remotes.none': undefined
   'git.remotes.pushesTo': { url: string | number }
   'git.remotes.url': undefined
@@ -160,6 +161,7 @@ interface HiveMessageValues {
   'git.setup.notRepo': { project: string | number }
   'git.setup.withoutGit': undefined
   'git.state': { state: string }
+  'git.status.aheadBehind': { ahead: number; behind: number }
   'git.status.noUpstream': undefined
   'git.statusBar.tip': undefined
   'git.switch.button': undefined
@@ -177,6 +179,7 @@ interface HiveMessageValues {
   'git.tags.dontPush': undefined
   'git.tags.heading': undefined
   'git.tags.message': undefined
+  'git.tags.name': undefined
   'git.tags.noSpaces': undefined
   'git.tags.none': undefined
   'git.tags.older': { count: number }

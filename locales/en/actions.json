@@ -25,23 +25,23 @@
   },
   "actions.ago.days": {
     "defaultMessage": "{n, plural, one {# day ago} other {# days ago}}",
-    "description": "When something happened, in days, 2 to 29 (inbox, sessions, cards). Lower case."
+    "description": "When something happened, in days, 2 to 29 (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere."
   },
   "actions.ago.hours": {
     "defaultMessage": "{n, plural, one {# hour ago} other {# hours ago}}",
-    "description": "When something happened, in hours (inbox, sessions, cards). Lower case."
+    "description": "When something happened, in hours (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere."
   },
   "actions.ago.justNow": {
     "defaultMessage": "just now",
-    "description": "When something happened, under a minute ago (inbox, sessions, cards). Lower case."
+    "description": "When something happened, under a minute ago (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere."
   },
   "actions.ago.minutes": {
     "defaultMessage": "{n, plural, one {# minute ago} other {# minutes ago}}",
-    "description": "When something happened, in minutes (inbox, sessions, cards). Lower case."
+    "description": "When something happened, in minutes (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere."
   },
   "actions.ago.yesterday": {
     "defaultMessage": "yesterday",
-    "description": "When something happened: a day ago (inbox, sessions, cards). Lower case."
+    "description": "When something happened: a day ago (inbox, sessions, cards). Lower case. It also follows a participle (\"saved {when}\", \"Updated {when}\", \"changed {changed}\"): where it can't, the translation of those messages puts it elsewhere."
   },
   "actions.archive.confirm": {
     "defaultMessage": "Archive and start new",
@@ -724,8 +724,8 @@
     "description": "An error's title: stopping a session failed."
   },
   "actions.stop.message": {
-    "defaultMessage": "Stop the running session in {project}{agent}?",
-    "description": "The question before stopping a session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: \" (B1)\", or empty)."
+    "defaultMessage": "{named, select, yes {Stop the running session of {agent} in {project}?} other {Stop the running session in {project}?}}",
+    "description": "The question before stopping a session: the project ({project}) and, when it has several agents, the agent ({agent}: its name; named: yes)."
   },
   "actions.stop.title": {
     "defaultMessage": "Stop session?",
@@ -740,7 +740,7 @@
     "description": "Stop All's button ({n} agents)."
   },
   "actions.stopAll.message": {
-    "defaultMessage": "{n, plural, one {These agent stops in {project}:} other {These # agents stop in {project}:}}",
+    "defaultMessage": "{n, plural, one {This agent stops in {project}:} other {These # agents stop in {project}:}}",
     "description": "Stop All's question, above the table of the {n} running agents of a project ({project})."
   },
   "actions.stopAll.note": {
@@ -760,8 +760,8 @@
     "description": "Under the question before replacing or removing a running session."
   },
   "actions.stopFirst.message": {
-    "defaultMessage": "{project}{agent} already has a running session.",
-    "description": "The question before replacing or removing a running session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: \" (B1)\", or empty)."
+    "defaultMessage": "{named, select, yes {{agent} in {project} already has a running session.} other {{project} already has a running session.}}",
+    "description": "The question before replacing or removing a running session: the project ({project}) and, when it has several agents, the agent ({agent}: its name; named: yes)."
   },
   "actions.stopFirst.title": {
     "defaultMessage": "{what, select, new {Start a new session?} resume {Resume this session?} other {Remove {agent}?}}",
@@ -880,7 +880,7 @@
     "description": "An error's title: saving a template failed."
   },
   "actions.template.saveMessage": {
-    "defaultMessage": "{n, plural, one {Its agent} other {Its # agents}} (settings and roles) and the layout, to load into any project later. Sessions and worktrees aren't saved.",
+    "defaultMessage": "A template keeps the project's {n, plural, one {agent} other {# agents}} (settings and roles) and its layout, to load into any project later. Sessions and worktrees aren't saved.",
     "description": "The Save as Template dialog: what a template keeps of the project's {n} agents."
   },
   "actions.template.saveTitle": {

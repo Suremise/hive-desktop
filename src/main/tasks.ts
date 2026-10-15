@@ -3,7 +3,7 @@ import { basename, join } from 'path'
 import { mkdir, readdir, readFile, stat } from 'original-fs/promises'
 import { existsSync } from 'original-fs'
 import { projectAgents } from '../shared/defaults'
-import { englishText, withValues, type Text } from '../shared/advanced'
+import { englishText, forAgents, withValues, type Text } from '../shared/advanced'
 import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
@@ -30,9 +30,9 @@ const log = createLogger('tasks')
  * message chooses its words.
  */
 const ERR = {
-  unknownTask: msg({ id: 'tasks.error.unknownTask', defaultMessage: 'Unknown task #{n}', description: 'An error: there is no card #{n} (a number), or none the caller may see.' }),
+  unknownTask: msg({ id: 'tasks.error.unknownTask', defaultMessage: 'Unknown card #{n}', description: 'An error: there is no card #{n} (a number), or none the caller may see.' }),
   noWorkspace: msg({ id: 'tasks.error.noWorkspace', defaultMessage: 'No workspace is open', description: "An error: a change to the task board needs an open workspace, and there is none." }),
-  needsTitle: msg({ id: 'tasks.error.needsTitle', defaultMessage: 'A task needs a title.', description: 'An error: a card (a task) was saved with an empty title.' }),
+  needsTitle: msg({ id: 'tasks.error.needsTitle', defaultMessage: 'A card needs a title.', description: 'An error: a card was saved with an empty title.' }),
   unknownColumn: msg({ id: 'tasks.error.unknownColumn', defaultMessage: 'Unknown column "{column}": {choices}.', description: 'An error: {column} is not a column of the board; {choices} lists the column ids the call takes (hold, todo, doing… kept as they are).' }),
   archived: msg({ id: 'tasks.error.archived', defaultMessage: '#{n} is archived. Only the user can bring it back.', description: 'An error: card #{n} (a number) is archived, so an agent or the Assistant cannot change it; only the user can bring it back from the archive.' }),
   noCard: msg({ id: 'tasks.error.noCard', defaultMessage: 'There is no card #{n}.', description: 'An error: there is no card #{n} (a number) that the caller may see.' }),
@@ -64,7 +64,9 @@ export const scopeOf = (a: TaskActor): string | null => (a.kind === 'agent' && a
 export const inScope = (c: { project: string }, scope: string | null): boolean => scope === null || (!!c.project && c.project.toLowerCase() === scope.toLowerCase())
 
 /** What a confined agent is told about a card outside its project: the same as for one that doesn't exist. */
-export const unknownTask = (n: number): Error => hiveError(ERR.unknownTask, { n }, { kind: 'notFound' })
+export const unknownTask = (n: number): Error => new HiveError(forAgents(withValues(ERR.unknownTask, { n }), `Unknown task #${n}`), { kind: 'notFound' }) // i18n-ignore: agent-facing: the Agent API's words, as before (#910)
+/** An empty title: the window says card; agents read the words they always did (#910). */
+const needsTitle = (): HiveError => new HiveError(forAgents(ERR.needsTitle, 'A task needs a title.'), { kind: 'invalid' }) // i18n-ignore: agent-facing: the Agent API's words, as before (#910)
 
 /** The calling agent, when a card of `project` going into Doing with no agent named should be given to it. */
 const selfIn = (actor: TaskActor, project: string): string | null =>
@@ -316,7 +318,7 @@ export async function listTasks(opts: { project?: string; column?: TaskColumn; a
   )
 }
 
-/** A card, as an actor may see it: a confined agent gets "Unknown task" for another project's. */
+/** A card, as an actor may see it: a confined agent gets "Unknown card" for another project's. */
 export async function readTask(n: number, actor: TaskActor): Promise<TaskCard> {
   const c = await getTask(n)
   if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
@@ -480,7 +482,7 @@ async function projectName(name: string | undefined): Promise<string> {
 
 /** An agent of the project, by id or name: its id and name. */
 async function agentOf(project: string, agent: string): Promise<{ id: string; name: string }> {
-  if (!project) throw hiveError(msg({ id: 'tasks.error.chooseProject', defaultMessage: 'Choose a project before giving the task to an agent.', description: "An error: a card of the whole workspace (no project) can't be given to an agent: agents belong to a project." }), undefined, { kind: 'invalid' })
+  if (!project) throw new HiveError(forAgents(msg({ id: 'tasks.error.chooseProject', defaultMessage: 'Choose a project before giving the card to an agent.', description: "An error: a card of the whole workspace (no project) can't be given to an agent: agents belong to a project." }), 'Choose a project before giving the task to an agent.'), { kind: 'invalid' }) // i18n-ignore: agent-facing: the Agent API's words, as before (#910)
   const cfg = await workspace.projectConfig(join(workspace.path!, project))
   const a = projectAgents(cfg).find((x) => x.id === agent || x.name.toLowerCase() === agent.toLowerCase())
   if (!a) throw hiveError(UNKNOWN_AGENT, { agent, project }, { kind: 'notFound' })
@@ -713,7 +715,7 @@ async function createTaskLocked(
 ): Promise<TaskCard> {
   if (!workspace.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
   const title = text(input.title, MAX_TITLE, 'title').trim()
-  if (!title) throw hiveError(ERR.needsTitle, undefined, { kind: 'invalid' })
+  if (!title) throw needsTitle()
   const column = input.column ?? 'todo'
   if (!isTaskColumn(column)) throw unknownColumn(column)
   if (column === 'done' && actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserDone', defaultMessage: 'Only the user puts cards in Done.', description: 'An error: an agent or the Assistant tried to add a card straight into Done (a board column), which only the user does.' }))
@@ -807,7 +809,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     let transferred = false
     if (patch.title !== undefined) {
       const t = text(patch.title, MAX_TITLE, 'title').trim()
-      if (!t) throw hiveError(ERR.needsTitle, undefined, { kind: 'invalid' })
+      if (!t) throw needsTitle()
       if (t !== card.title) said.push(storedText(HISTORY.renamed, { title: t }))
       card.title = t
     }

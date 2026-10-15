@@ -64,7 +64,7 @@
     "description": "An error: a call to change several cards listed none. \"cards:\" is the name of the call's field: keep it as it is."
   },
   "tasks.error.chooseProject": {
-    "defaultMessage": "Choose a project before giving the task to an agent.",
+    "defaultMessage": "Choose a project before giving the card to an agent.",
     "description": "An error: a card of the whole workspace (no project) can't be given to an agent: agents belong to a project."
   },
   "tasks.error.decisionEmptied": {
@@ -112,8 +112,8 @@
     "description": "An error: the call gave the card's labels as something other than a list. \"labels\" is the name of the call's field: keep it as it is."
   },
   "tasks.error.needsTitle": {
-    "defaultMessage": "A task needs a title.",
-    "description": "An error: a card (a task) was saved with an empty title."
+    "defaultMessage": "A card needs a title.",
+    "description": "An error: a card was saved with an empty title."
   },
   "tasks.error.noCard": {
     "defaultMessage": "There is no card #{n}.",
@@ -240,7 +240,7 @@
     "description": "An error: the call's review was {review}, which it doesn't take. \"start\", \"passed\" and \"failed\" are the values it takes: keep them as they are."
   },
   "tasks.error.unknownTask": {
-    "defaultMessage": "Unknown task #{n}",
+    "defaultMessage": "Unknown card #{n}",
     "description": "An error: there is no card #{n} (a number), or none the caller may see."
   },
   "tasks.error.verdictNotYours": {
@@ -456,7 +456,7 @@
     "description": "Why Archive All left a card on the board (after its number, \"#12 couldn't be saved\"): its file could not be written. Lower case: it follows the number."
   },
   "tasks.start.agentBusy": {
-    "defaultMessage": "{agent} {status, select, working {is working} starting {is starting} waiting {is waiting for the user} background {is waiting on background tasks it started} other {is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)}}. Start the task once it's idle, or give it to another agent.",
+    "defaultMessage": "{agent} {status, select, working {is working} starting {is starting} waiting {is waiting for the user} background {is waiting on background tasks it started} other {is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)}}. Start the card once it's idle, or give it to another agent.",
     "description": "An error: a card can't be started with the agent {agent} (its name) now, because of what it is doing ({status}, select: working, starting, waiting for the user, waiting on background tasks it started, or waiting on cards in a card watch; translate each). Cancel is the button in the agent's header."
   },
   "tasks.start.alreadyStarting": {

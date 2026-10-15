@@ -23,7 +23,7 @@ const { cardBusy } = await import('../../src/main/cardBusy')
 const { ordinal } = await import('../../src/shared/toolReplies')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../../src/main/workspace')
 const tasks = await import('../../src/main/tasks')
-const { startTask } = await import('../../src/main/taskStart')
+const { agentBusyError, startTask } = await import('../../src/main/taskStart')
 const { shownError, windowError } = await import('../../src/main/hiveError')
 const { apiErrorReply, entryForAgents } = await import('../../src/main/servers')
 type StoredText = import('../../src/shared/types').StoredText
@@ -241,7 +241,7 @@ describe("the board's refusals: English for agents as before, the window's langu
       [await caught(run(() => tasks.createTask({ title: 'x', column: 'hold' }, agent))), 'Only the user or the Assistant puts cards On Hold: ask the user to park it.', 403, null],
       [await caught(run(() => tasks.createTask({ title: 'x', project: 'beta' }, agent))), 'You can add cards only to your project (alpha).', 403, null],
       [await caught(run(() => tasks.createTask({ title: 'x', project: 'gamma' }, user))), 'Unknown project "gamma"', 404, null],
-      [await caught(run(() => tasks.createTask({ title: 'x', agent: 'a1' }, user))), 'Choose a project before giving the task to an agent.', 400, null],
+      [await caught(run(() => tasks.createTask({ title: 'x', agent: 'a1' }, user))), 'Choose a project before giving the task to an agent.', 400, 'Choose a project before giving the card to an agent.'],
       [await caught(run(() => tasks.createTask({ title: 'x', project: 'alpha', agent: 'zed' }, user))), 'Unknown agent "zed" in alpha', 404, null],
       [await caught(run(() => tasks.updateTask(todo.number, { labels: 'a' as never }, user))), 'labels must be a list', 400, null],
       [await caught(run(() => tasks.updateTask(todo.number, { labels: Array.from({ length: 13 }, (_, i) => `l${i}`) }, user))), 'A card can have up to 12 labels.', 400, null],
@@ -280,6 +280,28 @@ describe("the board's refusals: English for agents as before, the window's langu
       expect((windowError(e) as Error).message).toBe(german ?? english)
       expect(shownError(e)).toBe(german ?? english)
     }
+  })
+
+  it('the window says card where agents and the Agent API keep the words they always read (#910)', async () => {
+    // The status: what it always was (a busy Start's from its English: servers.ts statusFor).
+    const cases: [Error, string, string, number, string?][] = [
+      [await caught(run(() => tasks.getTask(99))), 'Unknown task #99', 'Unknown card #99', 404, 'Unbekannte Aufgabe #99'],
+      [await caught(run(() => tasks.createTask({ title: ' ' }, user))), 'A task needs a title.', 'A card needs a title.', 400, 'Eine Aufgabe braucht einen Titel.'],
+      [await caught(run(() => tasks.createTask({ title: 'x', agent: 'a1' }, user))), 'Choose a project before giving the task to an agent.', 'Choose a project before giving the card to an agent.', 400],
+      [agentBusyError('B1', 'working'), "B1 is working. Start the task once it's idle, or give it to another agent.", "B1 is working. Start the card once it's idle, or give it to another agent.", apiErrorReply(new Error("B1 is working. Start the task once it's idle, or give it to another agent.")).status],
+      [agentBusyError('B1', 'watching'), "B1 is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header). Start the task once it's idle, or give it to another agent.", "B1 is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header). Start the card once it's idle, or give it to another agent.", apiErrorReply(new Error("B1 is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header). Start the task once it's idle, or give it to another agent.")).status]
+    ]
+    for (const lang of ['en', 'de'] as const) {
+      setLanguage(lang, lang === 'de' ? GERMAN : {})
+      for (const [e, agents, window, status, german] of cases) {
+        expect(e.message).toBe(agents)
+        expect(apiErrorReply(e)).toEqual({ status, body: { error: agents } })
+        // In English the window's own words; in German its translation, or the window's English where this test has none.
+        expect(shownError(e), lang).toBe(lang === 'en' ? window : (german ?? window))
+        expect((windowError(e) as Error).message, lang).toBe(lang === 'en' ? window : (german ?? window))
+      }
+    }
+    setLanguage('en', {})
   })
 
   it("an agent moving another agent's card in Doing is a conflict (409), worded for the window", async () => {

@@ -279,7 +279,7 @@ const S = {
   offChoice: msg({ id: 'project.settings.off', defaultMessage: 'Off', description: 'A choice: off.' }),
   onLower: msg({ id: 'project.settings.onLower', defaultMessage: 'on', description: 'A global setting that is on, shown in "Inherit (on)".' }),
   offLower: msg({ id: 'project.settings.offLower', defaultMessage: 'off', description: 'A global setting that is off, shown in "Inherit (off)".' }),
-  sessionsIn: msg({ id: 'project.settings.sessionsIn', defaultMessage: 'Sessions in {project}', description: 'Who a dangerous permission mode applies to, in its confirmation ("Sessions in alpha will run every command without asking").' }),
+  sessionsIn: msg({ id: 'project.settings.sessionsIn', defaultMessage: 'Sessions in {project} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode for a project's sessions ({project}: the project's name)." }),
   compactAbove: msg({ id: 'project.settings.compactAbove', defaultMessage: 'Suggest compacting above', description: 'Accessible name of the number box of tokens above which compacting is suggested.' }),
   neverChoice: msg({ id: 'project.settings.neverChoice', defaultMessage: 'Never', description: 'A choice: the warning or suggestion is off.' }),
   warnOver: msg({ id: 'project.settings.warnOver', defaultMessage: 'Warn when a transcript is over', description: 'Accessible name of the number box of megabytes above which a transcript is flagged.' }),
@@ -1726,7 +1726,7 @@ export function ProjectSettingsTab({ project }: { project: ProjectInfo }) {
             value={modes.some((m) => m.value === pc.permissionMode) ? pc.permissionMode : 'inherit'}
             onChange={async (e) => {
               const v = e.target.value
-              if (v !== 'inherit' && !(await confirmDangerousMode(id, v, tr(S.sessionsIn, { project: project.name })))) return
+              if (v !== 'inherit' && !(await confirmDangerousMode(id, v, { message: tr(S.sessionsIn, { project: project.name }) }))) return
               await save({ permissionMode: v })
             }}
           >

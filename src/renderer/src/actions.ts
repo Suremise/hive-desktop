@@ -381,9 +381,10 @@ export async function updateProjectProvider(path: string, provider: ProviderId, 
 }
 
 /** " (Agent 2)" in projects with several agents, else nothing — for dialog wording. */
-function agentSuffix(p: ProjectInfo | undefined, agentId: string): string {
+/** The agent a question names (`named: 'yes'`) when its project has several, else none. */
+function agentNamed(p: ProjectInfo | undefined, agentId: string): { named: string; agent: string } {
   const a = agentOf(p, agentId)
-  return (p?.agents.length ?? 1) > 1 && a ? ` (${a.name})` : ''
+  return (p?.agents.length ?? 1) > 1 && a ? { named: 'yes', agent: a.name } : { named: 'no', agent: '' }
 }
 
 /** What stopIfRunning asks before: a new session, resuming one, or removing the agent (its name). */
@@ -398,7 +399,7 @@ async function stopIfRunning(path: string, agentId: string, action: StopFor, the
   const values = { what: action.what, agent: action.what === 'remove' ? action.agent : '' }
   const ok = await confirm({
     title: tr(msg({ id: 'actions.stopFirst.title', defaultMessage: '{what, select, new {Start a new session?} resume {Resume this session?} other {Remove {agent}?}}', description: 'Title of the question before starting a new session (new), resuming one (resume) or removing an agent ({agent}; other) while it runs.' }), values),
-    message: tr(msg({ id: 'actions.stopFirst.message', defaultMessage: '{project}{agent} already has a running session.', description: 'The question before replacing or removing a running session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: " (B1)", or empty).' }), { project: p!.name, agent: agentSuffix(p, agentId) }),
+    message: tr(msg({ id: 'actions.stopFirst.message', defaultMessage: '{named, select, yes {{agent} in {project} already has a running session.} other {{project} already has a running session.}}', description: 'The question before replacing or removing a running session: the project ({project}) and, when it has several agents, the agent ({agent}: its name; named: yes).' }), { project: p!.name, ...agentNamed(p, agentId) }),
     detail: tr(msg({ id: 'actions.stopFirst.detail', defaultMessage: 'It will be stopped first. Its conversation is kept and can be resumed from the Sessions tab.', description: 'Under the question before replacing or removing a running session.' })),
     confirmLabel: tr(msg({ id: 'actions.stopFirst.confirm', defaultMessage: '{what, select, new {Stop and start a new session} resume {Stop and resume this session} other {Stop and remove {agent}}}', description: 'Button: stops the running session, then starts a new one (new), resumes this one (resume), or removes the agent ({agent}; other).' }), values),
     // In the colour of what it goes on to do (#344).
@@ -541,7 +542,7 @@ export async function stopSession(path: string | null = get().selectedProject, a
   if (get().settings?.sessions.confirmStop) {
     const ok = await confirm({
       title: tr(msg({ id: 'actions.stop.title', defaultMessage: 'Stop session?', description: 'Title of the question before stopping a session.' })),
-      message: tr(msg({ id: 'actions.stop.message', defaultMessage: 'Stop the running session in {project}{agent}?', description: 'The question before stopping a session: the project ({project}) and, when it has several agents, the agent in brackets ({agent}: " (B1)", or empty).' }), { project: p!.name, agent: agentSuffix(p, id) }),
+      message: tr(msg({ id: 'actions.stop.message', defaultMessage: '{named, select, yes {Stop the running session of {agent} in {project}?} other {Stop the running session in {project}?}}', description: 'The question before stopping a session: the project ({project}) and, when it has several agents, the agent ({agent}: its name; named: yes).' }), { project: p!.name, ...agentNamed(p, id) }),
       detail: tr(msg({ id: 'actions.stop.detail', defaultMessage: 'The conversation is kept and can be resumed later.', description: 'Under the question before stopping a session.' })),
       confirmLabel: tr(msg({ id: 'actions.stop.confirm', defaultMessage: 'Stop', description: 'Button: stops the session.' })),
       danger: true,
@@ -564,7 +565,7 @@ export async function stopAllAgents(path: string): Promise<void> {
   const n = running.length
   await confirm({
     title: tr(msg({ id: 'actions.stopAll.title', defaultMessage: '{n, plural, one {Stop the agent?} other {Stop all agents?}}', description: "Title of Stop All's question: {n} agents run." }), { n }),
-    message: tr(msg({ id: 'actions.stopAll.message', defaultMessage: '{n, plural, one {These agent stops in {project}:} other {These # agents stop in {project}:}}', description: "Stop All's question, above the table of the {n} running agents of a project ({project})." }), { n, project: p!.name }),
+    message: tr(msg({ id: 'actions.stopAll.message', defaultMessage: '{n, plural, one {This agent stops in {project}:} other {These # agents stop in {project}:}}', description: "Stop All's question, above the table of the {n} running agents of a project ({project})." }), { n, project: p!.name }),
     detail: `${lines}\n\n${note}`,
     content: createElement(AgentsDetail, { data, note }),
     wide: true,
@@ -996,7 +997,7 @@ export async function saveTemplate(path: string): Promise<void> {
   let workspaceScope = false
   const name = await prompt({
     title: tr(msg({ id: 'actions.template.saveTitle', defaultMessage: 'Save as template', description: 'Title of the Save as Template dialog.' })),
-    message: tr(msg({ id: 'actions.template.saveMessage', defaultMessage: "{n, plural, one {Its agent} other {Its # agents}} (settings and roles) and the layout, to load into any project later. Sessions and worktrees aren't saved.", description: "The Save as Template dialog: what a template keeps of the project's {n} agents." }), { n: p.agents.length }),
+    message: tr(msg({ id: 'actions.template.saveMessage', defaultMessage: "A template keeps the project's {n, plural, one {agent} other {# agents}} (settings and roles) and its layout, to load into any project later. Sessions and worktrees aren't saved.", description: "The Save as Template dialog: what a template keeps of the project's {n} agents." }), { n: p.agents.length }),
     placeholder: tr(msg({ id: 'actions.template.namePlaceholder', defaultMessage: 'Template name', description: "Placeholder of the Save as Template dialog's name box." })),
     confirmLabel: tr(msg({ id: 'actions.template.save', defaultMessage: 'Save', description: 'Button: saves the template.' })),
     validate: (v) => (!v.trim() ? tr(msg({ id: 'actions.template.nameEmpty', defaultMessage: 'Enter a name.', description: "Why a template's name can't be used: it is empty." })) : v.trim().length > TEMPLATE_NAME_MAX ? tr(msg({ id: 'actions.template.nameTooLong', defaultMessage: 'At most {max} characters.', description: "Why a template's name can't be used: it is longer than {max} characters." }), { max: TEMPLATE_NAME_MAX }) : null),

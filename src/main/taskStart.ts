@@ -9,7 +9,8 @@ import type { TaskCard, TaskStartTarget } from '../shared/types'
 import { emit } from './events'
 import { addAgent, removeAgent } from './projectAgents'
 import { sessions } from './sessions'
-import { hiveError, errorText } from './hiveError'
+import { HiveError, hiveError, errorText } from './hiveError'
+import { forAgents, withValues } from '../shared/advanced'
 import { getTask, UNKNOWN_AGENT, updateTask, type TaskActor } from './tasks'
 import { createLogger, userText } from './logger'
 import { workspace } from './workspace'
@@ -19,7 +20,22 @@ const log = createLogger('tasks')
 /** The statuses in which an agent can't be given a card: its refusal's `{status}`, each in its own words. */
 const BUSY_STATUSES = new Set(['working', 'starting', 'waiting', 'background', 'watching'])
 /** A Start refused because the agent is busy (#846): its status chooses the words. */
-const AGENT_BUSY = msg({ id: 'tasks.start.agentBusy', defaultMessage: "{agent} {status, select, working {is working} starting {is starting} waiting {is waiting for the user} background {is waiting on background tasks it started} other {is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)}}. Start the task once it's idle, or give it to another agent.", description: "An error: a card can't be started with the agent {agent} (its name) now, because of what it is doing ({status}, select: working, starting, waiting for the user, waiting on background tasks it started, or waiting on cards in a card watch; translate each). Cancel is the button in the agent's header." })
+const AGENT_BUSY = msg({ id: 'tasks.start.agentBusy', defaultMessage: "{agent} {status, select, working {is working} starting {is starting} waiting {is waiting for the user} background {is waiting on background tasks it started} other {is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)}}. Start the card once it's idle, or give it to another agent.", description: "An error: a card can't be started with the agent {agent} (its name) now, because of what it is doing ({status}, select: working, starting, waiting for the user, waiting on background tasks it started, or waiting on cards in a card watch; translate each). Cancel is the button in the agent's header." })
+
+/** What agents read for AGENT_BUSY: the words the Agent API always gave (#910), where the window says card. */
+const BUSY_FOR_AGENTS: Record<string, string> = {
+  working: 'is working', // i18n-ignore: agent-facing: the Agent API's words, as before
+  starting: 'is starting', // i18n-ignore: agent-facing: the Agent API's words, as before
+  waiting: 'is waiting for the user', // i18n-ignore: agent-facing: the Agent API's words, as before
+  background: 'is waiting on background tasks it started', // i18n-ignore: agent-facing: the Agent API's words, as before
+  watching: 'is waiting on cards (a card watch): it takes no other work until it is woken, or the watch is cancelled (Cancel in its header)' // i18n-ignore: agent-facing: the Agent API's words, as before
+}
+
+/** A Start refused because the agent is busy: the window's words, and the agents' as they always were. */
+export function agentBusyError(agent: string, status: string): HiveError {
+  const english = `${agent} ${BUSY_FOR_AGENTS[status] ?? BUSY_FOR_AGENTS.watching}. Start the task once it's idle, or give it to another agent.` // i18n-ignore: agent-facing: the Agent API's words, as before
+  return new HiveError(forAgents(withValues(AGENT_BUSY, { agent, status }), english))
+}
 
 /** Cards being started now ("<workspace>#<n>"): a second Start of the same card is refused, not run twice. */
 const starting = new Set<string>()
@@ -63,7 +79,7 @@ export async function startTask(n: number, target: TaskStartTarget, actor: TaskA
  */
 function availability(p: string, agentId: string, agentName: string, actor: TaskActor): { live: boolean } {
   const st = sessions.liveFor(p, agentId)
-  if (st && BUSY_STATUSES.has(st.status)) throw hiveError(AGENT_BUSY, { agent: agentName, status: st.status })
+  if (st && BUSY_STATUSES.has(st.status)) throw agentBusyError(agentName, st.status)
   if (st && actor.kind !== 'user' && sessions.userMayBeTyping(p, agentId)) throw hiveError(msg({ id: 'tasks.start.userTyping', defaultMessage: "The user has just typed in {agent}'s terminal and may still be writing there. Ask the user first.", description: "An error: an agent or the Assistant tried to give a card to the agent {agent} (its name), but the user has just typed in that agent's terminal." }), { agent: agentName })
   return { live: !!st }
 }

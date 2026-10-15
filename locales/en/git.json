@@ -241,7 +241,7 @@
   },
   "git.identity.name": {
     "defaultMessage": "Name",
-    "description": "Row of the commit identity table, and a form field."
+    "description": "Row of the commit identity table, and a field of the form that sets it: the commits' author name."
   },
   "git.identity.namePlaceholder": {
     "defaultMessage": "Your Name",
@@ -587,6 +587,10 @@
     "defaultMessage": "Remotes",
     "description": "Heading in Git → Branches & remotes, followed by how many there are."
   },
+  "git.remotes.name": {
+    "defaultMessage": "Name",
+    "description": "Field of the Add a remote form: the remote's short name in git (origin, say)."
+  },
   "git.remotes.none": {
     "defaultMessage": "No remotes: this repository is only on this computer. Add one (a GitHub repository's URL, say) to push to it.",
     "description": "Git → Branches & remotes of a repository with no remote."
@@ -634,6 +638,10 @@
   "git.state": {
     "defaultMessage": "{state, select, merge {merging} rebase {rebasing} cherrypick {cherry-picking} revert {reverting} other {bisecting}}",
     "description": "What git has in progress in the project folder, in the status bar and the Git tab (badge), lower case: \"main · merging\"."
+  },
+  "git.status.aheadBehind": {
+    "defaultMessage": "↑{ahead, number} ↓{behind, number}",
+    "description": "Status bar and Git → Branches & remotes: how many commits a branch is ahead of the remote branch it tracks (↑, to push) and behind it (↓, to pull), \"↑2 ↓0\". Keep the arrows and the order."
   },
   "git.status.noUpstream": {
     "defaultMessage": "no upstream",
@@ -702,6 +710,10 @@
   "git.tags.message": {
     "defaultMessage": "Message",
     "description": "Field of the Create tag form."
+  },
+  "git.tags.name": {
+    "defaultMessage": "Name",
+    "description": "Field of the Create tag form: the new tag's name (v1.0.0, say)."
   },
   "git.tags.noSpaces": {
     "defaultMessage": "Tag names have no spaces",

@@ -247,7 +247,7 @@ const FIELD_NAMES: Record<string, Msg> = {
   column: msg({ id: 'board.field.column', defaultMessage: 'column', description: "A card's field, named in a list (\"Your column replaced the change made meanwhile\"): the board column it is in. Lower case." }),
   labels: msg({ id: 'board.field.labels', defaultMessage: 'labels', description: "A card's field, named in a list (\"Your labels replaced the change made meanwhile\"). Lower case." }),
   blocked: msg({ id: 'board.field.blocked', defaultMessage: 'blocked', description: "A card's field, named in a list (\"Your blocked replaced the change made meanwhile\"): why it can't go on. Lower case." }),
-  blockedBy: msg({ id: 'board.field.blockedBy', defaultMessage: 'blockedBy', description: "A card's field, named in a list (\"Your blockedBy replaced the change made meanwhile\"): the cards it depends on. Lower case." }),
+  blockedBy: msg({ id: 'board.field.blockedBy', defaultMessage: 'dependencies', description: "A card's field, named in a list (\"Your dependencies replaced the change made meanwhile\"): the cards it depends on (the dialog's Depends on). Lower case." }),
   links: msg({ id: 'board.field.links', defaultMessage: 'links', description: "A card's field, named in a list (\"Your links replaced the change made meanwhile\"): its related cards. Lower case." })
 }
 /** The New card buttons' tooltip. */
@@ -870,7 +870,7 @@ function ArchivedTable({ cards: archivedCards, project, query }: { cards: TaskCa
       <div className="task-archive-actions">
         <span className="faint">
           {picked.length
-            ? tr(msg({ id: 'board.archived.countSelected', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}} · {selected, number} selected', description: "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})." }), { n: cards.length, selected: picked.length })
+            ? tr(msg({ id: 'board.archived.countSelected', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}} · {selected, plural, one {# selected} other {# selected}}', description: "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})." }), { n: cards.length, selected: picked.length })
             : tr(msg({ id: 'board.archived.count', defaultMessage: '{n, plural, one {# archived card} other {# archived cards}}', description: "Above the archived cards' table: how many archived cards it shows." }), { n: cards.length })}
         </span>
         <button className="btn small" disabled={!picked.length || bringing} onClick={() => void unarchiveSelected()}>
@@ -1354,6 +1354,9 @@ function storedLine(english: string, stored: StoredText | undefined): string {
 
 /** Who wrote a history line or a comment, as stored (English: "You", "Assistant", "Repair"), in the window's language; Hive and agents' names as they are. */
 const byText = (by: string): string => (Object.hasOwn(BY_TEXT, by) ? tr(BY_TEXT[by]) : by)
+/** Who added a card, as board.dialog.added selects it: the user, the Assistant, Repair, or an agent (other, by name). */
+const ADDED_BY: Record<string, string> = { You: 'you', Assistant: 'assistant', Repair: 'repair' }
+const addedBy = (by: string): string => (Object.hasOwn(ADDED_BY, by) ? ADDED_BY[by] : 'other')
 
 // The card dialog: a new card, or one card in full (its fields, description, comments and history).
 // ---------------------------------------------------------------------------
@@ -1790,7 +1793,7 @@ export function TaskDialog() {
           <CardCostLine card={card} />
           <div className="faint task-created">
             {card.createdBy
-              ? tr(msg({ id: 'board.dialog.added', defaultMessage: 'Added by {by} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { by: byText(card.createdBy), added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
+              ? tr(msg({ id: 'board.dialog.added', defaultMessage: '{who, select, you {Added by you} assistant {Added by the Assistant} repair {Added by Repair} other {Added by {by}}} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({who}: you, the user; assistant, the Hive Assistant; repair, Hive's Repair, which gives cards back to a moved project; other: an agent, {by} its name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { who: addedBy(card.createdBy), by: card.createdBy, added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
               : tr(msg({ id: 'board.dialog.addedUnknown', defaultMessage: 'Added by unknown {added} · changed {changed}', description: "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})." }), { added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })}
           </div>
         </>

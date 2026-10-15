@@ -128,7 +128,7 @@
     "description": "Above the archived cards' table: how many archived cards it shows."
   },
   "board.archived.countSelected": {
-    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}} · {selected, number} selected",
+    "defaultMessage": "{n, plural, one {# archived card} other {# archived cards}} · {selected, plural, one {# selected} other {# selected}}",
     "description": "Above the archived cards' table: how many archived cards it shows ({n}) and how many of them are selected ({selected})."
   },
   "board.archived.created": {
@@ -468,8 +468,8 @@
     "description": "A lane's cost hover (Progress panel) while Hive works the cost out."
   },
   "board.costs.note": {
-    "defaultMessage": "What its agents used while they held it, as the providers reported it: ≈ is Hive’s estimate, ? or Unknown what isn’t known (never $0).",
-    "description": "Under a card's cost breakdown (its hover): what the cost is. ≈, ? and Unknown are how costs show: keep ≈ and ?, and use the same word for Unknown as the costs do."
+    "defaultMessage": "What its agents used while they held it, as the providers reported it: ≈ is Hive’s estimate, ? or Unknown what isn’t known (never {zero}).",
+    "description": "Under a card's cost breakdown (its hover): what the cost is. ≈, ? and Unknown are how costs show: keep ≈ and ?, and use the same word for Unknown as the costs do. {zero} is no cost, as costs show it (\"$0.00\")."
   },
   "board.costs.onCards": {
     "defaultMessage": "On cards",
@@ -680,8 +680,8 @@
     "description": "The New Card dialog's main button: adds the card."
   },
   "board.dialog.added": {
-    "defaultMessage": "Added by {by} {added} · changed {changed}",
-    "description": "At the foot of the card dialog: who added the card ({by}: \"You\", an agent's name), when ({added}: \"3 days ago\"), and when it last changed ({changed})."
+    "defaultMessage": "{who, select, you {Added by you} assistant {Added by the Assistant} repair {Added by Repair} other {Added by {by}}} {added} · changed {changed}",
+    "description": "At the foot of the card dialog: who added the card ({who}: you, the user; assistant, the Hive Assistant; repair, Hive's Repair, which gives cards back to a moved project; other: an agent, {by} its name), when ({added}: \"3 days ago\"), and when it last changed ({changed})."
   },
   "board.dialog.addedUnknown": {
     "defaultMessage": "Added by unknown {added} · changed {changed}",
@@ -1000,8 +1000,8 @@
     "description": "A card's field, named in a list (\"Your blocked replaced the change made meanwhile\"): why it can't go on. Lower case."
   },
   "board.field.blockedBy": {
-    "defaultMessage": "blockedBy",
-    "description": "A card's field, named in a list (\"Your blockedBy replaced the change made meanwhile\"): the cards it depends on. Lower case."
+    "defaultMessage": "dependencies",
+    "description": "A card's field, named in a list (\"Your dependencies replaced the change made meanwhile\"): the cards it depends on (the dialog's Depends on). Lower case."
   },
   "board.field.column": {
     "defaultMessage": "column",
@@ -1136,8 +1136,8 @@
     "description": "Where a lane's finished card is, in its segment's label (Progress panel): its column ({where}, \"Passed\" or \"Done\") and the review round it passed in ({round}, a number above 1)."
   },
   "board.lane.andMore": {
-    "defaultMessage": "{cards} and {n} more",
-    "description": "A folded lane segment's list of cards (Progress panel), cut short: the first eight card numbers ({cards}: \"#3, #4\") and how many more ({n})."
+    "defaultMessage": "{n, plural, one {# more} other {# more}}",
+    "description": "The last item of a folded lane segment's list of cards (Progress panel), after the first eight card numbers: how many more there are ({n}). Hive joins it to the list (\"#1, #2 … #8 and 3 more\")."
   },
   "board.lane.blocked": {
     "defaultMessage": "#{card}: blocked",
@@ -1148,7 +1148,7 @@
     "description": "A lane segment's note in the Progress panel (its hover): the card is blocked, and why, in the user's or an agent's own words ({reason}). {card} is its number."
   },
   "board.lane.finished": {
-    "defaultMessage": "{n} finished: {cards}",
+    "defaultMessage": "{n, plural, one {# finished: {cards}} other {# finished: {cards}}}",
     "description": "A lane segment's label (Progress panel) for its finished cards folded into one: how many ({n}) and which ({cards}: \"#3, #4\")."
   },
   "board.lane.goneWhenEnded": {
@@ -1180,7 +1180,7 @@
     "description": "A lane segment's label (Progress panel), in a lane that has ended: the card's number, title (the user's own words) and where it was then ({where}: \"Review, round 2\")."
   },
   "board.lane.more": {
-    "defaultMessage": "{n} more: {cards}",
+    "defaultMessage": "{n, plural, one {# more: {cards}} other {# more: {cards}}}",
     "description": "A lane segment's label (Progress panel) for the cards that don't fit its bar, folded into one: how many ({n}) and which ({cards}: \"#3, #4\")."
   },
   "board.lane.notOnBoard": {

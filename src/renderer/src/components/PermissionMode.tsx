@@ -27,16 +27,17 @@ export function openModeMenu(projectPath: string, agentId: string, anchor?: Elem
 
 /**
  * Confirms choosing a provider's no-guardrails mode (Claude Code's Bypass, Codex's Full Access). `where`: what will run
- * in it, as the sentence's subject (an agent's name, "New sessions of hive"), in the window's language.
+ * in it, as the sentence's subject (an agent's name), or the whole question (`message`, "New sessions of hive will run
+ * every command…"), in the window's language.
  */
-export async function confirmDangerousMode(provider: ProviderId, mode: PermissionMode, where: string): Promise<boolean> {
+export async function confirmDangerousMode(provider: ProviderId, mode: PermissionMode, where: string | { message: string }): Promise<boolean> {
   const m = modeOption(provider, mode)
   if (!m?.danger) return true
   const name = providerDescriptor(provider).name
   const label = shownText(m.label, m.text?.label, tr)
   return confirm({
     title: tr(msg({ id: 'agents.permission.dangerTitle', defaultMessage: 'Use {mode}?', description: "Title of the confirmation before choosing a provider's no-guardrails permission mode ({mode}: its name, Bypass permissions, Full access…)." }), { mode: label }),
-    message: tr(msg({ id: 'agents.permission.dangerMessage', defaultMessage: '{where} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode. {where} is what will run in it: an agent's name, or \"New sessions of <project>\"." }), { where }),
+    message: typeof where !== 'string' ? where.message : tr(msg({ id: 'agents.permission.dangerMessage', defaultMessage: '{where} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode. {where} is who will run in it: an agent's name, or \"The Assistant\"." }), { where }),
     detail: tr(msg({ id: 'agents.permission.dangerDetail', defaultMessage: 'Only use this for disposable work where mistakes cannot do harm. {provider} may show its own warning the first time; answer it in the terminal.', description: "Under the confirmation before choosing a no-guardrails permission mode: the CLI ({provider}: its name) may ask itself too." }), { provider: name }),
     confirmLabel: tr(msg({ id: 'agents.permission.dangerConfirm', defaultMessage: 'Use {mode}', description: "Button: chooses the no-guardrails permission mode ({mode}: its name)." }), { mode: label }),
     danger: true
@@ -70,7 +71,7 @@ async function switchLive(project: ProjectInfo, a: AgentInfo, mode: PermissionMo
 }
 
 async function setForNewSessions(project: ProjectInfo, a: AgentInfo, provider: ProviderId, mode: PermissionMode | 'inherit'): Promise<void> {
-  const where = tr(msg({ id: 'agents.permission.newSessionsOf', defaultMessage: 'New sessions of {name}', description: "The subject of the no-guardrails confirmation (\"New sessions of hive will run every command…\"): {name} is an agent's or a project's name." }), { name: a.permissionMode ? a.name : project.name })
+  const where = { message: tr(msg({ id: 'agents.permission.newSessionsOf', defaultMessage: 'New sessions of {name} will run every command, edit and network call without asking.', description: "The confirmation before choosing a no-guardrails permission mode for an agent's or a project's new sessions ({name}: the agent's or the project's name)." }), { name: a.permissionMode ? a.name : project.name }) }
   if (mode !== 'inherit' && !(await confirmDangerousMode(provider, mode, where))) return
   if (a.permissionMode) {
     await actions.attempt(tr(msg({ id: 'agents.permission.saveFailed', defaultMessage: 'Could not save', description: "An error's title: saving an agent's permission mode for new sessions failed." })), () => call('agents:update', project.path, a.id, { permissionMode: mode === 'inherit' ? undefined : mode }))

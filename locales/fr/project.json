@@ -279,7 +279,6 @@
   "project.settings.rounds": "Tours",
   "project.settings.saveFailed": "Impossible d’enregistrer les paramètres du projet",
   "project.settings.search": "Rechercher dans les paramètres du projet {project}",
-  "project.settings.sessionsIn": "Les sessions du projet {project}",
   "project.settings.waitHours": "Attente (heures)",
   "project.settings.wake": "Réveiller relecteurs et auteurs",
   "project.settings.warnOver": "Avertir quand une transcription dépasse",

@@ -279,7 +279,6 @@
   "project.settings.rounds": "Rundy",
   "project.settings.saveFailed": "Nie udało się zapisać ustawień projektu",
   "project.settings.search": "Szukaj w ustawieniach projektu {project}",
-  "project.settings.sessionsIn": "Sesje w projekcie {project}",
   "project.settings.waitHours": "Oczekiwanie (godziny)",
   "project.settings.wake": "Wybudzaj recenzentów i wykonawców",
   "project.settings.warnOver": "Ostrzegaj, gdy transkrypcja przekracza",

@@ -93,7 +93,7 @@ describe("the confirms' table (#572): what happens to each agent, and Remove All
     expect(batchOutcome('remove', { live: null })).toEqual({ text: 'Removed', warn: false })
   })
   it('the plain text says every cell the table shows, the card too (a reviewer\'s as such), a line an agent (#572)', () => {
-    const columns = [{}, { prefix: 'card ' }, { prefix: 'worktree ' }, {}]
+    const columns = [{}, { cell: (t: string) => `card ${t}` }, { cell: (t: string) => `worktree ${t}` }, {}]
     const text = agentRowsText(columns, [
       { name: 'W', cells: [{ text: 'Working…' }, { text: '#12 Lanes' }, { text: 'hive/w' }, { text: batchOutcome('start', live('working')).text }] },
       { name: 'R', cells: [{ text: 'Watching' }, { text: 'reviewing #12 Lanes' }, { text: '' }, { text: batchOutcome('start', live('watching')).text }] },
@@ -107,7 +107,7 @@ describe("the confirms' table (#572): what happens to each agent, and Remove All
   })
 
   it("a heading's line goes over its agents (the quit dialog's workspaces)", () => {
-    expect(agentRowsText([{ prefix: 'in ' }, {}], [{ groupText: 'ws-a' }, { name: 'B1', cells: [{ text: 'alpha' }, { text: 'Ready' }] }, { groupText: 'ws-b' }, { name: 'B2', cells: [{ text: 'beta' }, { text: '' }] }])).toBe('ws-a:\n• B1 — in alpha · Ready\nws-b:\n• B2 — in beta')
+    expect(agentRowsText([{ cell: (t: string) => `in ${t}` }, {}], [{ groupText: 'ws-a' }, { name: 'B1', cells: [{ text: 'alpha' }, { text: 'Ready' }] }, { groupText: 'ws-b' }, { name: 'B2', cells: [{ text: 'beta' }, { text: '' }] }])).toBe('ws-a:\n• B1 — in alpha · Ready\nws-b:\n• B2 — in beta')
   })
 
   it("Remove All's worktree cell says whether the box can delete it (#291)", () => {

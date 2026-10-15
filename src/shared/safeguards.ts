@@ -191,14 +191,14 @@ function safeguardWords(note: SafeguardNote, label: (model: string) => string, t
   const parts: string[] = []
   if (note.stops > 0) {
     parts.push(
-      tr(msg({ id: 'panes.safeguard.stopped', defaultMessage: 'A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =0 {} =1 {} other { (# this session)}}.', description: "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\"), and how many times this session ({stops}; once: leave it empty)." }), {
+      tr(msg({ id: 'panes.safeguard.stopped', defaultMessage: 'A safety classifier stopped a response{model, select, none {} other { on {model}}} at {time}{stops, plural, =0 {} =1 {} other { (# this session)}}.', description: "An agent's safeguard note (its pane, a hover): its CLI's safety classifier stopped a response, on a model ({model}: its name; none: leave that branch empty), at a time ({time}: \"15:12\", hours and minutes on a 24-hour clock; in a language whose word before a time agrees with the hour, put it in brackets instead: \"(15:12)\"), and how many times this session ({stops}; once: leave it empty)." }), {
         model: note.model ? label(note.model) : 'none',
         time: safeguardTime(note.at),
         stops: note.stops
       })
     )
   }
-  if (note.switched) parts.push(tr(msg({ id: 'panes.safeguard.switched', defaultMessage: 'It now runs on {to} instead of {from} (since {time}).', description: "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\")." }), { to: label(note.switched.to), from: label(note.switched.from), time: safeguardTime(note.switched.at) }))
+  if (note.switched) parts.push(tr(msg({ id: 'panes.safeguard.switched', defaultMessage: 'It now runs on {to} instead of {from} (since {time}).', description: "An agent's safeguard note: after the stop it moved to another model ({to}, {from}: their names) at a time ({time}: \"15:12\", hours and minutes on a 24-hour clock; in a language whose word before a time agrees with the hour, leave the word out: \"(15:12)\")." }), { to: label(note.switched.to), from: label(note.switched.from), time: safeguardTime(note.switched.at) }))
   if (note.prompt) parts.push(tr(msg({ id: 'panes.safeguard.asks', defaultMessage: 'Its CLI asks what to do about it.', description: "An agent's safeguard note: after the stop, its CLI asks the user what to do (switch model, carry on)." })))
   else if (note.idle) parts.push(tr(msg({ id: 'panes.safeguard.idle', defaultMessage: 'Idle after the stop: give it a nudge.', description: "An agent's safeguard note: after the stop the agent sits idle; the user can prompt it to carry on." })))
   if (note.tools.length && note.stops > 0) parts.push(tr(msg({ id: 'panes.safeguard.tools', defaultMessage: 'Before it, its last tool calls: {tools}.', description: "An agent's safeguard note: the names of the agent's last tool calls before the stop ({tools}: \"Bash, Edit\"; tool names, keep them)." }), { tools: note.tools.join(', ') }))
