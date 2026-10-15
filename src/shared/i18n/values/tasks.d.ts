@@ -14,7 +14,7 @@ interface HiveMessageValues {
   'tasks.error.beforeItself': undefined
   'tasks.error.beforeOrPosition': undefined
   'tasks.error.cardsNotNumber': { value: string | number }
-  'tasks.error.cardsTooMany': { max: string | number }
+  'tasks.error.cardsTooMany': { max: number }
   'tasks.error.cardsTwice': { n: string | number }
   'tasks.error.changeNone': undefined
   'tasks.error.chooseProject': undefined
@@ -66,7 +66,7 @@ interface HiveMessageValues {
   'tasks.history.archived': undefined
   'tasks.history.archivedDone': { days: number }
   'tasks.history.archivedHidden': { project: string | number }
-  'tasks.history.archivedInBatch': { n: string | number; label: string | number }
+  'tasks.history.archivedInBatch': { n: number; label: string | number }
   'tasks.history.archivedRemoved': { project: string | number }
   'tasks.history.backWithBatch': { label: string | number }
   'tasks.history.blocked': { reason: string | number }
@@ -121,7 +121,7 @@ interface HiveMessageValues {
   'tasks.start.movedWorkspace': { n: string | number }
   'tasks.start.noProject': { n: string | number }
   'tasks.start.notGiven': { agent: string | number; n: string | number; why: string | number }
-  'tasks.start.noteTooLong': { max: string | number }
+  'tasks.start.noteTooLong': { max: number }
   'tasks.start.reassigned': { n: string | number; who: string }
   'tasks.start.userTyping': { agent: string | number }
 }

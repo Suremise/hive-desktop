@@ -6,7 +6,7 @@ import { loadTasks, notify, pushToast } from './store'
 /** "#3, #4, #5", or the first six and how many more. */
 function numbers(ns: number[]): string {
   const shown = ns.slice(0, 6).map((n) => `#${n}`).join(', ')
-  return ns.length > 6 ? tr(msg({ id: 'board.batch.andMore', defaultMessage: '{cards} and {n} more', description: 'Cards that could not be brought back from an archive, cut short: the first six card numbers ({cards}: "#3, #4") and how many more ({n}).' }), { cards: shown, n: ns.length - 6 }) : shown
+  return ns.length > 6 ? tr(msg({ id: 'board.batch.andMore', defaultMessage: '{cards} and {n, number} more', description: 'Cards that could not be brought back from an archive, cut short: the first six card numbers ({cards}: "#3, #4") and how many more ({n}).' }), { cards: shown, n: ns.length - 6 }) : shown
 }
 
 /**

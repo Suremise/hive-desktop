@@ -52,7 +52,7 @@
     "description": "An error: {value} in the list of cards is not a card number. \"cards:\" is the name of the call's field: keep it as it is."
   },
   "tasks.error.cardsTooMany": {
-    "defaultMessage": "cards: at most {max} cards at once.",
+    "defaultMessage": "cards: at most {max, number} cards at once.",
     "description": "An error: a call listed more than {max} cards. \"cards:\" is the name of the call's field: keep it as it is."
   },
   "tasks.error.cardsTwice": {
@@ -260,7 +260,7 @@
     "description": "A line in a card's history: the card was archived because the user hid its project {project} (its folder name) from Hive."
   },
   "tasks.history.archivedInBatch": {
-    "defaultMessage": "Archived in a batch of {n} ({label})",
+    "defaultMessage": "Archived in a batch of {n, number} ({label})",
     "description": "A line in a card's history: the user archived {n} cards at once (Archive All), this one among them; {label} is the batch's name (\"All in Done\")."
   },
   "tasks.history.archivedRemoved": {
@@ -480,7 +480,7 @@
     "description": "An error: the card #{n} (a number) could not be typed into the terminal of the agent {agent} (its name); {why} says why."
   },
   "tasks.start.noteTooLong": {
-    "defaultMessage": "The note is too long (at most {max} characters).",
+    "defaultMessage": "The note is too long (at most {max, number} characters).",
     "description": "An error: the note given with a Start (what the agent should do now) is longer than it may be ({max}, a number of characters)."
   },
   "tasks.start.reassigned": {

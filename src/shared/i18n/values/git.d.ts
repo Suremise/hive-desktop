@@ -7,7 +7,7 @@ interface HiveMessageValues {
   'git.branches.loadTarget': undefined
   'git.branches.noCommits': undefined
   'git.branches.reload': undefined
-  'git.branches.remote': { count: string | number }
+  'git.branches.remote': { count: number }
   'git.branches.stateBanner': { state: string }
   'git.branches.trackLocal': { branch: string | number; remote: string | number }
   'git.branches.tracks': { upstream: string | number; aheadBehind: string | number }
@@ -179,7 +179,7 @@ interface HiveMessageValues {
   'git.tags.message': undefined
   'git.tags.noSpaces': undefined
   'git.tags.none': undefined
-  'git.tags.older': { count: string | number }
+  'git.tags.older': { count: number }
   'git.tags.optional': undefined
   'git.tags.pushTo': undefined
   'git.tags.title': { commit: string | number }

@@ -144,7 +144,7 @@ function sessionPickerItems(project: ProjectInfo, a: AgentInfo, list: SessionLis
   items.push(
     { separator: true },
     {
-      label: all.length > PICKER_MAX ? tr(msg({ id: 'panes.resume.allSessions', defaultMessage: 'All {n} Sessions…', description: 'Last item of the session picker when it lists only the newest: opens the Sessions tab with all {n}.' }), { n: all.length }) : tr(msg({ id: 'panes.resume.sessionsTab', defaultMessage: 'Sessions Tab…', description: "Last item of the session picker: opens the project's Sessions tab." })),
+      label: all.length > PICKER_MAX ? tr(msg({ id: 'panes.resume.allSessions', defaultMessage: 'All {n, number} Sessions…', description: 'Last item of the session picker when it lists only the newest: opens the Sessions tab with all {n}.' }), { n: all.length }) : tr(msg({ id: 'panes.resume.sessionsTab', defaultMessage: 'Sessions Tab…', description: "Last item of the session picker: opens the project's Sessions tab." })),
       icon: 'history',
       onClick: () => setProjectTab(project.path, 'sessions')
     }
@@ -516,7 +516,7 @@ function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 }
 
 /** "…and 5 more", the last line of a list cut short. */
-const MORE_LINES = msg({ id: 'panes.list.more', defaultMessage: '…and {n} more', description: 'The last line of a list in a hover cut short (files, processes): how many more ({n}).' })
+const MORE_LINES = msg({ id: 'panes.list.more', defaultMessage: '…and {n, number} more', description: 'The last line of a list in a hover cut short (files, processes): how many more ({n}).' })
 
 function Locks({ a }: { a: AgentInfo }) {
   const files = a.live?.lockedFiles

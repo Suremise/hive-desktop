@@ -1228,7 +1228,7 @@
     "description": "The title of Help → Keyboard Shortcuts."
   },
   "shell.showAll.all": {
-    "defaultMessage": "Show all {n}",
+    "defaultMessage": "Show all {n, number}",
     "description": "Under a folded list: shows all its items. {n} is how many."
   },
   "shell.showAll.fewer": {
@@ -1236,7 +1236,7 @@
     "description": "Under an unfolded list: folds it again."
   },
   "shell.showAll.region": {
-    "defaultMessage": "{label}, all {n}",
+    "defaultMessage": "{label}, all {n, number}",
     "description": "The name, for screen readers, of a list unfolded to all its items. {label} says what they are (given by each view); {n} how many."
   },
   "shell.signIn.said": {
@@ -1360,7 +1360,7 @@
     "description": "A table whose filters match nothing."
   },
   "shell.table.page": {
-    "defaultMessage": "Page {page} of {pages}",
+    "defaultMessage": "Page {page, number} of {pages, number}",
     "description": "Under a table: which page it shows."
   },
   "shell.table.pages": {
@@ -1372,7 +1372,7 @@
     "description": "A table's button."
   },
   "shell.table.range": {
-    "defaultMessage": "{from}–{to} of {total}",
+    "defaultMessage": "{from, number}–{to, number} of {total, number}",
     "description": "Under a table: which of its rows the page shows."
   },
   "shell.table.rowsPerPage": {

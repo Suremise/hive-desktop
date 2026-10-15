@@ -46,7 +46,7 @@ export function agentRuntime(st: Pick<LiveSessionState, 'runtime' | 'turn' | 'ba
 export function unknownStateText(st: Pick<LiveSessionState, 'turn'> | null | undefined, now = Date.now(), tr?: Tr): string | null {
   if (st?.turn?.state !== 'unknown') return null
   const minutes = st.turn.silentSince ? minutesSince(st.turn.silentSince, now) : null
-  if (tr) return tr(msg({ id: 'panes.runtime.silent', defaultMessage: 'Silent {minutes} min · state unknown', description: "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell) and can't tell what it is doing. Keep it short." }), { minutes: minutes ?? '?' })
+  if (tr) return tr(msg({ id: 'panes.runtime.silent', defaultMessage: 'Silent {known, select, yes {{minutes, number}} other {?}} min · state unknown', description: "An agent's status (its pane, the agents table): Hive has heard nothing of its turn for {minutes} minutes (? when it can't tell: known is no) and can't tell what it is doing. Keep it short." }), { known: minutes === null ? 'no' : 'yes', minutes: minutes ?? 0 })
   return `Silent ${minutes ?? '?'} min · state unknown` // i18n-ignore: agent-facing (the Agent API's agent state)
 }
 

@@ -40,11 +40,11 @@
     "description": "An attachment's kind: a text or code file. Keep it short."
   },
   "sessions.branch.archive": {
-    "defaultMessage": "{scope, select, session {Archive with Its Sub-sessions… ({n})} other {Archive All… ({n})}}",
+    "defaultMessage": "{scope, select, session {Archive with Its Sub-sessions… ({n, number})} other {Archive All… ({n, number})}}",
     "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): archives the {n} sessions in it."
   },
   "sessions.branch.delete": {
-    "defaultMessage": "{scope, select, session {Delete with Its Sub-sessions… ({n})} other {Delete All… ({n})}}",
+    "defaultMessage": "{scope, select, session {Delete with Its Sub-sessions… ({n, number})} other {Delete All… ({n, number})}}",
     "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): deletes the {n} sessions in it from Hive."
   },
   "sessions.branch.nothingToArchive": {
@@ -52,11 +52,11 @@
     "description": "Why Archive All is greyed out: no session in the branch is Hive's own (only Hive's sessions can be archived)."
   },
   "sessions.branch.unarchive": {
-    "defaultMessage": "{scope, select, session {Unarchive with Its Sub-sessions ({n})} other {Unarchive All ({n})}}",
+    "defaultMessage": "{scope, select, session {Unarchive with Its Sub-sessions ({n, number})} other {Unarchive All ({n, number})}}",
     "description": "Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): unarchives the {n} archived sessions in it."
   },
   "sessions.bulk.andMore": {
-    "defaultMessage": "…and {n} more",
+    "defaultMessage": "…and {n, number} more",
     "description": "The last line of the list of sessions passed over, when it is cut short: how many more."
   },
   "sessions.bulk.archiveAll": {
@@ -100,7 +100,7 @@
     "description": "A notification's title: how many sessions were archived, unarchived or deleted."
   },
   "sessions.bulk.doneSkipped": {
-    "defaultMessage": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped} skipped: {why}",
+    "defaultMessage": "{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped, number} skipped: {why}",
     "description": "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")."
   },
   "sessions.bulk.failed": {
@@ -108,7 +108,7 @@
     "description": "An error's title: archiving, unarchiving or deleting many sessions (the Hive Assistant's: conversations) failed."
   },
   "sessions.bulk.skipCount": {
-    "defaultMessage": "{n} {reason}",
+    "defaultMessage": "{n, number} {reason}",
     "description": "How many sessions were passed over for one reason ({reason}: \"running\", \"in use\"), listed after \"n skipped:\"."
   },
   "sessions.bulk.skipNote": {
@@ -288,7 +288,7 @@
     "description": "Tooltip in a transcript's image viewer: the next image (the → key)."
   },
   "sessions.image.position": {
-    "defaultMessage": "{n} of {total}",
+    "defaultMessage": "{n, number} of {total, number}",
     "description": "In a transcript's image viewer: which image this is ({n}) of how many ({total})."
   },
   "sessions.image.reveal": {

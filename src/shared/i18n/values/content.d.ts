@@ -28,7 +28,7 @@ interface HiveMessageValues {
   'content.mcp.zipLarge': { mb: string | number }
   'content.mcp.zipLink': { path: string | number }
   'content.mcp.zipNoDefinition': { files: string | number }
-  'content.mcp.zipTooMany': { max: string | number }
+  'content.mcp.zipTooMany': { max: number }
   'content.mcp.zipUnreadable': undefined
   'content.mcp.zipUnsafe': { path: string | number }
   'content.mode.noAssistant': undefined

@@ -136,7 +136,7 @@
     "description": "Heading of the Attachments tab."
   },
   "files.attachments.total": {
-    "defaultMessage": "{host, select, assistant {{total} in {groups, plural, one {# conversation} other {# conversations}}} other {{total} in {groups, plural, one {# session} other {# sessions}}}}",
+    "defaultMessage": "{host, select, assistant {{total, number} in {groups, plural, one {# conversation} other {# conversations}}} other {{total, number} in {groups, plural, one {# session} other {# sessions}}}}",
     "description": "Beside the Attachments heading: how many attachments, in how many sessions (conversations for the Hive Assistant)."
   },
   "files.attachments.unnamed": {
@@ -556,7 +556,7 @@
     "description": "Tooltip on the attachment viewer's right arrow. Keep the arrow."
   },
   "files.viewer.position": {
-    "defaultMessage": "{index} of {count}",
+    "defaultMessage": "{index, number} of {count, number}",
     "description": "The attachment viewer's footer: which attachment of how many is shown."
   },
   "files.viewer.readFailed": {

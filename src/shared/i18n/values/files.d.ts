@@ -35,7 +35,7 @@ interface HiveMessageValues {
   'files.attachments.running': { host: string }
   'files.attachments.runningBadge': undefined
   'files.attachments.title': undefined
-  'files.attachments.total': { host: string; total: string | number; groups: number }
+  'files.attachments.total': { host: string; total: number; groups: number }
   'files.attachments.unnamed': { host: string; id: string | number }
   'files.attachments.view': undefined
   'files.collapseAll': undefined
@@ -140,7 +140,7 @@ interface HiveMessageValues {
   'files.viewer.newer': undefined
   'files.viewer.noPreview': undefined
   'files.viewer.older': undefined
-  'files.viewer.position': { index: string | number; count: string | number }
+  'files.viewer.position': { index: number; count: number }
   'files.viewer.readFailed': { error: string | number }
   'files.viewer.tooLarge': undefined
 }

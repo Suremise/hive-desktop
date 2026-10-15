@@ -52,7 +52,7 @@ interface HiveMessageValues {
   'service.git.exitCode': { code: string | number }
   'service.git.failed': { command: string | number; why: string | number }
   'service.git.outside': undefined
-  'service.git.tooLarge': { kb: string | number }
+  'service.git.tooLarge': { kb: number }
   'service.gitRepo.addFailed': { remote: string | number; why: string | number }
   'service.gitRepo.added': { remote: string | number }
   'service.gitRepo.alreadyOn': { branch: string | number }
@@ -65,7 +65,7 @@ interface HiveMessageValues {
   'service.gitRepo.createdSwitched': { name: string | number }
   'service.gitRepo.detachedPull': undefined
   'service.gitRepo.detachedPush': undefined
-  'service.gitRepo.diverged': { branch: string | number; upstream: string | number; ahead: number; behind: string | number }
+  'service.gitRepo.diverged': { branch: string | number; upstream: string | number; ahead: number; behind: number }
   'service.gitRepo.exitCode': { code: string | number }
   'service.gitRepo.fetchFailed': { why: string | number }
   'service.gitRepo.fetched': { remotes: string | number }

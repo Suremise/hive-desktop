@@ -329,9 +329,9 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
       { label: tr(EXPAND_ALL), icon: 'expand-all', onClick: () => setOpen(keys, true) },
       { label: tr(COLLAPSE_ALL), icon: 'collapse-all', onClick: () => setOpen(keys, false) },
       { separator: true },
-      { label: tr(msg({ id: 'sessions.branch.archive', defaultMessage: '{scope, select, session {Archive with Its Sub-sessions… ({n})} other {Archive All… ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): archives the {n} sessions in it.' }), { scope, n: archiving }), icon: 'archive', disabled: !archiving, detail: archiving ? undefined : tr(msg({ id: 'sessions.branch.nothingToArchive', defaultMessage: "Nothing of Hive's to archive here", description: "Why Archive All is greyed out: no session in the branch is Hive's own (only Hive's sessions can be archived)." })), onClick: () => void runBulk(n, 'archive') },
-      ...(unarchiving ? [{ label: tr(msg({ id: 'sessions.branch.unarchive', defaultMessage: '{scope, select, session {Unarchive with Its Sub-sessions ({n})} other {Unarchive All ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): unarchives the {n} archived sessions in it.' }), { scope, n: unarchiving }), icon: 'unarchive', onClick: () => void runBulk(n, 'unarchive') }] : []),
-      { label: tr(msg({ id: 'sessions.branch.delete', defaultMessage: '{scope, select, session {Delete with Its Sub-sessions… ({n})} other {Delete All… ({n})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): deletes the {n} sessions in it from Hive.' }), { scope, n: deleting }), icon: 'trash', danger: true, disabled: !deleting, onClick: () => void runBulk(n, 'delete') }
+      { label: tr(msg({ id: 'sessions.branch.archive', defaultMessage: '{scope, select, session {Archive with Its Sub-sessions… ({n, number})} other {Archive All… ({n, number})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): archives the {n} sessions in it.' }), { scope, n: archiving }), icon: 'archive', disabled: !archiving, detail: archiving ? undefined : tr(msg({ id: 'sessions.branch.nothingToArchive', defaultMessage: "Nothing of Hive's to archive here", description: "Why Archive All is greyed out: no session in the branch is Hive's own (only Hive's sessions can be archived)." })), onClick: () => void runBulk(n, 'archive') },
+      ...(unarchiving ? [{ label: tr(msg({ id: 'sessions.branch.unarchive', defaultMessage: '{scope, select, session {Unarchive with Its Sub-sessions ({n, number})} other {Unarchive All ({n, number})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): unarchives the {n} archived sessions in it.' }), { scope, n: unarchiving }), icon: 'unarchive', onClick: () => void runBulk(n, 'unarchive') }] : []),
+      { label: tr(msg({ id: 'sessions.branch.delete', defaultMessage: '{scope, select, session {Delete with Its Sub-sessions… ({n, number})} other {Delete All… ({n, number})}}', description: 'Menu item on a branch of the Sessions tree (a provider or an agent: All; a session: with the sessions it started): deletes the {n} sessions in it from Hive.' }), { scope, n: deleting }), icon: 'trash', danger: true, disabled: !deleting, onClick: () => void runBulk(n, 'delete') }
     ]
   }
   const menuFor = (n: TreeNode): MenuEntry[] => (n.kind === 'session' ? sessionMenu(n) : branchEntries(n))
@@ -646,13 +646,13 @@ function reportBulk(action: SessionBulkAction, r: SessionBulkResult, name: (id: 
   const reasons = new Map<SessionSkipReason, number>()
   for (const s of r.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1)
   const why = fmt.list(
-    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: skipText(k) })),
+    [...reasons].map(([k, v]) => tr(msg({ id: 'sessions.bulk.skipCount', defaultMessage: '{n, number} {reason}', description: 'How many sessions were passed over for one reason ({reason}: "running", "in use"), listed after "n skipped:".' }), { n: v, reason: skipText(k) })),
     'unit'
   )
   const shown = r.skipped.slice(0, 6).map((s) => `• ${name(s.id)}: ${skipText(s.reason)}${s.message ? ` (${s.message})` : ''}`)
-  if (r.skipped.length > shown.length) shown.push(tr(msg({ id: 'sessions.bulk.andMore', defaultMessage: '…and {n} more', description: 'The last line of the list of sessions passed over, when it is cut short: how many more.' }), { n: r.skipped.length - shown.length }))
+  if (r.skipped.length > shown.length) shown.push(tr(msg({ id: 'sessions.bulk.andMore', defaultMessage: '…and {n, number} more', description: 'The last line of the list of sessions passed over, when it is cut short: how many more.' }), { n: r.skipped.length - shown.length }))
   if (closed) shown.push(closed)
-  notify(n ? 'warning' : 'error', tr(msg({ id: 'sessions.bulk.doneSkipped', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped} skipped: {why}', description: "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")." }), { ...head, skipped: r.skipped.length, why }), shown.join('\n'))
+  notify(n ? 'warning' : 'error', tr(msg({ id: 'sessions.bulk.doneSkipped', defaultMessage: '{action, select, archive {Archived} unarchive {Unarchived} other {Deleted}} {n, plural, one {# session} other {# sessions}}; {skipped, number} skipped: {why}', description: "A notification's title: how many sessions were archived, unarchived or deleted, and how many were passed over and why ({why}: \"2 running, 1 in use\")." }), { ...head, skipped: r.skipped.length, why }), shown.join('\n'))
 }
 
 // The words used in several places of the tab, as messages (shown with tr() where they render).
@@ -704,8 +704,8 @@ function BranchRow({ n, depth, open, cursor, onClick, onContextMenu, onMore }: {
       <span className={cx('label', n.removed && 'removed')}>{n.label}</span>
       <Tooltip content={countText(c)}>
         <span className="tree-count">
-          {c.sessions}
-          {c.subs > 0 && <span className="faint"> + {c.subs}</span>}
+          {fmt.number(c.sessions)}
+          {c.subs > 0 && <span className="faint"> + {fmt.number(c.subs)}</span>}
         </span>
       </Tooltip>
       <div className="row-actions" onClick={(e) => e.stopPropagation()}>
@@ -1373,7 +1373,7 @@ function TranscriptImageViewer({ project, sessionId, image, images, onNavigate, 
       footer={
         <>
           <span className="faint" style={{ marginRight: 'auto' }}>
-            {tr(msg({ id: 'sessions.image.position', defaultMessage: '{n} of {total}', description: "In a transcript's image viewer: which image this is ({n}) of how many ({total})." }), { n: i + 1, total: images.length })}
+            {tr(msg({ id: 'sessions.image.position', defaultMessage: '{n, number} of {total, number}', description: "In a transcript's image viewer: which image this is ({n}) of how many ({total})." }), { n: i + 1, total: images.length })}
           </span>
           {image.path && (
             <>

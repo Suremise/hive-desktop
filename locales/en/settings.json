@@ -460,7 +460,7 @@
     "description": "An advanced setting's value: a number of card-loop lanes the Progress panel shows."
   },
   "settings.advanced.unit.seconds": {
-    "defaultMessage": "{n} s",
+    "defaultMessage": "{n, number} s",
     "description": "An advanced setting's value in seconds, short: \"300 s\". {n} is the number."
   },
   "settings.advanced.values.desc": {

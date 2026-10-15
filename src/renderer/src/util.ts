@@ -30,7 +30,7 @@ export function formatDuration(seconds: number): string {
   if (seconds < 60) return tr(msg({ id: 'actions.duration.seconds', defaultMessage: '{s}s', description: 'A very short duration in seconds ("40s"), as a compact figure. Keep it as short as possible.' }), { s: Math.round(seconds) })
   const m = Math.floor(seconds / 60)
   if (m < 60) return tr(msg({ id: 'actions.duration.minutes', defaultMessage: '{m}m', description: 'A very short duration in minutes ("4m"), as a compact figure. Keep it as short as possible.' }), { m })
-  return tr(msg({ id: 'actions.duration.hoursMinutes', defaultMessage: '{h}h {m}m', description: 'A very short duration in hours and minutes ("1h 5m"), as a compact figure. Keep it as short as possible.' }), { h: Math.floor(m / 60), m: m % 60 })
+  return tr(msg({ id: 'actions.duration.hoursMinutes', defaultMessage: '{h, number}h {m}m', description: 'A very short duration in hours and minutes ("1h 5m"), as a compact figure. Keep it as short as possible.' }), { h: Math.floor(m / 60), m: m % 60 })
 }
 
 export function cx(...parts: (string | false | null | undefined)[]): string {

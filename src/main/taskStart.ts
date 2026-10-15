@@ -45,7 +45,7 @@ const MAX_NOTE = 4000
  * "address the latest review comment"), added to the prompt.
  */
 export async function startTask(n: number, target: TaskStartTarget, actor: TaskActor, note?: string): Promise<{ card: TaskCard; agentId: string; agentName: string; added: boolean }> {
-  if (note && note.length > MAX_NOTE) throw hiveError(msg({ id: 'tasks.start.noteTooLong', defaultMessage: 'The note is too long (at most {max} characters).', description: 'An error: the note given with a Start (what the agent should do now) is longer than it may be ({max}, a number of characters).' }), { max: MAX_NOTE }, { kind: 'invalid' })
+  if (note && note.length > MAX_NOTE) throw hiveError(msg({ id: 'tasks.start.noteTooLong', defaultMessage: 'The note is too long (at most {max, number} characters).', description: 'An error: the note given with a Start (what the agent should do now) is longer than it may be ({max}, a number of characters).' }), { max: MAX_NOTE }, { kind: 'invalid' })
   const key = `${(workspace.path ?? '').toLowerCase()}#${n}`
   if (starting.has(key)) throw hiveError(msg({ id: 'tasks.start.alreadyStarting', defaultMessage: '#{n} is already being started.', description: 'An error: card #{n} (a number) is being started already; a second Start of it is refused.' }), { n })
   starting.add(key)

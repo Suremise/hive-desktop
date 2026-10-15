@@ -164,7 +164,7 @@
     "description": "Why an unsaved file couldn't be saved (after its name, in a list): it changed on disk since it was opened. Lower case."
   },
   "actions.duration.hoursMinutes": {
-    "defaultMessage": "{h}h {m}m",
+    "defaultMessage": "{h, number}h {m}m",
     "description": "A very short duration in hours and minutes (\"1h 5m\"), as a compact figure. Keep it as short as possible."
   },
   "actions.duration.minutes": {

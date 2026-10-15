@@ -116,7 +116,7 @@ interface HiveMessageValues {
   'settings.advanced.takes.text': undefined
   'settings.advanced.unit.agents': { n: number }
   'settings.advanced.unit.lanes': { n: number }
-  'settings.advanced.unit.seconds': { n: string | number }
+  'settings.advanced.unit.seconds': { n: number }
   'settings.advanced.values.desc': undefined
   'settings.advanced.values.tip': undefined
   'settings.advanced.values.title': undefined
