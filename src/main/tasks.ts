@@ -6,7 +6,8 @@ import { projectAgents } from '../shared/defaults'
 import { englishText, withValues, type Text } from '../shared/advanced'
 import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
-import { HISTORY, storedMessage, storedText } from '../shared/taskHistory'
+import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
+import { providerMessage } from '../shared/providers'
 import type { ArchiveBatch, ArchiveRequest, ArchiveResult, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
@@ -664,9 +665,9 @@ const clip = (s: string, max = 80): string => {
 
 /** A history line's English, from its message and values: what agents read and Hive's own code matches (`what`). */
 const englishSaid = (s: StoredText): string => {
-  const m = storedMessage(s)
-  if (!m) throw new Error(`No history line ${s.id}`) // i18n-ignore: a mistake in Hive's code, never shown
-  return englishText(s.values ? withValues(m, s.values) : m)
+  const t = storedLineText(s, (m, values) => englishText(values ? withValues(m, values) : m), providerMessage)
+  if (t === null) throw new Error(`No history line ${s.id}`) // i18n-ignore: a mistake in Hive's code, never shown
+  return t
 }
 
 /**

@@ -40,7 +40,8 @@ export interface HiveErrorData {
  */
 export interface StoredText {
   id: string
-  values?: Record<string, string | number>
+  /** A value can be a message of its own (#866: a CLI's sentence in a comment Hive writes), formatted in the same language. */
+  values?: Record<string, string | number | StoredText>
 }
 /** The window's text as data beside an English field (above), by name: what the Agent API leaves out of its replies. */
 export type WindowTextField =

@@ -66,7 +66,9 @@ interface HiveMessageValues {
   'board.busy.assistantWatching': undefined
   'board.busy.reviewing': { agent: string | number }
   'board.busy.watching': { agent: string | number }
+  'board.busy.watchingUnnamed': undefined
   'board.busy.working': { agent: string | number }
+  'board.busy.workingUnnamed': undefined
   'board.card.archive': undefined
   'board.card.blocked': undefined
   'board.card.blockedTip': { reason: string | number }

@@ -1,5 +1,7 @@
-import { msg } from './i18n/msg'
+import { msg, type Msg } from './i18n/msg'
 import type { Tr } from './tasks'
+import type { StoredText } from './types'
+import { HISTORY } from './taskHistory'
 
 /**
  * A CLI's safety classifier stopping an agent's response, or the model it runs on changing after one (#606): Opus 5.5's
@@ -136,6 +138,29 @@ export function noteSafeguard(note: SafeguardNote | undefined, ev: SafeguardEven
 export function safeguardTime(iso: string): string {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * The comment Hive writes on an agent's cards after its model changed with a safeguard stop (#606), as stored text
+ * (#866): its English is the agent's name, safeguardText's sentences and the CLI's `help`, word for word as before; the
+ * window shows it in its language. `label`: the CLI's model names.
+ */
+export function safeguardComment(note: SafeguardNote & { switched: NonNullable<SafeguardNote['switched']> }, agent: string, label: (model: string) => string, help: Msg | null): StoredText {
+  const values: Record<string, string | number | StoredText> = {
+    agent,
+    stops: note.stops,
+    model: note.model ? label(note.model) : 'none',
+    time: safeguardTime(note.at),
+    to: label(note.switched.to),
+    from: label(note.switched.from),
+    since: safeguardTime(note.switched.at),
+    state: note.prompt ? 'asks' : note.idle ? 'idle' : 'none',
+    hasTools: note.tools.length && note.stops > 0 ? 'yes' : 'no',
+    tools: note.tools.join(', '),
+    hasHelp: help ? 'yes' : 'no',
+    help: help ? { id: help.id } : ''
+  }
+  return { id: HISTORY.safeguardStop.id, values }
 }
 
 /** "its last tool calls: Bash, Edit, Bash", or '' with none (English: a card comment quotes it). */

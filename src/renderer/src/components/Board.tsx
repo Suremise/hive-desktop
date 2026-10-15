@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentInfo, ArchiveBatch, BoardFold, ProjectInfo, ProviderId, StoredText, TaskCard, TaskColumn, TaskDecision, TaskPatch, TaskStartTarget } from '@shared/types'
-import { BY_TEXT, storedMessage } from '@shared/taskHistory'
+import { BUSY, BY_TEXT, storedLineText } from '@shared/taskHistory'
 import { gitProblemText } from '@shared/gitTool'
 import { agentRuntime } from '@shared/runtime'
 import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBatchText, cardMatches, newSinceStart, archivedAt, columnColor, columnName, notWatchingReason, reviewStalled, reviewVerdictWaitReason, reviewWaitReason, stalledReason, taskOverview, type BoardFoldChange } from '@shared/tasks'
-import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
+import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerMessage, providerName } from '@shared/providers'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { call, errorMessage } from '../api'
 import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useLanguage, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
@@ -111,13 +111,13 @@ const inProject = (c: TaskCard, project: string | null): boolean => project === 
 function cardBusy(c: TaskCard, projects: ProjectInfo[], assistant: ProjectInfo | null): string | null {
   if (c.column === 'doing') {
     const { agent } = cardAgent(projects, c)
-    if (agent?.live) return tr(msg({ id: 'board.busy.working', defaultMessage: '{agent} is working on it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it." }), { agent: agent.name })
+    if (agent?.live) return tr(BUSY.working, { agent: agent.name })
   }
-  if (c.review) return tr(msg({ id: 'board.busy.reviewing', defaultMessage: '{agent} is reviewing it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is reviewing it." }), { agent: c.review.agentName })
+  if (c.review) return tr(BUSY.reviewing, { agent: c.review.agentName })
   for (const p of assistant ? [...projects, assistant] : projects) {
     const a = p.agents.find((x) => x.live?.watch?.cards.includes(c.number))
-    if (a && p === assistant) return tr(msg({ id: 'board.busy.assistantWatching', defaultMessage: 'The Assistant is watching it', description: 'Why Archive All skips a card (listed in its dialog): the Hive Assistant waits for it to change.' }))
-    if (a) return tr(msg({ id: 'board.busy.watching', defaultMessage: '{agent} is watching it', description: "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change." }), { agent: a.name })
+    if (a && p === assistant) return tr(BUSY.assistantWatching)
+    if (a) return tr(BUSY.watching, { agent: a.name })
   }
   return null
 }
@@ -1325,10 +1325,9 @@ export function BoardPanel() {
  * one whose message this Hive doesn't know.
  */
 function storedLine(english: string, stored: StoredText | undefined): string {
-  const m = storedMessage(stored)
-  if (!m || !stored) return english
-  const values = stored.values && typeof stored.values.label === 'string' ? { ...stored.values, label: archiveBatchText(stored.values.label, tr) } : stored.values
-  return tr(m, values)
+  if (!stored) return english
+  const shown = stored.values && typeof stored.values.label === 'string' ? { ...stored, values: { ...stored.values, label: archiveBatchText(stored.values.label, tr) } } : stored
+  return storedLineText(shown, (m, values) => tr(m, values), providerMessage) ?? english
 }
 
 /** Who wrote a history line or a comment, as stored (English: "You", "Assistant", "Repair"), in the window's language; Hive and agents' names as they are. */

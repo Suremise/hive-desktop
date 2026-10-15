@@ -259,9 +259,17 @@
     "defaultMessage": "{agent} is watching it",
     "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) waits for it to change."
   },
+  "board.busy.watchingUnnamed": {
+    "defaultMessage": "An agent is watching it",
+    "description": "Why Archive All skips a card (listed in its dialog): an agent (whose name isn't known) waits for it to change."
+  },
   "board.busy.working": {
     "defaultMessage": "{agent} is working on it",
     "description": "Why Archive All skips a card (listed in its dialog): an agent ({agent}, its name) is working on it."
+  },
+  "board.busy.workingUnnamed": {
+    "defaultMessage": "Its agent is working on it",
+    "description": "Why Archive All skips a card (listed in its dialog): its agent (whose name isn't known) is working on it."
   },
   "board.card.archive": {
     "defaultMessage": "Archive",

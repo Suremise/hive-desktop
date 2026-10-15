@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { projectAgents } from '../shared/defaults'
 import type { TaskCard, TaskHistoryEntry } from '../shared/types'
+import { HISTORY, storedText } from '../shared/taskHistory'
 import { cardChange, loopWakeLine, wakeAbout } from '../shared/watch'
 import { onHiveEvent } from './events'
 import { listLanes, onLanesWritten } from './lanes'
@@ -208,7 +209,7 @@ registerSource('loop', {
     const p = wakeOf(r)
     const ws = workspaceFor(host)
     if (!p || !ws) return
-    inBackground(`noting a loop wake on #${p.n}`, noteOnCard(p.n, `Woke ${p.agentName} ${p.kind === 'review' ? 'to review it' : 'with its verdict'} (a loop wake)`, ws))
+    inBackground(`noting a loop wake on #${p.n}`, noteOnCard(p.n, storedText(HISTORY.loopWake, { agent: p.agentName, kind: p.kind === 'review' ? 'review' : 'verdict' }), ws))
     log.info(`Loop wake: #${p.n} to ${userText(p.agentName)}`)
   },
   ended: (r, host) => {

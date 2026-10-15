@@ -7,7 +7,8 @@ import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWak
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
 import { keepBeforeIds } from './beforeIds'
-import type { LiveSessionState, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
+import type { LiveSessionState, StoredText, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
+import { HISTORY, storedText } from '../shared/taskHistory'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
@@ -1537,7 +1538,7 @@ interface Told {
   /** What the line tells of each card it names, as read for it (#578: what loop wakes then leave alone). */
   ofCards: Record<string, Baseline>
   /** Cards released as it was made (#420), noted in their history once it is received. */
-  endedAt: { n: number; what: string }[]
+  endedAt: { n: number; what: StoredText }[]
   /** Whether it tells a reply of the user's (#418), and the replies' generation then: revoked since, it isn't given. */
   replies: boolean
   generation: number
@@ -1728,7 +1729,7 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     let laneToldAt = rec.fired.at
     let waitTold = rec.waitSeq
     let toldOfCards: Record<string, Baseline> = {}
-    const endedAt: { n: number; what: string }[] = []
+    const endedAt: { n: number; what: StoredText }[] = []
     for (const n of rec.cond.cards) {
       const s = rec.seen?.[n]
       if (s) told[n] = { mark: rec.marks[n], seen: s }
@@ -1926,17 +1927,18 @@ function releaseOf(rec: WatchRecord, n: number, card: TaskCard | null): Released
   return null
 }
 
-/** What ended a watch on a card (#420), for its history. */
-const releasedWhy = (r: Released): string => (r.why === 'blocked' ? 'the card is blocked' : r.why === 'reviewer' ? (r.detail ? `${r.detail} reviews it` : 'its review was taken from it') : `reassigned to ${r.detail ?? 'no agent'}`)
+/** What ended a watch on a card (#420), for its history: the line's reason, and who reviews it or has it now. */
+const releasedWhy = (r: Released): { why: string; agent: string } =>
+  r.why === 'blocked' ? { why: 'blocked', agent: '' } : r.why === 'reviewer' ? (r.detail ? { why: 'reviewer', agent: r.detail } : { why: 'reviewTaken', agent: '' }) : r.detail ? { why: 'reassigned', agent: r.detail } : { why: 'unassigned', agent: '' }
 
 /**
  * Takes released cards out of a watch (#420), under the store's lock: they join what its next line tells (`released`),
  * each noted for its card's history (`ended`), and the watch keeps the rest, with their marks. How many cards are left
  * (0: every card was released; the watch keeps its condition then, and its line tells only the releases).
  */
-function applyRelease(rec: WatchRecord, released: Released[], ended: { n: number; what: string }[]): number {
+function applyRelease(rec: WatchRecord, released: Released[], ended: { n: number; what: StoredText }[]): number {
   rec.released = [...(rec.released ?? []), ...released].slice(-WATCH_MAX_CARDS)
-  for (const x of released) ended.push({ n: x.number, what: `Ended ${rec.watcherName ?? rec.agentId}'s watch on it: ${releasedWhy(x)}` })
+  for (const x of released) ended.push({ n: x.number, what: storedText(HISTORY.watchEnded, { watcher: rec.watcherName ?? rec.agentId, ...releasedWhy(x) }) })
   const left = rec.cond.cards.filter((n) => !released.some((x) => x.number === n))
   if (!left.length) return 0
   rec.cond = { ...rec.cond, cards: left }
@@ -2088,7 +2090,7 @@ async function evaluate(ws: WorkspaceService): Promise<void> {
   let moved = false
   // Watches that ended on a card (#420), for its history once the watches are saved, and those left with fewer cards
   // (what their agents show changes).
-  const ended: { n: number; what: string }[] = []
+  const ended: { n: number; what: StoredText }[] = []
   const narrowed: WatchRecord[] = []
   await locked(store, async () => {
     // The projects as they are now, which the cards read below see too.

@@ -273,6 +273,9 @@ export function contextLines(u: { provider: ProviderId; contextTokens: number; c
   return lines
 }
 
+/** A message of a provider's own text (`text`) by its id, or null: a comment Hive wrote on a card names one (#866). */
+export const providerMessage = (id: string): Msg | null => PROVIDERS.flatMap((p) => Object.values(p.text ?? {})).find((m): m is Msg => !!m && m.id === id) ?? null
+
 export function providerDescriptor(id: ProviderId | null | undefined): ProviderDescriptor {
   return PROVIDERS.find((p) => p.id === (id || DEFAULT_PROVIDER)) ?? { ...UNKNOWN, id: id ?? 'unknown', name: id ?? 'Unknown provider' } // i18n-ignore: a stand-in name for a provider id Hive doesn't know
 }
