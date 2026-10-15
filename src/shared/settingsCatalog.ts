@@ -19,7 +19,7 @@ import { ADVANCED_DEFS, advancedDef, advancedTakesText, advancedText, checkAdvan
 import { language, msg } from './i18n'
 import { LANGUAGE_TEXT } from './i18n/languageText'
 import { LANGUAGES, SOURCE_LANGUAGE } from './i18n/languages'
-import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ProviderDescriptor } from './providers'
+import { AUTO_PROVIDER, PROVIDERS, dangerModes, defaultProviderSettings, modeOption, permissionLabel, projectProviderConfig, providerDescriptor, providerSettings, type ModeOption, type ProviderDescriptor } from './providers'
 
 /** Where a setting lives: Hive's own (Settings), a provider's page in Settings, the open workspace, or one project (Project Settings). */
 export type SettingScope = 'app' | 'provider' | 'workspace' | 'project'
@@ -70,6 +70,19 @@ interface Row {
   advanced?: { id: string; scope: 'app' | 'workspace' }
 }
 
+/** A permission mode's name and what it does, as text: the window's words where the descriptor has them (#885). */
+function modeLabel(m: Pick<ModeOption, 'label' | 'text'>): TextPart {
+  return m.text?.label ?? m.label
+}
+function modeWhat(m: Pick<ModeOption, 'description' | 'text'>): TextPart {
+  return m.text?.description ?? m.description
+}
+/** The name of a provider's mode by its id (the id itself when the provider has no such mode). */
+function modeLabelOf(provider: ProviderId, mode: string): TextPart {
+  const m = modeOption(provider, mode)
+  return m ? modeLabel(m) : mode
+}
+
 /** Advanced's values (#367) as catalog rows, drawn by Settings → Advanced's list: one each, and a workspace's own where it takes one. */
 function advancedRows(): Row[] {
   // One of Hive's settings (Show developer features) keeps its own entry, under its settings key.
@@ -110,7 +123,7 @@ function assistantProviderRows(p: ProviderDescriptor): Row[] {
     row(
       'permissionMode',
       msg({ id: 'settings.assistantProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A field's title in Settings → Assistant → With <provider>: the Assistant's permission mode." }),
-      withValues(msg({ id: 'settings.assistantProvider.permissionMode.desc', defaultMessage: 'Its permission mode with {provider}. Empty is {mode}, where {provider} approves safe actions itself and only asks about risky ones.', description: "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name. {mode} is a permission mode's name." }), { provider, mode: permissionLabel(p.id, p.assistantMode) })
+      withValues(msg({ id: 'settings.assistantProvider.permissionMode.desc', defaultMessage: 'Its permission mode with {provider}. Empty is {mode}, where {provider} approves safe actions itself and only asks about risky ones.', description: "A field of Settings → Assistant → With <provider>: what it is. {provider} is a coding agent's name. {mode} is a permission mode's name." }), { provider, mode: modeLabelOf(p.id, p.assistantMode) })
     ),
     ...(p.capabilities.contextLimit
       ? [
@@ -352,12 +365,12 @@ const APP_ROWS: Row[] = [
     desc: msg({ id: 'settings.agents.fileLocks.desc', defaultMessage: 'What happens when an agent tries to edit a file another agent in the same folder is editing.', description: 'What the setting "File locks" does, under its title (Settings → Agents & Worktrees).' }),
     // A line per mode, then a paragraph: messages keep no line breaks (extraction folds them), so the lines are parts.
     tip: linesOf([
-      ...FILE_LOCK_MODES.map((m) => withValues(msg({ id: 'settings.fileLocks.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of the File locks setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.label, what: m.description })),
+      ...FILE_LOCK_MODES.map((m) => withValues(msg({ id: 'settings.fileLocks.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of the File locks setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.text.label, what: m.text.description })),
       '',
       msg({ id: 'settings.agents.fileLocks.tip', defaultMessage: 'An agent claims a file when it edits it and releases it when its turn ends (or after 15 minutes). Agents in their own worktrees never collide. Edits made through shell commands are not covered.', description: 'The last paragraph of the info tip of the setting "File locks" (Settings → Agents & Worktrees), under a line per mode.' })
     ]),
     type: 'select',
-    options: FILE_LOCK_MODES.map((m) => ({ value: m.value, label: m.label }))
+    options: FILE_LOCK_MODES.map((m) => ({ value: m.value, label: m.text.label }))
   },
   { section: 'agents', key: 'worktreeCopy', title: msg({ id: 'settings.agents.worktreeCopy.title', defaultMessage: 'Copy into new worktrees', description: "A setting's title (Settings → Agents & Worktrees)." }), desc: msg({ id: 'settings.agents.worktreeCopy.desc', defaultMessage: 'Git-ignored files copied from the project folder into each new worktree, comma separated (e.g. .env*, config/local.json).', description: 'What the setting "Copy into new worktrees" does, under its title (Settings → Agents & Worktrees).' }), tip: msg({ id: 'settings.agents.worktreeCopy.tip', defaultMessage: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere; with a slash they match a path from the project root. Projects can set their own list and a setup command (e.g. npm install) in Project Settings → Agents & Worktrees.', description: 'The info tip of the setting "Copy into new worktrees" (Settings → Agents & Worktrees): more on what it does and when it applies.' }), type: 'text', placeholder: '.env*' }, // i18n-ignore: a pattern, not text
   { section: 'agents', key: 'mergeStyle', title: msg({ id: 'settings.agents.mergeStyle.title', defaultMessage: 'Default merge style', description: "A setting's title (Settings → Agents & Worktrees)." }), desc: msg({ id: 'settings.agents.mergeStyle.desc', defaultMessage: "How a worktree agent's branch is merged back, unless you choose otherwise in the Merge dialog.", description: 'What the setting "Default merge style" does, under its title (Settings → Agents & Worktrees).' }), tip: msg({ id: 'settings.agents.mergeStyle.tip', defaultMessage: "Merge keeps the agent's commits and their messages, plus a merge commit: right for an agent that keeps its worktree for task after task. Squash makes one commit with everything the agent did.", description: 'The info tip of the setting "Default merge style" (Settings → Agents & Worktrees): more on what it does and when it applies.' }), type: 'select', options: [{ value: 'merge', label: msg({ id: 'settings.agents.mergeStyle.option.merge', defaultMessage: 'Merge commit', description: 'A choice of the setting "Default merge style" (Settings → Agents & Worktrees).' }) }, { value: 'squash', label: msg({ id: 'settings.agents.mergeStyle.option.squash', defaultMessage: 'Squash', description: 'A choice of the setting "Default merge style" (Settings → Agents & Worktrees).' }) }] },
@@ -416,7 +429,7 @@ const APP_ROWS: Row[] = [
           defaultMessage: "The model, effort, permission mode{context, select, yes {, context} other {}} and extra arguments when the Assistant runs {provider}. Default follows {provider}'s own settings, except the mode: {mode}, where {provider} approves safe actions itself and only asks about risky ones.",
           description: 'What the setting "With <provider>" does (Settings → Assistant). {provider} is a coding agent\'s name, {mode} a permission mode\'s name; {context} is yes when the provider has a context-size choice.'
         }),
-        { provider: p.name, mode: permissionLabel(p.id, p.assistantMode), context: p.capabilities.contextLimit ? 'yes' : 'no' }
+        { provider: p.name, mode: modeLabelOf(p.id, p.assistantMode), context: p.capabilities.contextLimit ? 'yes' : 'no' }
       ),
       tip: msg({
         id: 'settings.assistant.withProvider.tip',
@@ -517,20 +530,20 @@ function providerRows(p: ProviderDescriptor): Row[] {
       key: 'defaultPermissionMode',
       title: msg({ id: 'settings.provider.defaultPermissionMode.title', defaultMessage: 'Default permission mode', description: "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot)." }),
       desc: msg({ id: 'settings.provider.defaultPermissionMode.desc', defaultMessage: 'The mode sessions start in unless a project overrides it.', description: 'What the setting "Default permission mode" does, under its title (Settings → a provider page: Claude Code, Codex or GitHub Copilot).' }),
-      tip: linesOf(safe.map((m) => withValues(msg({ id: 'settings.permissionModes.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of a permission mode setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.label, what: m.description }))),
+      tip: linesOf(safe.map((m) => withValues(msg({ id: 'settings.permissionModes.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of a permission mode setting\'s info tip: a mode\'s name and what it does.' }), { mode: modeLabel(m), what: modeWhat(m) }))),
       type: 'select',
-      options: safe.map((m) => ({ value: m.value, label: m.label }))
+      options: safe.map((m) => ({ value: m.value, label: modeLabel(m) }))
     }
   ]
   if (danger.length) {
     // How many modes it unlocks decides the grammar: "the Autopilot and Allow all options are".
-    const modes = { n: danger.length, names: listOf(danger.map((m) => m.label)) }
+    const modes = { n: danger.length, names: listOf(danger.map(modeLabel)) }
     defs.push({
       section,
       provider: p.id,
       key: 'enableDangerousMode',
       title: withValues(msg({ id: 'settings.provider.enableDangerousMode.title', defaultMessage: '{n, plural, one {Enable the {names} option} other {Enable the {names} options}}', description: "A setting's title (Settings → a provider page: Claude Code, Codex or GitHub Copilot): lets projects choose the modes that run every action without asking. {names} lists those modes' names; {n} is how many." }), modes),
-      desc: withValues(msg({ id: 'settings.provider.enableDangerousMode.desc', defaultMessage: 'Allow projects and agents to choose {choices}, where the agent runs every action without asking.', description: 'What the setting "Enable the <mode> option" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {choices} lists the modes\' names, in quotes, joined with "or".' }), { choices: listOf(danger.map((m) => withValues(msg({ id: 'settings.provider.enableDangerousMode.quoted', defaultMessage: '"{mode}"', description: "A mode's name in quotes, in a list of the modes a setting unlocks. Use your language's quotation marks." }), { mode: m.label })), 'disjunction') }),
+      desc: withValues(msg({ id: 'settings.provider.enableDangerousMode.desc', defaultMessage: 'Allow projects and agents to choose {choices}, where the agent runs every action without asking.', description: 'What the setting "Enable the <mode> option" does (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {choices} lists the modes\' names, in quotes, joined with "or".' }), { choices: listOf(danger.map((m) => withValues(msg({ id: 'settings.provider.enableDangerousMode.quoted', defaultMessage: '"{mode}"', description: "A mode's name in quotes, in a list of the modes a setting unlocks. Use your language's quotation marks." }), { mode: modeLabel(m) })), 'disjunction') }),
       tip: withValues(msg({ id: 'settings.provider.enableDangerousMode.tip', defaultMessage: '{n, plural, one {{names} is never a global default. When turned off, projects and agents using it return to Inherit.} other {{names} are never a global default. When turned off, projects and agents using them return to Inherit.}}', description: 'The info tip of the setting "Enable the <mode> option" (Settings → a provider page: Claude Code, Codex or GitHub Copilot). {names} lists the modes\' names; {n} is how many. Inherit is a choice of the project\'s settings: keep it as Hive shows it.' }), modes),
       type: 'boolean',
       danger: true,
@@ -672,7 +685,7 @@ function projectProviderRows(p: ProviderDescriptor): Row[] {
       title: msg({ id: 'settings.projectProvider.permissionMode.title', defaultMessage: 'Permission mode', description: "A setting's title (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot)." }),
       desc: withValues(msg({ id: 'settings.projectProvider.permissionMode.desc', defaultMessage: "The mode this project's {provider} sessions start in. Inherit uses Settings → {provider} → Default permission mode.", description: 'What the setting "Permission mode" does (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot). {provider} is its name.' }), { provider: p.name }),
       tip: linesOf([
-        ...p.permissionModes.map((m) => withValues(msg({ id: 'settings.permissionModes.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of a permission mode setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.label, what: m.description })),
+        ...p.permissionModes.map((m) => withValues(msg({ id: 'settings.permissionModes.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of a permission mode setting\'s info tip: a mode\'s name and what it does.' }), { mode: modeLabel(m), what: modeWhat(m) })),
         ...(p.capabilities.liveModeSwitch === 'cycle' ? ['', msg({ id: 'settings.projectProvider.permissionMode.cycle', defaultMessage: 'You can still switch modes inside a running session with Shift+Tab.', description: 'The last line of the setting "Permission mode"\'s info tip (Project Settings → a provider section: Claude Code, Codex or GitHub Copilot), for a provider that switches modes in a session.' })] : [])
       ]),
       type: 'custom'
@@ -709,12 +722,12 @@ const PROJECT_ROWS: Row[] = [
     title: msg({ id: 'settings.project.fileLocks.title', defaultMessage: 'File locks', description: "A setting's title (Project Settings → Agents & Worktrees)." }),
     desc: msg({ id: 'settings.project.fileLocks.desc', defaultMessage: "What happens when an agent tries to edit a file another agent in this project's folder is editing. Inherit uses Settings → Agents & Worktrees → File locks.", description: 'What the setting "File locks" does, under its title (Project Settings → Agents & Worktrees).' }),
     tip: linesOf([
-      ...FILE_LOCK_MODES.map((m) => withValues(msg({ id: 'settings.fileLocks.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of the File locks setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.label, what: m.description })),
+      ...FILE_LOCK_MODES.map((m) => withValues(msg({ id: 'settings.fileLocks.modeLine', defaultMessage: '{mode}: {what}', description: 'A line of the File locks setting\'s info tip: a mode\'s name and what it does.' }), { mode: m.text.label, what: m.text.description })),
       '',
       msg({ id: 'settings.project.fileLocks.tip', defaultMessage: 'Applies to agents sharing a folder (agents in their own worktrees never collide). An agent claims a file when it edits it and releases it when its turn ends. Edits made through shell commands are not covered.', description: 'The last paragraph of the info tip of the setting "File locks" (Project Settings → Agents & Worktrees), under a line per mode.' })
     ]),
     type: 'select',
-    options: [INHERIT, ...FILE_LOCK_MODES.map((m): RowOption => ({ value: m.value, label: m.label }))]
+    options: [INHERIT, ...FILE_LOCK_MODES.map((m): RowOption => ({ value: m.value, label: m.text.label }))]
   },
   { section: 'agents', key: 'worktreeCopy', title: msg({ id: 'settings.project.worktreeCopy.title', defaultMessage: 'Copy into new worktrees', description: "A setting's title (Project Settings → Agents & Worktrees)." }), desc: msg({ id: 'settings.project.worktreeCopy.desc', defaultMessage: 'Git-ignored files to copy from the project folder into a new worktree, such as .env files. One pattern per line; empty inherits Settings → Agents & Worktrees → Copy into new worktrees.', description: 'What the setting "Copy into new worktrees" does, under its title (Project Settings → Agents & Worktrees).' }), tip: msg({ id: 'settings.project.worktreeCopy.tip', defaultMessage: 'A new worktree only gets the files git tracks. Patterns without a slash match a file or folder name anywhere (e.g. .env*); with a slash they match a path from the project root (e.g. config/local.json). Large folders such as node_modules are better recreated by the setup command.', description: 'The info tip of the setting "Copy into new worktrees" (Project Settings → Agents & Worktrees): more on what it does and when it applies.' }), type: 'custom' },
   { section: 'agents', key: 'worktreeSetup', title: msg({ id: 'settings.project.worktreeSetup.title', defaultMessage: 'Setup command', description: "A setting's title (Project Settings → Agents & Worktrees)." }), desc: msg({ id: 'settings.project.worktreeSetup.desc', defaultMessage: "Runs in a new worktree before its agent's first session, e.g. npm install. Its output shows in the agent's pane.", description: 'What the setting "Setup command" does, under its title (Project Settings → Agents & Worktrees).' }), tip: msg({ id: 'settings.project.worktreeSetup.tip', defaultMessage: 'Runs with cmd.exe in the worktree folder. If it fails, the pane offers to retry or to start the agent without it.', description: 'The info tip of the setting "Setup command" (Project Settings → Agents & Worktrees): more on what it does and when it applies.' }), type: 'text', placeholder: 'npm install' }, // i18n-ignore: a command, not text

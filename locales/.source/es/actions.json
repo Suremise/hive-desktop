@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m}m",
   "actions.duration.seconds": "{s}s",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Del",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "Could not change layout",
   "actions.mcp.add": "Add",
   "actions.mcp.addFailed": "Could not add the server",

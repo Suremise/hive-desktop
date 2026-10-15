@@ -5,7 +5,7 @@ import { call } from '../api'
 import { clearEditorDraftsUnder } from '../editorDrafts'
 import { confirm, prompt, set, useStore } from '../store'
 import { cx } from '../util'
-import { choosePersona, personaName, usePersonas } from './Assistant'
+import { choosePersona, personaDescription, personaName, usePersonas } from './Assistant'
 import { DocEditor } from './DocEditor'
 import { Icon, IconButton, Tooltip } from './ui'
 import { msg, tr } from '@shared/i18n'
@@ -101,7 +101,7 @@ export function PersonaList() {
                 {p.id === byDefault && <span className="badge">{tr(M.defaultBadge)}</span>}
               </div>
               <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {p.bundled === 'missing' ? tr(M.shipsMissing) : p.description}
+                {p.bundled === 'missing' ? tr(M.shipsMissing) : personaDescription(p)}
               </div>
             </div>
             <div className="row-actions" onClick={(e) => e.stopPropagation()}>
@@ -140,7 +140,7 @@ export function PersonaView() {
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <span style={{ fontSize: 32 }}>{p.icon || '🐝'}</span>
         <strong>{personaName(p)}</strong>
-        <span className="faint">{p.description}</span>
+        <span className="faint">{personaDescription(p)}</span>
         <button className="btn primary" onClick={() => void restorePersona(p)}>
           <Icon name="history" /> {tr(M.restoreHere)}
         </button>

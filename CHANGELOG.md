@@ -6,6 +6,8 @@
 - **Choose the language Hive shows.** Settings → General → Language: *Automatic* follows Windows' display language, or choose a language by its own name; the change shows at once. Languages translated by AI are marked, and improvements are welcome. Hive's text is being translated for this release, so much of it is still English. Agents and the Hive Assistant are still spoken to in English. `--lang=<code>` starts Hive in a language for one run.
 - **Date format: System now follows Windows' regional format**, not the language Hive shows.
 - **Longer words fit.** Screens that cut text off or ran past their edges in longer languages, and often in English in a narrow window, now shorten it with "…" (in full on hover), wrap it or make room: the project header folds its buttons to icons as soon as they don't fit, keeping the project's name and status; board column names, the agent strip (which fades where more agents are scrolled out of view, with a › to scroll to them, and folds Add Agent and the layout buttons to keep room for the tabs), the archived cards' table (Unarchive stays in view), permission mode descriptions (two lines), the Sessions tab's title and compaction rows, the Assistant's skills and modes lists, the commit identity table, the Progress panel's run details and the Load template dialog (#886).
+- **Less English left in a translated window.** The permission and file lock modes' names in Settings, the default provider and effort, where a provider's models come from, the board's column colours, the Assistant's status line and its modes' descriptions, where a CLI was found, and key names in menus (Strg, Entf in German) now show in the language you chose.
+- **Japanese and Chinese read better.** Lists are joined with 、, a weekday reads as one beside its time, sentences follow each other without a space, lines don't start with small kana or closing punctuation and labels break between phrases, paths show \ rather than ¥, and the "Hive can't start" window uses the language's own font.
 
 ### Agents
 - **Remove All and the unused worktrees list are quicker on a busy machine.** Checking which worktrees could be deleted reads the project's worktree list and main branch once, not once per worktree.
@@ -16,6 +18,9 @@
 
 ### Progress panel
 - **Put your lanes in your own order.** Drag a running lane up or down in the Progress panel's lane list (a line shows where it goes), or focus it and press Alt+Up or Alt+Down; its right-click menu has Move Up, Move Down and Usual Order. Each workspace keeps the order, after a restart too: a new lane comes in on top, and a lane that is merged or abandoned drops to the bottom, after those that stopped before it, so the latest is always last (#568).
+
+### Attachments
+- **Easier to scan.** Files that aren't images show their type's icon (Markdown, JSON, PDF, zip, code, text) instead of one icon for all, every tile shows its size, and a session's heading shows the days its attachments were added ("Oct 9 – today"), with a divider where each day starts (#900).
 
 ### Sessions
 - **Clean up old sessions in one go.** The Sessions tab's new Clean Up Old Sessions… button archives (the default) or deletes every session last active more than 24 hours, 7 days or 30 days ago. The dialog says how many will go before you confirm; running sessions, the one you're reading, the Hive Assistant's current conversation and any in use are always left alone, and the result says which (#895).

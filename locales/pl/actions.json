@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
   "actions.keys.ctrl": "Ctrl",
+  "actions.keys.delete": "Del",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "Nie udało się zmienić układu",
   "actions.mcp.add": "Dodaj",
   "actions.mcp.addFailed": "Nie udało się dodać serwera",

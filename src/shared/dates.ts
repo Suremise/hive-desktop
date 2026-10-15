@@ -85,14 +85,38 @@ export function formatWhen(d: Date | string | number, now = new Date(), style: D
   return x.toDateString() === now.toDateString() ? formatTime(x, style) : formatDateTime(x, style)
 }
 
-/** A weekday and time, for something within the coming week: "Mon 14:05". */
+/**
+ * A weekday and time, for something within the coming week: "Mon 14:05". One formatter for both, so the language
+ * places and marks the weekday ("09:05 (日)" in Japanese, where 日 alone reads as "day"; #893).
+ */
 export function formatWeekdayTime(d: Date | string | number, style: DateStyle = current): string {
   const x = toDate(d)
-  return x ? `${dateWords(x, { weekday: 'short' })} ${formatTime(x, style)}` : ''
+  if (!x) return ''
+  return dateWords(x, style.time === '12h' ? { weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true } : { weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
 
 /** A day under a chart's bar: its weekday, day and month in the language's words and order ("Mon 4 Oct", "pon., 4 paź"). */
 export function formatDayLabel(d: Date | string | number): string {
   const x = toDate(d)
   return x ? dateWords(x, { weekday: 'short', day: 'numeric', month: 'short' }) : ''
+}
+
+/** How many calendar days before `now` a date is: 0 today, 1 yesterday (whatever the clock change between). */
+export function daysAgo(d: Date | string | number, now = new Date()): number {
+  const x = toDate(d)
+  if (!x) return 0
+  const day = (t: Date): number => new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime()
+  return Math.round((day(now) - day(x)) / 86_400_000)
+}
+
+/** A day in a span of days: "9 Oct" in the language's words and order, with the year when it isn't this year's. */
+export function formatShortDay(d: Date | string | number, now = new Date()): string {
+  const x = toDate(d)
+  return x ? dateWords(x, { day: 'numeric', month: 'short', ...(x.getFullYear() !== now.getFullYear() && { year: 'numeric' }) }) : ''
+}
+
+/** A day as a divider's label: "Wednesday 15 Oct" in the language's words and order, with the year when it isn't this year's. */
+export function formatLongDay(d: Date | string | number, now = new Date()): string {
+  const x = toDate(d)
+  return x ? dateWords(x, { weekday: 'long', day: 'numeric', month: 'short', ...(x.getFullYear() !== now.getFullYear() && { year: 'numeric' }) }) : ''
 }

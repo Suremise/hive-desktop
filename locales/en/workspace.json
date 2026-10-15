@@ -655,6 +655,10 @@
     "defaultMessage": "<b>{agent}</b>'s worktree stays with the project at its old folder, which is still there (this looks like a copy).",
     "description": "Repair's plan, a line. <b> is bold."
   },
+  "workspace.move.owner": {
+    "defaultMessage": "{owner, select, project {the project} assistant {the Assistant} other {{agent}'s worktree}}",
+    "description": "Repair's plan: whose folder a coding agent's conversations are copied for, put into its lines (\"… for {of}\", workspace.move.copy and copyNone): the project, the Hive Assistant, or an agent's worktree ({agent}: its name). Word it to fit there in your translation of those lines."
+  },
   "workspace.move.pending": {
     "defaultMessage": "A worktree of {projects} was made again at a new folder, and not everything has followed it yet.",
     "description": "The banner when a worktree was made again elsewhere."
@@ -1638,6 +1642,10 @@
   "workspace.unusedList.keptTitle": {
     "defaultMessage": "{name} was kept",
     "description": "A notice: an unused worktree ({name}: its branch or folder) wasn't removed; the reason follows."
+  },
+  "workspace.unusedList.lastCommit": {
+    "defaultMessage": "{when}: {subject}",
+    "description": "An unused worktree's last commit: when it was made ({when}: \"2 days ago\") and its subject line. Your language's punctuation goes around the colon."
   },
   "workspace.unusedList.learnMore": {
     "defaultMessage": "Learn more",

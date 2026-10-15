@@ -79,6 +79,7 @@ interface HiveMessageValues {
   'content.templates.editedMeanwhile': { name: string | number }
   'content.templates.enterName': undefined
   'content.templates.failed': { error: string | number }
+  'content.templates.fenced': undefined
   'content.templates.gitBroken': { problem: string | number; count: number; names: string | number }
   'content.templates.gone': undefined
   'content.templates.importNotJson': undefined

@@ -6,7 +6,7 @@ import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { parseClaudeInitialize } from '../src/main/providers/claude/models'
 import { parseCodexModels } from '../src/main/providers/codex/models'
-import { catalogLabel, catalogModel, chosenName, effortText, fallbackEfforts, fallbackModels, modelCaps, modelGroups, modelSource, modelSourceText, shippedModels } from '../src/shared/models'
+import { catalogLabel, catalogModel, chosenName, effortText, effortUnknown, fallbackEfforts, fallbackModels, modelCaps, modelGroups, modelSource, modelSourceText, shippedModels } from '../src/shared/models'
 import { modeCaveat } from '../src/shared/providers'
 import { agentModelShown, effectiveModelLabel, effortLabel } from '../src/shared/defaults'
 import { listedPriceModels, modelPrice, priceRows, usesOwnPrices } from '../src/shared/prices'
@@ -257,6 +257,10 @@ describe('the pickers: the CLI is the source, the editable fallback otherwise', 
     expect(effortText('codex', null, 'gpt-6-sol', catalog(codex.models), null)).toBe('Medium, default')
     expect(effortText('codex', 'high', 'gpt-6-sol', catalog(codex.models), null)).toBe('High')
     expect(effortText('codex', null, 'gpt-x', null, null)).toBe('default')
+    // Whether that is the CLI's default unnamed (#885: the pickers then name the CLI, not "default").
+    expect(effortUnknown('codex', null, 'gpt-x', null, null)).toBe(true)
+    expect(effortUnknown('codex', 'inherit', 'gpt-6-sol', catalog(codex.models), null)).toBe(false)
+    expect(effortUnknown('codex', 'high', 'gpt-x', null, null)).toBe(false)
   })
 
   it('the footer shows the default effort when nothing is set or reported', () => {

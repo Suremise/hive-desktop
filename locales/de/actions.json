@@ -44,6 +44,8 @@
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
   "actions.keys.ctrl": "Strg",
+  "actions.keys.delete": "Entf",
+  "actions.keys.shift": "Shift",
   "actions.layout.failed": "Layout konnte nicht geändert werden",
   "actions.mcp.add": "Hinzufügen",
   "actions.mcp.addFailed": "Server konnte nicht hinzugefügt werden",

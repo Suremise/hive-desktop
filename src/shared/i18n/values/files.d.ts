@@ -12,13 +12,13 @@ interface HiveMessageValues {
   'files.attachments.desc': undefined
   'files.attachments.descAssistant': undefined
   'files.attachments.filters': undefined
-  'files.attachments.groupCount': { count: number; when: string | number }
   'files.attachments.groupDelete': { host: string }
   'files.attachments.groupDeleteDetail': { filtered: string; host: string }
   'files.attachments.groupDeleteFailed': undefined
   'files.attachments.groupDeleteMessage': { count: number; name: string | number }
   'files.attachments.groupDeleteTitle': { count: number }
   'files.attachments.groupDeleted': { count: number }
+  'files.attachments.groupSpan': { count: number; days: string; from: string | number; to: string | number }
   'files.attachments.info': undefined
   'files.attachments.infoAssistant': undefined
   'files.attachments.kind.image': undefined
@@ -47,6 +47,7 @@ interface HiveMessageValues {
   'files.details.git': undefined
   'files.details.ignored': undefined
   'files.details.modified': undefined
+  'files.details.modifiedAt': { when: string | number; ago: string | number }
   'files.details.none': undefined
   'files.details.noneHint': undefined
   'files.details.rename': undefined

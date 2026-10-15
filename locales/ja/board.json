@@ -414,6 +414,7 @@
   "board.slots.held": "{holder}（{sofar}経過、残り{left}）",
   "board.slots.heldOver": "{holder}（{sofar}経過、時間超過）",
   "board.slots.into": "<code>{branch}</code>へ",
+  "board.slots.line": "<branch>{name}</branch>：{state}",
   "board.slots.minutes": "{n, number}分",
   "board.slots.note": "{who}（{branch}へ、マージ枠）。枠が空くまでマージは待機します{waiting, plural, =0 {} other {（#件待機中）}}。",
   "board.slots.release": "解放",

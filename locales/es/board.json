@@ -414,6 +414,7 @@
   "board.slots.held": "{holder} ({sofar} hasta ahora, quedan {left})",
   "board.slots.heldOver": "{holder} ({sofar} hasta ahora, se pasó de su tiempo)",
   "board.slots.into": "en <code>{branch}</code>",
+  "board.slots.line": "<branch>{name}</branch>: {state}",
   "board.slots.minutes": "{n, number} min",
   "board.slots.note": "{who} en {branch} (el turno de fusión). La fusión espera hasta que quede libre{waiting, plural, =0 {} one {; # en espera} many {; # en espera} other {; # en espera}}.",
   "board.slots.release": "Liberar",

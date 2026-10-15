@@ -414,6 +414,7 @@
   "board.slots.held": "{holder}（已用 {sofar}，剩余 {left}）",
   "board.slots.heldOver": "{holder}（已用 {sofar}，已超时）",
   "board.slots.into": "合并到 <code>{branch}</code>",
+  "board.slots.line": "<branch>{name}</branch>：{state}",
   "board.slots.minutes": "{n, number} 分钟",
   "board.slots.note": "{who}（合并到 {branch}，占用合并槽位）。合并将等待槽位空闲{waiting, plural, =0 {} other {；# 个在排队}}。",
   "board.slots.release": "释放",

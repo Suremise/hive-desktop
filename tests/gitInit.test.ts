@@ -5,7 +5,7 @@
 // another repository needs the user's say, and one another version control system keeps is refused. Each test makes its
 // own folders, so any one runs alone or in any order.
 import { execFileSync } from 'child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { gitignoreText, initAbout, initProblem } from '../src/shared/gitInit'
@@ -30,6 +30,9 @@ vi.mock('../src/main/mergeSlotHost', () => ({ mergeSlots: {} }))
 vi.mock('../src/main/branchWatch', () => ({ checkProject: async () => undefined }))
 
 const { initCheck, initRepo } = await import('../src/main/gitInit')
+const { HiveError, shownError } = await import('../src/main/hiveError')
+const { setLanguage } = await import('../src/shared/i18n')
+const { shownText } = await import('../src/shared/advanced')
 
 // Real git work, not a wait: each test runs a dozen git commands, slow under a full unit run's load.
 vi.setConfig({ testTimeout: 60_000 })
@@ -317,5 +320,59 @@ describe('the guards', () => {
     const p = project('p')
     await expect(initRepo(p, { gitignore: 'cobol' as never })).rejects.toThrow("There's no starter .gitignore cobol.")
     expect(existsSync(join(p, '.git'))).toBe(false)
+  })
+})
+
+const DE = join(__dirname, '..', 'locales', 'de')
+
+describe("its refusals (#881): English in the log, the window's language in the dialog", () => {
+  const german = (): Record<string, string> => Object.assign({}, ...readdirSync(DE).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(DE, f), 'utf8'))))
+  afterEach(() => setLanguage('en', {}))
+
+  it('a run that stops part way is a HiveError: its message English, shown in German, the steps capitalised in both', async () => {
+    globalIdentity()
+    const p = project('unignored-de', { '.gitignore': '!/.hive/\n', 'a.txt': 'a\n' })
+    setLanguage('de', german())
+    const e = await initRepo(p, { gitignore: 'none' }).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(HiveError)
+    expect((e as Error).message).toMatch(/^Initialised a git repository on main, but git still doesn't ignore \.hive here/)
+    expect(shownError(e)).toMatch(/^Ein Git-Repository auf main initialisiert, aber git ignoriert \.hive hier noch immer nicht/)
+  })
+
+  it('a failure after the starter .gitignore: its name is text too, so the English stays English and the window follows a language change', async () => {
+    globalIdentity()
+    // A repository with no commit yet (taken on from there), whose pre-commit hook refuses the first commit.
+    const p = project('late-de', { 'a.txt': 'a\n' })
+    git(p, 'init', '-q', '-b', 'main')
+    writeFileSync(join(p, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\nexit 1\n')
+    setLanguage('de', german())
+    const e = await initRepo(p, { gitignore: 'node' }).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(HiveError)
+    expect((e as Error).message).toMatch(/^Added a Node \.gitignore, but couldn't make the first commit: /)
+    expect(shownError(e)).toMatch(/^Eine \.gitignore für Node hinzugefügt, aber der erste Commit konnte nicht erstellt werden: /)
+    setLanguage('en', {})
+    expect(shownError(e)).toBe((e as Error).message)
+  })
+
+  it("the check's refusal: English in refused, its text shown in the language; initRepo refuses with it", async () => {
+    globalIdentity()
+    const p = project('already-de', { 'a.txt': 'a\n' })
+    await initRepo(p, { gitignore: 'none' })
+    setLanguage('de', german())
+    const check = await initCheck(p)
+    expect(check.refused).toBe('This folder is a git repository already.')
+    expect(shownText(check.refusedText!)).toBe('Dieser Ordner ist schon ein Git-Repository.')
+    const e = await initRepo(p, { gitignore: 'none' }).catch((x: unknown) => x)
+    expect(e).toBeInstanceOf(HiveError)
+    expect((e as Error).message).toBe('This folder is a git repository already.')
+    expect(shownError(e)).toBe('Dieser Ordner ist schon ein Git-Repository.')
+  })
+
+  it('an identity the dialog would refuse too', async () => {
+    const p = project('identity-de')
+    setLanguage('de', german())
+    const e = await initRepo(p, { gitignore: 'none', name: 'Two\nlines' }).catch((x: unknown) => x)
+    expect((e as Error).message).toBe('A name is one line, without < or >')
+    expect(shownError(e)).toBe('Ein Name ist eine Zeile, ohne < oder >')
   })
 })

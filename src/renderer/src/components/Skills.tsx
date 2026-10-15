@@ -118,12 +118,13 @@ export function HiveSkillsWarning() {
 }
 
 const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
+const code = (c: React.ReactNode[]): React.ReactNode => <code>{c}</code>
 
 /** Who gets a Hive skill (SKILL.md's metadata.audience; none means the project agents), as a badge's tooltip says it. */
 const AUDIENCE_TIP: Record<SkillAudience, Msg> = {
-  agents: msg({ id: 'assistant.skills.audienceAgentsTip', defaultMessage: "For the project agents: every agent in every project of this workspace gets it. The Hive Assistant doesn't. This is the default; to change it, set audience under metadata: in its SKILL.md's header (assistant, or all for both).", description: 'Tooltip on Project agents. Keep audience, metadata:, assistant, all and SKILL.md as they are.' }),
-  assistant: msg({ id: 'assistant.skills.audienceAssistantTip', defaultMessage: "For the Hive Assistant only (audience: assistant in its SKILL.md's header). Project agents don't get it.", description: 'Tooltip on Assistant. Keep audience: assistant and SKILL.md as they are.' }),
-  all: msg({ id: 'assistant.skills.audienceAllTip', defaultMessage: "For both the project agents (every agent in every project) and the Hive Assistant (audience: all in its SKILL.md's header).", description: 'Tooltip on Agents + Assistant. Keep audience: all and SKILL.md as they are.' })
+  agents: msg({ id: 'assistant.skills.audienceAgentsTip', defaultMessage: "For the project agents: every agent in every project of this workspace gets it. The Hive Assistant doesn't. This is the default; to change it, set <code>audience</code> under <code>metadata:</code> in its SKILL.md's header (<code>assistant</code>, or <code>all</code> for both).", description: 'Tooltip on Project agents. Keep the <code> tags and what is inside them (audience, metadata:, assistant, all) as they are, and SKILL.md.' }),
+  assistant: msg({ id: 'assistant.skills.audienceAssistantTip', defaultMessage: "For the Hive Assistant only (<code>audience: assistant</code> in its SKILL.md's header). Project agents don't get it.", description: 'Tooltip on Assistant. Keep the <code> tags and audience: assistant inside them as they are, and SKILL.md.' }),
+  all: msg({ id: 'assistant.skills.audienceAllTip', defaultMessage: "For both the project agents (every agent in every project) and the Hive Assistant (<code>audience: all</code> in its SKILL.md's header).", description: 'Tooltip on Agents + Assistant. Keep the <code> tags and audience: all inside them as they are, and SKILL.md.' })
 }
 
 /** A Hive skill nobody gets, because its header can't be read or names an audience Hive doesn't know: why, and how to fix it. */
@@ -144,7 +145,7 @@ export function ProblemBadge({ problem, small }: { problem: string; small?: bool
 export function AudienceBadge({ audience, small }: { audience: SkillAudience | undefined; small?: boolean }) {
   const a = audience ?? 'agents'
   return (
-    <Tooltip content={tr(AUDIENCE_TIP[a])}>
+    <Tooltip content={<>{Children.toArray(tRich<React.ReactNode>(AUDIENCE_TIP[a], { code }))}</>}>
       <span className={cx('badge', small && 'audience', a !== 'agents' && 'accent')} data-audience={a}>
         <Icon name={a === 'agents' ? 'folder' : a === 'assistant' ? 'hubot' : 'organization'} /> {tr(AUDIENCE_LABEL[a])}
       </span>

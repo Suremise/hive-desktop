@@ -1,3 +1,10 @@
+/* The monospace face (#893): named, so plain `monospace` never falls back to a CJK font (MS Gothic draws \ as ¥ in
+   Japanese paths). --mono is the same, for rules that use that name. */
+:root {
+  --font-mono: 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  --mono: var(--font-mono);
+}
+
 /* ==========================================================================
    Hive — theme tokens. Honey orange replaces VS Code blue as the accent.
    ========================================================================== */
@@ -3367,6 +3374,29 @@ h2.section#unused-worktrees {
   white-space: nowrap;
   font-size: 12px;
   color: var(--fg);
+}
+/* An attachment's size, bottom-left, opposite its time (#900). */
+.image-grid .thumb-caption.thumb-size {
+  right: auto;
+  left: 6px;
+}
+/* Where a day's attachments start, in a group that spans days (#900): its day, then a thin line across the grid. */
+.image-grid .attachment-day {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.image-grid .attachment-day:not(:first-child) {
+  margin-top: 6px;
+}
+.image-grid .attachment-day::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
 }
 .attachment-filters {
   display: flex;
@@ -9007,4 +9037,67 @@ button.progress-run-show:focus-visible {
 }
 .git-setup h2 .codicon {
   margin-right: 4px;
+}
+
+/* ==========================================================================
+   Japanese and Chinese (#893): line breaking and type for CJK text, scoped by the window's language (<html lang>).
+   ========================================================================== */
+/* No line starts with small kana, ー or closing punctuation (kinsoku). */
+:lang(ja),
+:lang(zh) {
+  line-break: strict;
+}
+/* Titles, headings, buttons and labels break between phrases, never inside a word ("ターミナルのスクロー/ルバック").
+   Chromium's auto-phrase knows Japanese only. */
+:lang(ja) :is(h1, h2, h3, h4, .setting .s-title, .btn, .menu-item, .section-header .label) {
+  word-break: auto-phrase;
+}
+/* Descriptions don't leave one or two characters (す。) alone on their last line. */
+:lang(ja) :is(p, .setting .s-desc, .hint),
+:lang(zh) :is(p, .setting .s-desc, .hint) {
+  text-wrap: pretty;
+}
+/* Labels that read as one unit never wrap: About's label column, the template plan's （既定）, a link to a view. */
+:lang(ja) :is(.about-table td:first-child, .template-plan-default, .assistant-only-note a),
+:lang(zh) :is(.about-table td:first-child, .template-plan-default, .assistant-only-note a) {
+  white-space: nowrap;
+}
+/* Italics are a fake slant on CJK type. */
+:lang(ja) :is(i, em),
+:lang(zh) :is(i, em) {
+  font-style: normal;
+}
+/* Upper case changes only the Latin words among CJK text ("Token" → "TOKEN"): not in the stat cards' and tables'
+   labels (the Workspace Overview's "Token"). */
+:lang(ja) :is(.card h3, .table th),
+:lang(zh) :is(.card h3, .table th) {
+  text-transform: none;
+}
+/* The session row's context and size are two figures, which CJK words run together ("上下文：10 2 KB"): a separator. */
+:lang(ja) .session-row-context + .session-row-size::before,
+:lang(zh) .session-row-context + .session-row-size::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--fg-faint);
+}
+/* The Progress header's reporter name: its 70% cap, resolved against a header sized by its own content, cut
+   "スクリプト" to "スクリ…" with room to spare. The project name gives way first instead (it shrinks ten times as fast). */
+:lang(ja) .progress-agent,
+:lang(zh) .progress-agent {
+  flex: 0 1 auto;
+  max-width: none;
+}
+:lang(ja) .progress-run-show .progress-project,
+:lang(zh) .progress-run-show .progress-project {
+  flex: 0 10 auto;
+}
+/* Settings' navigation: a long section name wraps onto a second line rather than being cut off at the edge. */
+:lang(ja) .settings-nav .row,
+:lang(zh) .settings-nav .row {
+  height: auto;
+  min-height: 30px;
+}
+:lang(ja) .settings-nav .row .label,
+:lang(zh) .settings-nav .row .label {
+  white-space: normal;
 }

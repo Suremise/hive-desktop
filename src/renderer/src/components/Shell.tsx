@@ -2,7 +2,7 @@ import type { PlanLimit, TaskCard, WorkspaceInfo } from '@shared/types'
 import { useNow } from '../usage'
 import { runCommand } from '../commands'
 import { setActivity, set, useProviderWarnings, useStore, type Activity } from '../store'
-import { enabledProviders } from '@shared/providers'
+import { enabledProviders, installSourceText } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
 import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
@@ -293,7 +293,7 @@ function ProviderStatusItems() {
           )
         }
         const warning = info.readiness?.find((r) => r.level === 'warning')
-        const tip = tr(M.providerTip, { provider: p.name, version: info.version ?? '', source: info.source ?? '', hasWarning: warning ? 'yes' : 'no', warning: warning?.message ?? '', hasUpdate: info.updateAvailable ? 'yes' : 'no', latest: info.latestVersion ?? '' })
+        const tip = tr(M.providerTip, { provider: p.name, version: info.version ?? '', source: installSourceText(info.source, tr), hasWarning: warning ? 'yes' : 'no', warning: warning?.message ?? '', hasUpdate: info.updateAvailable ? 'yes' : 'no', latest: info.latestVersion ?? '' })
         return (
           <Tooltip key={p.id} content={tip}>
             <div className={cx('status-item', warning && 'caution')} onClick={() => set({ setupOpen: p.id })}>

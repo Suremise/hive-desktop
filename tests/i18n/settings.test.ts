@@ -27,6 +27,7 @@ function messagesOf(t: TextPart, acc: Msg[] = []): Msg[] {
   if ('id' in t) acc.push(t)
   else if ('list' in t) for (const x of t.list) messagesOf(x, acc)
   else if ('lines' in t) for (const x of t.lines) messagesOf(x, acc)
+  else if ('cap' in t) messagesOf(t.cap, acc)
   else {
     acc.push(t.m)
     for (const v of Object.values(t.values)) messagesOf(v, acc)
@@ -49,7 +50,8 @@ describe('the settings catalogue as Settings shows it', () => {
   it("every row's text is messages of the settings area, in the English catalogue with a note for translators", () => {
     for (const e of SETTINGS_CATALOG)
       for (const m of textsOf(e).flatMap((t) => messagesOf(t))) {
-        if (m.id.startsWith('language.')) continue
+        // A language's own name, and the permission and file lock modes' names (the agents area's, #885).
+        if (m.id.startsWith('language.') || /^agents\.(claude|codex|copilot|fileLock)\./.test(m.id)) continue
         expect(m.id, e.id).toMatch(/^settings\./)
         expect(EN[m.id], `${e.id}: ${m.id}`).toEqual({ defaultMessage: m.defaultMessage, description: m.description })
         expect(m.description.length, m.id).toBeGreaterThan(10)
@@ -100,6 +102,20 @@ describe('the settings catalogue as Settings shows it', () => {
     expect(shownText(withValues((copilot.text.title as { m: Msg }).m, { n: 2, names: listOf(['Autopilot', 'Allow all']) }))).toBe('Enable the Autopilot and Allow all options')
     expect(englishText(listOf(['"A"', '"B"', '"C"'], 'disjunction'))).toBe('"A", "B" or "C"')
     expect(englishText(linesOf(['one', withValues({ id: 'settings.x', defaultMessage: '{n} two', description: 'test' }, { n: 2 })]))).toBe('one\n2 two')
+  })
+
+  it("names permission modes and file lock modes in the language shown: the choices, the tips and the texts that quote them (#885)", () => {
+    pseudo()
+    const english = ['Block', 'Ask me', 'Approve for me', 'Accept edits', 'Bypass permissions', 'Full access', 'Autopilot']
+    const shown = (id: string): string[] => {
+      const e = settingEntry(id)
+      expect(e, id).toBeTruthy()
+      const s = shownSetting(e!)
+      return [s.title, s.desc, s.tip, ...(e!.options ?? []).map((o) => shownText(o.text)), ...(e!.text.confirmOn ? [shownText(e!.text.confirmOn.title)] : [])]
+    }
+    for (const id of ['agents.fileLocks', 'project.fileLocks', 'claude-code.defaultPermissionMode', 'codex.defaultPermissionMode', 'copilot.defaultPermissionMode', 'claude-code.enableDangerousMode', 'codex.enableDangerousMode', 'copilot.enableDangerousMode', 'assistant.provider:codex'])
+      for (const text of shown(id)) for (const name of english) expect(text, `${id}: ${name}`).not.toContain(name)
+    expect(problems).toEqual([])
   })
 
   it('names a section and the Language row as the user sees them; the title in another language also says its English', () => {

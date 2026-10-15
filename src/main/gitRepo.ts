@@ -88,7 +88,7 @@ export function gitSays(r: GitResult): string {
 }
 
 /** gitSays as text: git's own lines as they came, Hive's words (it gave up, an exit code alone) as a message. */
-function gitSaid(r: GitResult): TextPart {
+export function gitSaid(r: GitResult): TextPart {
   if (r.timedOut) return withValues(M.gaveUp, { minutes: NETWORK_MS / 60_000 })
   const lines = `${r.err}\n${r.out}`
     .split(/\r?\n/)
@@ -309,6 +309,7 @@ function scrubText(t: TextPart, secrets: string[]): TextPart {
   if (typeof t === 'number' || 'id' in t) return t
   if ('list' in t) return { ...t, list: t.list.map((x) => scrubText(x, secrets)) }
   if ('lines' in t) return { lines: t.lines.map((x) => scrubText(x, secrets)) }
+  if ('cap' in t) return { cap: scrubText(t.cap, secrets) }
   return { m: t.m, values: Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, scrubText(v, secrets)])) }
 }
 

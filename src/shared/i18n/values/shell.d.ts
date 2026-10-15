@@ -349,6 +349,7 @@ interface HiveMessageValues {
   'shell.table.selectAll': { n: number }
   'shell.table.selectAllMatching': { n: number }
   'shell.table.sortBy': { column: string | number }
+  'shell.text.sentences': { first: string | number; second: string | number }
   'shell.tip.app.quit': undefined
   'shell.tip.app.quitAll': { n: string | number }
   'shell.tip.help.devConsole': undefined

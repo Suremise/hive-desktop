@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { Children, useEffect, type ReactNode } from 'react'
 import type { MergeSlotInfo } from '@shared/types'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { attempt } from '../actions'
@@ -80,6 +80,8 @@ export const releaseTip = (h: Holder): string =>
 export const releaseLabel = (): string => tr(msg({ id: 'board.slots.release', defaultMessage: 'Release', description: 'Button on a merge slot: frees the slot from a holder that is stuck. Keep it short.' }))
 
 /** "into <code>main</code>": where a merge goes, its branch as code. */
+const slotBranch = (chunks: ReactNode[]): ReactNode => <span className="merge-slot-branch">{chunks}</span>
+
 export const intoBranch = (branch: string): ReactNode[] => tRich<ReactNode>(msg({ id: 'board.slots.into', defaultMessage: 'into <code>{branch}</code>', description: 'Where a merge goes: into a branch ({branch}, shown as code; keep the <code> tags around it).' }), { branch, code: (chunks) => <code key="code">{chunks}</code> })
 
 /** One project's slots. */
@@ -122,7 +124,7 @@ export function MergeSlotList({ slots, projectName, showProject }: { slots: Merg
             <div className="merge-slot-text">
               <div className="merge-slot-line">
                 {showProject && <span className="merge-slot-project">{projectName(s.project)} · </span>}
-                <span className="merge-slot-branch">{s.branch}</span>: {slotWords(s, now)}
+                {Children.toArray(tRich<ReactNode>(msg({ id: 'board.slots.line', defaultMessage: '<branch>{name}</branch>: {state}', description: "A merge slot in the Progress panel: its branch ({name}, shown as code: keep the <branch> tags around it) and who holds it or waits for it ({state}). Your language's punctuation goes around the colon." }), { name: s.branch, state: slotWords(s, now), branch: slotBranch }))}
               </div>
               {s.waiting.length > 0 && <div className="merge-slot-waiting faint">{waitingWords(s)}</div>}
             </div>

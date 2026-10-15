@@ -165,6 +165,7 @@ interface HiveMessageValues {
   'workspace.move.movedFromTo': { from: string | number; to: string | number }
   'workspace.move.nothing': undefined
   'workspace.move.original': { agent: string | number }
+  'workspace.move.owner': { owner: string; agent: string | number }
   'workspace.move.pending': { projects: string | number }
   'workspace.move.problems': undefined
   'workspace.move.projects': { count: number; name: string | number }
@@ -411,6 +412,7 @@ interface HiveMessageValues {
   'workspace.unusedList.keptMany': { count: number }
   'workspace.unusedList.keptReason': undefined
   'workspace.unusedList.keptTitle': { name: string | number }
+  'workspace.unusedList.lastCommit': { when: string | number; subject: string | number }
   'workspace.unusedList.learnMore': undefined
   'workspace.unusedList.loading': undefined
   'workspace.unusedList.mainBranch': undefined

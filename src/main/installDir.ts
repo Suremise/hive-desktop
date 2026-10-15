@@ -6,8 +6,8 @@ import { app, dialog } from 'electron'
 import { createLogger, userText } from './logger'
 import { testNotifyLog, testQuiet } from './testQuiet'
 import { config } from './config'
-import { msg, setLanguage, tr, type Catalogue } from '../shared/i18n'
-import { resolveLanguage, type LanguageSetting } from '../shared/i18n/languages'
+import { language, msg, setLanguage, tr, type Catalogue } from '../shared/i18n'
+import { languageOf, resolveLanguage, type LanguageSetting } from '../shared/i18n/languages'
 
 const log = createLogger('installDir')
 
@@ -103,7 +103,7 @@ if ($env:HIVE_DIALOG_SNAPSHOT) {
 } else { $f = New-Object System.Windows.Forms.Form }
 $f.Text = $env:HIVE_DIALOG_TITLE
 try { $f.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon($env:HIVE_DIALOG_ICON) } catch { }
-$f.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+$f.Font = New-Object System.Drawing.Font($(if ($env:HIVE_DIALOG_FONT) { $env:HIVE_DIALOG_FONT } else { 'Segoe UI' }), 9)
 $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
 $f.StartPosition = 'CenterScreen'; $f.TopMost = $true
 $f.AutoSize = $true; $f.AutoSizeMode = 'GrowAndShrink'
@@ -179,7 +179,7 @@ export interface MessageTools {
 function powershellWindow(message: ReturnType<typeof cantStartMessage>, snapshot?: string): boolean {
   const r = spawnSync(system32('WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Sta', '-EncodedCommand', Buffer.from(DIALOG_SCRIPT, 'utf16le').toString('base64')], {
     windowsHide: true,
-    env: { ...process.env, HIVE_DIALOG_TITLE: message.title, HIVE_DIALOG_TEXT: message.text, HIVE_DIALOG_COMMAND: message.command, HIVE_DIALOG_COPY: message.buttons.copy, HIVE_DIALOG_COPIED: message.buttons.copied, HIVE_DIALOG_CLOSE: message.buttons.close, HIVE_DIALOG_ICON: process.execPath, HIVE_DIALOG_SNAPSHOT: snapshot ?? '' }
+    env: { ...process.env, HIVE_DIALOG_TITLE: message.title, HIVE_DIALOG_TEXT: message.text, HIVE_DIALOG_COMMAND: message.command, HIVE_DIALOG_COPY: message.buttons.copy, HIVE_DIALOG_COPIED: message.buttons.copied, HIVE_DIALOG_CLOSE: message.buttons.close, HIVE_DIALOG_ICON: process.execPath, HIVE_DIALOG_FONT: languageOf(language())?.uiFont ?? '', HIVE_DIALOG_SNAPSHOT: snapshot ?? '' }
   })
   if (r.status === 0) return true
   log.error(`Couldn't show the message window (PowerShell exited with ${r.status ?? r.error?.message})`)

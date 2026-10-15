@@ -1,5 +1,5 @@
 import { Children, useCallback, useEffect, useState } from 'react'
-import type { MoveCards, MoveOptions, MovePlan, MoveReport, MoveWorktree, WorkspaceMoved } from '@shared/types'
+import type { MoveCards, MoveOptions, MoveOwner, MovePlan, MoveReport, MoveWorktree, WorkspaceMoved } from '@shared/types'
 import { providerName } from '@shared/providers'
 import { moveHasWork } from '@shared/movePaths'
 import { call } from '../api'
@@ -71,6 +71,10 @@ const mono = (c: React.ReactNode[]): React.ReactNode => <span className="mono">{
 const faint = (c: React.ReactNode[]): React.ReactNode => <span className="faint">{c}</span>
 const TAGS = { b: bold, mono, faint }
 /** A message with markup (<b>, <mono>, <faint>), as React nodes. */
+/** Whose folder a copy is for, in the window's language (#891); a record from before owners were kept says it in English. */
+const ownerText = (f: { of?: string; owner?: MoveOwner }): string =>
+  f.owner ? tr(msg({ id: 'workspace.move.owner', defaultMessage: "{owner, select, project {the project} assistant {the Assistant} other {{agent}'s worktree}}", description: "Repair's plan: whose folder a coding agent's conversations are copied for, put into its lines (\"… for {of}\", workspace.move.copy and copyNone): the project, the Hive Assistant, or an agent's worktree ({agent}: its name). Word it to fit there in your translation of those lines." }), { owner: f.owner.kind, agent: f.owner.kind === 'worktree' ? f.owner.agent : '' }) : (f.of ?? '')
+
 const rich = (m: Msg, values: Record<string, string | number>): React.ReactNode[] => Children.toArray(tRich<React.ReactNode>(m, { ...values, ...TAGS }))
 
 /** What was saved under a project's old name (#508): "9 cards", "9 cards and 1 lane". */
@@ -252,7 +256,7 @@ export function MoveRepairDialog() {
                     )}
                     {copies.map((f) => (
                       <li key={`${f.provider}:${f.from}`}>
-                        {f.copy > 0 ? rich(M.copy, { count: f.copy, provider: providerName(f.provider), hasOf: f.of ? 'yes' : 'no', of: f.of ?? '', to: f.to }) : tr(M.copyNone, { provider: providerName(f.provider), hasOf: f.of ? 'yes' : 'no', of: f.of ?? '' })}
+                        {f.copy > 0 ? rich(M.copy, { count: f.copy, provider: providerName(f.provider), hasOf: ownerText(f) ? 'yes' : 'no', of: ownerText(f), to: f.to }) : tr(M.copyNone, { provider: providerName(f.provider), hasOf: ownerText(f) ? 'yes' : 'no', of: ownerText(f) })}
                         {f.kept.length > 0 && (
                           <span className="faint">
                             {' '}

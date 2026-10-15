@@ -257,7 +257,7 @@ export function UnusedWorktreesSection({ project, data, reload, onOpen }: { proj
                 {w.path}
               </div>
               <div className="faint" style={{ fontSize: 12 }}>
-                {[w.lastCommit ? `${timeAgo(w.lastCommit.at)}: ${w.lastCommit.subject}` : '', size === undefined ? (sizes ? '' : tr(M.measuring)) : formatSize(size)].filter(Boolean).join(' · ')}
+                {[w.lastCommit ? tr(msg({ id: 'workspace.unusedList.lastCommit', defaultMessage: '{when}: {subject}', description: "An unused worktree's last commit: when it was made ({when}: \"2 days ago\") and its subject line. Your language's punctuation goes around the colon." }), { when: timeAgo(w.lastCommit.at), subject: w.lastCommit.subject }) : '', size === undefined ? (sizes ? '' : tr(M.measuring)) : formatSize(size)].filter(Boolean).join(' · ')}
               </div>
             </div>
             <div className="flex">

@@ -67,7 +67,7 @@
   "providers.readiness.update": "Dostępna nowa wersja: {provider} {version}.",
   "providers.settings.hooksOff": "{source, select, inline {Opcja --settings w dodatkowych argumentach} other {Plik ustawień {file} (--settings w dodatkowych argumentach)}} wyłącza wszystkie hooki (disableAllHooks), których Hive potrzebuje do stanu agenta, blokad plików i paska stanu. Usuń to w Ustawieniach agenta lub w Ustawienia → Claude Code.",
   "providers.settings.noFile": "nie ma takiego pliku",
-  "providers.settings.noValue": "Ostatnia opcja --settings w dodatkowych argumentach nie ma wartości. Podaj plik ustawień albo JSON wprost (--settings '<file or JSON>') albo usuń ją w Ustawieniach agenta lub w Ustawienia → Claude Code.",
+  "providers.settings.noValue": "Ostatnia opcja --settings w dodatkowych argumentach nie ma wartości. Podaj plik ustawień albo JSON wprost (--settings '''<file or JSON>''') albo usuń ją w Ustawieniach agenta lub w Ustawienia → Claude Code.",
   "providers.settings.notAFile": "to nie jest plik",
   "providers.settings.notJson": "Plik ustawień {file} (--settings w dodatkowych argumentach) nie jest poprawnym JSON-em ({why}). Popraw go lub usuń w Ustawieniach agenta lub w Ustawienia → Claude Code.",
   "providers.settings.notList": "{source, select, inline {Opcja --settings w dodatkowych argumentach} other {Plik ustawień {file} (--settings w dodatkowych argumentach)}} ustawia {key} na coś innego niż lista, przez co hooki Hive nie mogą zadziałać. Zmień to na listę ([ … ]) lub usuń w Ustawieniach agenta lub w Ustawienia → Claude Code.",

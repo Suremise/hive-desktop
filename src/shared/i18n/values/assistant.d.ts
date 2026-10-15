@@ -21,6 +21,7 @@ interface HiveMessageValues {
   'assistant.modes.inUseTip': undefined
   'assistant.modes.lettersOrNumbers': undefined
   'assistant.modes.namePlaceholder': undefined
+  'assistant.modes.newDescription': undefined
   'assistant.modes.newMessage': { file: string | number }
   'assistant.modes.newTitle': undefined
   'assistant.modes.restoreFailed': undefined
@@ -36,6 +37,10 @@ interface HiveMessageValues {
   'assistant.modes.shipped.planner': undefined
   'assistant.modes.shipped.qaTriager': undefined
   'assistant.modes.shipped.releaseManager': undefined
+  'assistant.modes.shippedDescription.coordinator': undefined
+  'assistant.modes.shippedDescription.planner': undefined
+  'assistant.modes.shippedDescription.qaTriager': undefined
+  'assistant.modes.shippedDescription.releaseManager': undefined
   'assistant.modes.shipsMissing': undefined
   'assistant.modes.tip': undefined
   'assistant.modes.updateBadge': undefined
@@ -158,6 +163,7 @@ interface HiveMessageValues {
   'assistant.sidebar.filterProjects': undefined
   'assistant.sidebar.filterSkills': undefined
   'assistant.sidebar.folderMessage': undefined
+  'assistant.sidebar.folderPlaceholder': undefined
   'assistant.sidebar.hiveGroup': undefined
   'assistant.sidebar.hiveServerDesc': undefined
   'assistant.sidebar.hiveServerTip': undefined
@@ -191,6 +197,7 @@ interface HiveMessageValues {
   'assistant.sidebar.noWorkspace': { what: string }
   'assistant.sidebar.noWorkspaceSkills': undefined
   'assistant.sidebar.noteMessage': undefined
+  'assistant.sidebar.notePlaceholder': undefined
   'assistant.sidebar.notesTip': undefined
   'assistant.sidebar.off': undefined
   'assistant.sidebar.on': undefined
@@ -297,6 +304,22 @@ interface HiveMessageValues {
   'assistant.skills.warning': undefined
   'assistant.skills.whereHive': undefined
   'assistant.skills.whereLocal': { provider: string | number }
+  'assistant.status.also': { line: string | number; also: string }
+  'assistant.status.approval': { title: string | number }
+  'assistant.status.approvals': { n: number }
+  'assistant.status.background': { n: number }
+  'assistant.status.cards': { cards: string | number; until: string }
+  'assistant.status.cardsInto': { cards: string | number; column: string | number; until: string }
+  'assistant.status.error': { message: string }
+  'assistant.status.idle': { n: number }
+  'assistant.status.notRunning': undefined
+  'assistant.status.onCards': undefined
+  'assistant.status.signin': undefined
+  'assistant.status.starting': undefined
+  'assistant.status.untaken': undefined
+  'assistant.status.waiting': undefined
+  'assistant.status.watch': { watch: string | number; until: string }
+  'assistant.status.working': undefined
   'assistant.template.agentNoName': { n: string | number }
   'assistant.template.badContext': { name: string | number }
   'assistant.template.badMcp': { name: string | number }
@@ -352,6 +375,7 @@ interface HiveMessageValues {
   'assistant.templatePlan.reuseTip': { path: string | number }
   'assistant.templatePlan.reuses': { branch: string | number }
   'assistant.templatePlan.where': undefined
+  'assistant.templatePlan.withNote': { thing: string | number; note: string | number }
   'assistant.templates.aProject': undefined
   'assistant.templates.addAgent': undefined
   'assistant.templates.addProjectFirst': undefined

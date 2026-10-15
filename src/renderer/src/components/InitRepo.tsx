@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ProjectInfo } from '@shared/types'
 import { GITIGNORE_CHOICES, initAbout, initProblem, type GitInitCheck, type GitignoreChoice } from '@shared/gitInit'
 import { msg, tr } from '@shared/i18n'
+import { shownText } from '@shared/advanced'
 import { call, errorMessage } from '../api'
 import { bumpGit, notify, set, useStore } from '../store'
 import { BusyButton, Icon, Modal, useBusy } from './ui'
@@ -117,7 +118,7 @@ function InitRepoDialog({ project, onClose }: { project: ProjectInfo; onClose: (
         )
       ) : check.refused ? (
         <div className="banner warn" data-git-init-refused="">
-          <Icon name="warning" /> {check.refused}
+          <Icon name="warning" /> {check.refusedText ? shownText(check.refusedText) : check.refused}
         </div>
       ) : (
         <div data-git-init-form="">

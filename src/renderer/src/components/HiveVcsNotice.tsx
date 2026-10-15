@@ -6,7 +6,7 @@ import { call, errorMessage } from '../api'
 import { rememberProjectPref } from '../projectPrefs'
 import { confirm, notify, set, useStore } from '../store'
 import { openGuideAt } from '../tips'
-import { BusyButton, Icon, IconButton } from './ui'
+import { BusyButton, Icon, IconButton, sentences } from './ui'
 
 const M = {
   titleSentence: msg({ id: 'git.hiveVcs.titleSentence', defaultMessage: '{title}.', description: "The .hive notice's title as the first sentence of the notice, in bold: {title} with the full stop your language ends a sentence with." }),
@@ -82,7 +82,7 @@ export function HiveVcsNotice({ project, dismissible = false }: { project: Proje
     <div className="banner warn hive-vcs-notice">
       <Icon name="warning" />
       <span className="hive-vcs-text">
-        <strong>{tr(M.titleSentence, { title: text.title })}</strong> {text.detail}
+        {sentences(<strong>{tr(M.titleSentence, { title: text.title })}</strong>, text.detail)}
       </span>
       {text.canUntrack && (
         <BusyButton className="btn small primary" busy={busy} busyLabel={tr(M.checking)} onClick={() => void untrack()}>

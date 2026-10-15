@@ -85,7 +85,7 @@ describe('errors thrown at a launch (#842): English for the Agent API, as before
     writeFileSync(join(dir, 'list.json'), '[1]')
     setLanguage('de', GERMAN)
     const cases: [Error, string, string | null][] = [
-      [await caught(userSettings(['--settings'], dir)), 'The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings <file or JSON>), or remove it in Agent Settings or Settings → Claude Code.', GERMAN['providers.settings.noValue']],
+      [await caught(userSettings(['--settings'], dir)), "The last --settings in Extra arguments has no value. Give it a settings file or inline JSON (--settings '<file or JSON>'), or remove it in Agent Settings or Settings → Claude Code.", GERMAN['providers.settings.noValue']],
       [await caught(userSettings(['--settings', 'missing.json'], dir)), `The settings file missing.json (--settings in Extra arguments) can't be read: there is no such file. ${fix}`, 'Die Einstellungsdatei missing.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: diese Datei gibt es nicht.'],
       [await caught(userSettings(['--settings', 'big.json'], dir)), `The settings file big.json (--settings in Extra arguments) can't be read: it's over Claude Code's 2 MiB limit for settings files. ${fix}`, 'Die Einstellungsdatei big.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: sie ist größer als 2 MiB.'],
       [await caught(userSettings(['--settings', 'folder.json'], dir)), `The settings file folder.json (--settings in Extra arguments) can't be read: it isn't a file. ${fix}`, "Die Einstellungsdatei folder.json (--settings in Zusätzliche Argumente) kann nicht gelesen werden: it isn't a file."],

@@ -347,6 +347,7 @@
   "shell.table.selectAll": "{n, plural, one {Select all # row} other {Select all # rows}}",
   "shell.table.selectAllMatching": "{n, plural, one {Select all # matching row} other {Select all # matching rows}}",
   "shell.table.sortBy": "Sort by {column}",
+  "shell.text.sentences": "{first} {second}",
   "shell.tip.app.quit": "Quit Hive",
   "shell.tip.app.quitAll": "Close all {n} windows and stop the agents in every workspace",
   "shell.tip.help.devConsole": "What each CLI sends Hive, next to what Hive made of it, in a window of its own",

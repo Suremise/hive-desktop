@@ -414,6 +414,7 @@
   "board.slots.held": "{holder} ({sofar} do tej pory, zostało {left})",
   "board.slots.heldOver": "{holder} ({sofar} do tej pory, czas minął)",
   "board.slots.into": "do <code>{branch}</code>",
+  "board.slots.line": "<branch>{name}</branch>: {state}",
   "board.slots.minutes": "{n, number} min",
   "board.slots.note": "{who} do {branch} (kolejka scalania). Scalanie poczeka, aż się zwolni{waiting, plural, =0 {} one {; # czeka} few {; # czekają} many {; # czeka} other {; # czeka}}.",
   "board.slots.release": "Zwolnij",
