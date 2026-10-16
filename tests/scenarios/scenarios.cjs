@@ -1075,7 +1075,7 @@ module.exports.SCENARIOS = [
       c.merge = mergeRepo(c, "module.exports = 'broken'\n")
     },
     prompt: (c) => `The branch feature is ready and its checks are node check.js. I'm asking you to merge it into ${c.merge.base} now: ${c.merge.base} is checked out in this folder.`,
-    fake: (c) => `skill merge-ready then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}"} then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js then hive hive_merge_slot {"action":"release","branch":"${c.merge.base}"}`,
+    fake: (c) => `skill merge-ready then hive hive_merge_slot {"action":"claim","branch":"${c.merge.base}"} then shell: git checkout -q feature && git merge -q --no-edit ${c.merge.base} && node check.js then hive hive_merge_slot {"action":"release"}`,
     expect: (o, c) => {
       const { holds, calls } = slotHolds(o, 'Coder', c.merge.base)
       // The last run of its checks with the branch in (on it, or its merge in progress) that ended failing (they can't pass

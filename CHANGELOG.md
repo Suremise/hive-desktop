@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **An agent releasing the merge slot releases its own.** An agent that claimed the slot for main and then checked its branch out in the project folder (as merging main into its branch does) and released it without naming main kept holding main's slot, and other agents waited for up to an hour. Releasing now gives up the agent's own hold, whatever branch the folder is on, and when it holds nothing there the reply says which slots it does hold (#586).
+
 ## 0.8.0 — 16 October 2026
 
 Hive now speaks eight languages. This release also cleans up old sessions in one go, makes attachments easier to scan, runs a workspace's MCP servers only in the projects that need them, fits narrow windows better, and keeps **Sign in** in view in Agent Setup for new Copilot users.

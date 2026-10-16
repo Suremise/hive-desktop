@@ -9,6 +9,7 @@ import {
   notesListText,
   progressLabel,
   projectListText,
+  releaseText,
   reorderText,
   taskListText,
   taskRow,
@@ -157,5 +158,10 @@ describe('projects and notes', () => {
 
   it('a note reads as its text, not a JSON string', () => {
     expect(noteText({ path: 'notes/a.md', content: '# A\n\n"quoted"' })).toBe('notes/a.md\n\n# A\n\n"quoted"')
+  })
+
+  it('a release that finds no hold says which slots the agent does hold or wait for, or that it has none (#586)', () => {
+    expect(releaseText({ none: true, branch: 'feature', holder: null, yours: [{ branch: 'main', held: true }, { branch: 'release', held: false }] })).toBe("You don't hold the merge slot for feature (it is free). Yours: main (held), release (waiting); release with its branch.")
+    expect(releaseText({ none: true, branch: 'feature', holder: null, yours: [] })).toBe("You don't hold the merge slot for feature (it is free). You hold and wait for no other merge slot of this project.")
   })
 })

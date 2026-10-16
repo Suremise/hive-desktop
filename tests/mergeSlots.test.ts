@@ -355,6 +355,45 @@ describe('merge slot', () => {
     expect(slots.release(b, P, 'main')).toMatchObject({ none: true, holder: { name: 'A' } })
   })
 
+  it('a release naming no branch is for the agent\'s one hold or place, whatever the folder is on (#586)', async () => {
+    const { slots, start } = setup()
+    const [a, b] = [agent('A'), agent('B')]
+    start(a, b)
+    // A claims main, then checks its feature branch out in the folder: the folder's branch is feature now.
+    await slots.claim(a, P, 'main', [], 0)
+    expect(slots.releaseBranch(a, P)).toBe('main')
+    expect(slots.release(a, P, slots.releaseBranch(a, P) ?? 'feature')).toMatchObject({ released: true, branch: 'main' })
+    expect(slots.status(P, 'main').holder).toBeNull()
+    // Its place in line, the same way.
+    await slots.claim(a, P, 'main', [], 0)
+    const waits = slots.claim(b, P, 'main', [], 1000)
+    await vi.advanceTimersByTimeAsync(1001)
+    await waits
+    expect(slots.releaseBranch(b, P)).toBe('main')
+    // With none (it holds none), and with several, the folder's branch decides; the reply says what it holds.
+    expect(slots.releaseBranch(agent('C'), P)).toBeNull()
+    await slots.claim(a, P, 'release', [], 0)
+    expect(slots.releaseBranch(a, P)).toBeNull()
+    expect(slots.release(a, P, 'feature')).toMatchObject({ none: true, branch: 'feature', holder: null, yours: [{ branch: 'main', held: true }, { branch: 'release', held: true }] })
+    expect(slots.release(b, P, 'feature')).toMatchObject({ none: true, yours: [{ branch: 'main', held: false }] })
+    expect(slots.release(agent('C'), P, 'feature')).toMatchObject({ none: true, yours: [] })
+    // Another project's slot isn't this one's.
+    expect(slots.own(a, 'C:\\ws\\other')).toEqual([])
+  })
+
+  it('a release naming no branch after the hold expired is for the branch it lost, so it is told why', async () => {
+    const { slots, start } = setup()
+    const [a, b] = [agent('A'), agent('B')]
+    start(a, b)
+    await slots.claim(a, P, 'main', [], 0)
+    const waits = slots.claim(b, P, 'main', [], MAX_WAIT_MS)
+    await vi.advanceTimersByTimeAsync(HOLD_MS + 1000)
+    await waits
+    expect(slots.releaseBranch(a, P)).toBe('main')
+    expect(slots.release(a, P, 'main')).toMatchObject({ none: true, lost: { branch: 'main', why: expect.stringMatching(/expired/) } })
+    expect(slots.releaseBranch(a, P)).toBeNull()
+  })
+
   it('lists a workspace\'s slots, not another folder\'s with a similar name', async () => {
     const { slots, start } = setup()
     const [a, b] = [agent('A'), { ...agent('B'), projectPath: 'C:\\ws2\\hive' }]
