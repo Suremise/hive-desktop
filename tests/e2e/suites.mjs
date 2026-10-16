@@ -96,6 +96,7 @@ export const SUITES = [
   { name: 'gitmissing' },
   { name: 'gitview' },
   { name: 'hivevcs' },
+  { name: 'hwaccel' },
   { name: 'i18nlive' },
   { name: 'i18nshots' },
   { name: 'icons' },

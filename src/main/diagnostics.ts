@@ -20,6 +20,7 @@ import { trackingLost, trackingProblem } from './agentProcesses'
 import { diagnosticRecording } from '../shared/consoleFixtures.mts'
 import { latestRecording, readRecordingText } from './consoleRecorder'
 import { advanced } from './advanced'
+import { gpuDiagnostics, gpuThisRun } from './gpu'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -105,6 +106,7 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     `- **Hive** ${app.getVersion()} (${app.isPackaged ? 'installed' : 'development build'}); updates: ${s.updates.prerelease ? 'beta' : 'stable'} channel, check ${s.updates.checkAutomatically ? 'automatically' : 'manually'}, install ${s.updates.install}`,
     `- **Electron** ${process.versions.electron}, Chromium ${process.versions.chrome}, Node ${process.versions.node}`,
     `- **Windows**: ${osVersion()} ${release()} (${process.arch}); display scaling ${Math.round(display.scaleFactor * 100)}%; locale ${app.getLocale()}`,
+    gpuDiagnostics(gpuThisRun(), app.getGPUFeatureStatus() as unknown as Record<string, string>),
     '',
     '### Coding agents',
     '',

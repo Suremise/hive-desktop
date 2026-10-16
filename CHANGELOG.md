@@ -4,6 +4,7 @@
 
 - **An agent releasing the merge slot releases its own.** An agent that claimed the slot for main and then checked its branch out in the project folder (as merging main into its branch does) and released it without naming main kept holding main's slot, and other agents waited for up to an hour. Releasing now gives up the agent's own hold, whatever branch the folder is on, and when it holds nothing there the reply says which slots it does hold (#586).
 - **Your answer reaches a builder waiting at its lane's end.** When a card loop's builder blocks its last card, in Passed, to ask you something (its commit was refused, say), and you answer as a decision on the card or through the Assistant, Hive now tells the builder, as it does for a card in Doing. Before, the builder never heard and kept waiting (#877).
+- **Disable hardware acceleration.** For a graphics driver that leaves Hive's window blank, flickering or crashing, **Settings → Advanced → Disable hardware acceleration** has Hive draw without the graphics card, and its terminals without WebGL; **Restart Hive** applies it. To start once without the graphics card (a window that doesn't draw at all), run Hive with `--disable-gpu`. Copy Diagnostics says which is on (#676).
 
 ## 0.8.0 — 16 October 2026
 

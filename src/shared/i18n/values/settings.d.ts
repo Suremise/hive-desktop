@@ -85,6 +85,8 @@ interface HiveMessageValues {
   'settings.advanced.hive.agents.perProject.title': undefined
   'settings.advanced.hive.console.showText.desc': undefined
   'settings.advanced.hive.console.showText.title': undefined
+  'settings.advanced.hive.disableHardwareAcceleration.desc': undefined
+  'settings.advanced.hive.disableHardwareAcceleration.title': undefined
   'settings.advanced.hive.mcp.replySeconds.desc': undefined
   'settings.advanced.hive.mcp.replySeconds.title': undefined
   'settings.advanced.hive.progress.lanesShown.desc': undefined
@@ -122,6 +124,7 @@ interface HiveMessageValues {
   'settings.advanced.values.title': undefined
   'settings.advanced.workspaceProblem': { problem: string | number }
   'settings.advancedList.alsoSetting': { key: string | number }
+  'settings.advancedList.appliesAtRestart': undefined
   'settings.advancedList.appliesToSessions': undefined
   'settings.advancedList.cliVersion': { cli: string | number }
   'settings.advancedList.default': { value: string | number }
@@ -138,6 +141,9 @@ interface HiveMessageValues {
   'settings.advancedList.open': undefined
   'settings.advancedList.openFailed': undefined
   'settings.advancedList.reset': { value: string | number }
+  'settings.advancedList.restart': undefined
+  'settings.advancedList.restartDue': undefined
+  'settings.advancedList.restartFailed': undefined
   'settings.advancedList.unknown': { ids: string | number }
   'settings.advancedList.workspace': undefined
   'settings.advancedList.workspaceLabel': { label: string | number }

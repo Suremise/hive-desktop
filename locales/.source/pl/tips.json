@@ -122,6 +122,8 @@
   "tips.group.shortcuts": "Shortcuts",
   "tips.handoverSelf.text": "When an agent's transcript size turns amber, click it and choose the agent itself: it writes a handover, and a new conversation picks up from it, short and fast again.",
   "tips.handoverSelf.title": "A long conversation? Hand it over to itself",
+  "tips.hardwareAcceleration.text": "If your graphics driver leaves Hive's window blank, flickering or crashing, turn on Settings → Advanced → Disable hardware acceleration and restart Hive. A window that doesn't draw at all: start Hive once with --disable-gpu.",
+  "tips.hardwareAcceleration.title": "A blank or flickering window?",
   "tips.hiveFolder.text": "Hive keeps each project's .hive folder (sessions, backups, launch settings) out of git by itself. Where it can't, say with no git, another version control system, or a folder OneDrive or Dropbox syncs, the project's Overview tells you.",
   "tips.hiveFolder.title": "A project's .hive stays on this computer",
   "tips.hiveSkills.text": "Agents and the Assistant get Hive's own skills: work-on-card, review-agent-work, handover and more. Hive keeps them up to date; ones you edit stay yours.",

@@ -2147,6 +2147,8 @@ export interface AppInfo {
   isPackaged: boolean
   /** The language Hive shows, with its translations. */
   language: LanguageInfo
+  /** Hardware acceleration this run (#676): off (Settings → Advanced, or --disable-gpu for this start), and why. */
+  gpu: { off: boolean; why: 'setting' | 'switch' | null }
 }
 
 /** The language Hive shows (#767), as main chose it, for the window. */

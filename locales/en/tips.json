@@ -491,6 +491,14 @@
     "defaultMessage": "A long conversation? Hand it over to itself",
     "description": "A tip's title."
   },
+  "tips.hardwareAcceleration.text": {
+    "defaultMessage": "If your graphics driver leaves Hive's window blank, flickering or crashing, turn on Settings → Advanced → Disable hardware acceleration and restart Hive. A window that doesn't draw at all: start Hive once with --disable-gpu.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. --disable-gpu is a command-line option: keep it."
+  },
+  "tips.hardwareAcceleration.title": {
+    "defaultMessage": "A blank or flickering window?",
+    "description": "A tip's title."
+  },
   "tips.hiveFolder.text": {
     "defaultMessage": "Hive keeps each project's .hive folder (sessions, backups, launch settings) out of git by itself. Where it can't, say with no git, another version control system, or a folder OneDrive or Dropbox syncs, the project's Overview tells you.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

@@ -122,6 +122,8 @@
   "tips.group.shortcuts": "ショートカット",
   "tips.handoverSelf.text": "エージェントのトランスクリプトのサイズがオレンジ色になったら、クリックしてそのエージェント自身を選びます。引き継ぎメモを書き、新しい会話がそこから続くので、再び短く速くなります。",
   "tips.handoverSelf.title": "会話が長くなったら自分自身に引き継ぐ",
+  "tips.hardwareAcceleration.text": "グラフィックドライバーのせいでHiveのウィンドウが空白になる、ちらつく、クラッシュする場合は、「設定」→「詳細」→「ハードウェアアクセラレーションを無効にする」をオンにして、Hiveを再起動してください。ウィンドウがまったく描画されない場合は、--disable-gpuを付けてHiveを一度起動してください。",
+  "tips.hardwareAcceleration.title": "ウィンドウが空白になったり、ちらついたりしますか？",
   "tips.hiveFolder.text": "Hiveは各プロジェクトの.hiveフォルダー（セッション、バックアップ、起動設定）を自動でGitの対象外にします。Gitがない、別のバージョン管理システムを使っている、OneDriveやDropboxで同期しているなど、それができない場合は、プロジェクトの「概要」タブで知らせます。",
   "tips.hiveFolder.title": "プロジェクトの.hiveはこのPCに残る",
   "tips.hiveSkills.text": "エージェントとアシスタントは、work-on-card、review-agent-work、handoverなど、Hive独自のスキルを使えます。Hiveが最新に保ち、編集したスキルはそのまま残ります。",

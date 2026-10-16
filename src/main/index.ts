@@ -32,6 +32,8 @@ import { allTasks, archiveOldDone, endReviews } from './tasks'
 import { agentCardText } from '../shared/agentTable'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { advanced, bindAdvancedSettings, mcpAdvancedEnv } from './advanced'
+import { GPU_SWITCH, relaunchArgs, startGpu } from './gpu'
+import { HARDWARE_ACCELERATION_OFF } from '../shared/advanced'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
@@ -98,6 +100,12 @@ function watchMainStalls(): void {
 if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DATA)
 else app.setPath('userData', join(app.getPath('appData'), profileFolder(app.isPackaged)))
 
+// Hardware acceleration off (#676): Settings → Advanced's value, read from advanced.json before the app is ready, or
+// --disable-gpu for this start.
+const gpu = startGpu(app.getPath('userData'), app.commandLine.hasSwitch(GPU_SWITCH))
+if (gpu.off) app.disableHardwareAcceleration()
+advanced.startedWith({ [HARDWARE_ACCELERATION_OFF]: gpu.setting })
+
 // Before Electron's own check of the install folder, which crashes Hive with nothing on screen (installDir.ts).
 if (process.platform === 'win32') checkInstallDir()
 
@@ -153,7 +161,8 @@ function appInfo(): AppInfo {
     userData: app.getPath('userData'),
     logsPath: logsDir(),
     isPackaged: app.isPackaged,
-    language: languageInfo()
+    language: languageInfo(),
+    gpu: { off: gpu.off, why: gpu.why }
   }
 }
 
@@ -361,6 +370,8 @@ function windowsToRestore(): { workspacePath: string | null; bounds?: WindowStat
 let pendingQuit = false
 /** Restart and Update was chosen: install the downloaded update instead of just quitting. */
 let installOnQuit = false
+/** Restart Hive was chosen (#676: a value that applies when Hive restarts): start again after quitting. */
+let relaunchOnQuit = false
 
 /** The running sessions of every window, or of one workspace. */
 const quitSessions = (ws?: WorkspaceService): QuitSession[] =>
@@ -427,9 +438,11 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
     showWindow(asking.win)
     return
   }
-  // Only a quit that goes ahead from here on installs the update; a cancelled one forgets it.
+  // Only a quit that goes ahead from here on installs the update, or restarts; a cancelled one forgets it.
   const forUpdate = installOnQuit
+  const forRelaunch = relaunchOnQuit
   installOnQuit = false
+  relaunchOnQuit = false
   const live = sessions.liveStates()
   const mode = config.settings.general.confirmOnQuit
   const unsavedIn = hiveWindows().filter((e) => e.unsaved.length > 0)
@@ -448,10 +461,12 @@ async function requestQuit(opts: { force?: boolean } = {}): Promise<void> {
     // Close this window only: the Close Window path, without asking again about what the dialog listed.
     if (choice === 'window') return closeWindowOnly(target, { sessions: askSessions, unsaved: true })
     installOnQuit = forUpdate
+    relaunchOnQuit = forRelaunch
     if (choice === 'wait') return startPendingQuit()
     return quitNow(!askSessions && live.length > 0)
   }
   installOnQuit = forUpdate
+  relaunchOnQuit = forRelaunch
   return quitNow(live.length > 0)
 }
 
@@ -540,6 +555,7 @@ function cancelPendingQuit(): void {
   if (!pendingQuit) return
   pendingQuit = false
   installOnQuit = false
+  relaunchOnQuit = false
   setTrayPendingQuit(false)
   emit({ type: 'quit-pending', pending: false, working: 0 })
 }
@@ -579,7 +595,20 @@ async function quitNow(tellUser: boolean): Promise<void> {
   // Apps that find Hive by its discovery file stop looking for this one (#620).
   await clearDiscovery()
   if (installOnQuit) installNow()
-  else app.quit()
+  else {
+    if (relaunchOnQuit) relaunch()
+    app.quit()
+  }
+}
+
+/** Starts Hive again once this one has quit, as it was started but for the once-only --disable-gpu. */
+function relaunch(): void {
+  const args = relaunchArgs(process.argv)
+  // A test copy records it instead: a copy of Hive its suite didn't start would outlive the run.
+  const record = !app.isPackaged ? process.env.HIVE_TEST_RELAUNCH_LOG : undefined
+  if (record) appendFileSync(record, `${JSON.stringify({ args })}
+`)
+  else app.relaunch({ args })
 }
 
 /**
@@ -897,6 +926,10 @@ app.whenReady().then(async () => {
 
   registerIpc(appInfo, {
     quit: () => void requestQuit(),
+    restart: () => {
+      relaunchOnQuit = true
+      void requestQuit()
+    },
     decide: (from, choice, dontAskAgain) => {
       const e = hiveWindows().find((x) => x.win === from)
       if (dontAskAgain && (choice === 'now' || choice === 'wait') && e?.question?.scope === 'app') config.updateSettings({ general: { confirmOnQuit: 'never' } })
