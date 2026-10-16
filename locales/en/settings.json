@@ -335,6 +335,14 @@
     "defaultMessage": "Developer console: show prompt, reply and command text",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
+  "settings.advanced.hive.disableHardwareAcceleration.desc": {
+    "defaultMessage": "Draw Hive without the graphics card, for a graphics driver that leaves Hive's window blank, flickering or crashing. Terminals then draw without WebGL. Takes effect when Hive restarts; to start once without it, run Hive with --disable-gpu.",
+    "description": "What the advanced setting \"Disable hardware acceleration\" is for, and what goes wrong when it is wrong (Settings → Advanced). --disable-gpu is a command-line option: keep it."
+  },
+  "settings.advanced.hive.disableHardwareAcceleration.title": {
+    "defaultMessage": "Disable hardware acceleration",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
   "settings.advanced.hive.mcp.replySeconds.desc": {
     "defaultMessage": "How long the hive MCP server waits for Hive to answer one of its tools (a wait's own time comes on top). Raise it when a slow or very busy machine makes hive tools fail with \"Hive didn't reply within 300 s\" (#371).",
     "description": "What the advanced setting \"hive tools: reply timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
@@ -483,6 +491,10 @@
     "defaultMessage": "Hive's setting {key}, kept in advanced.json too.",
     "description": "A line of an advanced value's info tip, for one of Hive's settings shown here. {key} is its key in Hive's settings: keep it."
   },
+  "settings.advancedList.appliesAtRestart": {
+    "defaultMessage": "Applies when Hive restarts.",
+    "description": "A line of an advanced value's info tip."
+  },
   "settings.advancedList.appliesToSessions": {
     "defaultMessage": "Applies to sessions started afterwards.",
     "description": "A line of an advanced value's info tip."
@@ -546,6 +558,18 @@
   "settings.advancedList.reset": {
     "defaultMessage": "Reset to default ({value})",
     "description": "Button beside an advanced value changed from its default: puts it back. {value} is the default."
+  },
+  "settings.advancedList.restart": {
+    "defaultMessage": "Restart Hive",
+    "description": "Button under an advanced value that applies when Hive restarts: quits Hive (asking about running agents, as quitting does) and starts it again."
+  },
+  "settings.advancedList.restartDue": {
+    "defaultMessage": "Restart Hive to apply this.",
+    "description": "Under an advanced value that applies when Hive restarts, changed since Hive started."
+  },
+  "settings.advancedList.restartFailed": {
+    "defaultMessage": "Could not restart Hive",
+    "description": "An error's title: restarting Hive from Settings → Advanced failed."
   },
   "settings.advancedList.unknown": {
     "defaultMessage": "advanced.json also names {ids}, which this Hive doesn't know (a typo, or a newer Hive's): kept in the file, not used.",

@@ -89,7 +89,13 @@ export type ClaimResult =
 export type ReleaseResult =
   | { released: true; branch: string; next: string | null; lost?: LostHold }
   | { left: true; branch: string; lost?: LostHold }
-  | { none: true; branch: string; holder: MergeSlotInfo['holder']; lost?: LostHold }
+  | { none: true; branch: string; holder: MergeSlotInfo['holder']; yours: OwnSlot[]; lost?: LostHold }
+
+/** A slot of the project the agent holds, or waits for (#586). */
+export interface OwnSlot {
+  branch: string
+  held: boolean
+}
 
 export interface MergeSlotDeps {
   now: () => number
@@ -247,7 +253,7 @@ export class MergeSlots {
   release(agent: SlotAgent, projectPath: string, branch: string): ReleaseResult {
     const lost = this.takeLost(agent, branch)
     const s = this.slots.get(key(projectPath, branch))
-    if (!s) return { none: true, branch, holder: null, ...(lost ? { lost } : {}) }
+    if (!s) return { none: true, branch, holder: null, yours: this.own(agent, projectPath), ...(lost ? { lost } : {}) }
     this.sweep(s)
     if (this.holds(s, agent)) {
       this.end(s)
@@ -263,7 +269,32 @@ export class MergeSlots {
       this.settled(s)
       return { left: true, branch, ...(lost ? { lost } : {}) }
     }
-    return { none: true, branch, holder: this.info(s).holder, ...(lost ? { lost } : {}) }
+    return { none: true, branch, holder: this.info(s).holder, yours: this.own(agent, projectPath), ...(lost ? { lost } : {}) }
+  }
+
+  /** The slots of the project the agent holds or waits for, by branch. */
+  own(agent: SlotAgent, projectPath: string): OwnSlot[] {
+    const p = projectPath.toLowerCase()
+    const out: OwnSlot[] = []
+    for (const s of [...this.slots.values()]) {
+      if (s.projectPath.toLowerCase() !== p) continue
+      this.sweep(s)
+      if (this.holds(s, agent)) out.push({ branch: s.branch, held: true })
+      else if (s.queue.some((w) => w.agent.agentId === agent.agentId)) out.push({ branch: s.branch, held: false })
+    }
+    return out.sort((a, b) => a.branch.localeCompare(b.branch))
+  }
+
+  /**
+   * The branch a release naming none is for (#586): the agent's one hold or place in line, whatever branch the project
+   * folder is on now (merge-ready checks its branch out there after claiming); with none, the one whose hold it lost
+   * (so the release tells it why). Null with several or none: the folder's branch decides.
+   */
+  releaseBranch(agent: SlotAgent, projectPath: string): string | null {
+    const mine = this.own(agent, projectPath)
+    if (mine.length === 1) return mine[0].branch
+    if (mine.length) return null
+    return this.lost.get(agentKey(projectPath, agent.agentId))?.branch ?? null
   }
 
   /**

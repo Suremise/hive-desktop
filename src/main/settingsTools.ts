@@ -87,7 +87,8 @@ function takesText(e: SettingEntry, project: ProjectConfig | null): string {
 
 const RESTART_TEXT: Record<NonNullable<SettingEntry['restart']>, string> = {
   sessions: 'to sessions started afterwards (running agents show Restart session)',
-  assistant: 'to the Assistant after it restarts'
+  assistant: 'to the Assistant after it restarts',
+  hive: 'when Hive restarts (Settings → Advanced offers Restart Hive)'
 }
 
 const firstSentence = (s: string): string => {

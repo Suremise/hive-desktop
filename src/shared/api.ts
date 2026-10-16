@@ -118,6 +118,8 @@ export interface HiveRequests {
   /** The plan usage each provider last reported (e.g. 5-hour and weekly limits), by provider. */
   'app:planUsage': () => Record<ProviderId, PlanUsage>
   'app:quit': () => void
+  /** Restarts Hive: quits as app:quit does (asking about running agents), then starts it again (#676). */
+  'app:restart': () => void
   'app:quitDecision': (choice: QuitChoice, dontAskAgain: boolean) => void
   'app:cancelPendingQuit': () => void
   /** Current quit state, for a window that reloads while a quit dialog or pending quit is open. */

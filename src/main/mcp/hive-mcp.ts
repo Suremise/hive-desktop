@@ -408,7 +408,7 @@ const tools: Tool[] = [
   {
     name: 'hive_merge_slot',
     description:
-      "Your project's merge slot: one merge at a time into a branch (default: the project folder's). claim waits up to timeoutSeconds (default 240, max 290): you hold it, or your place (claim again to keep it); claiming again extends the 60-min hold; your session ending releases it. release gives it up or leaves the line. cards: what you merge.",
+      "Your project's merge slot: one merge at a time into a branch (default: the project folder's). claim waits up to timeoutSeconds (default 240, max 290): you hold it, or your place (claim again to keep it); claiming again extends the 60-min hold; your session ending releases it. release gives it up or leaves the line (with no branch: yours, if you have one). cards: what you merge.",
     inputSchema: {
       type: 'object',
       properties: {

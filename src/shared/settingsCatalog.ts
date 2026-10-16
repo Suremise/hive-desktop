@@ -174,8 +174,8 @@ export interface SettingEntry extends Omit<Row, 'title' | 'desc' | 'tip' | 'opti
   readOnly?: string
   /** Sensitive: permissions, what runs, the Agent API, the Assistant's own settings (readOnly says which). */
   sensitive?: boolean
-  /** Who takes a change only when restarted: running agents' sessions, or the Assistant. */
-  restart?: 'sessions' | 'assistant'
+  /** Who takes a change only when restarted: running agents' sessions, the Assistant, or Hive itself (#676). */
+  restart?: 'sessions' | 'assistant' | 'hive'
   /** The user guide's heading about it (Help → User Guide). */
   docs: string
   /** A project setting that can inherit Hive's (null, or the 'inherit' option). */
@@ -915,7 +915,8 @@ function entry(row: Row, id: string, scope: SettingScope, docs: string): Setting
   const readOnly = READ_ONLY.find(([re]) => re.test(id))
   const action = ACTIONS.has(id)
   const value = row.type === 'custom' ? CUSTOM_VALUES[id] : undefined
-  const restart = row.advanced ? (advancedDef(row.advanced.id)?.applies === 'sessions' ? 'sessions' : undefined) : RESTART.find(([re]) => re.test(id))?.[1]
+  const applies = row.advanced ? advancedDef(row.advanced.id)?.applies : undefined
+  const restart = row.advanced ? (applies === 'sessions' ? 'sessions' : applies === 'restart' ? 'hive' : undefined) : RESTART.find(([re]) => re.test(id))?.[1]
   const { title, desc, tip, options, off, confirmOn, englishTitle, ...rest } = row
   const text: SettingEntry['text'] = { title, desc: desc ?? null, tip: tip ?? null, ...(off ? { off } : {}), ...(confirmOn ? { confirmOn } : {}), ...(englishTitle ? { englishTitle } : {}) }
   const path = settingPathOf({ section: row.section, assistantProvider: row.assistantProvider, text }, scope, englishText)

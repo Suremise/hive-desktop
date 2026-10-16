@@ -235,6 +235,8 @@ async function runLog(id: unknown): Promise<string> {
 /** Quitting and closing windows (index.ts): each call names the window it came from. */
 export interface QuitControl {
   quit: () => void
+  /** Quits as quit does (asking about running agents), then starts Hive again (#676). */
+  restart: () => void
   decide: (from: BrowserWindow, choice: QuitChoice, dontAskAgain: boolean) => void
   cancelPending: () => void
   state: (from: BrowserWindow) => ReturnType<HiveRequests['app:quitState']>
@@ -309,6 +311,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'app:info': () => getAppInfo(),
     'app:planUsage': () => config.get().planUsage,
     'app:quit': () => quitControl.quit(),
+    'app:restart': () => quitControl.restart(),
     'app:quitDecision': (choice, dontAskAgain) => quitControl.decide(win(), choice, dontAskAgain),
     'app:cancelPendingQuit': () => quitControl.cancelPending(),
     'app:quitState': () => quitControl.state(win()),

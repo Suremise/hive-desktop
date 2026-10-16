@@ -246,6 +246,8 @@ export function TerminalView({
   const visibleRef = useRef(visible)
   visibleRef.current = visible
   const appearance = useStore((s) => s.settings?.appearance)
+  // Hardware acceleration off (#676): the DOM renderer only, never WebGL (which would fall back to slow software, or fail).
+  const noWebgl = useStore((s) => !!s.appInfo?.gpu.off)
   const onExitRef = useRef(onExit)
   onExitRef.current = onExit
   const onFocusRef = useRef(onFocus)
@@ -527,7 +529,7 @@ export function TerminalView({
     if (visible) {
       if (dropWebgl.current) clearTimeout(dropWebgl.current)
       dropWebgl.current = null
-      if (!webglRef.current) {
+      if (!webglRef.current && !noWebgl) {
         makeRoomForWebgl(ptyKey)
         try {
           const webgl = new WebglAddon()
@@ -554,7 +556,7 @@ export function TerminalView({
       webglHolders.set(ptyKey, { visible: false, since: Date.now(), release })
       if (!dropWebgl.current) dropWebgl.current = setTimeout(release, 30_000)
     }
-  }, [visible, ptyKey])
+  }, [visible, ptyKey, noWebgl])
 
   useEffect(() => {
     if (!visible) return

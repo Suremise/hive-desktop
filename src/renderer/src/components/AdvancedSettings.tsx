@@ -15,7 +15,8 @@ import { cx } from '../util'
  * uses the default); a CLI's value that no longer finds what the CLI was recorded sending, or that was made for another
  * CLI version, says so, with Keep for the installed version. Values a workspace can set have a This workspace box too.
  * advanced.json holds the same values, Show developer features too: Open advanced.json edits them by hand, and the list
- * follows the file. `query` and `modifiedOnly` are Settings' own search and Modified only, on top of the list's.
+ * follows the file. `query` and `modifiedOnly` are Settings' own search and Modified only, on top of the list's. A
+ * value that applies when Hive restarts, changed since this Hive started, offers Restart Hive (#676).
  */
 export function AdvancedSettings({ query, modifiedOnly: outerModified }: { query: string; modifiedOnly: boolean }) {
   const state = useStore((s) => s.advanced)
@@ -58,7 +59,7 @@ export function AdvancedSettings({ query, modifiedOnly: outerModified }: { query
           <div key={g} className="advanced-group" role="group" aria-label={groupName(g)}>
             <h3>{groupName(g)}</h3>
             {list.map((r) => (
-              <AdvancedItem key={r.def.id} row={r} cli={cliFacing(r.def) ? (state.cli[r.def.group as ProviderId] ?? null) : null} workspace={hasWorkspace} />
+              <AdvancedItem key={r.def.id} row={r} cli={cliFacing(r.def) ? (state.cli[r.def.group as ProviderId] ?? null) : null} workspace={hasWorkspace} restartDue={r.def.applies === 'restart' && !!state.atStart && r.def.id in state.atStart && state.atStart[r.def.id] !== r.value} />
             ))}
           </div>
         )
@@ -97,7 +98,7 @@ function shownValue(def: AdvancedDef, raw: unknown, fallback: unknown): unknown 
   return def.kind === 'number' || def.kind === 'boolean' ? fallback : raw
 }
 
-function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string | null; workspace: boolean }) {
+function AdvancedItem({ row, cli, workspace, restartDue }: { row: AdvancedRow; cli: string | null; workspace: boolean; restartDue: boolean }) {
   const { def } = row
   const modified = row.override !== undefined
   const [error, setError] = useState<string | null>(null)
@@ -118,6 +119,7 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
   const about = [
     shownText(advancedTakesText(def)),
     def.applies === 'sessions' ? tr(msg({ id: 'settings.advancedList.appliesToSessions', defaultMessage: 'Applies to sessions started afterwards.', description: "A line of an advanced value's info tip." })) : '',
+    def.applies === 'restart' ? tr(msg({ id: 'settings.advancedList.appliesAtRestart', defaultMessage: 'Applies when Hive restarts.', description: "A line of an advanced value's info tip." })) : '',
     cliFacing(def) ? tr(msg({ id: 'settings.advancedList.cliVersion', defaultMessage: "It is {cli}'s: a change records the version it was made for.", description: "A line of an advanced value's info tip, for a CLI's value. {cli} is the CLI's name." }), { cli: groupName(def.group) }) : '',
     def.setting ? tr(msg({ id: 'settings.advancedList.alsoSetting', defaultMessage: "Hive's setting {key}, kept in advanced.json too.", description: "A line of an advanced value's info tip, for one of Hive's settings shown here. {key} is its key in Hive's settings: keep it." }), { key: def.setting }) : ''
   ].filter(Boolean)
@@ -159,6 +161,14 @@ function AdvancedItem({ row, cli, workspace }: { row: AdvancedRow; cli: string |
             <Icon name="warning" /> {tr(msg({ id: 'settings.advancedList.madeFor', defaultMessage: 'Made for {cli} {version}; {installed} is installed now. Check it still works, then keep it for {installed}.', description: "Under a CLI's advanced value made for another version of the CLI. {cli} is its name; {version} and {installed} are version numbers." }), { cli: groupName(def.group), version: row.madeForOther, installed: cli ?? '' })}
             <button className="btn small subtle" onClick={() => void call('advanced:keep', def.id).then((s) => set({ advanced: s })).catch((e) => notify('error', tr(msg({ id: 'settings.advancedList.keepFailed', defaultMessage: 'Could not keep it', description: "An error's title: keeping an advanced value for the installed CLI version failed." })), errorMessage(e)))}>
               {tr(msg({ id: 'settings.advancedList.keep', defaultMessage: 'Keep for {version}', description: "Button under a CLI's advanced value made for another version: keeps it for the installed one. {version} is that version's number." }), { version: cli ?? '' })}
+            </button>
+          </div>
+        )}
+        {restartDue && (
+          <div className="advanced-note" data-note="restart">
+            <Icon name="info" /> {tr(msg({ id: 'settings.advancedList.restartDue', defaultMessage: 'Restart Hive to apply this.', description: 'Under an advanced value that applies when Hive restarts, changed since Hive started.' }))}
+            <button className="btn small subtle" onClick={() => void call('app:restart').catch((e) => notify('error', tr(msg({ id: 'settings.advancedList.restartFailed', defaultMessage: 'Could not restart Hive', description: "An error's title: restarting Hive from Settings → Advanced failed." })), errorMessage(e)))}>
+              {tr(msg({ id: 'settings.advancedList.restart', defaultMessage: 'Restart Hive', description: 'Button under an advanced value that applies when Hive restarts: quits Hive (asking about running agents, as quitting does) and starts it again.' }))}
             </button>
           </div>
         )}

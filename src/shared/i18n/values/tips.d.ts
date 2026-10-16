@@ -124,6 +124,8 @@ interface HiveMessageValues {
   'tips.group.shortcuts': undefined
   'tips.handoverSelf.text': undefined
   'tips.handoverSelf.title': undefined
+  'tips.hardwareAcceleration.text': undefined
+  'tips.hardwareAcceleration.title': undefined
   'tips.hiveFolder.text': undefined
   'tips.hiveFolder.title': undefined
   'tips.hiveSkills.text': undefined

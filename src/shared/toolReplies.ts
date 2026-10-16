@@ -409,11 +409,13 @@ export function claimText(r: { held: boolean; branch: string; until?: number; ex
 }
 
 /** A release's reply. */
-export function releaseText(r: { branch: string; released?: boolean; next?: string | null; left?: boolean; none?: boolean; holder?: SlotHolder; lost?: SlotLost }): string {
+export function releaseText(r: { branch: string; released?: boolean; next?: string | null; left?: boolean; none?: boolean; holder?: SlotHolder; yours?: { branch: string; held: boolean }[]; lost?: SlotLost }): string {
   const lost = lostText(r.lost)
   if (r.released) return `${lost}Released the merge slot for ${r.branch}${r.next ? `; ${r.next} has it now` : ''}.`
   if (r.left) return `${lost}Left the line for the merge slot for ${r.branch}.`
-  return `${lost}You don't hold the merge slot for ${r.branch} (${r.holder ? holderText(r.holder) : 'it is free'}).`
+  // What it does hold or wait for (#586), so it can name that branch.
+  const yours = r.yours?.length ? ` Yours: ${r.yours.map((y) => `${y.branch} (${y.held ? 'held' : 'waiting'})`).join(', ')}; release with its branch.` : ' You hold and wait for no other merge slot of this project.'
+  return `${lost}You don't hold the merge slot for ${r.branch} (${r.holder ? holderText(r.holder) : 'it is free'}).${yours}`
 }
 
 /** A slot's status in a line: who holds it, for how long, and who waits. */

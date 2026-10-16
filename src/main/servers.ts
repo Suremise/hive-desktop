@@ -1341,7 +1341,9 @@ route('POST', '/v1/projects/:name/merge-slot/release', async ({ params, body }) 
   slotCall(async () => {
     const p = projectByName(params[0])
     const agent = await slotAgent(p)
-    const branch = await slotBranchFor(p, body?.branch)
+    // Naming no branch, it releases the agent's own hold, whatever branch the folder is on now (#586).
+    const own = body?.branch === undefined || body?.branch === null ? mergeSlots.releaseBranch(agent, p) : null
+    const branch = own ?? (await slotBranchFor(p, body?.branch))
     const result = mergeSlots.release(agent, p, branch)
     slotTestEvent(agent, p, branch, result)
     return result

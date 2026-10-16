@@ -40,6 +40,8 @@ export class AdvancedStore {
   private watcher: FSWatcher | null = null
   private reloadTimer: NodeJS.Timeout | null = null
   private cli: Partial<Record<ProviderId, string | null>> = {}
+  /** The values that apply when Hive restarts, as this Hive started with them (read before the app was ready). */
+  private atStart: Record<string, unknown> = {}
   private warned = new Set<string>()
   private patterns = new Map<string, { source: string; re: RegExp }>()
   private listeners = new Set<() => void>()
@@ -206,7 +208,12 @@ export class AdvancedStore {
 
   /** The state Settings → Advanced shows, with a workspace's own values. */
   state(workspaceValues: Record<string, unknown> | null): AdvancedState {
-    return { file: this.loaded ? this.path : '', fileError: this.fileError, fileErrorText: this.fileErrorText, values: { ...this.values }, madeFor: { ...this.madeFor }, unknown: [...this.unknown], workspace: workspaceValues ? { ...workspaceValues } : null, cli: { ...this.cli } }
+    return { file: this.loaded ? this.path : '', fileError: this.fileError, fileErrorText: this.fileErrorText, values: { ...this.values }, madeFor: { ...this.madeFor }, unknown: [...this.unknown], workspace: workspaceValues ? { ...workspaceValues } : null, cli: { ...this.cli }, atStart: { ...this.atStart } }
+  }
+
+  /** What the values that apply at a restart were when Hive started: Settings offers a restart once one differs. */
+  startedWith(values: Record<string, unknown>): void {
+    this.atStart = { ...values }
   }
 
   /** The overrides as they are (for the settings catalog's tools). */

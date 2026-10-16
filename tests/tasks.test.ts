@@ -1100,6 +1100,53 @@ describe('card decisions', () => {
     expect(await decisionNotice(w, { projectPath: alpha, agentId: 'zz' }, 'Other (alpha)')).toBeNull()
   })
 
+  it("a builder's question at its lane's end: a decision on its blocked card in Passed (or Review) is new to it until it reads the card (#877)", async () => {
+    const me = { projectPath: alpha, agentId: 'a1' }
+    const n = (await run(() => tasks.createTask({ title: 'Merge refused', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    const fresh = async (who = me, self = 'Coder (alpha)'): Promise<number | undefined> => (await newDecisionsOn(w, who, self)).get(n)?.count
+    await run(() => tasks.updateTask(n, { decision: 'Keep the old URL.' }, user))
+    noteCardRead(me, n)
+    await run(() => tasks.updateTask(n, { column: 'review' }, coder))
+    await run(() => tasks.updateTask(n, { review: 'start' }, reviewer))
+    await run(() => tasks.updateTask(n, { review: 'passed', column: 'passed' }, reviewer))
+    // Passed and not blocked: not the builder's to hear of.
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Merge on Monday.' }, assistant))
+    expect(await fresh()).toBeUndefined()
+    // Blocked on the merge: what was decided before it asked isn't the answer; a decision after it is, until it reads the card.
+    await laterMs()
+    await run(() => tasks.updateTask(n, { blocked: 'May I commit with --no-verify?' }, coder))
+    expect(await fresh()).toBeUndefined()
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Yes, this once.' }, assistant))
+    expect(await fresh()).toBe(1)
+    expect(await decisionNotice(w, me, 'Coder (alpha)')).toMatch(new RegExp(`#${n} has 1 new decision`))
+    // Only its agent: not the reviewer, nor another agent.
+    expect(await fresh({ projectPath: alpha, agentId: 'r1' }, 'Reviewer (alpha)')).toBeUndefined()
+    expect(await fresh({ projectPath: alpha, agentId: 'zz' }, 'Other (alpha)')).toBeUndefined()
+    noteCardRead(me, n)
+    expect(await fresh()).toBeUndefined()
+    // Unblocked, then merged (Done): nothing more.
+    await run(() => tasks.updateTask(n, { blocked: '' }, coder))
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Tag it too.' }, assistant))
+    expect(await fresh()).toBeUndefined()
+    await run(() => tasks.updateTask(n, { blocked: 'Which tag?' }, coder))
+    await run(() => tasks.updateTask(n, { column: 'done' }, coder))
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'v1.' }, assistant))
+    expect(await fresh()).toBeUndefined()
+    // A builder's question on a card in Review (its last round failed) reaches it the same way.
+    const m = (await run(() => tasks.createTask({ title: 'Last round', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await run(() => tasks.updateTask(m, { column: 'review' }, coder))
+    await run(() => tasks.updateTask(m, { review: 'start' }, reviewer))
+    await run(() => tasks.updateTask(m, { review: 'failed' }, reviewer, { comment: 'Round 10 failed.' }))
+    await run(() => tasks.updateTask(m, { blocked: 'Carry on, split or take over?' }, coder))
+    await laterMs()
+    await run(() => tasks.updateTask(m, { decision: 'Split it.' }, user))
+    expect((await newDecisionsOn(w, me, 'Coder (alpha)')).get(m)?.count).toBe(1)
+  })
+
   it('marks a decision recorded after work on the card started as new since start', () => {
     const card = { history: [{ at: '2026-10-07T10:00:00.000Z', by: 'You', what: 'Created in Todo' }] }
     expect(newSinceStart(card, { at: '2026-10-07T11:00:00.000Z' })).toBe(false)

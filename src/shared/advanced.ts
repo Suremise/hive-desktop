@@ -146,10 +146,13 @@ export interface AdvancedDef {
   setting?: string
   /** A workspace can set its own (Settings → Advanced, This workspace). */
   workspace?: boolean
-  /** Who takes a change: at once, or sessions started afterwards. */
-  applies: 'now' | 'sessions'
+  /** Who takes a change: at once, sessions started afterwards, or Hive when it next starts (Settings offers a restart). */
+  applies: 'now' | 'sessions' | 'restart'
   samples?: AdvancedSample[]
 }
+
+/** Hive draws without the graphics card (#676): read from advanced.json before the app is ready (main/gpu.ts). */
+export const HARDWARE_ACCELERATION_OFF = 'hive.disableHardwareAcceleration'
 
 /** The advanced.json format: written first in the file, so an older or newer Hive can tell. */
 export const ADVANCED_FORMAT = 1
@@ -209,6 +212,15 @@ const SOURCES: readonly AdvancedSource[] = [
     kind: 'boolean',
     default: false,
     applies: 'now'
+  },
+  {
+    id: HARDWARE_ACCELERATION_OFF,
+    group: 'hive',
+    title: msg({ id: 'settings.advanced.hive.disableHardwareAcceleration.title', defaultMessage: 'Disable hardware acceleration', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.hive.disableHardwareAcceleration.desc', defaultMessage: "Draw Hive without the graphics card, for a graphics driver that leaves Hive's window blank, flickering or crashing. Terminals then draw without WebGL. Takes effect when Hive restarts; to start once without it, run Hive with --disable-gpu.", description: 'What the advanced setting "Disable hardware acceleration" is for, and what goes wrong when it is wrong (Settings → Advanced). --disable-gpu is a command-line option: keep it.' }),
+    kind: 'boolean',
+    default: false,
+    applies: 'restart'
   },
   {
     id: 'hive.mcp.replySeconds',
@@ -845,6 +857,8 @@ export interface AdvancedState {
   workspace: Record<string, unknown> | null
   /** Each CLI's installed version, as Hive last found it. */
   cli: Partial<Record<ProviderId, string | null>>
+  /** What each value that applies when Hive restarts was when this Hive started: one changed since offers a restart. */
+  atStart?: Record<string, unknown>
 }
 
 /** One value as Settings lists it. */
