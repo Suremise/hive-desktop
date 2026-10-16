@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **An agent's new worktree opens at once in the Files and Changes tabs.** When an agent's worktree changed (a new agent, one moved or removed) while Hive was still reading the projects, an earlier read that finished late could put back the worktree from before: until the next refresh, the Files and Changes tabs refused the agent's current worktree and still opened the one it had left (#784).
 - **Left-running processes stay tracked when Windows reuses a process id.** When an agent's launch ended just as Windows gave one of its process ids to another agent's process, Hive could stop following that new process, so what it left running outside its agent's job as it exited wasn't listed or ended with that agent. It was never seen happening, and never ended a process Hive didn't start (#604).
 - **Pass right-click to Copilot.** Right-click is Hive's copy and paste in every pane; in a GitHub Copilot pane, Shift+drag selects text for it (a plain drag is Copilot's own selection, which Ctrl+C copies), as the user guide now says. To have right-click copy Copilot's own selection instead, as Copilot's footer suggests, turn on **Pass right-click to Copilot** under GitHub Copilot in **Settings → Advanced** (#737).
 - **Changing many cards at once is faster on a big board.** Hive read through the whole board's folder each time a card was saved, so on a board of 500 cards a change to 30 cards at once took about 0.8 s; it now takes about 0.1 s, whatever the board's size. Cards edited by hand or by another program still show on the board at once (#588).
