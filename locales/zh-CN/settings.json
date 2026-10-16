@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "钩子：工具运行前超时",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "Copilot 等待 Hive 接收其钩子的时长。",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "钩子：超时",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "Copilot 窗格中的右键单击和其他所有窗格一样由 Hive 处理：复制终端的所选内容（Shift+拖动），否则粘贴。开启后，Hive 会把右键单击交给 Copilot，Copilot 会像其底栏所说的那样，用右键单击复制它自己的选择（拖动）。",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "将右键单击交给 Copilot",
   "settings.advanced.copilot.ready.footer.desc": "Copilot 要到第一条提示词时才报告已启动，因此 Hive 把屏幕上出现其底栏视为它已就绪。",
   "settings.advanced.copilot.ready.footer.title": "就绪底栏",
   "settings.advanced.copilot.signIn.errorMessage.desc": "Copilot 会话文件中会话错误的信息，在错误类型未说明时，表示其登录被拒绝。",

@@ -223,6 +223,14 @@
     "defaultMessage": "Hooks: timeout",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": {
+    "defaultMessage": "Right-click in a Copilot pane is Hive's, as in every pane: it copies the terminal's selection (Shift+drag), or pastes. Turned on, Hive passes right-clicks to Copilot instead, which copies its own selection (a drag) with them, as its footer says.",
+    "description": "What the advanced setting \"Pass right-click to Copilot\" is for (Settings → Advanced, under GitHub Copilot). Shift+drag names a key and a mouse action: use the key names your language uses."
+  },
+  "settings.advanced.copilot.mouse.rightClickToCli.title": {
+    "defaultMessage": "Pass right-click to Copilot",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
   "settings.advanced.copilot.ready.footer.desc": {
     "defaultMessage": "Copilot only says it has started with the first prompt, so Hive takes its footer on screen to mean it is ready.",
     "description": "What the advanced setting \"Ready footer\" is for, and what goes wrong when it is wrong (Settings → Advanced)."

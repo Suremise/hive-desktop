@@ -57,6 +57,8 @@ interface HiveMessageValues {
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title': undefined
   'settings.advanced.copilot.hooks.timeoutSeconds.desc': undefined
   'settings.advanced.copilot.hooks.timeoutSeconds.title': undefined
+  'settings.advanced.copilot.mouse.rightClickToCli.desc': undefined
+  'settings.advanced.copilot.mouse.rightClickToCli.title': undefined
   'settings.advanced.copilot.ready.footer.desc': undefined
   'settings.advanced.copilot.ready.footer.title': undefined
   'settings.advanced.copilot.signIn.errorMessage.desc': undefined

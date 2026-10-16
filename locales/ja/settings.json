@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "フック：ツール実行前のタイムアウト",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "CopilotがフックをHiveに渡すときに待つ時間です。",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "フック：タイムアウト",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "Copilotのペインでの右クリックは、他のすべてのペインと同じくHiveが処理します。ターミナルの選択範囲（Shift+ドラッグ）があればコピーし、なければ貼り付けます。オンにすると、Hiveは右クリックをCopilotに渡し、Copilotはフッターの表示どおり、右クリックで自分の選択範囲（ドラッグ）をコピーします。",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "右クリックをCopilotに渡す",
   "settings.advanced.copilot.ready.footer.desc": "Copilotは最初のプロンプトまで起動したことを知らせないため、Hiveは画面にこのフッターがあれば準備完了と判断します。",
   "settings.advanced.copilot.ready.footer.title": "準備完了のフッター",
   "settings.advanced.copilot.signIn.errorMessage.desc": "Copilotのセッションファイルにあるセッションエラーのメッセージのうち、サインインが拒否されたことを示すものです（エラーの種類からわからない場合）。",

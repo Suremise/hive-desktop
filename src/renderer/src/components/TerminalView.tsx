@@ -6,6 +6,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { attempt } from '../actions'
 import { call } from '../api'
+import { useRightClickToCli } from '../advanced'
 import { deferredFocus } from '../deferredFocus'
 import { isAppShortcut } from '../commands'
 import { cardLinkProvider } from '../cardLinks'
@@ -71,11 +72,11 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
   return null
 }
 
-/** A terminal's size and scroll, for tests: scrolled to the bottom when viewportY is baseY. */
-;(window as unknown as { __hiveTerminalState?: (key: string) => { cols: number; rows: number; viewportY: number; baseY: number } | null }).__hiveTerminalState = (key) => {
+/** A terminal's size and scroll, for tests: scrolled to the bottom when viewportY is baseY; `mouse`, the mouse tracking its program turned on. */
+;(window as unknown as { __hiveTerminalState?: (key: string) => { cols: number; rows: number; viewportY: number; baseY: number; mouse: string } | null }).__hiveTerminalState = (key) => {
   const term = terminals.get(key)
   if (!term) return null
-  return { cols: term.cols, rows: term.rows, viewportY: term.buffer.active.viewportY, baseY: term.buffer.active.baseY }
+  return { cols: term.cols, rows: term.rows, viewportY: term.buffer.active.viewportY, baseY: term.buffer.active.baseY, mouse: term.modes.mouseTrackingMode }
 }
 
 /** The lines a terminal shows now, as drawn (trailing spaces kept), for tests that check what is on screen. */
@@ -253,6 +254,9 @@ export function TerminalView({
   const onFocusRef = useRef(onFocus)
   const providerRef = useRef(provider)
   providerRef.current = provider
+  const rightClickToCli = useRightClickToCli(provider)
+  const rightClickToCliRef = useRef(rightClickToCli)
+  rightClickToCliRef.current = rightClickToCli
   // The key handler is set once per terminal; these keep it pointed at the current agent.
   const pathRef = useRef(projectPath)
   pathRef.current = projectPath
@@ -330,17 +334,27 @@ export function TerminalView({
     const { signal } = listeners
     host.current!.addEventListener('focusin', () => onFocusRef.current?.(), { signal })
     host.current!.addEventListener('mousedown', () => onFocusRef.current?.(), { signal })
-    // Right-click is Hive's copy/paste (below). Keep the button from xterm, which would otherwise report it to
-    // programs that track the mouse (Codex), and Codex pastes on right-click too: everything was pasted twice.
+    // Right-click is Hive's copy/paste (below), in every pane (#737). Keep the button from xterm, which would otherwise
+    // report it to programs that track the mouse: Codex pasted on right-click too, so everything was pasted twice.
+    // Settings → Advanced can pass it to a CLI that handles the mouse itself instead (rightClickToCliRef).
     for (const type of ['mousedown', 'mouseup'] as const) {
       host.current!.addEventListener(type, (e) => {
-        if (e.button !== 2) return
+        if (e.button !== 2 || rightClickToCliRef.current) return
         e.stopPropagation()
         if (type === 'mousedown') onFocusRef.current?.()
       }, { signal, capture: true })
     }
+    // The terminal's selection (Shift+drag over a program that tracks the mouse) stays until it is used (#737): xterm
+    // reports every move to the program as the user's input, which clears the selection, so it was gone before the
+    // right-click that would copy it. While there is one, moves without a button aren't reported; a click or a key still
+    // is, and clears it as before. Passing right-click to the CLI leaves the mouse as xterm has it.
+    host.current!.addEventListener('mousemove', (e) => {
+      if (e.buttons || rightClickToCliRef.current || term.modes.mouseTrackingMode !== 'any' || !term.hasSelection()) return
+      e.stopPropagation()
+    }, { signal, capture: true })
     host.current!.addEventListener('contextmenu', (e) => {
       e.preventDefault()
+      if (rightClickToCliRef.current) return
       if (term.hasSelection()) {
         void navigator.clipboard.writeText(term.getSelection())
         term.clearSelection()
@@ -575,6 +589,7 @@ export function TerminalView({
     <div
       className={cx('terminal-host', !visible && 'hidden')}
       data-pty={ptyKey}
+      data-right-click={rightClickToCli ? 'cli' : 'hive'}
       style={{ ['--terminal-bg' as string]: terminalTheme().background, ...style }}
       ref={host}
     >

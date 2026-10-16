@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "Hooks: Timeout vor einem Tool",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "Wie lange Copilot wartet, bis Hive einen seiner Hooks annimmt.",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "Hooks: Timeout",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "Ein Rechtsklick in einem Copilot-Bereich gehört Hive, wie in jedem Bereich: Er kopiert die Auswahl des Terminals (Umschalt+Ziehen) oder fügt ein. Eingeschaltet gibt Hive Rechtsklicks stattdessen an Copilot weiter, das damit seine eigene Auswahl (Ziehen) kopiert, wie seine Fußzeile sagt.",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "Rechtsklick an Copilot weitergeben",
   "settings.advanced.copilot.ready.footer.desc": "Copilot meldet seinen Start erst mit dem ersten Prompt, daher versteht Hive seine Fußzeile auf dem Bildschirm als bereit.",
   "settings.advanced.copilot.ready.footer.title": "Fußzeile „bereit“",
   "settings.advanced.copilot.signIn.errorMessage.desc": "Die Meldung eines Sitzungsfehlers in der Sitzungsdatei von Copilot, die bedeutet, dass die Anmeldung abgelehnt wurde, wenn sein Typ es nicht sagt.",

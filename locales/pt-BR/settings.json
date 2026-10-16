@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "Hooks: tempo limite antes de uma ferramenta",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "Quanto tempo o Copilot espera o Hive receber um dos seus hooks.",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "Hooks: tempo limite",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "O clique com o botão direito em um painel do Copilot é do Hive, como em todos os painéis: copia a seleção do terminal (Shift+arrastar) ou cola. Ativado, o Hive passa os cliques com o botão direito ao Copilot, que copia com eles a própria seleção (arrastar), como diz o rodapé dele.",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "Passar o clique com o botão direito ao Copilot",
   "settings.advanced.copilot.ready.footer.desc": "O Copilot só avisa que começou com o primeiro prompt, então o Hive entende o rodapé dele na tela como pronto.",
   "settings.advanced.copilot.ready.footer.title": "Rodapé de pronto",
   "settings.advanced.copilot.signIn.errorMessage.desc": "A mensagem de um erro de sessão, no arquivo de sessão do Copilot, que indica que o login foi recusado, quando o tipo do erro não diz isso.",

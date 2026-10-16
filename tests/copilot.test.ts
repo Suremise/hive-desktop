@@ -211,6 +211,13 @@ describe('Copilot launch', () => {
     expect(stopWaitMs(15_000, [exit.graceMs])).toBe(15_000)
   })
 
+  it('never passes --mouse or --no-mouse, which Copilot saves into the user\'s own settings (#737)', () => {
+    for (const resume of [false, true]) {
+      const ctx = context({ resume })
+      expect(copilot.buildCommand(ctx.executable, ctx).args.filter((a) => /^--(no-)?mouse\b/.test(a))).toEqual([])
+    }
+  })
+
   it('takes its exit grace from Settings → Advanced (copilot.exit.graceSeconds), at each stop (#727)', async () => {
     const { advanced } = await import('../src/main/advanced')
     const { stopWaitMs } = await import('../src/main/sessions')
