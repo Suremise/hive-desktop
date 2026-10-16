@@ -24,6 +24,8 @@ import { duplicateAgentNames, suggestAgentName } from '../shared/agentNames'
 import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('workspace')
+/** How often the board's folder is looked for again when it can't be watched (deleted while the workspace is open). */
+const TASKS_WATCH_RETRY_MS = 3000
 
 /** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
 const M = {
@@ -253,6 +255,10 @@ export class WorkspaceService {
     this.idsTimer = null
     this.rootWatcher?.close()
     this.rootWatcher = null
+    if (this.tasksRetry) clearTimeout(this.tasksRetry)
+    this.tasksRetry = null
+    this.tasksWatcher?.close()
+    this.tasksWatcher = null
     await this.watcher?.close()
     this.watcher = null
     this.path = null
@@ -273,7 +279,7 @@ export class WorkspaceService {
 
   private async ensureWorkspaceStructure(): Promise<void> {
     const h = this.hiveDir
-    for (const d of [h, join(h, 'shared'), join(h, 'shared', 'handovers'), join(h, 'skills'), join(h, 'mcp')]) {
+    for (const d of [h, join(h, 'shared'), join(h, 'shared', 'handovers'), join(h, 'skills'), join(h, 'mcp'), join(h, 'tasks')]) {
       await mkdir(d, { recursive: true })
     }
     if (!existsSync(join(h, 'workspace.json'))) await writeKeptJson(join(h, 'workspace.json'), DEFAULT_WORKSPACE_CONFIG)
@@ -344,26 +350,88 @@ export class WorkspaceService {
     }
     const assistantHome = this.assistantHome.toLowerCase()
     const mcpDir = this.mcpDir.toLowerCase() + sep
+    const tasksDir = this.tasksDir.toLowerCase()
     this.watcher = chokidar.watch(this.hiveDir, {
       depth: 5,
       ignoreInitial: true,
       // The Assistant's home changes with every launch; nothing in it is shown from the file system. In .hive/mcp only
       // the definitions (<name>.json) are: a server's own folder (added from a .zip, #550) isn't watched, since a watched
-      // folder inside it would stop Windows moving the folder (Replace, Delete).
+      // folder inside it would stop Windows moving the folder (Replace, Delete). The board's folder has a watcher of its
+      // own (watchTasks).
       ignored: (p: string) => {
         const at = resolve(p).toLowerCase()
-        return at === assistantHome || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
+        return at === assistantHome || at === tasksDir || at.startsWith(tasksDir + sep) || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
       }
     })
     this.watcher.on('all', (evt, p) => {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
-      if (rel.startsWith(`${HIVE_DIR}/tasks/`) && rel.endsWith('.json')) this.emit({ type: 'tasks-changed', workspacePath: this.path! })
-      else if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
+      if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/${PERSONAS_DIR}`)) this.emit({ type: 'personas-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))
+    this.watchTasks()
+  }
+
+  get tasksDir(): string {
+    return join(this.hiveDir, 'tasks')
+  }
+
+  private tasksWatcher: RootWatcher | null = null
+  private tasksRetry: NodeJS.Timeout | null = null
+  private tasksEvent = false
+
+  /**
+   * The board's folder, watched on its own (#588): a card file changed there, by Hive, by hand or by another program,
+   * tells the board (tasks-changed). chokidar read the whole folder again on each event (an lstat of every card file,
+   * hundreds per card written on a big board, competing with the write for the thread pool); fs.watch names the file
+   * and reads nothing. The events of one moment are told once (a write is a rename and a change). The folder deleted,
+   * the watch ends and is tried again every few seconds until it is back.
+   */
+  private watchTasks(retried = false): void {
+    if (!this.path || this.tasksWatcher) return
+    const generation = this.generation
+    const retry = (): void => {
+      if (this.tasksRetry || generation !== this.generation) return
+      this.tasksRetry = setTimeout(() => {
+        this.tasksRetry = null
+        if (generation === this.generation) this.watchTasks(true)
+      }, TASKS_WATCH_RETRY_MS)
+    }
+    const changed = (): void => {
+      if (this.tasksEvent) return
+      this.tasksEvent = true
+      setImmediate(() => {
+        this.tasksEvent = false
+        if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+      })
+    }
+    let watcher: RootWatcher
+    const end = (): void => {
+      if (this.tasksWatcher === watcher) this.tasksWatcher = null
+      watcher.close()
+      retry()
+    }
+    try {
+      watcher = watch(this.tasksDir, (_evt, name) => {
+        if (this.tasksWatcher !== watcher) return
+        // The folder itself deleted: Windows names it by its full path, in a stream of events that doesn't stop, even
+        // once a folder of that name is made again, and raises no error. That watch is over.
+        if (name && /[\\/]/.test(name)) return end()
+        if (!name || name.endsWith('.json')) changed()
+      })
+    } catch {
+      retry()
+      return
+    }
+    watcher.on('error', (e) => {
+      log.warn('board folder watcher error', e)
+      end()
+    })
+    this.tasksWatcher = watcher
+    // Watched again after the folder was gone: what is in it now may have changed meanwhile.
+    if (retried) changed()
   }
 
   /** Saves of workspace.json queued or running, and the text of the last one: the watcher sees Hive's own writes too. */
