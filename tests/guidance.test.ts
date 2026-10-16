@@ -2,6 +2,7 @@
 // that role, keeps the boundaries a session needs without its skills, and stays short; the bundled skills are valid
 // (frontmatter, audience, links, the skills and hive tools they name, for their audience); the Hive development
 // skills are the same for both providers.
+import { execFileSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
@@ -150,30 +151,37 @@ describe('the bundled skills', () => {
 })
 
 describe("Hive's development skills", () => {
-  const claude = join(ROOT, '.claude', 'skills')
-  const agents = join(ROOT, '.agents', 'skills')
-  const files = (dir: string, rel = ''): string[] =>
-    readdirSync(join(dir, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(dir, `${rel}${e.name}/`) : [`${rel}${e.name}`])).sort()
+  const claude = '.claude/skills'
+  const agents = '.agents/skills'
+  // What git has of a folder (tracked, or new and not ignored), relative to it: a checkout where Hive ran agents also
+  // holds Hive's own hive-* copies in .agents/skills, which .git/info/exclude ignores (#923).
+  const files = (dir: string): string[] =>
+    execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--deduplicate', '--', dir], { cwd: ROOT, encoding: 'utf8' })
+      .split('\0')
+      .filter(Boolean)
+      .map((f) => f.slice(dir.length + 1))
+      .sort()
+  const skills = (dir: string): string[] => [...new Set(files(dir).map((f) => f.split('/')[0]))]
 
   it('are the same for Claude Code (.claude/skills) and Codex (.agents/skills)', () => {
     expect(files(claude)).toEqual(files(agents))
-    for (const f of files(claude)) expect(readFileSync(join(agents, f), 'utf8').replace(/\r\n/g, '\n'), f).toBe(readFileSync(join(claude, f), 'utf8').replace(/\r\n/g, '\n'))
+    for (const f of files(claude)) expect(readFileSync(join(ROOT, agents, f), 'utf8').replace(/\r\n/g, '\n'), f).toBe(readFileSync(join(ROOT, claude, f), 'utf8').replace(/\r\n/g, '\n'))
   })
 
   it("don't start with hive-, the prefix of Hive's git-excluded copies in .agents/skills", () => {
-    for (const name of [...readdirSync(claude), ...readdirSync(agents)]) expect(name, name).not.toMatch(/^\.?hive-/)
+    for (const name of [...skills(claude), ...skills(agents)]) expect(name, name).not.toMatch(/^\.?hive-/)
   })
 
   it('are valid skills that link only inside the repository', () => {
-    const names = readdirSync(claude)
+    const names = skills(claude)
     expect(names.length).toBeGreaterThan(0)
     for (const name of names) {
-      const text = readFileSync(join(claude, name, 'SKILL.md'), 'utf8')
+      const text = readFileSync(join(ROOT, claude, name, 'SKILL.md'), 'utf8')
       const fm = parseSkillFrontmatter(text)
       expect(fm.name, name).toBe(name)
       expect(fm.description ?? '', name).toMatch(/\bUse when\b/)
       // They point at the repository's own docs (from the skill's folder), which must exist.
-      for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) if (!/^[a-z]+:/i.test(m[1])) expect(existsSync(join(claude, name, m[1])), `${name}: ${m[1]}`).toBe(true)
+      for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) if (!/^[a-z]+:/i.test(m[1])) expect(existsSync(join(ROOT, claude, name, m[1])), `${name}: ${m[1]}`).toBe(true)
     }
   })
 })
