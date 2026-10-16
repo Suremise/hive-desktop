@@ -538,6 +538,65 @@ $r | ConvertTo-Json -Compress
     })
   }, 150000)
 
+  // The port's events in an order of the test's own (#604): an exit is gathered, then let go of at the batch's end
+  // (Settle). Only the entry held as that exit was read is let go of, once its process has exited: an entry whose
+  // process still runs isn't the one that exited; and with its job forgotten meanwhile, the id may name another job's
+  // process by now, held under the same id (here the same process, put in a second job: a new entry by that id), which
+  // stays held until its own exit. The test holds the host's lock throughout, so the port's thread can't settle a batch
+  // of its own in between.
+  it('lets go of an exit only for the entry held as it was read, never a later one by the same id (#604)', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'exits.ps1')
+    writeFileSync(
+      probe,
+      `param($src, $node)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+$s = [System.Diagnostics.ProcessStartInfo]::new($node, '-e "setTimeout(() => {}, 60000)"'); $s.UseShellExecute = $false; $s.CreateNoWindow = $true
+$m = [System.Diagnostics.Process]::Start($s)
+$r = [ordered]@{}
+$r.added = [HiveJobs]::Add('old', $m.Id)
+# The port holds the member it reports.
+for ($i = 0; $i -lt 200 -and [HiveJobs]::HeldBy($m.Id) -ne 'old'; $i++) { Start-Sleep -Milliseconds 50 }
+$r.heldOld = [HiveJobs]::HeldBy($m.Id)
+$turn = [HiveJobs].GetField('turn', [System.Reflection.BindingFlags]'NonPublic,Static').GetValue($null)
+[System.Threading.Monitor]::Enter($turn)
+try {
+  # Its exit gathered while it still runs.
+  [HiveJobs]::Notify('old', 7, $m.Id)
+  [HiveJobs]::Settle()
+  $r.runningKept = [HiveJobs]::HeldBy($m.Id)
+  # Its exit gathered, then its job forgotten before the batch ends, and the id held again by another job, whose process
+  # has exited too as the batch ends.
+  [HiveJobs]::Notify('old', 7, $m.Id)
+  [HiveJobs]::Forget('old')
+  $r.forgotten = [HiveJobs]::HeldBy($m.Id)
+  $r.addedNew = [HiveJobs]::Add('new', $m.Id)
+  [HiveJobs]::Notify('new', 6, $m.Id)
+  $r.heldNew = [HiveJobs]::HeldBy($m.Id)
+  $m.Kill()
+  $r.exited = $m.WaitForExit(10000)
+  [HiveJobs]::Settle()
+  $r.newKept = [HiveJobs]::HeldBy($m.Id)
+  # Its own exit lets it go.
+  [HiveJobs]::Notify('new', 7, $m.Id)
+  [HiveJobs]::Settle()
+  $r.letGo = [HiveJobs]::HeldBy($m.Id)
+  [HiveJobs]::Forget('new')
+} finally {
+  [System.Threading.Monitor]::Exit($turn)
+  if (-not $m.HasExited) { Stop-Process -Id $m.Id -Force }
+}
+$r | ConvertTo-Json -Compress
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src, process.execPath], { windowsHide: true, timeout: 120000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
+    expect(r).toEqual({ added: 'ok', heldOld: 'old', runningKept: 'old', forgotten: null, addedNew: 'ok', heldNew: 'new', exited: true, newKept: 'new', letGo: null })
+  }, 150000)
+
   it('lists nothing for a launch that left nothing running, nor for one it never tracked', async () => {
     const { launchEnded, trackLaunch } = await import('../src/main/agentProcesses')
     const cli = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], { stdio: 'ignore', windowsHide: true })

@@ -217,7 +217,8 @@ public static class HiveJobs {
     lock (turn) {
       IntPtr job;
       if (held.ContainsKey(pid) || !jobs.TryGetValue(id, out job)) return false;
-      IntPtr h = OpenProcess(0x1000, false, pid);
+      // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION: Settle asks whether it has exited.
+      IntPtr h = OpenProcess(0x100000 | 0x1000, false, pid);
       if (h == IntPtr.Zero) return false;
       bool inJob; long created, x, k, u;
       if (IsProcessInJob(h, job, out inJob) && inJob && GetProcessTimes(h, out created, out x, out k, out u)) {
@@ -292,41 +293,69 @@ public static class HiveJobs {
     }
     return "{\"ended\":" + ended + ",\"failed\":" + failed + "}";
   }
+  /** Exits gathered for the next Settle: each pid with the entry held for it as its exit was read (null: none). */
+  static List<KeyValuePair<int, Held>> exits = new List<KeyValuePair<int, Held>>();
+  /** When the gathered exits are settled (on clock), ${EXIT_BATCH_MS} ms after the first of them. */
+  static readonly System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+  static long due = 0;
+  /**
+   * A notification from the port for job id: a process joining is held, one ending is gathered for the next Settle with
+   * the entry its job held for it then. Public for the unit tests, which give the events in an order of their own (#604).
+   */
+  public static void Notify(string id, uint message, int pid) {
+    lock (turn) {
+      // JOB_OBJECT_MSG_NEW_PROCESS
+      if (message == 6) { Hold(id, pid); return; }
+      // JOB_OBJECT_MSG_EXIT_PROCESS, JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS
+      if (message != 7 && message != 8) return;
+      Held h;
+      if (!held.TryGetValue(pid, out h) || h.job != id) h = null;
+      if (exits.Count == 0) due = clock.ElapsedMilliseconds + ${EXIT_BATCH_MS};
+      exits.Add(new KeyValuePair<int, Held>(pid, h));
+    }
+  }
+  /**
+   * Sweeps for what the gathered exits left outside, then lets go of what was held for them. Only the entry held as an
+   * exit was read, and only once its process has exited (#604): its job forgotten meanwhile, the id is free, and may
+   * name another job's process by now, held under the same id; and a late join may have held, by an id already free
+   * again, another process of the same job, which still runs. Either way that entry is another process's, let go at its
+   * own exit. Public for the unit tests.
+   */
+  public static void Settle() {
+    lock (turn) {
+      try {
+        Sweep();
+        foreach (var e in exits) {
+          Held h;
+          if (e.Value == null || !held.TryGetValue(e.Key, out h) || !ReferenceEquals(h, e.Value) || WaitForSingleObject(h.h, 0) != 0) continue;
+          CloseHandle(h.h);
+          held.Remove(e.Key);
+        }
+      } finally { exits.Clear(); }
+    }
+  }
+  /** The job holding pid (Hold), or null. Public for the unit tests. */
+  public static string HeldBy(int pid) { lock (turn) { Held h; return held.TryGetValue(pid, out h) ? h.job : null; } }
   /**
    * The port's thread: holds each process as it joins a job. Those that end are swept for together, at most
    * ${EXIT_BATCH_MS} ms after the first of them (a build ends hundreds of processes, and a sweep's snapshot of every
    * process costs a few ms), adopting what they left outside; then they are let go.
    */
   static void Listen() {
-    var ended = new List<int>();
-    var clock = System.Diagnostics.Stopwatch.StartNew();
-    long due = 0;
     for (;;) {
-      long left = ended.Count > 0 ? due - clock.ElapsedMilliseconds : -1;
-      if (ended.Count > 0 && left <= 0) {
-        try {
-          lock (turn) {
-            Sweep();
-            foreach (int gone in ended) { Held h; if (held.TryGetValue(gone, out h)) { CloseHandle(h.h); held.Remove(gone); } }
-          }
-        } catch { }
-        ended.Clear();
+      bool waiting; long left;
+      lock (turn) { waiting = exits.Count > 0; left = due - clock.ElapsedMilliseconds; }
+      if (waiting && left <= 0) {
+        try { Settle(); } catch { }
         continue;
       }
       uint message; UIntPtr key; IntPtr detail;
-      if (!GetQueuedCompletionStatus(port, out message, out key, out detail, ended.Count > 0 ? (uint)left : 0xFFFFFFFF)) continue;
+      if (!GetQueuedCompletionStatus(port, out message, out key, out detail, waiting ? (uint)left : 0xFFFFFFFF)) continue;
       int pid = (int)detail.ToInt64();
       try {
         lock (turn) {
           string id;
-          if (!byKey.TryGetValue(key.ToUInt64(), out id)) continue;
-          // JOB_OBJECT_MSG_NEW_PROCESS
-          if (message == 6) Hold(id, pid);
-          // JOB_OBJECT_MSG_EXIT_PROCESS, JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS
-          else if (message == 7 || message == 8) {
-            if (ended.Count == 0) due = clock.ElapsedMilliseconds + ${EXIT_BATCH_MS};
-            ended.Add(pid);
-          }
+          if (byKey.TryGetValue(key.ToUInt64(), out id)) Notify(id, message, pid);
         }
       } catch { }
     }
