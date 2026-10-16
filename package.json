@@ -35,7 +35,8 @@
     "i18n:extract": "node scripts/i18nExtract.mjs",
     "i18n:check": "node scripts/i18nCheck.mjs",
     "i18n:coverage": "node scripts/i18nCoverage.mjs",
-    "i18n:guard": "node scripts/i18nGuard.mjs"
+    "i18n:guard": "node scripts/i18nGuard.mjs",
+    "i18n:numbers": "node scripts/i18nNumbers.mjs"
   },
   "dependencies": {
     "@formatjs/icu-messageformat-parser": "3.5.20",
