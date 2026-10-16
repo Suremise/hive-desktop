@@ -1,4 +1,5 @@
 import { basename } from 'path'
+import { HISTORY } from '../shared/taskHistory'
 import { workStartedAt } from '../shared/tasks'
 import type { TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
@@ -6,8 +7,8 @@ import { allTasks } from './tasks'
 import type { WorkspaceService } from './workspace'
 
 /**
- * The "new decision" flag (#357): a hive tool's reply to an agent working on a card (in Doing, its agent) or reviewing
- * one says when a decision was recorded or changed on it since the agent last read the card in full, or since its work
+ * The "new decision" flag (#357): a hive tool's reply to an agent working on a card (in Doing, its agent), asking the
+ * user about one (blocked, its agent) or reviewing one says when a decision was recorded or changed on it since the agent last read the card in full, or since its work
  * (or review) began. Only a flag: the skills say when to act on it (at the next checkpoint). Reads are kept in memory;
  * after a restart the start of the work is the baseline.
  */
@@ -62,14 +63,20 @@ function board(ws: WorkspaceService): Promise<TaskCard[]> {
 /** A review verdict this agent gave on the card (its name on the board), the latest: when it last finished reviewing it. */
 const lastVerdict = (c: TaskCard, self: string): number => Date.parse(c.history.findLast((h) => h.by === self && /^Review (passed|failed)$/.test(h.what))?.at ?? '') || 0
 
+/** When the card was last blocked (ms), or 0. */
+const blockedAt = (c: TaskCard): number => Date.parse(c.history.findLast((h) => h.whatText?.id === HISTORY.blocked.id || h.what.startsWith('Blocked: '))?.at ?? '') || 0
+
 /**
  * Where an agent's view of a card's decisions starts (ms), or null when the card isn't one of its: a card it works on (in
- * Doing, its agent: since it last read the card in full, or since the work began); one it reviews (since its last full
- * read, else its last verdict on it, else the review's start: starting another round doesn't make unread decisions
- * read); and one back in Review that it reviewed before (its next round: since its last read or verdict).
+ * Doing, its agent: since it last read the card in full, or since the work began); one it asked the user about out of
+ * Doing (blocked, its agent: a builder's question at its lane's end, on its card in Passed or Review, #877: since its last
+ * full read, or since it was blocked); one it reviews (since its last full read, else its last verdict on it, else the
+ * review's start: starting another round doesn't make unread decisions read); and one back in Review that it reviewed
+ * before (its next round: since its last read or verdict).
  */
 function baseline(c: TaskCard, agentId: string, self: string, read: number | undefined): number | null {
   if (c.column === 'doing' && c.agent === agentId) return Math.max(read ?? 0, workStartedAt(c))
+  if (c.blocked && c.agent === agentId && c.column !== 'done') return Math.max(read ?? 0, blockedAt(c))
   const verdict = lastVerdict(c, self)
   if (c.review?.agent === agentId) return read ?? (verdict || Date.parse(c.review.since) || 0)
   if (c.column === 'review' && !c.review && verdict) return Math.max(read ?? 0, verdict)
