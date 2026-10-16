@@ -118,7 +118,11 @@ function pathWithoutCodex() {
   const login = await lib.until(() => runs().slice(m).find((r) => r.arg === 'login'), 20000)
   check("a Sign in task's terminal started after it has the tool's folder", !!login && login.hasTool, JSON.stringify(runs().slice(m)))
   await inv('session:stop', alpha, agent.id)
-  check('the agent stops', !!(await lib.until(async () => !(await live()) || (await live()).status === 'stopped', 15000)), JSON.stringify(await live()))
+  check('the agent stops', !!(await lib.until(async () => {
+    // One read (#882): the session can go between two, and the second's `.status` would throw out of lib.until.
+    const s = await live()
+    return !s || s.status === 'stopped'
+  }, 15000)), JSON.stringify(await live()))
   const k = runs().length
   await inv('session:start', alpha, { agentId: agent.id })
   check('the agent starts again', !!(await lib.until(async () => (await live())?.status === 'ready', 25000)), JSON.stringify(await live()))
