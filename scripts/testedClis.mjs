@@ -15,7 +15,8 @@ export const MANIFEST = 'resources/tested-clis.json'
  * The manifest with what a run record shows (`current` kept for a CLI it can't vouch for): a CLI's entry is replaced
  * only when the record is valid, every real suite of that CLI ran and passed (none failed or skipped), and every one
  * of them says which of that CLI its Hive selected (the record's per-suite `clis`, from Hive's own detection), all the
- * same version. `updated` lists the provider ids replaced; `problems` says why each other one wasn't.
+ * same version. A suite marked `noHive` in suites.mjs runs the CLI without Hive, so it names none: it must pass, and
+ * isn't asked which. `updated` lists the provider ids replaced; `problems` says why each other one wasn't.
  */
 export function manifestFromRecord(record, suites, current = {}) {
   const manifest = { ...current }
@@ -25,18 +26,20 @@ export function manifestFromRecord(record, suites, current = {}) {
   if (!record.valid) return { manifest, updated, problems: [`the record isn't valid: ${(record.problems ?? []).join('; ') || 'it says so'}`] }
   for (const [need, { id, name }] of Object.entries(CLI_PROVIDERS)) {
     const real = suites.filter((s) => (s.needs ?? []).includes(need)).map((s) => s.name)
+    const noHive = new Set(suites.filter((s) => s.noHive).map((s) => s.name))
     const result = (n) => record.results.find((r) => r.name === n)
     const missing = real.filter((n) => !result(n))
     const notPassed = real.filter((n) => result(n) && (!result(n).ok || result(n).skipped))
     // What each suite's Hive selected of this CLI.
     const versionsOf = (n) => [...new Set((result(n)?.clis ?? []).filter((c) => c?.provider === id && typeof c.version === 'string').map((c) => c.version))]
-    const unsaid = real.filter((n) => result(n) && !versionsOf(n).length)
+    const unsaid = real.filter((n) => !noHive.has(n) && result(n) && !versionsOf(n).length)
     const versions = [...new Set(real.flatMap(versionsOf))].sort()
     const version = versions[0]
     if (missing.length === real.length) problems.push(`${name}: none of its real suites ran`)
     else if (missing.length) problems.push(`${name}: not all of its real suites ran (${missing.join(', ')} didn't)`)
     else if (notPassed.length) problems.push(`${name}: not all of its real suites passed (${notPassed.join(', ')})`)
     else if (unsaid.length) problems.push(`${name}: the record doesn't say which version Hive used in ${unsaid.join(', ')}`)
+    else if (!versions.length) problems.push(`${name}: none of its real suites says which version Hive used`)
     else if (versions.length > 1) problems.push(`${name}: its real suites ran different versions (${versions.join(', ')})`)
     else {
       manifest[id] = { version, testedAt: String(record.when ?? '').slice(0, 10), record: record.code }

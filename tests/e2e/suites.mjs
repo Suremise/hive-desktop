@@ -5,6 +5,8 @@
 // claudeHome: 'own' = its Claude Code runs in a home of its own with a made-up API key (no sign-in: the runner asks about none);
 // 'test' = in the signed-in Claude Code test home (CLAUDE_TEST_HOME, never the user's own), for suites that send prompts.
 // Every suite that starts the real Claude Code has one (#368): none runs in the user's ~/.claude (tests/e2esuites.test.ts).
+// noHive (with why): a real suite that runs its CLI without a test copy of Hive, so the run record has no version Hive
+// selected for it: npm run tested-clis requires it to pass, and takes the CLI's version from its suites that start Hive.
 // Suites that start a real CLI (claude, codex) share it with each other, so they run one at a time, in a lane beside
 // the others; those marked serial (with why) and the installer's run last, alone; every other suite is safe to run
 // beside others (its own profile, folders and Agent API port). Sorted by name, so suites added on different
@@ -63,7 +65,7 @@ export const SUITES = [
   { name: 'codex-extra', needs: ['codex'] },
   { name: 'codex-handover', needs: ['codex'] },
   { name: 'codex-setup', needs: ['codex'] },
-  { name: 'codex-storepwsh', needs: ['codex'] },
+  { name: 'codex-storepwsh', needs: ['codex'], noHive: 'runs codex sandbox itself' },
   { name: 'codexfolder' },
   { name: 'compact', needs: ['claude'], claudeHome: 'own' },
   { name: 'consoletext' },
