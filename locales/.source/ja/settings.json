@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "Hooks: before a tool, timeout",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "How long Copilot waits for Hive to take one of its hooks.",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "Hooks: timeout",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "Right-click in a Copilot pane is Hive's, as in every pane: it copies the terminal's selection (Shift+drag), or pastes. Turned on, Hive passes right-clicks to Copilot instead, which copies its own selection (a drag) with them, as its footer says.",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "Pass right-click to Copilot",
   "settings.advanced.copilot.ready.footer.desc": "Copilot only says it has started with the first prompt, so Hive takes its footer on screen to mean it is ready.",
   "settings.advanced.copilot.ready.footer.title": "Ready footer",
   "settings.advanced.copilot.signIn.errorMessage.desc": "A session error's message, in Copilot's session file, that means its sign-in was refused, when its type doesn't say so.",

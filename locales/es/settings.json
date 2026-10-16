@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "Hooks: antes de una herramienta, tiempo de espera",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "Cuánto espera Copilot a que Hive reciba uno de sus hooks.",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "Hooks: tiempo de espera",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "El clic derecho en un panel de Copilot es de Hive, como en todos los paneles: copia la selección del terminal (Mayús+arrastrar) o pega. Si lo activas, Hive pasa los clics derechos a Copilot, que con ellos copia su propia selección (arrastrar), como dice su pie.",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "Pasar el clic derecho a Copilot",
   "settings.advanced.copilot.ready.footer.desc": "Copilot solo indica que se inició con el primer prompt, así que Hive toma su pie en pantalla como señal de que está listo.",
   "settings.advanced.copilot.ready.footer.title": "Pie de “listo”",
   "settings.advanced.copilot.signIn.errorMessage.desc": "El mensaje de un error de sesión, en el archivo de sesión de Copilot, que indica que su inicio de sesión se rechazó, cuando su tipo no lo dice.",

@@ -55,6 +55,8 @@
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title": "Hooki: limit czasu przed narzędziem",
   "settings.advanced.copilot.hooks.timeoutSeconds.desc": "Jak długo Copilot czeka, aż Hive przyjmie jeden z jego hooków.",
   "settings.advanced.copilot.hooks.timeoutSeconds.title": "Hooki: limit czasu",
+  "settings.advanced.copilot.mouse.rightClickToCli.desc": "Prawy przycisk myszy w panelu Copilota należy do Hive, jak w każdym panelu: kopiuje zaznaczenie terminala (Shift+przeciąganie) albo wkleja. Po włączeniu Hive przekazuje kliknięcia prawym przyciskiem do Copilota, który kopiuje nimi własne zaznaczenie (przeciąganie), jak mówi jego stopka.",
+  "settings.advanced.copilot.mouse.rightClickToCli.title": "Przekazuj prawy przycisk myszy do Copilota",
   "settings.advanced.copilot.ready.footer.desc": "Copilot informuje o starcie dopiero przy pierwszym prompcie, więc Hive uznaje jego stopkę na ekranie za znak gotowości.",
   "settings.advanced.copilot.ready.footer.title": "Stopka gotowości",
   "settings.advanced.copilot.signIn.errorMessage.desc": "Komunikat błędu sesji w pliku sesji Copilot, który oznacza, że logowanie zostało odrzucone, gdy nie wynika to z typu błędu.",

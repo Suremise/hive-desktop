@@ -1,4 +1,4 @@
-import { AGENTS_PER_PROJECT, advancedDef, advancedRow } from '@shared/advanced'
+import { AGENTS_PER_PROJECT, advancedDef, advancedRow, rightClickToCliId } from '@shared/advanced'
 import { call } from './api'
 import { set, useStore } from './store'
 
@@ -15,6 +15,13 @@ export async function loadAdvanced(): Promise<void> {
 export function useAdvancedValue<T extends string | number | string[]>(id: string): T {
   const state = useStore((s) => s.advanced)
   return advancedRow(advancedDef(id)!, state).value as T
+}
+
+/** Whether right-click in a provider's terminal goes to its CLI rather than Hive's copy/paste (#737): off for a provider with no such setting. */
+export function useRightClickToCli(provider: string | undefined): boolean {
+  const state = useStore((s) => s.advanced)
+  const def = provider ? advancedDef(rightClickToCliId(provider)) : undefined
+  return !!def && advancedRow(def, state).value === true
 }
 
 /** How many agents a project of this window's workspace can have (#562): Settings → Advanced → Agents per project. The main process checks it again. */

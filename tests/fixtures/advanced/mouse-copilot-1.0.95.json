@@ -1,0 +1,17 @@
+{
+  "about": "GitHub Copilot CLI's start, offline in a test home, in a 120x40 pty, up to its prompt: the private modes it set or reset (DECSET/DECRST, in order), and the mouse tracking among them (#737). Recorded by #737's probe.",
+  "cli": "GitHub Copilot CLI",
+  "version": "1.0.95",
+  "runs": [
+    {
+      "args": "without --no-mouse",
+      "mouseTracking": "?1003h ?1006h",
+      "privateModes": "?9001h ?1004h ?25l ?25h ?1049h ?2004h ?1004h ?1003h ?1006h ?12l ?1007l ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h"
+    },
+    {
+      "args": "--no-mouse",
+      "mouseTracking": "none",
+      "privateModes": "?9001h ?1004h ?25l ?25h ?1049h ?2004h ?1004h ?12l ?1007l ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h ?25l ?25h"
+    }
+  ]
+}

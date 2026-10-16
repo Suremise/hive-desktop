@@ -255,6 +255,8 @@ export class CopilotAdapter implements ProviderAdapter {
     if (ctx.effort) args.push('--reasoning-effort', ctx.effort)
     args.push(...copilotModeFlags(ctx.permissionMode || COPILOT_DESCRIPTOR.defaultPermissionMode, ctx.cwd))
     args.push('--no-auto-update')
+    // Never --mouse or --no-mouse (#737): Copilot saves either into the user's own settings (~/.copilot/settings.json),
+    // changing their Copilot outside Hive. It keeps its own mouse handling: Shift+drag makes the terminal's selection.
     args.push(...ctx.extraArgs)
     // A first task: Copilot starts interactive and runs it (after the folder-trust question, if it asks one).
     if (ctx.initialPrompt) args.push('-i', promptArg(executable, ctx.initialPrompt))

@@ -154,6 +154,12 @@ export interface AdvancedDef {
 /** Hive draws without the graphics card (#676): read from advanced.json before the app is ready (main/gpu.ts). */
 export const HARDWARE_ACCELERATION_OFF = 'hive.disableHardwareAcceleration'
 
+/**
+ * Whether right-click goes to a provider's CLI rather than Hive's copy/paste (#737): `<provider>.mouse.rightClickToCli`,
+ * an advanced value for a CLI that handles the mouse itself. A provider without one keeps Hive's.
+ */
+export const rightClickToCliId = (provider: string): string => `${provider}.mouse.rightClickToCli`
+
 /** The advanced.json format: written first in the file, so an older or newer Hive can tell. */
 export const ADVANCED_FORMAT = 1
 
@@ -706,6 +712,21 @@ const SOURCES: readonly AdvancedSource[] = [
     unit: 's',
     applies: 'now',
     samples: [{ from: `${FIX}/console/copilot.json`, version: '1.0.95', text: '"type": "session.shutdown"', shows: "Copilot stopped by Hive, writing its token totals (session.shutdown) and exiting by itself (exit code 0)" }] // i18n-ignore: a CLI's recorded text (#367)
+  },
+  // Terminals behave the same in every pane (#737): right-click is Hive's, and this hands it to Copilot instead.
+  {
+    id: rightClickToCliId('copilot'),
+    group: 'copilot',
+    title: msg({ id: 'settings.advanced.copilot.mouse.rightClickToCli.title', defaultMessage: 'Pass right-click to Copilot', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({
+      id: 'settings.advanced.copilot.mouse.rightClickToCli.desc',
+      defaultMessage: "Right-click in a Copilot pane is Hive's, as in every pane: it copies the terminal's selection (Shift+drag), or pastes. Turned on, Hive passes right-clicks to Copilot instead, which copies its own selection (a drag) with them, as its footer says.",
+      description: 'What the advanced setting "Pass right-click to Copilot" is for (Settings → Advanced, under GitHub Copilot). Shift+drag names a key and a mouse action: use the key names your language uses.'
+    }),
+    kind: 'boolean',
+    default: false,
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/mouse-copilot-1.0.95.json`, version: '1.0.95', text: '"mouseTracking": "?1003h ?1006h"', shows: 'Copilot turning on mouse tracking as Hive starts it (without --no-mouse), which a passed right-click reaches' }] // i18n-ignore: a CLI's recorded text (#367)
   }
 ]
 
