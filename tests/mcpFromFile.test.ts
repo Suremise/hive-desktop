@@ -2,7 +2,7 @@
 // .hive/mcp/<name>/ and added turned off; a name in use is refused unless replaced; what it runs is shown by name.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
@@ -44,9 +44,11 @@ const base = tempDir('hive-mcp-from-file-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const mcp = await import('../src/main/mcp')
 
-const wsPath = join(base, 'ws')
 const files = join(base, 'files')
-const mcpDir = join(wsPath, '.hive', 'mcp')
+// Each case has a workspace and a trash of its own (#787): what one adds or replaces never reaches another, in any order.
+let cases = 0
+let mcpDir: string
+let trashDir: string
 let w: ReturnType<typeof createWorkspaceService>
 const run = <T>(fn: () => Promise<T> | T): Promise<T> => inWorkspace(w, async () => fn())
 const json = (o: unknown): Uint8Array => strToU8(JSON.stringify(o))
@@ -74,19 +76,29 @@ function withLink(entries: Record<string, Uint8Array>, link: string): Uint8Array
 }
 
 describe('Add MCP Server from File', () => {
-  const trashDir = join(base, 'trash')
   const was = process.env.HIVE_TEST_TRASH_DIR
-  beforeAll(async () => {
+  beforeEach(async () => {
+    const dir = join(base, `case-${++cases}`)
+    const wsPath = join(dir, 'ws')
+    mcpDir = join(wsPath, '.hive', 'mcp')
+    trashDir = join(dir, 'trash')
     process.env.HIVE_TEST_TRASH_DIR = trashDir
     mkdirSync(join(wsPath, '.hive'), { recursive: true })
     w = createWorkspaceService()
     await w.open(wsPath)
   })
-  afterAll(async () => {
+  afterEach(async () => {
     await disposeWorkspaceService(w)
     if (was === undefined) delete process.env.HIVE_TEST_TRASH_DIR
     else process.env.HIVE_TEST_TRASH_DIR = was
   })
+
+  /** github, added from a .json (off): what the cases replacing or editing it start from. */
+  const GITHUB = { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' } }
+  const addGithub = () => run(() => mcp.addMcpFromFile(file('github.json', JSON.stringify(GITHUB)), 'github'))
+  /** ollama, unpacked from a server folder .zip with a lib folder: what the cases replacing it start from. */
+  const ollamaZip = (): Uint8Array =>
+    zipSync({ 'ollama/hive-mcp.example.json': json(OLLAMA), 'ollama/server.js': strToU8('// server'), 'ollama/lib/util.js': strToU8('// util'), '__MACOSX/ollama/._server.js': strToU8('junk') })
 
   it('shows what a server runs: the command and arguments, or the URL, and environment and headers by name', () => {
     expect(mcp.mcpRuns({ command: 'node', args: ['${HIVE_MCP_DIR}/x/server.js', 'a b'], env: { HOST: 'http://h', KEY: '${KEY}' }, cwd: 'C:\\srv' })).toEqual([
@@ -112,7 +124,7 @@ describe('Add MCP Server from File', () => {
   it('adds a .json definition turned off, named after the file, and says what it runs', async () => {
     // Enabled once under this name (its definition since deleted by hand): added, it is still off.
     await run(() => mcp.setMcpGlobal('github', true))
-    const f = file('github.json', JSON.stringify({ command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: '${GITHUB_TOKEN}' } }))
+    const f = file('github.json', JSON.stringify(GITHUB))
     const preview = await run(() => mcp.previewMcpFile(f))
     expect(preview).toMatchObject({ name: 'github', files: 0, exists: false, runs: ['Runs: npx -y @modelcontextprotocol/server-github', 'Environment: GITHUB_TOKEN=${GITHUB_TOKEN}'] })
     const m = await run(() => mcp.addMcpFromFile(f, 'github'))
@@ -122,6 +134,7 @@ describe('Add MCP Server from File', () => {
   })
 
   it('refuses a name in use unless replaced; Replace moves the old one to the trash', async () => {
+    await addGithub()
     const f = file('github.json', JSON.stringify({ command: 'uvx', args: ['github-mcp'] }))
     expect((await run(() => mcp.previewMcpFile(f))).exists).toBe(true)
     await expect(run(() => mcp.addMcpFromFile(f, 'github'))).rejects.toThrow('A server named "github" already exists: choose another name, or replace it.')
@@ -135,8 +148,7 @@ describe('Add MCP Server from File', () => {
   })
 
   it("unpacks a server folder .zip into .hive/mcp/<name>/, its definition from hive-mcp.json or the mcp repo's example", async () => {
-    const z = zipSync({ 'ollama/hive-mcp.example.json': json(OLLAMA), 'ollama/server.js': strToU8('// server'), 'ollama/lib/util.js': strToU8('// util'), '__MACOSX/ollama/._server.js': strToU8('junk') })
-    const f = file('ollama-v2.zip', z)
+    const f = file('ollama-v2.zip', ollamaZip())
     const preview = await run(() => mcp.previewMcpFile(f))
     expect(preview).toMatchObject({ name: 'ollama', files: 2, exists: false })
     expect(preview.runs).toEqual(['Runs: node ${HIVE_MCP_DIR}/ollama/server.js', 'Environment: OLLAMA_HOST (set), OLLAMA_KEY=${OLLAMA_KEY}'])
@@ -164,6 +176,8 @@ describe('Add MCP Server from File', () => {
   })
 
   it('a .zip replacing a server replaces its folder; deleting the server takes its folder too', async () => {
+    await run(() => mcp.addMcpFromFile(file('ollama-v2.zip', ollamaZip()), 'ollama'))
+    expect(existsSync(join(mcpDir, 'ollama', 'lib', 'util.js'))).toBe(true)
     const z = zipSync({ 'ollama/hive-mcp.json': json(OLLAMA), 'ollama/server.js': strToU8('// v3') })
     await expect(run(() => mcp.addMcpFromFile(file('ollama.zip', z), 'ollama'))).rejects.toThrow('already exists')
     await run(() => mcp.addMcpFromFile(file('ollama.zip', z), 'ollama', true))
@@ -247,6 +261,7 @@ describe('Add MCP Server from File', () => {
   })
 
   it('an enable shown a definition since edited is refused', async () => {
+    await addGithub()
     const shown = (await run(() => mcp.listMcp())).find((m) => m.name === 'github')!
     await run(() => mcp.saveMcp('github', JSON.stringify({ ...shown.def, args: ['-y', 'other-package'] }, null, 2)))
     await expect(run(() => mcp.setMcpGlobal('github', true, { def: shown.def, revision: shown.revision }))).rejects.toThrow('has changed since')
