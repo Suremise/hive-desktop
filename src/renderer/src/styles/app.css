@@ -4906,28 +4906,38 @@ body.pane-resizing .monaco-editor {
   font-size: 10px;
   line-height: 14px;
 }
-/* The focus view (#976): the strip of agents on the left, the agent's pane (the agents' area) beside it. */
+/* The focus view (#976): the strip of agents on the left, the agent's pane (the agents' area) beside it; its right edge
+   resizes it (#1021: its width inline, the agents' area's left with it). */
 .tile-strip {
   position: absolute;
   top: 32px;
   bottom: 0;
   left: 0;
   width: 200px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+}
+.tile-strip-list {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
   overflow: auto;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-subtle);
 }
 .agents-area.tile-focus {
   left: 200px;
 }
+/* An agent's row: its button, and its card's chip over the button's name line at the right (#1021). */
+.tile-strip-row {
+  position: relative;
+  flex: none;
+}
 .tile-strip-back,
 .tile-strip-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 1px 8px;
   padding: 5px 8px;
@@ -4944,8 +4954,11 @@ body.pane-resizing .monaco-editor {
   margin-bottom: 4px;
   color: var(--fg-muted);
 }
+.tile-strip-item {
+  width: 100%;
+}
 .tile-strip-back:hover,
-.tile-strip-item:hover {
+.tile-strip-row:hover > .tile-strip-item {
   background: var(--bg-hover);
 }
 .tile-strip-back:focus-visible,
@@ -4966,13 +4979,53 @@ body.pane-resizing .monaco-editor {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tile-strip-item > .tip-wrap {
+  min-width: 0;
+}
+.tile-strip-item > .tip-wrap > .tile-strip-name {
+  min-width: 0;
+}
 .tile-strip-status {
-  grid-column: 2;
+  grid-column: 2 / 4;
   color: var(--fg-faint);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The card chip (#1021): quiet, the column's colour a light tint and edge, its number in the status's weight. Its unseen
+   copy on the name's line keeps its room (the name ends in an ellipsis before it); the chip itself sits over that copy,
+   at the button's padding, so the chips line up down the strip. */
+.tile-strip-chip-space {
+  visibility: hidden;
+}
+.tile-strip-chip {
+  position: absolute;
+  top: 6px;
+  right: 9px;
+  display: flex;
+}
+.tile-strip-row .card-chip {
+  color: var(--fg-muted);
+  background: none;
+}
+.tile-strip-row .card-chip.colored {
+  background: color-mix(in srgb, var(--col) 10%, transparent);
+  border-color: color-mix(in srgb, var(--col) 32%, var(--border-subtle));
+}
+.tile-strip-row .card-chip.colored .codicon {
+  color: color-mix(in srgb, var(--col) 75%, var(--fg-muted));
+}
+.tile-strip-row .card-chip .card-chip-number {
+  font-weight: 500;
+}
+.tile-strip-row .card-chip:hover,
+.tile-strip-row .card-chip:focus-visible {
+  color: var(--fg-strong);
+}
+.tile-strip-row .card-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 /* A row scrolled sideways fades out at the ends that have more out of view (useScrollEdges, #886): 24 px, less in a
    short row, so a tab still shows its name. */
@@ -5356,11 +5409,15 @@ body.pane-resizing .monaco-editor {
   container-type: inline-size;
 }
 /*
- * One quiet line (#978): model · effort · mode · ctx · cost, and warnings only when they matter. Short of room
- * (useFooterFit in AgentPanes.tsx sets data-fit), the warnings give up their text for their icon in turn: the background
- * tasks', then the transcript's; their tooltips have it all. Then the permission mode's label shortens, then the model,
- * and only then is the line cut off at the right.
+ * One quiet line (#978): model · effort · mode on the left; the transcript's size · ctx · cost on the right (#1013), with
+ * warnings just left of them only when they matter. Short of room (useFooterFit in AgentPanes.tsx sets data-fit), the
+ * size goes first while it isn't a warning (with its dot), then the warnings give up their text for their icon in turn:
+ * the background tasks', then the transcript's; their tooltips have it all. Then the permission mode's label shortens,
+ * then the model, and only then is the line cut off at the right.
  */
+.pane-footer-bar > .grow {
+  min-width: 0;
+}
 .pane-footer-bar .foot-sep {
   flex-shrink: 0;
   color: var(--fg-faint);
@@ -5401,10 +5458,23 @@ body.pane-resizing .monaco-editor {
 .pane-footer-bar .pane-foot-item:has(> .fit-text) {
   gap: 0;
 }
-.pane-footer-bar:is([data-fit='1'], [data-fit='2']) .fit-text[data-give='1'],
-.pane-footer-bar[data-fit='2'] .fit-text[data-give='2'] {
+.pane-footer-bar .fit-text.plain {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 0;
+}
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .fit-text[data-give='1'],
+.pane-footer-bar:is([data-fit='2'], [data-fit='3']) .fit-text[data-give='2'],
+.pane-footer-bar[data-fit='3'] .fit-text[data-give='3'] {
   max-width: 0;
   margin-left: 0;
+}
+/* The plain size gone, its item takes back its gap (useFooterFit counts it with the text). */
+.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) > .tip-wrap:has(.fit-text.plain) {
+  margin-right: -6px;
+}
+.pane-footer-bar .foot-size {
+  cursor: default;
 }
 .pane-footer-bar .pane-foot-item .codicon {
   font-size: 12px;

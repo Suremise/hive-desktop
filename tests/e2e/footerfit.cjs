@@ -1,12 +1,15 @@
-// An agent's footer short of room (#217; one quiet line since #978: model · effort · mode · ctx · cost, then its
-// warnings): the warnings give up their text for their icon in turn, each before its text would be cut (the background
-// tasks', then the transcript's), then the permission mode's label shortens (its icon and caret stay), then the model's,
-// and only then is the line cut off at the right; the context never shortens before that. Narrowed a few pixels at a
-// time, a Claude Code agent's footer (priced, so it has a cost, with every warning: its context past the Compact
-// threshold, a transcript past its warn size and a background task running) and a Codex agent's ("Approve for me", its
-// longest label, no warnings), at 100% and 125% zoom: nothing overlaps, every step comes in that order and widening
-// brings the text back. Screenshots of each step in both themes. The agents are the fake Claude Code and the fake
-// Codex. Dev build, throwaway profile, workspace, CLAUDE_CONFIG_DIR and CODEX_HOME.
+// An agent's footer (#217; one quiet line since #978: model · effort · mode on the left, the transcript's size · ctx ·
+// cost on the right since #1013, warnings just left of them). The same layout in an agent's pane, its focus view and the
+// Assistant's panel: the right side ends at the footer's right edge, with space between the two sides. Short of room: the
+// size goes first while it isn't a warning, then the warnings give up their text for their icon in turn, each before its
+// text would be cut (the background tasks', then the transcript's), then the permission mode's label shortens (its icon
+// and caret stay), then the model's, and only then is the line cut off at the right; the context never shortens before
+// that. Narrowed a few pixels at a time, a Claude Code agent's footer (priced, so it has a cost, with every warning: its
+// context past the Compact threshold, a transcript past its warn size and a background task running) and a Codex agent's
+// ("Approve for me", its longest label, no warnings), at 100% and 125% zoom, and the Assistant's (its plain transcript
+// size): nothing overlaps, every step comes in that order and widening brings the text back. Screenshots of each step and of each place in both
+// themes. The agents and the Assistant are the fake Claude Code and the fake Codex. Dev build, throwaway profile,
+// workspace, CLAUDE_CONFIG_DIR and CODEX_HOME.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -32,15 +35,16 @@ const until = async (fn, ms = 10000) => {
 }
 
 /**
- * In the page: narrows the agent's footer from `from` (null: its pane's width) to `to` px, `step` at a time, and says what
- * it shows at each width. `keep` leaves the footer at the last width (for a screenshot) instead of giving it back its own.
+ * In the page: narrows the agent's footer (or the footer a selector names) from `from` (null: its pane's width) to `to`
+ * px (null: `from`), `step` at a time, and says what it shows at each width. `keep` leaves the footer at the last width (for a screenshot) instead of giving it back its own.
  */
 function sweep([agent, from, to, step, keep]) {
   const r = (x) => x.getBoundingClientRect()
-  const el = [...document.querySelectorAll('.agent-pane')].filter((p) => p.querySelector('.pane-header-bar')?.textContent.includes(agent)).map((p) => p.querySelector('.pane-footer-bar')).find((f) => f && f.getBoundingClientRect().width > 0)
+  const el = agent.startsWith('.') ? document.querySelector(agent) : [...document.querySelectorAll('.agent-pane')].filter((p) => p.querySelector('.pane-header-bar')?.textContent.includes(agent)).map((p) => p.querySelector('.pane-footer-bar')).find((f) => f && f.getBoundingClientRect().width > 0)
   if (!el) return [{ w: -1, fit: -1, overlaps: ['no footer shown for ' + agent + ': ' + [...document.querySelectorAll('.agent-pane')].map((p) => p.querySelector('.pane-header-bar')?.textContent + '=' + Math.round(p.querySelector('.pane-footer-bar')?.getBoundingClientRect().width ?? -1)).join(', ')] }]
   el.style.width = ''
   from = from ?? Math.floor(r(el).width)
+  to = to ?? from
   const full = (x) => !!x && x.clientWidth > 0 && x.scrollWidth <= x.clientWidth + 1
   const gone = (x) => !x || x.clientWidth === 0
   const read = () => {
@@ -53,25 +57,35 @@ function sweep([agent, from, to, step, keep]) {
         if (a.right > b.left + 0.5 && b.right > a.left + 0.5) overlaps.push(`${items[i].textContent.trim() || i} / ${items[j].textContent.trim() || j}`)
       }
     const tasks = el.querySelector('.tasks-text')
-    const size = el.querySelector('.size-text')
+    const size = el.querySelector('.foot-transcript .size-text')
+    const plain = el.querySelector('.foot-size .size-text')
     const ctx = el.querySelector('.ctx-text')
     const model = el.querySelector('.foot-model')
     const chip = el.querySelector('.mode-chip')
     const label = chip?.querySelector('.mode-label')
     const last = items.at(-1)
+    // Where the items may end: the footer's right edge, inside its padding.
+    const edge = fb.right - parseFloat(getComputedStyle(el).paddingRight)
+    // The right side: the items after the space between the two sides.
+    const grow = el.querySelector(':scope > .grow')
+    const rightSide = grow ? items.filter((k) => grow.compareDocumentPosition(k) & Node.DOCUMENT_POSITION_FOLLOWING) : []
     const warn = (x) => (!x ? null : full(x) ? 'full' : gone(x) ? 'icon' : 'cut')
     return {
       w: Math.round(fb.width),
       fit: Number(el.dataset.fit ?? 0),
       tasks: warn(tasks),
       size: warn(size),
+      plain: warn(plain),
       ctx: !ctx ? null : full(ctx) && r(ctx).right <= fb.right + 0.5 ? 'full' : 'cut',
       model: !model ? null : model.scrollWidth <= model.clientWidth + 1 ? 'full' : 'cut',
       label: !label ? null : full(label) ? 'full' : 'cut',
       labelWidth: label ? label.clientWidth : 0,
       chipIcons: !chip || [...chip.querySelectorAll('.codicon')].every((i) => r(i).width > 0 && r(i).left >= r(chip).left - 0.5 && r(i).right <= Math.min(r(chip).right, fb.right) + 0.5),
-      // The line cut off at the right: its last item ends past the footer.
-      endCut: !!last && r(last).right > fb.right + 0.5,
+      // The line cut off at the right: its last item ends past the footer's edge.
+      endCut: !!last && r(last).right > edge + 0.5,
+      // The right side against the footer's right edge (none: nothing on the right yet), and the room between the sides.
+      rightGap: rightSide.length ? Math.round(edge - r(rightSide.at(-1)).right) : null,
+      between: grow ? Math.round(r(grow).width) : null,
       overlaps
     }
   }
@@ -110,17 +124,19 @@ function sweep([agent, from, to, step, keep]) {
 }
 
 /** Everything wrong with a narrowing sweep (widest first): a text cut, a step out of order, an overlap. */
-function problems(states, { hasTasks, hasSize }) {
-  const most = hasSize ? 2 : hasTasks ? 1 : 0
+function problems(states, { hasTasks, hasSize, hasPlain }) {
+  const most = hasSize ? 3 : hasTasks ? 2 : hasPlain ? 1 : 0
   const bad = []
   let prev = null
   for (const s of states) {
     const at = `${s.w}px`
     if (s.overlaps.length) bad.push(`${at}: overlap ${s.overlaps.join(', ')}`)
-    if (s.tasks === 'cut' || s.size === 'cut') bad.push(`${at}: a warning's text cut (tasks ${s.tasks}, size ${s.size})`)
+    if (s.tasks === 'cut' || s.size === 'cut' || s.plain === 'cut') bad.push(`${at}: a text cut (tasks ${s.tasks}, size ${s.size}, plain size ${s.plain})`)
     if (prev && s.fit < prev.fit) bad.push(`${at}: steps back (${prev.fit} → ${s.fit})`)
-    if (hasTasks && (s.fit >= 1 ? s.tasks !== 'icon' : s.tasks !== 'full')) bad.push(`${at}: level ${s.fit} but tasks ${s.tasks}`)
-    if (hasSize && (s.fit >= 2 ? s.size !== 'icon' : s.size !== 'full')) bad.push(`${at}: level ${s.fit} but size ${s.size}`)
+    if (hasPlain && (s.fit >= 1 ? s.plain !== 'icon' : s.plain !== 'full')) bad.push(`${at}: level ${s.fit} but the plain size ${s.plain}`)
+    if (hasTasks && (s.fit >= 2 ? s.tasks !== 'icon' : s.tasks !== 'full')) bad.push(`${at}: level ${s.fit} but tasks ${s.tasks}`)
+    if (hasSize && (s.fit >= 3 ? s.size !== 'icon' : s.size !== 'full')) bad.push(`${at}: level ${s.fit} but size ${s.size}`)
+    if (!s.endCut && s.rightGap !== null && Math.abs(s.rightGap) > 1) bad.push(`${at}: the right side ends ${s.rightGap}px from the footer's right edge`)
     if (s.label === 'cut' && s.fit < most) bad.push(`${at}: the mode's label shortens before the warnings give way (level ${s.fit})`)
     if (s.model === 'cut' && s.labelWidth > 1) bad.push(`${at}: the model shortens while the mode still has ${s.labelWidth}px of label`)
     if (s.ctx === 'cut' && s.labelWidth > 1) bad.push(`${at}: the context is cut while the mode still has ${s.labelWidth}px of label`)
@@ -135,7 +151,8 @@ function problems(states, { hasTasks, hasSize }) {
   for (const d of [userData, ws, claudeHome, codexHome]) fs.rmSync(d, { recursive: true, force: true })
   for (const d of [claudeHome, codexHome]) fs.mkdirSync(d, { recursive: true })
   lib.gitProject(alpha)
-  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase()]))
+  // The fake trusts the project and the workspace folder, where the Assistant runs.
+  fs.writeFileSync(path.join(claudeHome, 'fake-trusted.json'), JSON.stringify([alpha.toLowerCase(), ws.toLowerCase()]))
   fs.writeFileSync(path.join(codexHome, 'config.toml'), '[windows]\nsandbox = "unelevated"\n')
   lib.enableProviders(userData, ['claude-code', 'codex'])
   const cfgFile = path.join(userData, 'config.json')
@@ -216,12 +233,12 @@ function problems(states, { hasTasks, hasSize }) {
     // Claude Code: every step.
     await show('Writer', 'claude')
     const states = await page.evaluate(sweep, ['Writer', null, 120, -3])
-    const bad = problems(states, { hasTasks: true, hasSize: true })
+    const bad = problems(states, { hasTasks: true, hasSize: true, hasPlain: false })
     check(`${z}: Claude Code footer: every step in order, nothing cut early, nothing overlapping`, !bad.length, bad.slice(0, 6).join('; '))
     const first = (fit) => states.find((s) => s.fit === fit)
-    check(`${z}: …starts with everything in full`, states[0].fit === 0 && states[0].tasks === 'full' && states[0].size === 'full' && states[0].ctx === 'full' && states[0].label === 'full' && !states[0].endCut, JSON.stringify(states[0]))
-    check(`${z}: …then the background tasks are their icon, the rest in full`, !!first(1) && first(1).size === 'full' && first(1).ctx === 'full' && first(1).label === 'full' && !first(1).endCut, JSON.stringify(first(1)))
-    check(`${z}: …then the transcript size its icon, the rest in full`, !!first(2) && first(2).ctx === 'full' && first(2).label === 'full' && !first(2).endCut, JSON.stringify(first(2)))
+    check(`${z}: …starts with everything in full, the right side at the right edge, space between the sides`, states[0].fit === 0 && states[0].tasks === 'full' && states[0].size === 'full' && states[0].ctx === 'full' && states[0].label === 'full' && !states[0].endCut && Math.abs(states[0].rightGap) <= 1 && states[0].between > 20, JSON.stringify(states[0]))
+    check(`${z}: …then the background tasks are their icon, the rest in full`, !!first(2) && first(2).size === 'full' && first(2).ctx === 'full' && first(2).label === 'full' && !first(2).endCut, JSON.stringify(first(2)))
+    check(`${z}: …then the transcript size its icon, the rest in full`, !!first(3) && first(3).ctx === 'full' && first(3).label === 'full' && !first(3).endCut, JSON.stringify(first(3)))
     const labelCut = states.find((s) => s.label === 'cut')
     check(`${z}: …then the mode's label shortens, its icon and caret stay, the context whole`, !!labelCut && labelCut.chipIcons && labelCut.ctx === 'full' && !labelCut.endCut, JSON.stringify(labelCut))
     const modelCut = states.find((s) => s.model === 'cut')
@@ -229,11 +246,11 @@ function problems(states, { hasTasks, hasSize }) {
     check(`${z}: …and only very narrow is the line cut off`, states.at(-1).endCut && states.at(-1).labelWidth <= 1, JSON.stringify(states.at(-1)))
     // Widening brings the text back, step by step.
     const back = await page.evaluate(sweep, ['Writer', 120, states[0].w, 8])
-    check(`${z}: widening brings each back`, back.at(-1).fit === 0 && back.at(-1).tasks === 'full' && back.at(-1).size === 'full' && back.at(-1).ctx === 'full' && back.every((s, i) => i === 0 || s.fit <= back[i - 1].fit), JSON.stringify(back.at(-1)))
+    check(`${z}: widening brings each back`, back.at(-1).fit === 0 && back.at(-1).tasks === 'full' && back.at(-1).size === 'full' && back.at(-1).ctx === 'full' && Math.abs(back.at(-1).rightGap) <= 1 && back.every((s, i) => i === 0 || s.fit <= back[i - 1].fit), JSON.stringify(back.at(-1)))
     // Codex: its longest label shortens before anything is cut off.
     await show('Checker', 'codex')
     const cx = await page.evaluate(sweep, ['Checker', null, 100, -3])
-    const cxBad = problems(cx, { hasTasks: cx.some((s) => s.tasks), hasSize: cx.some((s) => s.size) })
+    const cxBad = problems(cx, { hasTasks: cx.some((s) => s.tasks), hasSize: cx.some((s) => s.size), hasPlain: cx.some((s) => s.plain) })
     check(`${z}: Codex footer: in order, nothing overlapping, its icon and caret always shown`, !cxBad.length, cxBad.slice(0, 6).join('; '))
     // A level flipping back and forth on a rounding edge would loop until React gives up (the window's error view).
     check(`${z}: the window survives every width (no render loop)`, (await page.locator('.error-boundary').count()) === 0 && (await lib.agentCount(page)) === 2)
@@ -242,13 +259,14 @@ function problems(states, { hasTasks, hasSize }) {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))
   await zoomed(1)
 
-  // Screenshots of each step, both themes.
+  // Screenshots of each step, both themes, with nothing over the footer (the long conversation's notification, a tip).
+  await page.addStyleTag({ content: '.toasts, .tip-card { display: none !important; }' })
   await show('Writer', 'claude')
   const all = await page.evaluate(sweep, ['Writer', null, 120, -3])
   const shots = [
     ['0-full', (s) => s.fit === 0],
-    ['1-tasks', (s) => s.fit === 1],
-    ['2-size', (s) => s.fit === 2 && s.label === 'full'],
+    ['1-tasks', (s) => s.fit === 2],
+    ['2-size', (s) => s.fit === 3 && s.label === 'full'],
     ['3-label', (s) => s.label === 'cut' && s.model === 'full'],
     ['4-model', (s) => s.model === 'cut' && !s.endCut]
   ]
@@ -268,6 +286,57 @@ function problems(states, { hasTasks, hasSize }) {
     await cf.evaluate((el) => (el.style.width = ''))
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
+  await until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'dark', HUNG_MS)
+
+  // --- The same layout everywhere the footer is (#1013): the pane (above), the focus view and the Assistant's panel.
+  /** The footer as it is at its own width: the right side at the right edge, space between the sides, nothing over another. */
+  const layoutOk = (s) => !!s && s.fit === 0 && !s.endCut && Math.abs(s.rightGap) <= 1 && s.between > 20 && !s.overlaps.length && s.ctx === 'full'
+  await page.locator('.view-switch [data-view="tiles"]').click()
+  const writerTile = page.locator('.agent-tile', { has: page.locator('.tile-name', { hasText: /^Writer$/ }) })
+  await until(async () => (await writerTile.count()) === 1, HUNG_MS)
+  await writerTile.click()
+  const inFocus = await until(async () => (await page.locator('.agents-area.shown.tile-focus').count()) === 1 && (await footerOf('Writer').count()) === 1, HUNG_MS)
+  check("Writer's focus view is shown", !!inFocus)
+  const [focusState] = await page.evaluate(sweep, ['Writer', null, null, -1])
+  check('the focus view: the same layout, size · ctx · cost at the right edge', layoutOk(focusState), JSON.stringify(focusState))
+
+  // The Assistant, running the fake Claude Code, after a turn (so it has a context and a cost).
+  const home = (await inv('workspace:refresh')).assistant.path
+  const assistantLive = async () => (await inv('session:live')).find((x) => x.projectPath.toLowerCase() === home.toLowerCase() && x.agentId === 'assistant')
+  await page.evaluate(() => document.activeElement?.blur())
+  await page.keyboard.press('Control+Alt+I')
+  const aHeader = page.locator('.assistant-panel .assistant-header')
+  await until(async () => (await aHeader.count()) === 1, HUNG_MS)
+  await aHeader.getByRole('button', { name: 'Start', exact: true }).click()
+  check('the Assistant runs', !!(await until(async () => (await assistantLive())?.status === 'ready', 25000)))
+  await inv('pty:write', lib.ptyKey(home, 'assistant'), 'hello')
+  await lib.sleep(300) // on purpose: the fake reads a typed line before its Enter, as a CLI does
+  await inv('pty:write', lib.ptyKey(home, 'assistant'), '\r')
+  const af = page.locator('.assistant-footer .pane-footer-bar')
+  const aReady = await until(async () => {
+    const t = await af.innerText().catch(() => '')
+    return /ctx /.test(t) && /\$/.test(t) && (await af.locator('.foot-size').count()) === 1
+  }, 20000)
+  check("the Assistant's footer has its size, context and cost", !!aReady, await af.innerText().catch(() => ''))
+  const [assistantState] = await page.evaluate(sweep, ['.assistant-footer .pane-footer-bar', null, null, -1])
+  check("the Assistant's panel: the same layout, size · ctx · cost at the right edge", layoutOk(assistantState), JSON.stringify(assistantState))
+  // Its transcript's size, under the warn size: plain, and the first to go as it narrows.
+  const aStates = await page.evaluate(sweep, ['.assistant-footer .pane-footer-bar', null, 120, -3])
+  const aBad = problems(aStates, { hasTasks: false, hasSize: false, hasPlain: true })
+  check("the Assistant's footer narrowed: in order, nothing overlapping", !aBad.length, aBad.slice(0, 6).join('; '))
+  const plainGone = aStates.find((s) => s.fit === 1)
+  check("…its plain transcript size shows, then goes first, the mode's label and the context still whole", aStates[0].plain === 'full' && !!plainGone && plainGone.plain === 'icon' && plainGone.label === 'full' && plainGone.ctx === 'full' && Math.abs(plainGone.rightGap) <= 1, JSON.stringify([aStates[0], plainGone]))
+
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme, HUNG_MS)
+    for (const [tag, loc] of [['focus', footerOf('Writer')], ['assistant', af]]) {
+      const box = await loc.boundingBox()
+      await page.screenshot({ path: path.join(lib.WORK, `footerfit-place-${tag}-${theme}.png`), clip: { x: box.x, y: box.y - 4, width: box.width, height: box.height + 8 } })
+    }
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+  await inv('session:stop', home, 'assistant').catch(() => undefined)
 
   for (const a of [claude, codex]) await inv('session:stop', alpha, a.id).catch(() => undefined)
   await app.close()

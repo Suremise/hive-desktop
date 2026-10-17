@@ -1925,25 +1925,47 @@ class SessionManager {
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)
       if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
-      if (!src || !l.adapter.transcriptDetails) {
-        // Nothing to read yet (no message sent): shown as asked; the first turn's settings correct it.
+      const details = !!src && !!l.adapter.transcriptDetails
+      // The CLI's own question about the mode picked (Codex's warning before Full Access, #1014): the user answers it in
+      // the terminal, so the switch waits for the answer, however long (up to the adapter's answerMs: an advanced
+      // setting), and the 12 seconds the CLI has to confirm start once it is answered. What the CLI printed before the
+      // answer doesn't count: the user may still cancel.
+      const wait = l.adapter.modeConfirmWait?.() ?? { appearMs: 0, answerMs: 0 }
+      let asked = false
+      const askedAt = Date.now()
+      for (let t = Date.now(); same(); ) {
+        if (details) {
+          const hooks = l.hooksSeen ?? 0
+          const s = await stat(src!).catch(() => null)
+          if (s) await this.readDetails(l, src!, s.size, hooks)
+          if (st.permissionMode === mode) break
+        }
+        if (l.adapter.modeConfirmScreen?.(l.screen?.text() ?? '')) {
+          if (!asked) log.info(`${userText(this.label(st))}: ${name} asks to confirm ${mode} in its terminal`)
+          asked = true
+          if (Date.now() - askedAt >= wait.answerMs) break
+          l.switchTail = ''
+          t = Date.now()
+        } else {
+          if (Date.now() - t >= 12_000) break
+          // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
+          const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
+          if (said) {
+            st.permissionMode = said
+            if (said === mode) break
+          }
+          // Nothing to read (no message sent yet) and nothing asked once the CLI has had a moment to ask: shown as picked;
+          // the first turn's settings correct it.
+          if (!details && !asked && Date.now() - t >= wait.appearMs) break
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+      if (!details && !asked && same() && st.permissionMode !== mode) {
+        l.switchTail = undefined
         st.modeSwitching = undefined
         st.permissionMode = mode
         this.emitState(st)
         return { ok: true }
-      }
-      for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
-        const hooks = l.hooksSeen ?? 0
-        const s = await stat(src).catch(() => null)
-        if (s) await this.readDetails(l, src, s.size, hooks)
-        if (st.permissionMode === mode) break
-        // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
-        const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
-        if (said) {
-          st.permissionMode = said
-          if (said === mode) break
-        }
-        await new Promise((r) => setTimeout(r, 400))
       }
       if (!same()) {
         st.permissionMode = before
