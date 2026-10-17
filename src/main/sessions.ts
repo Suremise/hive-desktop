@@ -181,6 +181,8 @@ const STOPS_KEPT = 64
 const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
+/** How many running agents "Switch Now" switches at once (applyModeSettings): the rest wait for one to end. */
+const MODE_SWITCHES_AT_ONCE = 6
 
 /** After a kill, how long a CLI's console takes to be gone (its processes listed and ended, then its exit). */
 const KILL_EXIT_MS = 1000
@@ -2417,10 +2419,14 @@ class SessionManager {
     }, 400)
   }
 
-  /** "Switch Now": moves every running agent whose settings now say another mode into that mode. */
+  /**
+   * "Switch Now": moves every running agent whose settings now say another mode into that mode. The switches run side
+   * by side (at most MODE_SWITCHES_AT_ONCE), each in its own terminal: one waiting for the user's answer to its CLI's
+   * own question (Codex's Full Access warning, up to 10 minutes: #1024) doesn't hold up the others. Reported in the
+   * agents' order once all have ended.
+   */
   async applyModeSettings(): Promise<{ switched: string[]; skipped: string[] }> {
-    const switched: string[] = []
-    const skipped: string[] = []
+    const todo: { l: LiveSession; mode: PermissionMode }[] = []
     for (const l of [...this.live.values()]) {
       const st = l.state
       if (st.settingUp) continue
@@ -2429,16 +2435,25 @@ class SessionManager {
       const mode = (await this.effective(st.projectPath, pinProvider(agent, st.provider))).permissionMode
       if (!mode || mode === l.configuredMode) continue
       l.configuredMode = mode
-      if (mode === st.permissionMode) continue
+      if (mode !== st.permissionMode) todo.push({ l, mode })
+    }
+    const results: { switched?: string; skipped?: string }[] = []
+    const one = async (i: number): Promise<void> => {
+      const { l, mode } = todo[i]
+      const st = l.state
       try {
         const r = await this.setPermissionMode(st.projectPath, st.agentId, mode)
-        if (r.ok) switched.push(`${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}`)
-        else skipped.push(`${this.label(st)}: ${r.message}`)
+        results[i] = r.ok ? { switched: `${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}` } : { skipped: `${this.label(st)}: ${r.message}` }
       } catch (e) {
-        skipped.push(`${this.label(st)}: ${shownError(e)}`)
+        results[i] = { skipped: `${this.label(st)}: ${shownError(e)}` }
       }
     }
-    return { switched, skipped }
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < todo.length) await one(next++)
+    }
+    await Promise.all(Array.from({ length: Math.min(MODE_SWITCHES_AT_ONCE, todo.length) }, worker))
+    return { switched: results.flatMap((r) => r.switched ?? []), skipped: results.flatMap((r) => r.skipped ?? []) }
   }
 
   /** Stops the CLI's background job holding a conversation, then resumes the conversation in this agent. */
