@@ -243,13 +243,10 @@ let tmpCounter = 0
 export async function writeTextAtomic(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}-${++tmpCounter}.tmp`
-  await writeFile(tmp, text, 'utf8')
-  await renameIntoPlace(tmp, path)
-}
-
-/** Renames a finished temp file over its target, retrying while Windows holds the target; removes the temp file on failure. */
-async function renameIntoPlace(tmp: string, path: string): Promise<void> {
+  // A write that fails, while the temp file is written (a full disk) or renamed (retries given up, EPERM included),
+  // removes it, so failed saves leave nothing behind (#1016). A crash part way still can: sweepLeftovers removes those.
   try {
+    await writeFile(tmp, text, 'utf8')
     await renameRetrying(tmp, path)
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined)
