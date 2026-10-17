@@ -109,10 +109,14 @@ const check = (name, ok, extra = '') => {
       const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
       return { clickable: !!hit && (hit === b || b.contains(hit)), x: Math.round(r.x), width: Math.round(r.width), hit: hit?.className ?? null }
     })
+  /** Polls cancelHit until ⋯ is clickable (the layout settles after a resize), bounded for a hung run. */
+  const cancelHitWhenSettled = async (agentName) => (await until(async () => {
+    const r = await cancelHit(agentName).catch(() => null)
+    return r?.clickable && r
+  }, HUNG_MS)) || (await cancelHit(agentName).catch(() => ({ clickable: false })))
   // Hive's narrowest window (900 px), two panes: ⋯ still fits, the label gives way.
   await lib.fitWindow(app, page, { width: 900, height: 750 })
-  await lib.sleep(700)
-  const narrow = await cancelHit('Reviewer')
+  const narrow = await cancelHitWhenSettled('Reviewer')
   check('at 900 px in two panes, ⋯ is where a click lands on it', narrow.clickable, JSON.stringify(narrow))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching-narrow.png') })
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
@@ -262,8 +266,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(500)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1))
   await lib.fitWindow(app, page, { width: 1100, height: 750 })
-  await lib.sleep(800)
-  const tight = await cancelHit('Third')
+  const tight = await cancelHitWhenSettled('Third')
   check('three panes (under 340 px each), a three-card label: ⋯ is clickable', tight.clickable, JSON.stringify(tight))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching-tight.png') })
   await page.locator('.pane-header-bar', { hasText: 'Third' }).getByLabel('More').first().click()

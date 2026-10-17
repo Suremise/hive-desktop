@@ -8238,19 +8238,17 @@ textarea.input.task-blocked-input {
   font-size: 12px;
   vertical-align: -2px;
 }
-/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size. */
+/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size while it
+   shows; under 300 px (MARKS_FROM) Mark idle is only in ⋯ and the status shortens like any other (#977). */
 .pane-header-bar .pane-status.unknown-state {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 8;
-  min-width: 80px;
-  overflow: visible;
 }
 .pane-status.unknown-state > .tip-wrap {
   display: inline-flex;
   flex: 0 1 auto;
-  min-width: 14px;
+  min-width: 0;
   overflow: hidden;
 }
 .pane-status.unknown-state .pane-status {

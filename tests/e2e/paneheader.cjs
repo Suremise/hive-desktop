@@ -350,6 +350,34 @@ function commits(wt, n) {
   }
   await atWidths('', 'paneheader')
 
+  // An unknown state (#648), sent to the window as Hive sends a status: at every width Stop and ⋯ stay whole; Mark idle
+  // is beside the status from 300 px, and below only in ⋯, whose dot then says so.
+  const sendStatus = (state) => app.evaluate(({ BrowserWindow }, ev) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', ev), { type: 'session-status', state })
+  const known = await live(long.id)
+  await sendStatus({ ...known, status: 'working', turn: { ...known.turn, state: 'unknown', silentSince: new Date(Date.now() - 6 * 60000).toISOString() } })
+  check('an unknown state shows in the header', !!(await until(async () => (await header(long).locator('.unknown-state').count()) === 1, HUNG_MS)))
+  for (const w of WIDTHS) {
+    check(`unknown state: header sized to ${w}px`, await widthTo(w))
+    await fits(`unknown state at ${w}px`)
+    const placed = await until(async () => {
+      const r = { markIdle: await header(long).getByRole('button', { name: 'Mark idle' }).count(), dot: await header(long).locator('.pane-more-badge').count() }
+      return (w >= 300 ? r.markIdle === 1 : r.markIdle === 0 && r.dot === 1) && r
+    }, HUNG_MS)
+    check(`unknown state at ${w}px: Mark idle ${w >= 300 ? 'beside the status' : "in ⋯, with ⋯'s dot"}`, !!placed)
+    if (w !== 150) continue
+    await shot('paneheader-unknown-150.png')
+    await theme('light')
+    await fits('unknown state, light theme, at 150px')
+    await shot('paneheader-unknown-150-light.png')
+    await theme('dark')
+  }
+  await header(long).getByRole('button', { name: 'More', exact: true }).click()
+  check('…and ⋯ offers Mark idle', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: 'Mark idle' }).count()) === 1, HUNG_MS)))
+  await closeMenu()
+  // Back to what Hive knows of it.
+  await sendStatus(await live(long.id))
+  check('the unknown state is gone again', !!(await until(async () => (await header(long).locator('.unknown-state').count()) === 0, HUNG_MS)))
+
   // Hidden while the width changes: another project is shown, the window grows, alpha comes back.
   await widthTo(300)
   await page.getByText('beta', { exact: true }).first().click()

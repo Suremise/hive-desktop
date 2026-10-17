@@ -569,13 +569,21 @@ function Locks({ a }: { a: AgentInfo }) {
  * - what was left for it and isn't received yet (#530, #647: its deliveries), and Cancel for those still waiting; how
  *   many weren't acked in time;
  * - the files it is editing this turn;
- * - Mark Idle (beside the status too) when Hive doesn't know its state (#648).
+ * - Mark Idle (beside the status too while the header has room) when Hive doesn't know its state (#648);
+ * - `narrow` (the header too narrow for its inline marks): what its safety classifier did (#606), from its shield.
  * `sub` opens a menu in the ⋯ menu's place. `alert`: the badge's lines; `warn` when one of them is a warning.
  */
-function paneItems(project: ProjectInfo, a: AgentInfo, left: AgentLeftovers | undefined, sub: (items: MenuEntry[], keyboard: boolean) => void): { items: MenuEntry[]; alert: string[]; warn: boolean } {
+function paneItems(project: ProjectInfo, a: AgentInfo, left: AgentLeftovers | undefined, sub: (items: MenuEntry[], keyboard: boolean) => void, narrow = false): { items: MenuEntry[]; alert: string[]; warn: boolean } {
   const items: MenuEntry[] = []
   const alert: string[] = []
   let warn = false
+  const note = a.live?.safeguard
+  if (narrow && note) {
+    const text = safeguardText(note, providerDescriptor(a.live?.provider).modelLabel, tr)
+    items.push({ label: text, icon: 'shield', disabled: true })
+    alert.push(text)
+    if (note.switched || note.prompt || note.idle) warn = true
+  }
   if (left) {
     const n = left.processes.length + left.more
     const settle = (how: 'end' | 'keep') => () =>
@@ -654,7 +662,11 @@ function paneItems(project: ProjectInfo, a: AgentInfo, left: AgentLeftovers | un
         )
     })
   }
-  if (unknownStateText(a.live, Date.now(), tr)) items.push({ label: tr(MARK_IDLE), icon: 'check', onClick: () => markIdle(project, a) })
+  if (unknownStateText(a.live, Date.now(), tr)) {
+    items.push({ label: tr(MARK_IDLE), icon: 'check', onClick: () => markIdle(project, a) })
+    // Without its button beside the status, ⋯ says it needs a look.
+    if (narrow) alert.push(unknownStateText(a.live, Date.now(), tr)!)
+  }
   return { items: items.length ? [...items, { separator: true }] : items, alert, warn }
 }
 
@@ -1069,6 +1081,8 @@ const MARK_IDLE = msg({ id: 'panes.header.markIdle', defaultMessage: 'Mark idle'
 
 /** The header's width from which its card shows (tests/e2e/paneheader.cjs measures every width). */
 const CARD_FROM = 200
+/** From which its inline marks show: Mark idle beside an unknown state, the review and safeguard shields (else in ⋯). */
+const MARKS_FROM = 300
 
 const MORE = msg({ id: 'panes.header.more', defaultMessage: 'More', description: "Tooltip of the ⋯ button on a pane's header: the agent's menu." })
 
@@ -1097,8 +1111,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const tokens = usage?.contextTokens ?? 0
   const empty = !usage || usage.userMessages === 0 || tokens === 0
   const suggested = threshold > 0 && tokens >= threshold
+  const narrow = !!width && width < MARKS_FROM
   const openMenu = (x: number, y: number, keyboard: boolean): void => {
-    const { items } = paneItems(project, a, left, (sub, k) => menu.openAt(x, y, sub, k))
+    const { items } = paneItems(project, a, left, (sub, k) => menu.openAt(x, y, sub, k), narrow)
     menu.openAt(x, y, [...items, ...agentMenu(project, a, () => void picker.openAt(project, a, x, y), { empty, suggested })], keyboard)
   }
   const openBelow = (keyboard: boolean): void => {
@@ -1107,7 +1122,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   }
   // The palette's Agent Menu… for this agent.
   useStripMenu(project.path, 'agentMenu', () => openBelow(true), a.id)
-  const { alert, warn } = paneItems(project, a, left, () => {})
+  const { alert, warn } = paneItems(project, a, left, () => {}, narrow)
   /** Stop's place: an icon with a tooltip, in its action's colour. */
   const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled?: boolean) => (
     <Tooltip content={tip}>
@@ -1153,9 +1168,11 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <Tooltip content={tr(msg({ id: 'panes.header.unknownTip', defaultMessage: "Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.", description: "Tooltip of a pane's status when the agent's state is unknown. Stop is the CLI's event: keep it. \"mark it idle\" refers to the Mark idle button beside it." }))}>
             <span className="faint pane-status asks">{unknownStateText(live, Date.now(), tr)}</span>
           </Tooltip>
-          <button className="btn small subtle mark-idle" aria-label={tr(MARK_IDLE)} onClick={() => markIdle(project, a)}>
-            {tr(MARK_IDLE)}
-          </button>
+          {!narrow && (
+            <button className="btn small subtle mark-idle" aria-label={tr(MARK_IDLE)} onClick={() => markIdle(project, a)}>
+              {tr(MARK_IDLE)}
+            </button>
+          )}
         </span>
       ) : live?.question ? (
         <Tooltip content={live.question.text ? tr(msg({ id: 'panes.header.asks', defaultMessage: 'Asks: {question}', description: "Tooltip of a pane's status: the agent's question to the user ({question}, the agent's own words)." }), { question: live.question.text }) : tr(msg({ id: 'panes.header.asksSomething', defaultMessage: 'Asks you something', description: "Tooltip of a pane's status: the agent has asked the user something." }))}>
@@ -1182,8 +1199,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <span className={cx('faint', 'pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." })) : tr(msg({ id: 'panes.header.notRunning', defaultMessage: 'Not running', description: "A pane's status: the agent's session isn't running." }))}</span>
         </SignInTip>
       )}
-      <ReviewMark live={live} />
-      <SafeguardMark live={live} />
+      {!narrow && <ReviewMark live={live} />}
+      {!narrow && <SafeguardMark live={live} />}
       <div className="grow" />
       {/* Narrowest, the card goes first: Stop and ⋯ stay. */}
       {(!width || width >= CARD_FROM) && <CardChip project={project} a={a} short />}
