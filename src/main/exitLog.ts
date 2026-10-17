@@ -32,6 +32,8 @@ export function crashDumpsDir(): string {
 export function startCrashDumps(): void {
   try {
     app.setPath('crashDumps', crashDumpsDir())
+    // It names Hive's crash handler in CHROME_CRASHPAD_PIPE_NAME, which Chromium's own processes need (taken out of
+    // main's environment, a page's crash leaves no dump): what Hive starts doesn't get it (childEnv, CHILD_ENV_STRIP).
     crashReporter.start({ uploadToServer: false, compress: true })
   } catch (e) {
     log.warn("Couldn't start keeping crash dumps", e)
