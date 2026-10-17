@@ -17,7 +17,7 @@ import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -60,6 +60,8 @@ function rectStyle(r: Rect): CSSProperties {
 /** Which agent each pane of the selected project shows. */
 export function usePanes(project: ProjectInfo | null): (string | null)[] {
   const focused = useStore((s) => (project ? s.focusedAgent[project.path] : undefined))
+  // Fewer columns while they don't fit (#1037).
+  useStore((s) => s.paneColumns)
   if (!project) return []
   return paneAssignment(project, focused && project.agents.some((a) => a.id === focused) ? focused : focusedAgentId(project))
 }
@@ -717,6 +719,10 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 /** A layout's name, for its button in the session toolbar: "Two columns". */
 const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.name', defaultMessage: '{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}', description: "A pane layout's name: its button's tooltip and accessible name in the session toolbar." }), { layout: l })
 
+/** The chosen layout's tooltip while fewer columns are shown, the panes being too narrow for a terminal each (#1037). */
+const NARROWED = msg({ id: 'panes.layout.narrowed', defaultMessage: '{layout}: shown as {shown} until there is room for a terminal in each pane', description: "Tooltip of the chosen layout's button (the session toolbar) while the window is too narrow for its columns: {layout} is its name (\"Two columns\"), {shown} the layout shown meanwhile, lower case (\"one at a time\")." })
+const shownName = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.shownName', defaultMessage: '{layout, select, single {one at a time} columns2 {two columns} columns3 {three columns} grid {a grid of four} other {a grid of six}}', description: "A pane layout's name in a sentence, lower case: the layout shown while the chosen one doesn't fit (panes.layout.narrowed's {shown})." }), { layout: l })
+
 /**
  * How far the toolbar's controls fold when short of room (#886): the layouts become one button with a menu; then the page
  * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
@@ -804,9 +810,11 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   }, [view, project.path])
   const page = agentPage(project, focused ?? null)
   const panesView = view === 'panes'
-  // One layout for the project; a page holds as many agents as it has panes (#134).
+  // One layout for the project; a page holds as many agents as it has panes (#134). With too little room for its columns,
+  // fewer are shown (#1037): the buttons keep the one chosen, and its pages are those of the layout shown.
   const layout = projectLayout(project.config)
-  const perPage = agentsPerPage(layout)
+  const shown = useStore((s) => shownLayout(project, s))
+  const perPage = agentsPerPage(shown)
   const pages = agentPageCount(project.agents.length, perPage)
   const many = project.agents.length > 1
   const pageKb = commandKeybinding('agent.nextPage')
@@ -1040,7 +1048,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       )}
       {panesView && (many || layout !== 'single') && folds >= 1 && (
         <div className="segmented layout-switch">
-          <Tooltip content={layoutLabel(layout)}>
+          <Tooltip content={shown !== layout ? tr(NARROWED, { layout: layoutLabel(layout), shown: shownName(shown) }) : layoutLabel(layout)}>
             <button
               className="layout-menu"
               aria-label={layoutLabel(layout)}
@@ -1059,7 +1067,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       {panesView && (many || layout !== 'single') && folds < 1 && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
+            <Tooltip key={l.value} content={l.value === layout && shown !== layout ? tr(NARROWED, { layout: layoutLabel(layout), shown: shownName(shown) }) : l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
               <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={layoutLabel(l.value)}>
                 <LayoutGlyph layout={l.value} />
               </button>

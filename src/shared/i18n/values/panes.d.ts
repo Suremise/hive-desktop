@@ -67,6 +67,8 @@ interface HiveMessageValues {
   'panes.header.untakenTip': { line: string | number }
   'panes.header.watchTip': { watch: string | number; kind: string; n: number; limit: string | number }
   'panes.layout.name': { layout: string }
+  'panes.layout.narrowed': { layout: string | number; shown: string | number }
+  'panes.layout.shownName': { layout: string }
   'panes.layout.wide': { layout: string | number }
   'panes.leftovers.count': { n: number }
   'panes.leftovers.end': { n: number }

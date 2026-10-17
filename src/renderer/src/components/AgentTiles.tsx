@@ -295,7 +295,24 @@ function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { projec
 /** The focus view's strip's width (#1021): dragged at its edge, remembered like the other panels' (double-click resets it). */
 export const TILE_STRIP = { key: 'tileStrip', width: 200, min: 170, max: 420 } as const
 
-export const useTileStripWidth = (): number => usePaneSize(TILE_STRIP.key, TILE_STRIP.width)
+/**
+ * The strip's width as shown: the one chosen (#1021), narrower when the agent's pane beside it would be too narrow for a
+ * terminal, and 0 (hidden: the Tiles toggle and Esc still go back) when even its least width leaves too little (#1037).
+ */
+export function useTileStripWidth(): number {
+  const chosen = usePaneSize(TILE_STRIP.key, TILE_STRIP.width)
+  const room = useStore((s) => s.tileStripRoom)
+  return room === null ? chosen : Math.min(chosen, room)
+}
+
+/**
+ * How wide the strip may be in a Session tab `width` wide, beside a pane `paneMin` wide, given what it was (`was`):
+ * hidden below its least width, and shown again only `margin` past it, so a pixel either way doesn't toggle it.
+ */
+export function tileStripRoom(width: number, paneMin: number, was: number | null, margin: number): number {
+  const room = width - paneMin
+  return room < TILE_STRIP.min + (was === 0 ? margin : 0) ? 0 : room
+}
 
 /**
  * The focus view's strip (#976): Back to Tiles, then every agent in tile order (its mark, name, card and status), the one
@@ -327,6 +344,8 @@ function TileStrip({ project, focus }: { project: ProjectInfo; focus: string }) 
     e.preventDefault()
     els[Math.max(0, Math.min(els.length - 1, to))]?.focus()
   }
+  // No room beside a terminal (#1037): the agent's pane takes the width.
+  if (!width) return null
   return (
     <div className="tile-strip" style={{ width }}>
       <nav className="tile-strip-list" aria-label={tr(msg({ id: 'panes.tiles.stripLabel', defaultMessage: "The project's agents", description: "Accessible name of the focus view's strip of agents (the Tiles view, one agent's pane large)." }))} onKeyDown={onKeyDown}>

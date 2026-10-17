@@ -2,6 +2,9 @@
 // hook steps, and the watches themselves (main/watches.ts): a watch is kept in the workspace, fires once when a watched
 // card changes or its limit passes, wakes its agent only when it is idle and the user isn't typing (else later), and
 // ends on wake or cancel. The sessions are stand-ins here (the e2e cardloop suite runs real ones).
+import { readCard } from './boardDb'
+import { moveFolder } from './moveFolder'
+import { closeAllBoards } from '../src/main/boardStore'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -340,7 +343,10 @@ describe('what counts as a change', () => {
 describe('watches (main/watches.ts)', async () => {
   const base = tempDir('hive-watch-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  afterAll(() => {
+    closeAllBoards()
+    rmSync(base, { recursive: true, force: true })
+  })
   const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
   const tasks = await import('../src/main/tasks')
   const watches = await import('../src/main/watches')
@@ -618,7 +624,7 @@ describe('watches (main/watches.ts)', async () => {
 
   it("a verdict, move and comment in one call are saved together: the builder's wake names the reviewer's comment (#138)", async () => {
     const { onHiveEvent } = await import('../src/main/events')
-    const { w, path, alpha } = await open()
+    const { w, alpha } = await open()
     const st = fake(alpha)
     const reviewer = { kind: 'agent', name: 'Reviewer (alpha)', self: { project: 'alpha', agentId: 'a2' }, scope: 'alpha' } as const
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha', agent: 'a1', column: 'review' }, user))
@@ -629,7 +635,7 @@ describe('watches (main/watches.ts)', async () => {
     const seen: { column: string; latest: string | undefined }[] = []
     const off = onHiveEvent((e) => {
       if (e.type !== 'tasks-changed') return
-      const card = JSON.parse(readFileSync(join(path, '.hive', 'tasks', `${c.number}.json`), 'utf8')) as TaskCard
+      const card = readCard(w, c.number) as unknown as TaskCard
       seen.push({ column: card.column, latest: card.comments.at(-1)?.text })
     })
     const said: string[] = []
@@ -1494,7 +1500,8 @@ describe('watches (main/watches.ts)', async () => {
     expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectId?: string }) => !!x.projectId)).toEqual([true, false])
     await disposeWorkspaceService(w)
     const to = `${path}-moved`
-    renameSync(path, to)
+    // Tried again while Windows holds it a moment (#555): the board's database was just written and closed (#1017).
+    await moveFolder(path, to)
     const gamma = join(to, 'alpha')
     const st = fake(gamma)
     const w2 = createWorkspaceService()

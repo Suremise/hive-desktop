@@ -248,7 +248,13 @@ interface HiveMessageValues {
   'board.error.archive': undefined
   'board.error.change': undefined
   'board.error.move': undefined
+  'board.error.newer': undefined
+  'board.error.noWorkspace': undefined
   'board.error.unarchive': undefined
+  'board.error.unavailable': { error: string | number }
+  'board.export.command': undefined
+  'board.export.done': { n: number }
+  'board.export.failed': undefined
   'board.field.agent': undefined
   'board.field.blocked': undefined
   'board.field.blockedBy': undefined

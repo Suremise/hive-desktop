@@ -660,6 +660,11 @@ export interface TaskCard {
   createdAt: string
   createdBy: string
   updatedAt: string
+  /**
+   * An archived card as the window's board has it until it needs it in full (#1017): its title, place, agent, labels and
+   * dates, with no description, comments, history or decisions. Never in what agents read.
+   */
+  summary?: true
 }
 
 /**

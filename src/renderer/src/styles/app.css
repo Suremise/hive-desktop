@@ -1465,6 +1465,22 @@ textarea.input {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* More ▾ (#1043): the last tab, a quiet button like Agents ▾, opening a menu of the project's other tabs. */
+.tab-more {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+.tab-more:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -3px;
+}
+.tab .tab-chevron,
+.tab-m .tab-chevron {
+  font-size: 11px;
+  margin-left: -2px;
+}
 
 /* ---------- Project header ---------- */
 .project-header {

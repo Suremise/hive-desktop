@@ -321,5 +321,7 @@
   "project.tab.skills": "Skills",
   "project.tab.tasks": "Tasks",
   "project.tab.templates": "Templates",
+  "project.tabs.more": "More",
+  "project.tabs.moreTip": "The project's {tabs}",
   "project.tabs.tip": "{tab} ({key})"
 }

@@ -987,9 +987,33 @@
     "defaultMessage": "Could not move the card",
     "description": "An error toast's title: moving a card to another column failed."
   },
+  "board.error.newer": {
+    "defaultMessage": "This board was saved by a newer version of Hive. It is shown read-only: update Hive to change it.",
+    "description": "An error: the workspace's task board was saved by a newer Hive, whose format this version doesn't know; cards can be read but not changed."
+  },
+  "board.error.noWorkspace": {
+    "defaultMessage": "No workspace is open",
+    "description": "An error: the task board needs an open workspace, and there is none."
+  },
   "board.error.unarchive": {
     "defaultMessage": "Could not bring the card back",
     "description": "An error toast's title: bringing an archived card back to the board failed."
+  },
+  "board.error.unavailable": {
+    "defaultMessage": "The board couldn't be opened: {error}",
+    "description": "An error: the workspace's task board database couldn't be opened or its cards couldn't be moved into it; {error} says why (from the system, often in English). Nothing was lost: the cards are still where they were."
+  },
+  "board.export.command": {
+    "defaultMessage": "Export Board to JSON…",
+    "description": "A command (the board's ⋯ menu, the command palette): saves every card of the board as a JSON file, in a new folder inside one the user picks. The … says it asks first: keep it."
+  },
+  "board.export.done": {
+    "defaultMessage": "Exported {n, plural, one {# card} other {# cards}}",
+    "description": "A notification after Export Board to JSON: how many cards were saved."
+  },
+  "board.export.failed": {
+    "defaultMessage": "The board couldn't be exported",
+    "description": "A notification: Export Board to JSON failed (why follows)."
   },
   "board.field.agent": {
     "defaultMessage": "agent",

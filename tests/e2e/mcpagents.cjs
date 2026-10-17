@@ -78,7 +78,7 @@ const check = (name, ok, extra = '') => {
     const tip = await lib.hoverTip(page, tab, (t) => t.includes('MCP servers'))
     check("the agent's tooltip says its servers", tip.includes('MCP servers: only sandbox'), tip)
     await page.mouse.move(5, 5)
-    await page.locator('.tabs .tab', { hasText: 'MCP' }).click()
+    await lib.openMoreTab(page, 'MCP')
     const row = (n) => page.locator('.toggle-item', { has: page.locator('.ti-name', { hasText: new RegExp(`^${n}\\b`) }) })
     check('the MCP tab says notes is given to Builder only', !!(await lib.until(async () => (await row('notes').innerText().catch(() => '')).includes('Given to Builder only'), HUNG_MS)), await row('notes').innerText().catch(() => ''))
     check('and sandbox to every agent', (await row('sandbox').innerText()).includes('Given to every agent'))

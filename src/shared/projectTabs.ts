@@ -3,7 +3,8 @@ import { msg } from './i18n/msg'
 /**
  * A project's tabs, in the order the tab strip shows them (#216), and the title bar's Project menu built from the same
  * list, so the menu can't fall behind the strip again. Each tab has a command, `project.tab.<id>` (commands.ts). Their
- * labels are messages, shown with tr() where the strip draws them.
+ * labels are messages, shown with tr() where the strip draws them. `more` (#1043): in the strip's More ▾ menu, not a tab
+ * of its own, and with no Alt shortcut.
  */
 export const PROJECT_TABS = [
   { id: 'session', label: msg({ id: 'project.tab.session', defaultMessage: 'Session', description: "A project's tab: its agents' terminals." }), icon: 'terminal' },
@@ -16,10 +17,10 @@ export const PROJECT_TABS = [
   { id: 'images', label: msg({ id: 'project.tab.attachments', defaultMessage: 'Attachments', description: "A project's tab: what was pasted or dropped into its sessions." }), icon: 'attach' },
   // The Git view (#607): Changes, History, Branches & remotes. Its id stays `changes` (saved tabs, `project.tab.changes`).
   { id: 'changes', label: msg({ id: 'project.tab.git', defaultMessage: 'Git', description: "A project's tab: its git changes, history and branches. Usually kept as Git." }), icon: 'source-control' },
-  { id: 'memory', label: msg({ id: 'project.tab.memory', defaultMessage: 'Memory', description: "A project's tab: the instructions and memory files its agents read." }), icon: 'book' },
-  { id: 'skills', label: msg({ id: 'project.tab.skills', defaultMessage: 'Skills', description: "A project's tab: the skills its agents get." }), icon: 'sparkle' },
-  { id: 'templates', label: msg({ id: 'project.tab.templates', defaultMessage: 'Templates', description: "A project's tab: templates of agents and cards." }), icon: 'library' },
-  { id: 'mcp', label: msg({ id: 'project.tab.mcp', defaultMessage: 'MCP', description: "A project's tab: the MCP servers its agents get. Keep MCP." }), icon: 'plug' },
+  { id: 'memory', label: msg({ id: 'project.tab.memory', defaultMessage: 'Memory', description: "A project's tab: the instructions and memory files its agents read." }), icon: 'book', more: true },
+  { id: 'skills', label: msg({ id: 'project.tab.skills', defaultMessage: 'Skills', description: "A project's tab: the skills its agents get." }), icon: 'sparkle', more: true },
+  { id: 'templates', label: msg({ id: 'project.tab.templates', defaultMessage: 'Templates', description: "A project's tab: templates of agents and cards." }), icon: 'library', more: true },
+  { id: 'mcp', label: msg({ id: 'project.tab.mcp', defaultMessage: 'MCP', description: "A project's tab: the MCP servers its agents get. Keep MCP." }), icon: 'plug', more: true },
   { id: 'settings', label: msg({ id: 'project.tab.settings', defaultMessage: 'Settings', description: "A project's tab: its own settings." }), icon: 'settings' }
 ] as const
 
@@ -31,6 +32,10 @@ export type ProjectTab = (typeof PROJECT_TABS)[number]['id']
  */
 export const STRIP_TABS = PROJECT_TABS.filter((t) => t.id !== 'settings')
 
+/** The strip's own tabs, Alt+1…8 in this order (#1043), and the ones in its More ▾ menu after them. */
+export const MAIN_TABS = STRIP_TABS.filter((t) => !('more' in t))
+export const MORE_TABS = STRIP_TABS.filter((t) => 'more' in t)
+
 /**
  * What a new instructions file (CLAUDE.md, AGENTS.md…) starts with when Memory creates it: its agents read it, so it is
  * English whatever the window's language, under a heading of the project's own name.
@@ -40,7 +45,10 @@ export const instructionsStarter = (project: string, provider: string): string =
 /** The command that shows a tab. */
 export const tabCommand = (id: ProjectTab): string => `project.tab.${id}`
 
-/** The title bar's Project menu: command ids, '-' for a separator. Its tabs are the strip's, in its order. */
+/**
+ * The title bar's Project menu: command ids, '-' for a separator. Its tabs are the strip's, in its order: the main tabs,
+ * then More ▾'s, then Project Settings (#1043).
+ */
 export const PROJECT_MENU: string[] = [
   'project.toggleActive',
   'project.next',
@@ -51,7 +59,11 @@ export const PROJECT_MENU: string[] = [
   'project.openExplorer',
   'project.openTerminal',
   '-',
-  ...PROJECT_TABS.map((t) => tabCommand(t.id)),
+  ...MAIN_TABS.map((t) => tabCommand(t.id)),
+  '-',
+  ...MORE_TABS.map((t) => tabCommand(t.id)),
+  '-',
+  tabCommand('settings'),
   '-',
   'project.remove'
 ]

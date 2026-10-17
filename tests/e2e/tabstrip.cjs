@@ -1,4 +1,4 @@
-// A project's tab strip at every width: all twelve tabs labelled while they fit (Settings opens from the header's ⋯, #974); icons with the active tab's label when
+// A project's tab strip at every width: its eight tabs and More ▾ (#1043) labelled while they fit (Settings opens from the header's ⋯, #974); icons with the active tab's label when
 // they don't (switching back only with a little room to spare, so it doesn't flicker); icons only, scrolling with the
 // active tab in view, when even that doesn't fit. No tab is ever cut off unless the strip scrolls, at the window's
 // minimum width too; icon-only tabs keep their name (tooltip and accessible label) and order, and dragging files over
@@ -18,7 +18,9 @@ const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
 const beta = path.join(ws, 'beta')
-const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP']
+// The strip's tabs, then More ▾ (#1043), which shows the name of the tab of its menu that is open.
+const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'More']
+const MORE = ['Memory', 'Skills', 'Templates', 'MCP']
 const SPARE = 12
 let failed = 0
 const inv2 = (page, ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
@@ -51,7 +53,7 @@ const check = (name, ok, extra = '') => {
 
   /** The strip's fit, width, and everything wrong with it for that fit. */
   const inspect = () =>
-    strip.evaluate((s, labels) => {
+    strip.evaluate((s, [labels, more]) => {
       const box = s.getBoundingClientRect()
       const tabs = [...s.querySelectorAll('.tab')]
       const bad = []
@@ -61,7 +63,8 @@ const check = (name, ok, extra = '') => {
       if (tabs.length !== labels.length) bad.push(`${tabs.length} tabs`)
       tabs.forEach((t, i) => {
         // Same order, and each keeps its name for screen readers whether or not it shows.
-        if (t.querySelector('.tab-label')?.textContent !== labels[i]) bad.push(`tab ${i} is ${t.textContent}`)
+        const name = t.querySelector('.tab-label')?.textContent
+        if (name !== labels[i] && !(t.classList.contains('tab-more') && more.includes(name) && t === active)) bad.push(`tab ${i} is ${t.textContent}`)
         if (t.getBoundingClientRect().height !== tabs[0].getBoundingClientRect().height) bad.push(`${labels[i]} has another height`)
         const iconOnly = t.classList.contains('icon-only')
         const want = fit === 'all-icons' || (fit === 'icons' && t !== active)
@@ -81,7 +84,7 @@ const check = (name, ok, extra = '') => {
       const measured = [...document.querySelectorAll('.tabs-measure .tab-m')].map((m) => m.getBoundingClientRect().width)
       const sum = (sizes) => Math.ceil(sizes.reduce((x, y) => x + y, 0))
       return { fit, width: s.clientWidth, scrolls, bad, active: active.textContent.trim(), labelsNeed: sum(measured.filter((_, i) => i % 2 === 0)), iconsNeed: sum(measured.filter((_, i) => i % 2 === 1)) }
-    }, LABELS)
+    }, [LABELS, MORE])
   /** Sizes the page so the strip is `target` CSS pixels wide (Playwright's viewport, which can go below the window's minimum). */
   const widthTo = async (target) => {
     for (let i = 0; i < 8; i++) {
@@ -139,9 +142,10 @@ const check = (name, ok, extra = '') => {
   const { iconsNeed } = await inspect()
   await widthTo(iconsNeed + 20)
   await expectFit(`${iconsNeed + 20}px: room for the icons but not Performance's label`, 'all-icons')
-  await page.locator('.tabs .tab', { hasText: 'MCP' }).click()
+  await lib.openMoreTab(page, 'MCP')
   await widthTo(Math.round(iconsNeed * 0.6))
-  const narrow = await expectFit('too narrow even for the icons, MCP (the last tab) active', 'all-icons')
+  const narrow = await expectFit('too narrow even for the icons, MCP (in More ▾, the last) active', 'all-icons')
+  check('More ▾ is last and in view, showing MCP', (await inspect()).active === 'MCP' && (await page.locator('.tabs .tab').last().evaluate((t) => t.classList.contains('tab-more'))))
   check('the strip scrolls', narrow.scrolls)
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().evaluate((t) => t.click())
   await expectFit('Session active (clicked off screen)', 'all-icons')

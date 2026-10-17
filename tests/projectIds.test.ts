@@ -2,13 +2,14 @@
 // in its own project.json. The pure rules (which copy keeps an id, whose cards are left under an old name), then a
 // workspace: ids given once, cards stamped once, a rename followed, a copied folder given a new id, and Repair giving
 // cards saved before ids (under a project's old name) to the project they belong to now.
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { goneProject, isProjectId, orphanNames, projectNow, savedProjectName, settleProjectIds } from '../src/shared/projectIds'
 import { moveFolder } from './moveFolder'
 import { tempDir } from './tempDir'
+import { readCardIn, writeCardOutside } from './boardDb'
 
 const base = tempDir('hive-projectids-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -23,7 +24,7 @@ vi.setConfig({ testTimeout: 30_000 })
 const HUNG_MS = 15_000
 
 const user = { kind: 'user' } as const
-const readCard = (ws: string, n: number): Record<string, unknown> => JSON.parse(readFileSync(join(ws, '.hive', 'tasks', `${n}.json`), 'utf8'))
+const readCard = (ws: string, n: number): Record<string, unknown> => readCardIn(ws, n)
 const projectJson = (p: string): Record<string, unknown> => JSON.parse(readFileSync(join(p, '.hive', 'project.json'), 'utf8'))
 /** The ids read again now (the workspace reuses what it read for a second), so a folder renamed just now is seen. */
 const reread = async (w: { projectIds: (o: { fresh: true }) => Promise<unknown> }): Promise<void> => void (await w.projectIds({ fresh: true }))
@@ -222,7 +223,7 @@ describe('a workspace', () => {
   it('Repair of a project renamed before ids takes the cards of its old name, and keeps it Working on', async () => {
     // delta was "old-delta" when it was last opened: its cards and Working on still say so.
     const delta = project(wsPath, 'delta', { lastPath: join(wsPath, 'old-delta'), id: 'p-00000000000d' })
-    writeFileSync(join(wsPath, '.hive', 'tasks', '90.json'), JSON.stringify({ number: 90, title: 'Delta', description: '', project: 'old-delta', agent: null, column: 'todo', order: 90, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: '2026-10-01T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-01T00:00:00.000Z' }))
+    writeCardOutside(wsPath, 90, ({ number: 90, title: 'Delta', description: '', project: 'old-delta', agent: null, column: 'todo', order: 90, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: '2026-10-01T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-01T00:00:00.000Z' }))
     const { config } = await import('../src/main/config')
     config.update((c) => {
       c.activeProjects[wsPath] = ['old-delta', 'beta']
@@ -246,7 +247,6 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   let w: ReturnType<typeof createWorkspaceService>
   const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
   const tasksDir = join(wsPath, '.hive', 'tasks')
-  const bak = (n: number): string => join(tasksDir, `${n}.json.before-ids.bak`)
   const legacy = (n: number, name: string, extra: Record<string, unknown> = {}): void =>
     writeFileSync(join(tasksDir, `${n}.json`), JSON.stringify({ number: n, title: `Legacy ${n}`, description: '', project: name, agent: null, column: 'todo', order: n, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: '2026-10-01T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-01T00:00:00.000Z', ...extra }))
   const alphaAgent = { kind: 'agent', name: 'X (alpha)', scope: 'alpha', self: { project: 'alpha', agentId: 'x1' } } as const
@@ -272,23 +272,18 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   })
   afterAll(async () => disposeWorkspaceService(w))
 
-  it('stamping keeps each card as it was beside it, once, every field kept; an interrupted run finishes', async () => {
-    const before1 = readFileSync(join(tasksDir, '1.json'), 'utf8')
-    // As if a run stopped between its backup and its write for card 2: the backup is there, the card unchanged.
-    const before2 = readFileSync(join(tasksDir, '2.json'), 'utf8')
-    writeFileSync(bak(2), before2)
+  it('stamping gives each card its id once, every field kept; the files as they were are kept in the import backup (#1017)', async () => {
     expect(await tasks.stampCardProjects(w)).toBe(2)
-    expect(readFileSync(bak(1), 'utf8')).toBe(before1)
-    expect(readFileSync(bak(2), 'utf8')).toBe(before2)
-    expect(readCard(wsPath, 1)).toMatchObject({ project: 'alpha', projectId: projectJson(join(wsPath, 'alpha')).id, custom: { kept: true } })
+    // The cards' files as they were before the move, kept as they were.
+    const kept = readdirSync(join(wsPath, '.hive')).find((f) => f.startsWith('tasks.imported-'))!
+    const before1 = JSON.parse(readFileSync(join(wsPath, '.hive', kept, '1.json'), 'utf8'))
+    expect(before1).toMatchObject({ project: 'alpha', custom: { kept: true } })
+    expect(readCard(wsPath, 1)).toEqual({ ...before1, projectId: projectJson(join(wsPath, 'alpha')).id })
     expect(readCard(wsPath, 2).projectId).toBe(projectJson(join(wsPath, 'beta')).id)
-    // Saved under a name no project has, it is Repair's: not stamped, no backup.
+    // Saved under a name no project has, it is Repair's: not stamped.
     expect(readCard(wsPath, 3).projectId).toBeUndefined()
-    expect(existsSync(bak(3))).toBe(false)
-    // Again: nothing changes, and the backups stay what they were.
+    // Again: nothing changes.
     expect(await tasks.stampCardProjects(w)).toBe(0)
-    await run(() => tasks.commentTask(1, 'later', user))
-    expect(readFileSync(bak(1), 'utf8')).toBe(before1)
   })
 
   it('lanes saved before ids get their project’s id when stamped, lanes.json kept as it was beside it, once', async () => {
@@ -304,12 +299,10 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
   it('Repair gives old-site’s card and lane to site, the card’s own fields kept', async () => {
     const plan = await movePlan(w)
     expect(plan?.cards).toEqual([{ from: 'old-site', to: 'site', cards: [3], lanes: 1 }])
-    const before = readFileSync(join(tasksDir, '3.json'), 'utf8')
     const report = await repairMove(w)
     expect(report.failed).toEqual([])
     expect(report.done).toEqual(expect.arrayContaining(['1 card of old-site now belongs to site, with its agents.', "1 lane of old-site now is site's."]))
     expect(readCard(wsPath, 3)).toMatchObject({ project: 'site', projectId: projectJson(join(wsPath, 'site')).id, custom: 'mine', agentName: 'Old', updatedAt: '2026-10-01T00:00:00.000Z' })
-    expect(readFileSync(bak(3), 'utf8')).toBe(before)
     expect((await lanes.listLanes(w, { all: true })).find((l) => l.id === 'lane-o')?.project).toBe('site')
     expect(await movePlan(w)).toBeNull()
   })

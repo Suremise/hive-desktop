@@ -10,6 +10,8 @@ interface HiveMessageValues {
   'errors.dialog.addSkill': undefined
   'errors.dialog.createWorkspace': undefined
   'errors.dialog.createWorkspaceTitle': undefined
+  'errors.dialog.exportBoard': undefined
+  'errors.dialog.exportBoardButton': undefined
   'errors.dialog.exportMetrics': undefined
   'errors.dialog.exportTemplate': undefined
   'errors.dialog.exportTranscript': undefined
