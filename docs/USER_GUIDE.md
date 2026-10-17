@@ -153,6 +153,7 @@ Like VS Code, Hive can show several workspaces at once, each in its own window: 
 - **Closing a window** (its **X**, or **File → Close Window**, Ctrl+Shift+W) closes its workspace and stops its agents, asking first as quitting does (*Close this window?*). Closing the last window keeps Hive in the tray, or quits Hive (asking first) when **Settings → General → Close to tray** is off.
 - **Quitting** (**File → Exit**, Ctrl+Q, or the tray's Quit) stops the agents of every window. With several windows open, the menu says **Exit Hive (all windows)**, and its dialog says it closes them all and lists the agents under their workspaces (two workspaces with the same folder name also show the parent folder that tells them apart; hover a workspace for its full path); **Close this window only** there closes just the window it is shown in, as Close Window does. When Hive starts again, it reopens the windows that were open, each with its workspace, where they were. A window that wouldn't fit on its display (it was last on a larger one, or that display is gone) is made smaller and moved onto the display, as is a new window; only a display smaller than Hive's smallest window (900 × 560) leaves part of it off the display.
 - Notifications and the tray menu take you to the window showing the project.
+- The title bar names the window's project and workspace, centred. When the window is too narrow for it beside the menus (in a language with long menu names, say), it moves aside and is shortened with "…", or hides, so the menus always stay clear.
 
 ### Always on Top
 
@@ -204,6 +205,8 @@ The coding agents' own transcripts (in `~/.claude` and `~/.codex`) are never tou
 Each agent of a project runs one session at a time (most projects have just one agent; see [Several agents in one project](#several-agents-in-one-project)). A project without agents shows **No agents yet**: New Session and Resume add one for you.
 
 **Where things are.** The project header is about the project, in one quiet row: its name and the state of its agents in one line (*1 waiting · 3 working · 7 idle · 2 stopped*, see [Agent states](#agent-states)), the **Active** switch, **Resume** while any stopped agent has a session to resume (running agents are left alone, except those an expired sign-in stopped, which it tells to carry on; if one can't resume, a notification says which and why, and the others still resume), **Stop** while any runs (it lists them and asks first; Resume and Stop are quiet buttons like Agents ▾, their colour on the icon, and Stop turns red as you point at it), **Agents ▾** for what acts on every agent at once (**Start New**, **Archive and Start New**, and **Remove All…** last), and **⋯** for **Explorer** (reveal the folder), **Terminal** (open an external terminal there), **Project Settings** and **Remove Project…**. Project Settings isn't one of the tabs: open it from **⋯**, **Project → Go to Project Settings** in the menu bar, or **Alt+0**; it shows with no tab chosen, and any tab takes you back.
+
+**The project's tabs** are **Session**, **Overview**, **Performance**, **Tasks**, **Sessions**, **Files**, **Attachments** and **Git**, **Alt+1** to **Alt+8** in that order, then **More ▾**, a menu of **Memory**, **Skills**, **Templates** and **MCP**: while one of those is open, More ▾ shows its name (*Skills ▾*). They have no shortcut of their own, but are in the menu bar's **Project** menu (which lists the tabs as the row does, then More ▾'s, then Project Settings) and the command palette, and you can give them one in Settings → Keyboard Shortcuts. In a narrow window the tabs show their icons, the open one keeping its name, with More ▾ always last.
 
 With several agents, each of these says how many agents it acts on: **Stop (3)** stops the three running agents, **Resume (2)** resumes the two stopped ones (hover for the whole sentence: *Resume all 2 stopped agents*), **Start New (6)** and **Archive and Start New (5)** the agents their question lists. When the header runs short of room (a narrow window, the side panels open, or a language with longer words), it folds step by step as soon as the labels no longer fit beside the project's name: first Resume, Stop, Active and Agents ▾ become icons, then Agents ▾'s actions move into **⋯**. The count stays beside Stop's and Resume's icons; hover for what each does. The project's name and status are cut with "…" only once the buttons have folded as far as they go. Each question lists its agents as a table: what each is doing, its card, its worktree, and what happens to it (stopped first when it's running, in amber when that interrupts something).
 
@@ -627,7 +630,13 @@ The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's
 - **One project.** The sidebar filters the board by project and lists the cards waiting for review; the badge on the activity bar counts them. Each project also has a **Tasks** tab with its own cards.
 - **With the Assistant.** Ask it to plan work as cards, start them on agents and follow them: *"split the login rework into cards for web and start the first two"*. Agents can add cards for follow-up work they find instead of doing it unasked.
 
-The cards are kept in `.hive/tasks`, one file each, so a workspace you commit shares its board.
+### Exporting the board
+
+The board is kept in the workspace's database, `.hive/hive.db`. Every change to it is saved whole or not at all, also when many cards change at once (Archive All, a batch move), and a board of a thousand cards stays quick. The database is this computer's: a workspace you commit to git leaves it out.
+
+- **Export Board to JSON…**, in the board's **⋯** menu or the command palette, saves every card, archived ones too, as a JSON file in a new folder inside the one you choose: a file per card (`12.json`), as Hive kept them before 0.9.
+- **The first time 0.9 opens a workspace**, it moves the cards' files from `.hive/tasks` into the database and keeps the folder as `.hive/tasks.imported-<date>`. A card file that couldn't be read stays out, and a notice names it.
+- **Going back to an older version.** An older Hive doesn't know the database, so it shows an empty board: nothing is lost. Cards you add there aren't added to the board when 0.9 opens the workspace again: they are kept, unchanged, in `.hive/tasks.set-aside`, and a notice asks you to review them. To use the whole board in an older version, export it and copy the files into `.hive/tasks` with Hive closed.
 
 ### Card loops
 
@@ -896,7 +905,7 @@ This tab was called **Images**, and the folder `.hive/images`, before attachment
 
 ## Git view
 
-A project's **Git** tab (**Alt+6**) has three sections: **Changes**, where it opens, **History** and **Branches & remotes**. The status bar shows the selected project's git in one item, such as **main · origin · ↑2 ↓0**: its branch, the remote its branch tracks, and how many commits are to push (↑) and to pull (↓). Click it for **Branches & remotes**. It says **no upstream** for a branch that tracks no remote branch yet, and **detached at abc1234** or **rebasing** when git is in that state.
+A project's **Git** tab (**Alt+8**) has three sections: **Changes**, where it opens, **History** and **Branches & remotes**. The status bar shows the selected project's git in one item, such as **main · origin · ↑2 ↓0**: its branch, the remote its branch tracks, and how many commits are to push (↑) and to pull (↓). Click it for **Branches & remotes**. It says **no upstream** for a branch that tracks no remote branch yet, and **detached at abc1234** or **rebasing** when git is in that state.
 
 Everything here is yours: agents have no tool for any of it, and only the project folder changes here. Agents' worktrees are shown, read-only: their work comes into the project folder through **Merge**.
 
@@ -1191,7 +1200,7 @@ Tick **Don't ask again** to stop the question about sessions, or change it any t
 | Next / previous agent page | Ctrl+Alt+PageDown / Ctrl+Alt+PageUp |
 | Focus the session terminal | Ctrl+` |
 | Next / previous project | Ctrl+PageDown / Ctrl+PageUp |
-| Project tabs | Alt+1 … Alt+9 (Session, Overview, Sessions, Files, Attachments, Git, Memory, Skills, MCP; Tasks has none, but you can give it one), Alt+0 for Project Settings (not a tab); Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab |
+| Project tabs | Alt+1 … Alt+8 in the order they show (Session, Overview, Performance, Tasks, Sessions, Files, Attachments, Git), Alt+0 for Project Settings (not a tab); Memory, Skills, Templates and MCP (in **More ▾**) have none, but you can give them one; Ctrl+Tab / Ctrl+Shift+Tab for the next / previous tab, More ▾'s included |
 | Task board / new card | Ctrl+Shift+J / Ctrl+Alt+T |
 | Workspace Overview | Ctrl+Shift+O |
 | Toggle sidebar | Ctrl+B (outside the terminal) |

@@ -334,15 +334,14 @@ kbd {
 .menubar-item.open {
   background: var(--bg-hover);
 }
+/* Its left and max-width are set by TitleBar (useTitleFit): centred while it fits between the menu bar and the pin. */
 .titlebar-title {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
   color: var(--fg-muted);
   font-size: 12px;
   pointer-events: none;
   white-space: nowrap;
-  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1465,6 +1464,22 @@ textarea.input {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+/* More ▾ (#1043): the last tab, a quiet button like Agents ▾, opening a menu of the project's other tabs. */
+.tab-more {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+.tab-more:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -3px;
+}
+.tab .tab-chevron,
+.tab-m .tab-chevron {
+  font-size: 11px;
+  margin-left: -2px;
 }
 
 /* ---------- Project header ---------- */

@@ -1,10 +1,11 @@
 // The session strip's batch actions and the Project menu (#216): Start New (All) and Archive and Start New (All) decide
 // which agents and sessions from the agents as they are, flag busy ones as the quit dialog does, and go one agent at a
-// time past failures; the title bar's Project menu lists every tab the strip has, in its order, from the same list.
+// time past failures; the title bar's Project menu lists every tab the strip has, in its order, from the same list, the
+// main tabs Alt+1…8 and More ▾'s in a group of their own (#1043).
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { PROJECT_MENU, PROJECT_TABS, STRIP_TABS, tabCommand } from '../src/shared/projectTabs'
+import { MAIN_TABS, MORE_TABS, PROJECT_MENU, PROJECT_TABS, STRIP_TABS, tabCommand } from '../src/shared/projectTabs'
 import { archiveTarget, batchCounts, batchOutcome, busyNote, eachAgent, removeWorktreeText, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
 import { agentRowsText } from '../src/shared/agentTable'
 
@@ -20,12 +21,32 @@ describe('the Project menu is the tab strip', () => {
     for (const id of tabs) expect(commands, id).toContain(`id: '${id}'`)
     // The strip and the menu read the shared list (not copies of it); the strip leaves out Project Settings (#974), which
     // the menu keeps, last.
-    expect(src('src/renderer/src/views/ProjectView.tsx')).toMatch(/const TABS = STRIP_TABS\b/)
+    expect(src('src/renderer/src/views/ProjectView.tsx')).toMatch(/const TABS = MAIN_TABS\b/)
     expect(STRIP_TABS.map((t) => tabCommand(t.id))).toEqual(tabs.filter((id) => id !== 'project.tab.settings'))
     expect(tabs.at(-1)).toBe('project.tab.settings')
     expect(src('src/renderer/src/components/TitleBar.tsx')).toMatch(/items: PROJECT_MENU\b/)
     // Explorer and Terminal stay in the menu.
     expect(PROJECT_MENU).toEqual(expect.arrayContaining(['project.openExplorer', 'project.openTerminal']))
+  })
+
+  it("groups the main tabs, then More ▾'s, then Project Settings, and numbers the main tabs Alt+1…8 in that order (#1043)", () => {
+    expect(MAIN_TABS.map((t) => t.id)).toEqual(['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes'])
+    expect(MORE_TABS.map((t) => t.id)).toEqual(['memory', 'skills', 'templates', 'mcp'])
+    const group = (ids: string[]): number => PROJECT_MENU.indexOf(ids[0])
+    const main = MAIN_TABS.map((t) => tabCommand(t.id))
+    const more = MORE_TABS.map((t) => tabCommand(t.id))
+    expect(PROJECT_MENU.slice(group(main), group(main) + main.length + 1)).toEqual([...main, '-'])
+    expect(PROJECT_MENU.slice(group(more), group(more) + more.length + 2)).toEqual([...more, '-', 'project.tab.settings'])
+    // Each tab command's default key, from its line in commands.ts.
+    const commands = src('src/renderer/src/commands.ts')
+    const lines = commands.split(/\r?\n/)
+    const key = (id: string): string | null => lines.find((l) => l.includes(`{ id: '${id}',`))?.match(/keybinding: '([^']+)'/)?.[1] ?? null
+    expect(main.map(key)).toEqual(['Alt+1', 'Alt+2', 'Alt+3', 'Alt+4', 'Alt+5', 'Alt+6', 'Alt+7', 'Alt+8'])
+    expect(more.map(key)).toEqual([null, null, null, null])
+    expect(key('project.tab.settings')).toBe('Alt+0')
+    // No other command takes Alt and a digit.
+    const others = lines.filter((l) => /keybinding: 'Alt\+\d'/.test(l) && !/\{ id: 'project\.tab\./.test(l))
+    expect(others).toEqual([])
   })
 })
 

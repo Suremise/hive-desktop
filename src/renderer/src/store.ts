@@ -1054,6 +1054,24 @@ export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<s
 export const filesListeners = new Set<(projectPath: string, dirs: string[]) => void>()
 
 let tasksLoad = 0
+/**
+ * How many views need the archived cards in full (#1017): the Archived view, an archived card's dialog. Otherwise the
+ * board comes with them in short (TaskCard.summary), so a change of the board doesn't send every archived card's comments
+ * and history again.
+ */
+let fullArchive = 0
+
+/** Asks for the archived cards in full while a view needs them: read again now; the returned function says it is done. */
+export function wantFullArchive(): () => void {
+  fullArchive++
+  void loadTasks()
+  let done = false
+  return () => {
+    if (done) return
+    done = true
+    fullArchive--
+  }
+}
 /** The board's read going on, and the one asked for meanwhile (#1011). */
 let tasksReading: Promise<void> | null = null
 let tasksNext: Promise<void> | null = null
@@ -1084,7 +1102,7 @@ async function readTasks(): Promise<void> {
   const mine = ++tasksLoad
   if (!ws) return set({ tasks: [] })
   try {
-    const tasks = await window.hive.invoke('tasks:list')
+    const tasks = await window.hive.invoke('tasks:list', fullArchive > 0)
     if (mine === tasksLoad && get().workspace?.path === ws) set({ tasks })
   } catch {
     // The workspace closed meanwhile.

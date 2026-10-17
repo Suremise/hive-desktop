@@ -3,7 +3,7 @@ import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, defaultProviderWarning, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
 import { batchCounts } from '@shared/startAll'
-import { STRIP_TABS, tabCommand } from '@shared/projectTabs'
+import { MAIN_TABS, MORE_TABS, tabCommand } from '@shared/projectTabs'
 import { mostUrgent, projectAgentStates, projectStateSummary } from '@shared/agentState'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import hexUrl from '../assets/icon.svg'
@@ -29,10 +29,13 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { ProjectTasksTab } from '../components/Board'
 import { RemovedDataBanner } from '../components/ProjectRemoval'
 
-// The tabs the strip shows, in order: the title bar's Project menu has them too, and Settings (#974).
-const TABS = STRIP_TABS
+// The tabs the strip shows, in order, then More ▾ with the others (#1043): the title bar's Project menu has them all,
+// and Settings (#974).
+const TABS = MAIN_TABS
 
 const M = {
+  moreTabs: msg({ id: 'project.tabs.more', defaultMessage: 'More', description: "The last of a project's tabs: opens a menu of its other tabs (Memory, Skills, Templates, MCP). When one of them is open, the button shows its name instead. Keep it short." }),
+  moreTip: msg({ id: 'project.tabs.moreTip', defaultMessage: "The project's {tabs}", description: "Tooltip on the project tabs' More ▾ button. {tabs} lists the tabs in its menu, such as Memory, Skills, Templates and MCP." }),
   tabTip: msg({ id: 'project.tabs.tip', defaultMessage: '{tab} ({key})', description: "A project tab's tooltip with its keyboard shortcut. {tab} is the tab's name, {key} the shortcut, such as Alt+4." }),
   providerOff: msg({ id: 'project.empty.providerOff', defaultMessage: '{provider} is turned off — Settings → Providers', description: "Warning on the Session tab when the agent's provider is turned off. Settings → Providers: name it as Settings does." }),
   providerMissing: msg({ id: 'project.empty.providerMissing', defaultMessage: '{provider} is required — Help → Agent Setup', description: "Warning on the Session tab when the agent's CLI isn't installed. Help → Agent Setup is the menu item." }),
@@ -98,6 +101,9 @@ function tabTip(id: ProjectTab, label: string): string {
   return kb ? tr(M.tabTip, { tab: label, key: formatKeybinding(kb) }) : label
 }
 
+/** The More ▾ button's place among the strip's measured items: after the tabs (#1043). */
+const MORE_AT = TABS.length
+
 /** How the tab strip fits: every tab labelled; icons, with the active tab's label; or icons only, scrolling if even they don't. */
 type TabFit = 'labels' | 'icons' | 'all-icons'
 const TAB_FITS: TabFit[] = ['labels', 'icons', 'all-icons']
@@ -138,6 +144,8 @@ function headerNeed(el: HTMLElement): number | null {
  * narrower still, all are icons, and the strip scrolls with the active tab in view. Every tab's width with and without its
  * label is measured off screen (`.tabs-measure`), so the fit follows the strip's width (window, sidebar, panels) both ways
  * without trying each fit on screen. Icon-only tabs keep their label for screen readers and their name in the tooltip.
+ * More ▾ is last, one more item to fit (#1043): it opens a menu of the other tabs and, while one of them is open, is the
+ * active item, with its name and icon.
  */
 function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: ProjectTab; live: boolean }) {
   const [widthRef, width] = useWidth<HTMLDivElement>()
@@ -150,7 +158,11 @@ function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: Pr
     [widthRef]
   )
   const measureRef = useRef<HTMLDivElement>(null)
-  const activeRef = useRef<HTMLDivElement>(null)
+  const activeRef = useRef<HTMLElement | null>(null)
+  // The active item, a tab or More ▾.
+  const activeEl = (el: HTMLElement | null): void => {
+    activeRef.current = el
+  }
   const [widths, setWidths] = useState<{ labelled: number[]; icon: number[] } | null>(null)
   useLayoutEffect(() => {
     const el = measureRef.current
@@ -166,10 +178,20 @@ function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: Pr
     measure()
     return () => ro.disconnect()
   }, [])
+  const moreMenu = useContextMenu()
+  const moreTab = MORE_TABS.find((t) => t.id === tab)
+  const moreLabel = moreTab ? tr(moreTab.label) : tr(M.moreTabs)
+  const moreIcon = moreTab?.icon ?? 'ellipsis'
+  const moreItems = (): MenuEntry[] =>
+    MORE_TABS.map((t) => {
+      const kb = commandKeybinding(tabCommand(t.id))
+      return { label: tr(t.label), icon: t.icon, keybinding: kb ? formatKeybinding(kb) : undefined, onClick: () => setProjectTab(project.path, t.id) }
+    })
   const fitRef = useRef<TabFit>('labels')
   let fit = fitRef.current
-  if (widths && width > 0) {
-    const active = Math.max(0, TABS.findIndex((t) => t.id === tab))
+  if (widths && width > 0 && widths.labelled.length === MORE_AT + 1) {
+    const at = TABS.findIndex((t) => t.id === tab)
+    const active = moreTab ? MORE_AT : Math.max(0, at)
     const sum = (a: number[]): number => a.reduce((x, y) => x + y, 0)
     const need: Record<TabFit, number> = { labels: sum(widths.labelled), icons: sum(widths.icon) - widths.icon[active] + widths.labelled[active], 'all-icons': 0 }
     const now = TAB_FITS.indexOf(fitRef.current)
@@ -192,7 +214,7 @@ function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: Pr
         {TABS.map((t) => (
           <Tooltip key={t.id} content={tabTip(t.id, tr(t.label))}>
             <div
-              ref={tab === t.id ? activeRef : undefined}
+              ref={tab === t.id ? activeEl : undefined}
               className={cx('tab', tab === t.id && 'active', (fit === 'all-icons' || (fit === 'icons' && tab !== t.id)) && 'icon-only')}
               onClick={() => setProjectTab(project.path, t.id)}
               // Dragging files over the Session tab switches to it, so they can be dropped on the terminal.
@@ -202,6 +224,18 @@ function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: Pr
             </div>
           </Tooltip>
         ))}
+        <Tooltip content={tr(M.moreTip, { tabs: fmt.list(MORE_TABS.map((t) => tr(t.label)), 'conjunction') })}>
+          <button
+            ref={moreTab ? activeEl : undefined}
+            className={cx('tab', 'tab-more', moreTab && 'active', (fit === 'all-icons' || (fit === 'icons' && !moreTab)) && 'icon-only')}
+            aria-haspopup="menu"
+            aria-expanded={moreMenu.shown}
+            onClick={(e) => moreMenu.openAt(...menuBelow(e.currentTarget), moreItems(), e.detail === 0)}
+          >
+            <Icon name={moreIcon} /> <span className="tab-label">{moreLabel}</span>
+            <Icon name="chevron-down" className="tab-chevron" />
+          </button>
+        </Tooltip>
       </div>
       {/* Each tab labelled, then icon only, for measuring; the labels are CSS content, so no text here repeats a tab's. */}
       <div className="tabs-measure" ref={measureRef} aria-hidden>
@@ -213,7 +247,16 @@ function ProjectTabStrip({ project, tab, live }: { project: ProjectInfo; tab: Pr
             <Icon name={t.icon} />
           </div>
         ])}
+        <div className="tab-m tab-more" data-label={moreLabel}>
+          <Icon name={moreIcon} />
+          <Icon name="chevron-down" className="tab-chevron" />
+        </div>
+        <div className="tab-m tab-more icon-only">
+          <Icon name={moreIcon} />
+          <Icon name="chevron-down" className="tab-chevron" />
+        </div>
       </div>
+      {moreMenu.element}
     </div>
   )
 }

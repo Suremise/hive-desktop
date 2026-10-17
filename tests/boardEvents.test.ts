@@ -1,14 +1,16 @@
 // A batch of card changes under load ran main out of memory (#988, #1011): each tasks-changed is a read of the whole
 // board for its listeners, the board folder's watcher told one for each card written (a temporary file and a rename),
 // and recording the running agents' cards read the board once per agent per event, never one run at a time. Now a batch
-// tells the board once, after it; the watcher tells a burst once; the readers run one at a time, with one more run for
-// the changes told meanwhile.
+// is one transaction, told once as it commits (#1017); a change by another process is told by the board's poll; the
+// readers run one at a time, with one more run for the changes told meanwhile.
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { HiveEvent, LiveSessionState } from '../src/shared/types'
 import { tempDir } from './tempDir'
+import { writeCardOutside } from './boardDb'
+import { DatabaseSync } from 'node:sqlite'
 
 const base = tempDir('hive-board-events-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -31,6 +33,7 @@ const tasks = await import('../src/main/tasks')
 const { onHiveEvent } = await import('../src/main/events')
 const { coalesced, coalescing } = await import('../src/main/coalesce')
 const { recordLiveCardsSoon } = await import('../src/main/cardSessions')
+const { boardFile } = await import('../src/main/boardStore')
 
 /** Bounds a hung run; the tests wait for what they expect, never for a time. */
 const HUNG_MS = 15_000
@@ -103,26 +106,20 @@ describe('board events (#1011)', () => {
   })
   afterEach(() => void (seen.length = 0))
 
-  /** Cards in Done, and the board told of them before the test looks. */
+  /** Cards in Done; what their creation told the board is cleared before the test looks. */
   async function doneCards(n: number): Promise<number[]> {
     const made: number[] = []
     for (let i = 0; i < n; i++) made.push((await run(() => tasks.createTask({ title: `Card ${i}`, project: 'alpha', column: 'done' }, user))).number)
-    const told = seen.length
-    // A hand edit after them: once it is told, what the watcher saw of the cards has been told too.
-    writeFileSync(join(wsPath, '.hive', 'tasks', 'marker.json'), JSON.stringify({ at: Date.now() }))
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(told), { timeout: HUNG_MS })
-    await vi.waitFor(() => expect((w as unknown as { tasksTimer: unknown }).tasksTimer).toBeNull(), { timeout: HUNG_MS })
+    // Each was told as it was saved (#1017: Hive's own writes tell the board, no folder watched).
+    expect(seen).toHaveLength(n)
     seen.length = 0
     return made
   }
 
-  /** What `batch` told the board: nothing while it ran, and once (or twice, a write the watcher told late) after it. */
+  /** What `batch` told the board: once, as its one transaction committed (#1017), before it returned. */
   async function toldOnceAfter(batch: () => Promise<unknown>): Promise<void> {
     await batch()
-    expect(seen).toHaveLength(0)
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), { timeout: HUNG_MS })
-    await vi.waitFor(() => expect((w as unknown as { tasksTimer: unknown }).tasksTimer).toBeNull(), { timeout: HUNG_MS })
-    expect(seen.length).toBeLessThanOrEqual(2)
+    expect(seen).toHaveLength(1)
   }
 
   it('Archive All of 40 cards tells the board once, after it (its 40 writes were 80 events)', async () => {
@@ -141,80 +138,79 @@ describe('board events (#1011)', () => {
     })
   })
 
-  it('a card changed by hand still shows at once, and a burst of them is told once, not once a file', async () => {
-    const t = Date.now()
-    writeFileSync(join(wsPath, '.hive', 'tasks', '9001.json'), JSON.stringify({ number: 9001, title: 'By hand', project: 'alpha' }))
-    await vi.waitFor(() => expect(seen.length).toBe(1), { timeout: HUNG_MS })
-    // Told within the quiet time, not held back (a bound for a slow machine, not how long it takes).
-    expect(seen[0] - t).toBeLessThan(HUNG_MS)
-    await vi.waitFor(() => expect((w as unknown as { tasksTimer: unknown }).tasksTimer).toBeNull(), { timeout: HUNG_MS })
-    seen.length = 0
-    for (let i = 0; i < 30; i++) writeFileSync(join(wsPath, '.hive', 'tasks', `${9100 + i}.json`), JSON.stringify({ number: 9100 + i, title: 'By hand', project: 'alpha' }))
-    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), { timeout: HUNG_MS })
-    await vi.waitFor(() => expect((w as unknown as { tasksTimer: unknown }).tasksTimer).toBeNull(), { timeout: HUNG_MS })
-    // 30 files, each a create and a change: told once a burst (at least every 0.5 s while it goes on), never once a file.
-    expect(seen.length).toBeLessThan(10)
+  it('a batch that fails part way saves none of it and tells nothing (#1017: one transaction)', async () => {
+    const cards = await doneCards(3)
+    const before = await Promise.all(cards.map((n) => run(() => tasks.getTask(n))))
+    await expect(
+      run(() =>
+        tasks.cardBatch(w, async () => {
+          await tasks.updateTask(cards[0], { labels: ['first'] }, user)
+          await tasks.updateTask(cards[1], { labels: ['second'] }, user)
+          throw new Error('stopped part way')
+        })
+      )
+    ).rejects.toThrow('stopped part way')
+    expect(await Promise.all(cards.map((n) => run(() => tasks.getTask(n))))).toEqual(before)
+    expect(seen).toHaveLength(0)
   })
 
-  describe('a batch and a change already waiting to be told (#1011 round 2)', () => {
-    type Held = { tasksChangedSoon: () => void; holdTaskEvents: <T>(fn: () => Promise<T>) => Promise<T>; tasksTimer: unknown }
-    const gate = (): { open: () => void; wait: Promise<void> } => {
-      let open = (): void => undefined
-      const wait = new Promise<void>((r) => (open = r))
-      return { open, wait }
+  it('a batch whose transaction SQLite undoes part way (an error that rolls it back) saves none of it, however it handles the error (#1017 round 1)', async () => {
+    const cards = await doneCards(3)
+    const before = await Promise.all(cards.map((n) => run(() => tasks.getTask(n))))
+    // As a full disk or an I/O error would: SQLite rolls the whole transaction back on the middle card's write.
+    const outside = new DatabaseSync(boardFile(wsPath), { timeout: 5000 })
+    outside.exec(`CREATE TRIGGER undo_test BEFORE UPDATE ON cards WHEN old.number = ${cards[1]} BEGIN SELECT RAISE(ROLLBACK, 'disk I/O error (test)'); END`)
+    try {
+      // Archive All skips a card it can't save and goes on: the change still fails whole, and nothing is saved after it.
+      await expect(run(() => tasks.archiveBatch(cards, { label: 'Archive All', column: 'done', project: null, query: '', includeBusy: true }, user))).rejects.toThrow(/undone part way/)
+      // A batch move does the same with each card's refusal.
+      await expect(run(() => tasks.updateTasks(cards, { labels: ['x'] }, user))).rejects.toThrow(/undone part way/)
+    } finally {
+      outside.exec('DROP TRIGGER undo_test')
+      outside.close()
     }
-    // The quiet times, run on a fake clock: what is told while a batch is held is checked at a time after them, not slept for.
-    const later = (): void => void vi.advanceTimersByTime(5_000)
+    expect(await Promise.all(cards.map((n) => run(() => tasks.getTask(n))))).toEqual(before)
+    expect(seen).toHaveLength(0)
+    // The board goes on as before.
+    await run(() => tasks.updateTasks(cards, { labels: ['after'] }, user))
+    expect((await run(() => tasks.getTask(cards[2]))).labels).toEqual(['after'])
+  })
 
-    beforeEach(async () => {
-      await vi.waitFor(() => expect((w as unknown as Held).tasksTimer).toBeNull(), { timeout: HUNG_MS })
+  it("a loop's handoff is told once its change is saved, in a batch too, and sees the card as saved (#1017)", async () => {
+    const [x, y] = await doneCards(2)
+    await run(() => tasks.updateTasks([x, y], { column: 'todo' }, user))
+    const builder = { kind: 'agent', name: 'Agent 1 (alpha)', self: { project: 'alpha', agentId: 'a1' }, scope: 'alpha' } as const
+    await run(() => tasks.updateTasks([x, y], { agent: 'a1' }, user))
+    const handed: { n: number; column: string; seen: number }[] = []
+    tasks.onLoopEvent((e) => {
+      // Read as any reader outside the change reads it: the last commit.
+      void tasks.getTask(e.card.number, w).then((c) => handed.push({ n: c.number, column: c.column, seen: seen.length }))
+    })
+    try {
       seen.length = 0
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
-    })
-    afterEach(() => void vi.useRealTimers())
+      await run(() => tasks.updateTasks([x, y], { column: 'review' }, builder))
+      await vi.waitFor(() => expect(handed).toHaveLength(2), { timeout: HUNG_MS })
+      // Both after the batch's one event, each reading its card in Review.
+      expect(handed.map((h) => [h.n, h.column, h.seen])).toEqual([
+        [x, 'review', 1],
+        [y, 'review', 1]
+      ])
+    } finally {
+      tasks.onLoopEvent(() => undefined)
+    }
+  })
 
-    it('a change waiting to be told as a batch starts is told after it, once, not part way through it', async () => {
-      const ws = w as unknown as Held
-      ws.tasksChangedSoon()
-      const g = gate()
-      const batch = ws.holdTaskEvents(() => g.wait)
-      later()
-      expect(seen).toHaveLength(0)
-      // And what changes during it.
-      ws.tasksChangedSoon()
-      later()
-      expect(seen).toHaveLength(0)
-      g.open()
-      await batch
-      later()
-      expect(seen).toHaveLength(1)
-    })
-
-    it('batches that overlap are told once, after the last of them', async () => {
-      const ws = w as unknown as Held
-      const a = gate()
-      const b = gate()
-      const first = ws.holdTaskEvents(() => a.wait)
-      const second = ws.holdTaskEvents(() => b.wait)
-      ws.tasksChangedSoon()
-      a.open()
-      await first
-      later()
-      expect(seen).toHaveLength(0)
-      b.open()
-      await second
-      later()
-      expect(seen).toHaveLength(1)
-    })
-
-    it('a batch with nothing to tell tells nothing', async () => {
-      const g = gate()
-      const batch = (w as unknown as Held).holdTaskEvents(() => g.wait)
-      g.open()
-      await batch
-      later()
-      expect(seen).toHaveLength(0)
-    })
+  it('a card changed by another process (another copy of Hive, a script) is told, and a burst of them a few times, not once a card', async () => {
+    const doc = (n: number) => ({ number: n, title: 'From outside', project: 'alpha', column: 'todo', order: n, history: [], comments: [] })
+    writeCardOutside(wsPath, 9001, doc(9001))
+    // Seen by the board's poll of its file (once a second), within a bound for a slow machine, not a time slept for.
+    await vi.waitFor(() => expect(seen.length).toBe(1), { timeout: HUNG_MS })
+    expect((await run(() => tasks.getTask(9001))).title).toBe('From outside')
+    seen.length = 0
+    for (let i = 0; i < 30; i++) writeCardOutside(wsPath, 9100 + i, doc(9100 + i))
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), { timeout: HUNG_MS })
+    await vi.waitFor(async () => expect((await run(() => tasks.allTasks(w))).filter((c) => c.number >= 9100).length).toBe(30), { timeout: HUNG_MS })
+    expect(seen.length).toBeLessThan(10)
   })
 
   it("recording the running agents' cards reads the board once a run, one run at a time, with one more for the changes told meanwhile", async () => {

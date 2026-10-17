@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { appendFileSync, readFileSync } from 'fs'
+import { spawn } from 'child_process'
+import { appendFileSync, existsSync, readFileSync } from 'fs'
+import { createRequire } from 'module'
 import { appendFile, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { SYNC_STEP, syncCopy, syncCopyNow } from '../src/main/fsutil'
 import { tempDir } from './tempDir'
+
+const ctx = createRequire(import.meta.url)('./e2e/runContext.cjs')
 
 // Windows ending the session while an ordinary copy is under way: `interrupt` runs the shutdown copy just before the
 // ordinary copy's n-th file operation takes effect (as if that operation were still pending), so a test can try
@@ -90,6 +94,45 @@ describe('syncCopy', () => {
     await syncCopy(src, dest)
     expect((await readFile(dest)).equals(await readFile(src))).toBe(true)
   })
+
+  // A CLI appends to its transcript while Hive copies it whole (its first backup): no append may fail. Windows'
+  // CopyFile doesn't share writes, and a fake Claude Code died of the EBUSY (#1041).
+  it("doesn't stop another process appending to the source during a whole copy", async () => {
+    const src = join(dir, 'w.jsonl')
+    const stop = join(dir, 'stop')
+    await writeFile(src, Buffer.alloc(4 * 1024 * 1024, 'x'))
+    const start = (await stat(src)).size
+    const script = `const fs = require('fs'); let appends = 0, busy = 0
+      while (!fs.existsSync(process.argv[2])) { try { fs.appendFileSync(process.argv[1], 'y'.repeat(200)); appends++ } catch (e) { if (e.code !== 'EBUSY') throw e; busy++ } }
+      console.log(JSON.stringify({ appends, busy }))`
+    const child = spawn(process.execPath, ['-e', script, src, stop], { env: ctx.baseEnv(), windowsHide: true, stdio: ['ignore', 'pipe', 'inherit'] })
+    let out = ''
+    child.stdout.on('data', (d) => (out += d))
+    // Closed (its output complete) or failed to start: either way it is over.
+    let ended = false
+    let code: number | null = null
+    let spawnError: Error | null = null
+    const over = new Promise<void>((r) => {
+      child.on('close', (c) => ((code = c), (ended = true), r()))
+      child.on('error', (e) => ((spawnError = e), (ended = true), r()))
+    })
+    try {
+      // Copies while it appends: each to a new backup, so each is a whole copy.
+      await vi.waitFor(async () => expect((await stat(src)).size).toBeGreaterThan(start), { timeout: 15_000 })
+      for (let i = 0; i < 30; i++) await syncCopy(src, join(dir, `w-copy${i}.jsonl`))
+    } finally {
+      // Before afterEach removes the folder, pass or fail: told to stop, and ended by its own handle if it hangs.
+      await writeFile(stop, '')
+      await vi.waitFor(() => expect(ended).toBe(true), { timeout: 15_000 }).catch(() => child.kill())
+      await over
+    }
+    expect(spawnError).toBeNull()
+    expect(code).toBe(0)
+    const got = JSON.parse(out) as { appends: number; busy: number }
+    expect(got.appends).toBeGreaterThan(0)
+    expect(got.busy).toBe(0)
+    expect(existsSync(join(dir, 'w-copy29.jsonl'))).toBe(true)
+  }, 60_000)
 
   it('appends each new byte once when copies overlap', async () => {
     const src = join(dir, 'c.jsonl')

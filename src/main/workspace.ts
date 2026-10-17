@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'crypto'
 import { basename, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
+import { closeBoard } from './boardStore'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
@@ -24,16 +25,8 @@ import { duplicateAgentNames, suggestAgentName } from '../shared/agentNames'
 import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, type ProjectIdIndex } from '../shared/projectIds'
 
 const log = createLogger('workspace')
-/** How often the board's folder is looked for again when it can't be watched (deleted while the workspace is open). */
-const TASKS_WATCH_RETRY_MS = 3000
-/**
- * The board's folder changed: told once it has been quiet this long, or at least this often while changes go on (#1011).
- * A card written is a temporary file and a rename, and a batch writes many cards: each tasks-changed told is a read of the
- * whole board for its listeners, and told for each, they piled up until main ran out of memory (#988).
- */
-const TASKS_QUIET_MS = 50
-const TASKS_MAX_WAIT_MS = 500
-
+/** What the board keeps in .hive (#1017): its database and the files beside it, the cards' old folders, backups and the deleted cards' staging. */
+const BOARD_FILES = /^(hive\.db(-wal|-shm|-journal)?|tasks|tasks\..+|backups|deleted-cards)$/
 /** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
 const M = {
   noWorkspace: msg({ id: 'service.workspace.none', defaultMessage: 'No workspace is open', description: 'An error: the action needs a workspace, and none is open in this window.' }),
@@ -49,8 +42,19 @@ This folder is managed by [Hive](https://github.com/) and is meant to be committ
 - \`skills/\` — Hive skills (one folder per skill, each with a \`SKILL.md\`). Every agent in every project gets them.
 - \`mcp/\` — MCP server definitions (one \`<name>.json\` per server). Enable them in Hive.
 - \`workspace.json\` — which MCP servers are enabled for all projects.
+- \`hive.db\` — the task board (Hive's database). It is this machine's, like the Assistant's sessions: \`.gitignore\` keeps it out of git.
 
 MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
+`
+
+// i18n-ignore: the .hive folder's .gitignore, a file committed with the workspace
+const BOARD_GITIGNORE = `# The task board's database and what moving it from files left (added by Hive, #1017)
+hive.db
+hive.db-*
+backups/
+tasks.imported-*/
+tasks.set-aside/
+deleted-cards/
 `
 
 // i18n-ignore: the handovers folder's README, a file committed with the workspace
@@ -278,14 +282,7 @@ export class WorkspaceService {
     this.idsTimer = null
     this.rootWatcher?.close()
     this.rootWatcher = null
-    if (this.tasksRetry) clearTimeout(this.tasksRetry)
-    this.tasksRetry = null
-    if (this.tasksTimer) clearTimeout(this.tasksTimer)
-    this.tasksTimer = null
-    this.tasksSince = 0
-    this.tasksHeld = false
-    this.tasksWatcher?.close()
-    this.tasksWatcher = null
+    if (closing) closeBoard(closing)
     await this.watcher?.close()
     this.watcher = null
     this.path = null
@@ -314,6 +311,8 @@ export class WorkspaceService {
     }
     if (!existsSync(join(h, 'workspace.json'))) await writeKeptJson(join(h, 'workspace.json'), DEFAULT_WORKSPACE_CONFIG)
     if (!existsSync(join(h, 'README.md'))) await writeFile(join(h, 'README.md'), WORKSPACE_README)
+    // The board's database and what its move from files left (#1017) are this machine's: kept out of git if the workspace is a repository.
+    if (!existsSync(join(h, '.gitignore'))) await writeFile(join(h, '.gitignore'), BOARD_GITIGNORE)
     const hr = join(h, 'shared', 'handovers', 'README.md')
     if (!existsSync(hr)) await writeFile(hr, HANDOVER_README)
   }
@@ -380,17 +379,18 @@ export class WorkspaceService {
     }
     const assistantHome = this.assistantHome.toLowerCase()
     const mcpDir = this.mcpDir.toLowerCase() + sep
-    const tasksDir = this.tasksDir.toLowerCase()
+    const hiveDir = this.hiveDir.toLowerCase() + sep
     this.watcher = chokidar.watch(this.hiveDir, {
       depth: 5,
       ignoreInitial: true,
       // The Assistant's home changes with every launch; nothing in it is shown from the file system. In .hive/mcp only
       // the definitions (<name>.json) are: a server's own folder (added from a .zip, #550) isn't watched, since a watched
-      // folder inside it would stop Windows moving the folder (Replace, Delete). The board's folder has a watcher of its
-      // own (watchTasks).
+      // folder inside it would stop Windows moving the folder (Replace, Delete). The board is in its database (#1017),
+      // told by Hive's own writes: neither the database's files nor the cards' old folders and backups are watched.
       ignored: (p: string) => {
         const at = resolve(p).toLowerCase()
-        return at === assistantHome || at === tasksDir || at.startsWith(tasksDir + sep) || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
+        const top = at.startsWith(hiveDir) ? at.slice(hiveDir.length).split(sep)[0] : ''
+        return at === assistantHome || BOARD_FILES.test(top) || (at.startsWith(mcpDir) && (at.slice(mcpDir.length).includes(sep) || !at.endsWith('.json')))
       }
     })
     this.watcher.on('all', (evt, p) => {
@@ -401,108 +401,11 @@ export class WorkspaceService {
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))
-    this.watchTasks()
   }
 
+  /** The cards' folder before 0.9 (#1017): now the stub an older Hive looks at, and the import's source. */
   get tasksDir(): string {
     return join(this.hiveDir, 'tasks')
-  }
-
-  private tasksWatcher: RootWatcher | null = null
-  private tasksRetry: NodeJS.Timeout | null = null
-  private tasksTimer: NodeJS.Timeout | null = null
-  private tasksSince = 0
-  private tasksHolds = 0
-  private tasksHeld = false
-
-  /**
-   * Tells the board its folder changed (tasks-changed), once a burst (TASKS_QUIET_MS): a change by hand shows at once, a
-   * long run of them at least every TASKS_MAX_WAIT_MS. While Hive writes a batch of cards (holdTaskEvents), only after it.
-   */
-  tasksChangedSoon(): void {
-    if (this.tasksHolds) {
-      this.tasksHeld = true
-      return
-    }
-    const generation = this.generation
-    this.tasksSince ||= Date.now()
-    if (this.tasksTimer) clearTimeout(this.tasksTimer)
-    this.tasksTimer = setTimeout(() => {
-      this.tasksTimer = null
-      this.tasksSince = 0
-      // A batch started meanwhile: told after it (holdTaskEvents takes a pending one over as it starts; this is in case).
-      if (this.tasksHolds) this.tasksHeld = true
-      else if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
-    }, Math.max(0, Math.min(TASKS_QUIET_MS, this.tasksSince + TASKS_MAX_WAIT_MS - Date.now())))
-  }
-
-  /**
-   * Runs a batch of card writes (#1011) with the board's folder events held: what the watcher sees meanwhile (each card's
-   * temporary file and rename) is told once, after the batch, with the batch's own change. A change still waiting to be
-   * told as it starts is told then too, not part way through it. Batches that overlap are told once, after the last.
-   */
-  async holdTaskEvents<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.tasksHolds++ === 0 && this.tasksTimer) {
-      clearTimeout(this.tasksTimer)
-      this.tasksTimer = null
-      this.tasksSince = 0
-      this.tasksHeld = true
-    }
-    try {
-      return await fn()
-    } finally {
-      if (--this.tasksHolds === 0 && this.tasksHeld) {
-        this.tasksHeld = false
-        this.tasksChangedSoon()
-      }
-    }
-  }
-
-  /**
-   * The board's folder, watched on its own (#588): a card file changed there, by Hive, by hand or by another program,
-   * tells the board (tasks-changed). chokidar read the whole folder again on each event (an lstat of every card file,
-   * hundreds per card written on a big board, competing with the write for the thread pool); fs.watch names the file
-   * and reads nothing. A burst of events is told once (tasksChangedSoon: a write is a temporary file and a rename). The folder deleted,
-   * the watch ends and is tried again every few seconds until it is back.
-   */
-  private watchTasks(retried = false): void {
-    if (!this.path || this.tasksWatcher) return
-    const generation = this.generation
-    const retry = (): void => {
-      if (this.tasksRetry || generation !== this.generation) return
-      this.tasksRetry = setTimeout(() => {
-        this.tasksRetry = null
-        if (generation === this.generation) this.watchTasks(true)
-      }, TASKS_WATCH_RETRY_MS)
-    }
-    const changed = (): void => {
-      if (generation === this.generation) this.tasksChangedSoon()
-    }
-    let watcher: RootWatcher
-    const end = (): void => {
-      if (this.tasksWatcher === watcher) this.tasksWatcher = null
-      watcher.close()
-      retry()
-    }
-    try {
-      watcher = watch(this.tasksDir, (_evt, name) => {
-        if (this.tasksWatcher !== watcher) return
-        // The folder itself deleted: Windows names it by its full path, in a stream of events that doesn't stop, even
-        // once a folder of that name is made again, and raises no error. That watch is over.
-        if (name && /[\\/]/.test(name)) return end()
-        if (!name || name.endsWith('.json')) changed()
-      })
-    } catch {
-      retry()
-      return
-    }
-    watcher.on('error', (e) => {
-      log.warn('board folder watcher error', e)
-      end()
-    })
-    this.tasksWatcher = watcher
-    // Watched again after the folder was gone: what is in it now may have changed meanwhile.
-    if (retried) changed()
   }
 
   /** Saves of workspace.json queued or running, and the text of the last one: the watcher sees Hive's own writes too. */

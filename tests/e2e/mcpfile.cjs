@@ -143,7 +143,7 @@ const check = (name, ok, extra = '') => {
   // --- A project's MCP tab lists every server with a switch: turning notes-2 on in other asks first, and is there only.
   await page.keyboard.press('Control+Shift+E')
   await page.locator('.project-row', { hasText: 'other' }).click()
-  await page.locator('.tabs .tab', { hasText: 'MCP' }).click()
+  await lib.openMoreTab(page, 'MCP')
   const tabSwitch = (name) => page.getByRole('switch', { name: `${name} on in other`, exact: true })
   check("other's MCP tab lists every server", !!(await lib.until(async () => (await tabSwitch('github').count()) === 1 && (await tabSwitch('notes').count()) === 1 && (await tabSwitch('notes-2').count()) === 1, HUNG_MS)))
   check('github is off there, notes on (all projects)', (await tabSwitch('github').getAttribute('aria-checked')) === 'false' && (await tabSwitch('notes').getAttribute('aria-checked')) === 'true')

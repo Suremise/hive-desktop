@@ -56,6 +56,7 @@ export const EXCLUDED = [
   [/^src\/shared\/redact\.ts$/, 'log markers'],
   [/^src\/main\/freshPath\.ts$/, 'a registry key, not text'],
   [/^src\/main\/exitLog\.ts$/, "log lines and Copy Diagnostics' report, in English (#985)"],
+  [/^src\/main\/db\.ts$/, 'SQL statements and settings, no text (#1017)'],
   [/^src\/main\/trash\.ts$/, 'test-only'],
   [/^src\/shared\/consoleFixtures\.mts$/, 'test-only'],
   [/^src\/main\/(consoleRecorder|devConsole|devConsoleSources|devConsoleWords|mergeSlotHost|turnLedger)\.ts$/, 'developer views stay English (Darren, 14 Oct)'],
