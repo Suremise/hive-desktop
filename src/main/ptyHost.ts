@@ -122,12 +122,18 @@ const carried = new Map<string, string[]>()
  */
 export const SESSION_SETTINGS = new Set<string>([])
 
+/**
+ * Hive's own variables that would change how a child Electron or Chromium app behaves: run as Node, the console, and
+ * Hive's crash handler (exitLog.ts, #985: an app an agent starts would report its crashes to Hive's handler, and lose it
+ * when Hive quits).
+ */
+export const CHILD_ENV_STRIP = ['ELECTRON_RUN_AS_NODE', 'ELECTRON_NO_ATTACH_CONSOLE', 'CHROME_CRASHPAD_PIPE_NAME']
+
 /** Builds a child environment from Hive's own, minus variables that would change how child Electron apps behave. */
 export function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
-  delete env.ELECTRON_RUN_AS_NODE
-  delete env.ELECTRON_NO_ATTACH_CONSOLE
+  for (const k of CHILD_ENV_STRIP) delete env[k]
   // If Hive itself was started from inside an agent's session, don't leak that session's identity
   // (each provider lists its variables), nor Hive's own HIVE_ variables. User configuration is kept.
   const sessionVars = new Set(allProviders().flatMap((p) => p.envToStrip))

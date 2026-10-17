@@ -76,6 +76,7 @@ export const SUITES = [
   { name: 'copilot', needs: ['copilot'] },
   { name: 'copilotcopy', needs: ['copilot'] },
   { name: 'copilotsize', needs: ['copilot'] },
+  { name: 'crashdumps' },
   { name: 'ctxpercent' },
   { name: 'decisions' },
   { name: 'decisionwake' },
