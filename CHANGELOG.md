@@ -1,7 +1,8 @@
 # Release Notes
 
-## Unreleased
+## 0.8.1 — 17 October 2026
 
+- **Disable hardware acceleration.** For a graphics driver that leaves Hive's window blank, flickering or crashing, **Settings → Advanced → Disable hardware acceleration** has Hive draw without the graphics card, and its terminals without WebGL; **Restart Hive** applies it. To start once without the graphics card (a window that doesn't draw at all), run Hive with `--disable-gpu`. Copy Diagnostics says which is on (#676).
 - **Handing over to an agent that isn't running no longer loses the handover.** Hive started the agent taking over and typed the handover into it a moment after it looked ready, and on a busy PC Codex could look ready before it took what was typed: the agent started with nothing to do, and the next hand-over from it was refused. The handover is now its launch's first task, as a task started on an agent is (#782).
 - **An agent's new worktree opens at once in the Files and Changes tabs.** When an agent's worktree changed (a new agent, one moved or removed) while Hive was still reading the projects, an earlier read that finished late could put back the worktree from before: until the next refresh, the Files and Changes tabs refused the agent's current worktree and still opened the one it had left (#784).
 - **Left-running processes stay tracked when Windows reuses a process id.** When an agent's launch ended just as Windows gave one of its process ids to another agent's process, Hive could stop following that new process, so what it left running outside its agent's job as it exited wasn't listed or ended with that agent. It was never seen happening, and never ended a process Hive didn't start (#604).
@@ -9,7 +10,6 @@
 - **Changing many cards at once is faster on a big board.** Hive read through the whole board's folder each time a card was saved, so on a board of 500 cards a change to 30 cards at once took about 0.8 s; it now takes about 0.1 s, whatever the board's size. Cards edited by hand or by another program still show on the board at once (#588).
 - **An agent releasing the merge slot releases its own.** An agent that claimed the slot for main and then checked its branch out in the project folder (as merging main into its branch does) and released it without naming main kept holding main's slot, and other agents waited for up to an hour. Releasing now gives up the agent's own hold, whatever branch the folder is on, and when it holds nothing there the reply says which slots it does hold (#586).
 - **Your answer reaches a builder waiting at its lane's end.** When a card loop's builder blocks its last card, in Passed, to ask you something (its commit was refused, say), and you answer as a decision on the card or through the Assistant, Hive now tells the builder, as it does for a card in Doing. Before, the builder never heard and kept waiting (#877).
-- **Disable hardware acceleration.** For a graphics driver that leaves Hive's window blank, flickering or crashing, **Settings → Advanced → Disable hardware acceleration** has Hive draw without the graphics card, and its terminals without WebGL; **Restart Hive** applies it. To start once without the graphics card (a window that doesn't draw at all), run Hive with `--disable-gpu`. Copy Diagnostics says which is on (#676).
 
 ## 0.8.0 — 16 October 2026
 
