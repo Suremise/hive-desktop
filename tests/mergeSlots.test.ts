@@ -416,6 +416,9 @@ describe('merge slot', () => {
     expect(parseSlotRecords(text)).toEqual([{ projectPath: P, branch: 'main', agentId: 'a', agentName: 'A', runId: 'A-run', cards: [3, 4], since: Date.now(), until: Date.now() + HOLD_MS }])
     expect(parseSlotRecords('not json')).toEqual([])
     expect(parseSlotRecords('{"holds": 5}')).toEqual([])
+    // The folder its agent merged in (#984) reads back; one that isn't a path's text is left out.
+    const held = slots.heldByAgents()[0]
+    expect(parseSlotRecords(JSON.stringify({ version: 1, holds: [{ ...held, cwd: 'D:/wt/b1' }, { ...held, cwd: 5 }] })).map((h) => h.cwd)).toEqual(['D:/wt/b1', undefined])
   })
 
   it('checks what a claim names', () => {

@@ -86,7 +86,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     followTranscripts: false,
     overviewRefresh: 'live',
     defaultView: 'panes',
-    recordPerformance: true
+    recordPerformance: true,
+    resumeAfterUnexpectedClose: false
   },
   agentApi: {
     enabled: true,

@@ -643,6 +643,58 @@
     "defaultMessage": "Will quit when agents finish",
     "description": "A line of the tray icon's tooltip while Hive waits for agents to finish before quitting."
   },
+  "main.unexpectedClose.agents": {
+    "defaultMessage": "{n, plural, =0 {No agents were running.} one {One agent was running in {projects}.} other {# agents were running in {projects}.}}",
+    "description": "The notice that Hive closed unexpectedly: how many agents were running ({n}) and in which projects ({projects}: their names, listed)."
+  },
+  "main.unexpectedClose.dump": {
+    "defaultMessage": "Hive kept a crash dump of it: Help → Copy Diagnostics names it.",
+    "description": "The notice that Hive closed unexpectedly: a crash dump of that run was saved on this PC."
+  },
+  "main.unexpectedClose.failed": {
+    "defaultMessage": "{n, plural, one {One couldn't resume: {agents}.} other {# couldn't resume: {agents}.}}",
+    "description": "In the notice that Hive closed unexpectedly, or the report of resuming its agents: the agents that failed to resume ({agents}: their names with why)."
+  },
+  "main.unexpectedClose.merge": {
+    "defaultMessage": "{agent} was merging {branch}: check {folder} for a merge left half done (git status there) before the next merge.",
+    "description": "The notice that Hive closed unexpectedly: an agent ({agent}) held the merge slot for a branch ({branch}); {folder} is where the merge was (its worktree or the main checkout)."
+  },
+  "main.unexpectedClose.mergeCards": {
+    "defaultMessage": "{agent} was merging {branch} ({cards}): check {folder} for a merge left half done (git status there) before the next merge.",
+    "description": "The notice that Hive closed unexpectedly: an agent ({agent}) held the merge slot for a branch ({branch}) for cards ({cards}); {folder} is where the merge was (its worktree or the main checkout)."
+  },
+  "main.unexpectedClose.notResumed": {
+    "defaultMessage": "Nothing was resumed.",
+    "description": "The notice that Hive closed unexpectedly: Hive did not resume the agents that were running (the user chooses)."
+  },
+  "main.unexpectedClose.overview": {
+    "defaultMessage": "Show Overview",
+    "description": "A button in the notice that Hive closed unexpectedly: shows the Workspace Overview, with every project's agents."
+  },
+  "main.unexpectedClose.resumeAll": {
+    "defaultMessage": "Resume All",
+    "description": "A button in the notice that Hive closed unexpectedly: resumes the agents that were running."
+  },
+  "main.unexpectedClose.resumeFailedTitle": {
+    "defaultMessage": "Some agents couldn't resume",
+    "description": "A notice's title: resuming the agents that were running when Hive closed unexpectedly failed for some."
+  },
+  "main.unexpectedClose.resumed": {
+    "defaultMessage": "{n, plural, =0 {None was resumed.} one {One was resumed, as Settings → Sessions says.} other {# were resumed, as Settings → Sessions says.}}",
+    "description": "The notice that Hive closed unexpectedly, with \"Resume agents after an unexpected close\" on: how many of the agents Hive resumed ({n})."
+  },
+  "main.unexpectedClose.resumedTitle": {
+    "defaultMessage": "{n, plural, =0 {Nothing to resume} one {Resumed one agent} other {Resumed # agents}}",
+    "description": "A notice's title: the agents that were running when Hive closed unexpectedly were resumed ({n} of them; 0: all were running again or had no conversation)."
+  },
+  "main.unexpectedClose.title": {
+    "defaultMessage": "Hive closed unexpectedly",
+    "description": "The notice's title at start when the last run of Hive ended without quitting (killed, a crash, the power)."
+  },
+  "main.unexpectedClose.when": {
+    "defaultMessage": "Hive was last seen on {date} at {time}.",
+    "description": "The notice at start that the last run of Hive ended without quitting (its title says so): when that run was last seen running ({date}, {time})."
+  },
   "main.unused.branchKept": {
     "defaultMessage": "git kept {branch}: {why}",
     "description": "After Remove anyway removed one of the Overview's unused worktrees (Remove, Remove anyway, Merge): its branch, {branch}, stayed. {why} is git's message."
