@@ -31,6 +31,7 @@ import { refreshPath, refreshPathBeforeStart } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
+import { resumeAfterClose, startupStep } from './lastRun'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
@@ -289,7 +290,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
     void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
     // A merge slot an agent held when Hive closed: its merge may be half done (#350).
-    if (ws.path) void recoverMergeSlots(ws.path).catch((e) => log.warn('recovering the merge slots', e))
+    // At start, the notice that Hive closed unexpectedly waits for it, and tells its holds (#984).
+    if (ws.path) startupStep(recoverMergeSlots(ws.path).catch((e) => log.warn('recovering the merge slots', e)))
   }
   // Each read of the projects' ids (#514): their names by id, and what follows a rename, follow it.
   WorkspaceService.onIdsRead = followNames
@@ -323,6 +325,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'app:openLogs': () => void shell.openPath(logsDir()),
     'app:diagnostics': (opts) => diagnostics({ recording: opts?.recording === true }),
     'app:keepAwake': () => keepAwakeCount(),
+    'app:resumeAfterClose': async () => {
+      const r = await resumeAfterClose()
+      return { resumed: r.resumed.length, failed: r.failed.length }
+    },
     'update:state': () => updater.updateState(),
     'update:check': () => updater.check(true),
     'update:download': () => updater.download(),

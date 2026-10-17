@@ -194,6 +194,7 @@ export const SUITES = [
   { name: 'tooltips' },
   { name: 'transcript' },
   { name: 'turnledger' },
+  { name: 'unexpectedclose' },
   { name: 'unmerged' },
   { name: 'unpricedcost' },
   { name: 'unsaved' },

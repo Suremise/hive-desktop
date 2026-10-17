@@ -69,6 +69,7 @@ import { startMergeSlots } from './mergeSlotHost'
 import { startLanes } from './lanes'
 import { checkInstallDir } from './installDir'
 import { exitBy, logCrashDumps, startCrashDumps, startExitLog } from './exitLog'
+import { checkLastRun, startRunMarker, startupStep, tellUnexpectedClose } from './lastRun'
 import { chooseStartLanguage, languageInfo, startI18n, switchLanguage } from './i18n'
 import { fmt, msg, tr } from '../shared/i18n'
 
@@ -317,7 +318,8 @@ function createWindow(opts: { workspacePath?: string | null; bounds?: WindowStat
 
   if (opts.workspacePath) {
     const path = opts.workspacePath
-    void inWorkspace(entry.ws, () => entry.ws.open(path)).catch((e) => log.warn(`Could not reopen ${userText(path)}`, e))
+    // At start, the notice that Hive closed unexpectedly waits for it (#984).
+    startupStep(inWorkspace(entry.ws, () => entry.ws.open(path)).catch((e) => log.warn(`Could not reopen ${userText(path)}`, e)))
   }
   return entry
 }
@@ -805,6 +807,9 @@ app.whenReady().then(async () => {
   // Says the log marks the user's own text (userText()), so Copy Diagnostics can tell this run's lines from older ones.
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron}; ${MARKED_LOG})`)
   logCrashDumps()
+  // The last run's marker (#984): still there, it ended without quitting; then this run's own.
+  checkLastRun()
+  startRunMarker()
   watchMainStalls()
   setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 
@@ -982,9 +987,13 @@ app.whenReady().then(async () => {
       reportsReady = true
       for (const r of corruptReports.splice(0)) showCorrupt(...r)
       void offerRestoredLeftovers().catch((e) => log.warn('offering what agents left running before Hive restarted', e))
+      void tellUnexpectedClose().catch((e) => log.warn('telling Hive closed unexpectedly', e))
     }, 1500)
   })
-  if (!first) void offerRestoredLeftovers().catch((e) => log.warn('offering what agents left running before Hive restarted', e))
+  if (!first) {
+    void offerRestoredLeftovers().catch((e) => log.warn('offering what agents left running before Hive restarted', e))
+    void tellUnexpectedClose().catch((e) => log.warn('telling Hive closed unexpectedly', e))
+  }
   createTray(() => lastFocused()?.win ?? null, {
     quit: () => void requestQuit(),
     quitNow: () => void quitNow(true),
