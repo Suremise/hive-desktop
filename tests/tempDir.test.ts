@@ -2,12 +2,12 @@
 // under os.tmpdir() itself, whose path is the 8.3 short form on GitHub's runner (C:\Users\RUNNER~1\…). A test that wants
 // another name for a folder makes one on purpose (tests/pathAliases.ts): checked here on this machine.
 import { spawnSync } from 'child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join, relative, sep } from 'path'
+import { basename, dirname, join, relative, sep } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { junction, shortPath } from './pathAliases'
-import { tempDir, tempRoot } from './tempDir'
+import { endRunTemp, removeTempDirs, tempArea, tempDir, tempRoot } from './tempDir'
 
 const here = __dirname
 const made: string[] = []
@@ -88,7 +88,7 @@ describe('temp folders for tests (#448)', () => {
     expect(rawTempUses([{ name: 'e2e/runContext.cjs', text: `${fallback}\nconst x = os.tmpdir()\n// os.tmpdir() in a comment` }])).toEqual(['e2e/runContext.cjs:2'])
   })
 
-  it('tempDir makes a new, empty folder by its real path; tempRoot is hive-test\\tmp by its real path (#992)', () => {
+  it("tempDir makes a new, empty folder by its real path; tempRoot is the run's own folder in hive-test\\tmp (#992, #995)", () => {
     const a = dir('hive-tempdir-')
     const b = dir('hive-tempdir-')
     expect(a).not.toBe(b)
@@ -97,7 +97,10 @@ describe('temp folders for tests (#448)', () => {
     expect(a.startsWith(tempRoot() + sep)).toBe(true)
     // In the test area, which Hive's Antivirus scanning setting covers, not in %TEMP%; the temp folder only off Windows.
     const area = join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'tmp')
-    expect(tempRoot()).toBe(realpathSync.native(area))
+    expect(tempArea).toBe(area)
+    expect(dirname(tempRoot())).toBe(realpathSync.native(area))
+    expect(basename(tempRoot())).toMatch(/^run-/)
+    expect(realpathSync.native(tempRoot())).toBe(tempRoot())
     // vitest.config.ts makes it the run's temp folder too, so what Vitest, Hive's code and git put in %TEMP% goes there.
     if (process.env.LOCALAPPDATA) expect(tmpdir()).toBe(tempRoot())
   })
@@ -155,5 +158,65 @@ describe('git as on the runner (tests/noGlobalGit.ts)', () => {
     git(d, 'config', 'user.name', 'Test')
     git(d, 'config', 'user.email', 'test@example.com')
     expect(git(d, 'commit', '-q', '--allow-empty', '-m', 'x').status).toBe(0)
+  })
+})
+
+describe("the run's own temp folder goes when the run ends (#995)", () => {
+  const as = (folder: string, owner: string, fn: () => void): void => {
+    const was = { dir: process.env.HIVE_TEST_RUN_TMP, owner: process.env.HIVE_TEST_RUN_TMP_OWNER }
+    process.env.HIVE_TEST_RUN_TMP = folder
+    process.env.HIVE_TEST_RUN_TMP_OWNER = owner
+    try {
+      fn()
+    } finally {
+      process.env.HIVE_TEST_RUN_TMP = was.dir
+      process.env.HIVE_TEST_RUN_TMP_OWNER = was.owner
+    }
+  }
+
+  it('is removed, with what is in it, by the process that made it', () => {
+    const run = realpathSync.native(mkdtempSync(join(tempArea, 'run-')))
+    mkdirSync(join(run, 'late', 'profile'), { recursive: true })
+    writeFileSync(join(run, 'late', 'profile', 'config.json'), '{}')
+    try {
+      as(run, String(process.pid), () => expect(endRunTemp()).toBeUndefined())
+      expect(existsSync(run)).toBe(false)
+    } finally {
+      rmSync(run, { recursive: true, force: true })
+    }
+  })
+
+  it("is left alone by a run started inside it (another process), and nothing but a run's folder is ever removed", () => {
+    // This worker is one: the run's folder is its parent's.
+    expect(process.env.HIVE_TEST_RUN_TMP_OWNER).not.toBe(String(process.pid))
+    expect(endRunTemp()).toBeUndefined()
+    expect(existsSync(tempRoot())).toBe(true)
+    const notARun = dir('hive-not-a-run-')
+    as(notARun, String(process.pid), () => expect(endRunTemp()).toMatch(/^not a run's folder/))
+    expect(existsSync(notARun)).toBe(true)
+  })
+})
+
+// Last in the file: removeTempDirs() takes every folder this file has made.
+describe("each test file's temp folders go when it ends (#995)", () => {
+  it('removes every folder tempDir() made, with what was in it, and only those', () => {
+    const a = tempDir('hive-made-')
+    const b = tempDir('hive-made-')
+    mkdirSync(join(b, 'deep', 'er'), { recursive: true })
+    writeFileSync(join(b, 'deep', 'er', 'f.txt'), 'x')
+    const other = mkdtempSync(join(tempRoot(), 'hive-not-made-'))
+    try {
+      expect(removeTempDirs()).toEqual([])
+      expect([existsSync(a), existsSync(b), existsSync(other)]).toEqual([false, false, true])
+      // Once removed, a folder isn't removed again, and the helper carries on making them.
+      expect(removeTempDirs()).toEqual([])
+      expect(existsSync(tempDir('hive-made-'))).toBe(true)
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  })
+
+  it('runs after every test file (vitest.config.ts setupFiles)', () => {
+    expect(readFileSync(join(here, '..', 'vitest.config.ts'), 'utf8')).toMatch(/setupFiles: \[[^\]]*'tests\/tempCleanup\.ts'/)
   })
 })

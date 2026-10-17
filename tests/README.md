@@ -8,8 +8,11 @@ tests run git with no global config, as CI does), and `electron-stub.ts` standin
 Unit tests' temp folders are in the test area, `%LOCALAPPDATA%\hive-test\tmp` (#992), not `%TEMP%`: Hive's Antivirus
 scanning setting covers the test area, and thousands of folders made and removed in `%TEMP%` kept Defender busy.
 `tempDir()` makes them there, and `vitest.config.ts` makes it the run's temp folder (`TEMP`, `TMP`) too, so Vitest's own
-copies of the modules, Hive's code under test and the programs tests start (git) put theirs there. Each test removes
-its own; `npm run test:clean` and the e2e and scenario runners sweep what is older than a day (e2e/README.md,
+copies of the modules, Hive's code under test and the programs tests start (git) put theirs there. Each run has its own
+folder there, `run-<random>`, removed once the run has ended (`tempRun.ts`, #995), with whatever Hive's code wrote
+late; and every folder `tempDir()` makes is removed when its test file ends (`tempCleanup.ts`), after the file's own
+`afterAll` hooks, so a run doesn't grow as it goes: close what holds files in it (watchers, services, processes) in the
+test or its hooks, or the run warns that it was left behind. `npm run test:clean` and the e2e and scenario runners sweep what is older than a day (e2e/README.md,
 Housekeeping). Off Windows, with no `LOCALAPPDATA`, they are in the temp folder.
 
 ## Tests wait for conditions, never for time

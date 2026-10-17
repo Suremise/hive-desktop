@@ -2017,7 +2017,7 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     // The unit tests' global setup asks it, with a run started inside a suite left out (its parent's slot counts it).
     const setup = readFileSync(join(__dirname, 'unitSlot.ts'), 'utf8')
     expect(setup).toMatch(/if \(parentSuite\(\) \|\| !isFullUnitRun\(/)
-    expect(readFileSync(join(__dirname, '..', 'vitest.config.ts'), 'utf8')).toContain("globalSetup: ['tests/unitSlot.ts']")
+    expect(readFileSync(join(__dirname, '..', 'vitest.config.ts'), 'utf8')).toMatch(/globalSetup: \[[^\]]*'tests\/unitSlot\.ts'/)
   })
 
   it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {
