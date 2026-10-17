@@ -6,7 +6,7 @@ import { tilePageCount } from '@shared/tiles'
 import { APP_NAME } from '@shared/appName'
 import { msg, tr, type Msg, type Values } from '@shared/i18n'
 import { call } from './api'
-import { unarchiveBatch } from './boardBatches'
+import { EXPORT_BOARD, exportBoard, unarchiveBatch } from './boardBatches'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
@@ -441,6 +441,13 @@ const COMMAND_DEFS: CommandDef[] = [
       const p = s.activity === 'projects' ? selected()?.name : s.boardProject
       set({ taskOpen: { project: p ?? '' } })
     }
+  },
+  {
+    id: 'task.exportBoard',
+    name: EXPORT_BOARD,
+    category: 'tasks',
+    when: hasWorkspace,
+    run: () => void exportBoard()
   },
   {
     id: 'task.undoArchive',

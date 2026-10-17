@@ -627,7 +627,13 @@ The **Task Board** (in the activity bar, or **Ctrl+Shift+J**) is the workspace's
 - **One project.** The sidebar filters the board by project and lists the cards waiting for review; the badge on the activity bar counts them. Each project also has a **Tasks** tab with its own cards.
 - **With the Assistant.** Ask it to plan work as cards, start them on agents and follow them: *"split the login rework into cards for web and start the first two"*. Agents can add cards for follow-up work they find instead of doing it unasked.
 
-The cards are kept in `.hive/tasks`, one file each, so a workspace you commit shares its board.
+### Exporting the board
+
+The board is kept in the workspace's database, `.hive/hive.db`. Every change to it is saved whole or not at all, also when many cards change at once (Archive All, a batch move), and a board of a thousand cards stays quick. The database is this computer's: a workspace you commit to git leaves it out.
+
+- **Export Board to JSON…**, in the board's **⋯** menu or the command palette, saves every card, archived ones too, as a JSON file in a new folder inside the one you choose: a file per card (`12.json`), as Hive kept them before 0.9.
+- **The first time 0.9 opens a workspace**, it moves the cards' files from `.hive/tasks` into the database and keeps the folder as `.hive/tasks.imported-<date>`. A card file that couldn't be read stays out, and a notice names it.
+- **Going back to an older version.** An older Hive doesn't know the database, so it shows an empty board: nothing is lost. Cards you add there aren't added to the board when 0.9 opens the workspace again: they are kept, unchanged, in `.hive/tasks.set-aside`, and a notice asks you to review them. To use the whole board in an older version, export it and copy the files into `.hive/tasks` with Hive closed.
 
 ### Card loops
 

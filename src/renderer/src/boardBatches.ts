@@ -60,3 +60,20 @@ export async function unarchiveBatch(id: string): Promise<boolean> {
     return false
   }
 }
+
+/** Export Board to JSON…, as the board's ⋯ menu and the command palette call it. */
+export const EXPORT_BOARD = msg({ id: 'board.export.command', defaultMessage: 'Export Board to JSON…', description: "A command (the board's ⋯ menu, the command palette): saves every card of the board as a JSON file, in a new folder inside one the user picks. The … says it asks first: keep it." })
+
+/**
+ * Exports the board to JSON files (#1017): a folder the user picks gets a new folder with a file for each card, as the
+ * cards were kept before 0.9 (an older Hive reads them), and says where.
+ */
+export async function exportBoard(): Promise<void> {
+  try {
+    const r = await call('tasks:export')
+    if (!r) return
+    notify('success', tr(msg({ id: 'board.export.done', defaultMessage: 'Exported {n, plural, one {# card} other {# cards}}', description: "A notification after Export Board to JSON: how many cards were saved." }), { n: r.cards }), r.dir)
+  } catch (e) {
+    notify('error', tr(msg({ id: 'board.export.failed', defaultMessage: "The board couldn't be exported", description: "A notification: Export Board to JSON failed (why follows)." })), errorMessage(e))
+  }
+}

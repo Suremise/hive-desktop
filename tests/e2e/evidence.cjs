@@ -82,7 +82,11 @@ function citedBy(rel, cards, children = [], label = 'hive-test') {
   return null
 }
 
-/** The workspace's cards folder (.hive\tasks) for the repository at root: found up from its main checkout, or null. */
+/**
+ * The workspace's board for the repository at root, found up from its main checkout: its database (.hive\hive.db, Hive 0.9
+ * and later, #1017) or, before that, its cards folder (.hive\tasks); null when there is none. A workspace moved to the
+ * database keeps a stub tasks folder for older versions: the database is looked for first, so the stub never counts.
+ */
 function findBoard(root) {
   let dir
   try {
@@ -91,6 +95,8 @@ function findBoard(root) {
     dir = root
   }
   for (;;) {
+    const db = path.join(dir, '.hive', 'hive.db')
+    if (fs.existsSync(db)) return db
     const tasks = path.join(dir, '.hive', 'tasks')
     if (fs.existsSync(path.join(tasks, 'board.json'))) return tasks
     const up = path.dirname(dir)
@@ -99,12 +105,36 @@ function findBoard(root) {
   }
 }
 
+/** A card that may cite evidence: neither Done nor archived, with its words (title, description, comments) as pathText. */
+const citing = (c) => (!c || c.archived || c.column === 'done' ? null : { number: c.number, text: pathText([c.title, c.description, ...(c.comments ?? []).map((m) => m.text)].join('\n')) })
+
+/** The cards from a board's database (read-only; Hive writing meanwhile is fine: WAL), as readCards gives them. */
+function readDbCards(file) {
+  let db
+  try {
+    const { DatabaseSync } = require('node:sqlite')
+    db = new DatabaseSync(file, { readOnly: true, timeout: 5000 })
+    const cards = []
+    for (const row of db.prepare('SELECT number, doc FROM cards').all()) {
+      const c = citing({ ...JSON.parse(row.doc), number: row.number })
+      if (c) cards.push(c)
+    }
+    return { ok: true, cards }
+  } catch (e) {
+    return { ok: false, why: `the board (${file}) can't be read: ${e.code ?? e.message}` }
+  } finally {
+    db?.close()
+  }
+}
+
 /**
- * The cards that may cite evidence, from a board's folder: { ok: true, cards: [{ number, text }] } for every card that
- * is neither Done nor archived (its title, description and comments, as pathText), or { ok: false, why } when any card
- * can't be read (a card being saved is read again once first): then nothing may be deleted.
+ * The cards that may cite evidence, from a board (its database, or a folder of card files before 0.9): { ok: true,
+ * cards: [{ number, text }] } for every card that is neither Done nor archived (its title, description and comments, as
+ * pathText), or { ok: false, why } when any card can't be read (a card file being saved is read again once first): then
+ * nothing may be deleted.
  */
 function readCards(tasksDir) {
+  if (tasksDir.endsWith('.db')) return readDbCards(tasksDir)
   let names
   try {
     names = fs.readdirSync(tasksDir).filter((n) => /^\d+\.json$/.test(n))
@@ -123,15 +153,15 @@ function readCards(tasksDir) {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
       }
     }
-    if (!c || c.archived || c.column === 'done') continue
-    cards.push({ number: c.number, text: pathText([c.title, c.description, ...(c.comments ?? []).map((m) => m.text)].join('\n')) })
+    const cited = citing(c)
+    if (cited) cards.push(cited)
   }
   return { ok: true, cards }
 }
 
 /**
  * What may be deleted under testRoot, by the board's cards: protects(p) gives why p must stay (`cited by #n`, or that
- * the board can't be read), or null. Built from a board folder (tasksDir; null: none found, so nothing may go) or from
+ * the board can't be read), or null. Built from a board (tasksDir: its database or folder; null: none found, so nothing may go) or from
  * cards given (tests). Every protects() reads the board afresh (about 25 ms), so a deletion is never authorised by
  * an older look: a card that cites something a moment before it would go keeps it. snapshot() reads it once, for
  * listing many things (the clean-up's plan), never for deleting.
@@ -139,7 +169,7 @@ function readCards(tasksDir) {
 function evidence({ tasksDir, cards, testRoot = runContext.TEST_ROOT, label = 'hive-test' } = {}) {
   const load = () => {
     if (cards) return { ok: true, cards }
-    if (!tasksDir) return { ok: false, why: "no board was found (the workspace's .hive\\tasks, up from this repository's main checkout)" }
+    if (!tasksDir) return { ok: false, why: "no board was found (the workspace's .hive\\hive.db or .hive\\tasks, up from this repository's main checkout)" }
     return readCards(tasksDir)
   }
   /** Rules over one look (get: the cards, read when asked). */

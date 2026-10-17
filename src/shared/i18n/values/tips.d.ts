@@ -63,6 +63,8 @@ interface HiveMessageValues {
   'tips.boardDoing.title': undefined
   'tips.boardDone.text': undefined
   'tips.boardDone.title': undefined
+  'tips.boardExport.text': undefined
+  'tips.boardExport.title': undefined
   'tips.boardFold.text': undefined
   'tips.boardFold.title': undefined
   'tips.boardOrder.text': undefined

@@ -22,7 +22,6 @@ const control = await import('../src/main/assistantControl')
 const { ChangeRefused } = control
 const { assistantBatch, batchRequest } = await import('../src/main/taskBatch')
 const { config } = await import('../src/main/config')
-const { withFileLock } = await import('../src/main/fsutil')
 const { batchText } = await import('../src/shared/toolReplies')
 type WS = ReturnType<typeof createWorkspaceService>
 
@@ -308,15 +307,16 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
   it('a card a batch reaches after the user turns the control level down is left as it was', async () => {
     await fresh()
     const [a, b, c] = [await make('Wait a'), await make('Wait b'), await make('Wait c')]
-    // Holds b's card lock, so the batch gets to b and waits there.
+    // The batch is held as it gets to b (a done), in its one board change (#1017).
     let release: () => void = () => undefined
-    const holding = run(() => withFileLock(tasks.cardFile(b.number, w), () => new Promise<void>((r) => (release = r))))
+    let reached: () => void = () => undefined
+    const atB = new Promise<void>((r) => (reached = r))
+    tasks.taskTestHooks.beforeUpdate = (n) => (n === b.number ? (reached(), new Promise<void>((r) => (release = r))) : Promise.resolve())
     const pending = run(() => assistantBatch(wsPath, token, [a.number, b.number, c.number], { column: 'review' }, assistant))
-    for (let i = 0; i < 1000 && (await cardOf(a.number)).column !== 'review'; i++) await sleep(10)
-    expect((await cardOf(a.number)).column).toBe('review')
+    await atB
+    tasks.taskTestHooks.beforeUpdate = null
     setControl('look')
     release()
-    await holding
     const items = await pending
     setControl('projects')
     expect(items[0].card?.column).toBe('review')
@@ -332,13 +332,15 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
     await fresh()
     const [a, b] = [await make('Session a'), await make('Session b')]
     let release: () => void = () => undefined
-    const holding = run(() => withFileLock(tasks.cardFile(b.number, w), () => new Promise<void>((r) => (release = r))))
+    let reached: () => void = () => undefined
+    const atB = new Promise<void>((r) => (reached = r))
+    tasks.taskTestHooks.beforeUpdate = (n) => (n === b.number ? (reached(), new Promise<void>((r) => (release = r))) : Promise.resolve())
     const pending = run(() => assistantBatch(wsPath, token, [a.number, b.number], { column: 'review' }, assistant))
-    for (let i = 0; i < 1000 && (await cardOf(a.number)).column !== 'review'; i++) await sleep(10)
+    await atB
+    tasks.taskTestHooks.beforeUpdate = null
     // The Assistant restarts: its token is replaced, and the one that asked is no longer current.
     await control.newAssistantToken(wsPath)
     release()
-    await holding
     const items = await pending
     expect(items[0].card?.column).toBe('review')
     expect(items[1].error).toMatch(/session that asked for this ended/)

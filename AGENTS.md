@@ -116,6 +116,7 @@ Test copies run quiet: an unpackaged build with a test profile (`HIVE_USER_DATA`
 | `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
 | `src/main/progressReporters/`, `tests/progressReport.mts` | `hive-progress` wrapper (shims on every session's PATH) and Hive's test runners reporting to the Progress panel (`src/main/progress.ts`) |
 | `src/main/workspace.ts` | Workspace/project discovery, `.hive` folders, git exclude; one `WorkspaceService` per window behind the `workspace` stand-in |
+| `src/main/db.ts`, `src/main/boardStore.ts` | Hive's SQLite layer (`node:sqlite`: connections, settings, migrations), and the board's database (`.hive/hive.db`): its one write path (`boardWrite`, a transaction told once), the move in from the cards' files, export (#1017) |
 | `src/main/windows.ts` | Hive's windows (one workspace each) and where each event and terminal's output goes |
 | `src/main/files.ts` | Files/Images tab back end: project file operations, find, live watch, session images |
 | `src/main/transcripts.ts`, `src/main/providers/conversation.ts` | Sessions tab transcript viewer: per-provider incremental parsers, search, Markdown export |

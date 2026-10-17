@@ -60,6 +60,33 @@ function trashed(match = '') {
   return lines.map((l) => JSON.parse(l)).filter((e) => norm(e.from).includes(norm(match)))
 }
 
+/**
+ * A card of a workspace's board as Hive saved it (#1017: in .hive\hive.db, the card's JSON document), read on a
+ * connection of its own (read-only; Hive writing meanwhile is fine). Throws when there is no such card.
+ */
+function readCard(ws, n) {
+  const { DatabaseSync } = require('node:sqlite')
+  const db = new DatabaseSync(path.join(ws, '.hive', 'hive.db'), { readOnly: true, timeout: 5000 })
+  try {
+    const row = db.prepare('SELECT doc FROM cards WHERE number = ?').get(n)
+    if (!row) throw new Error(`no card #${n} in ${ws}`)
+    return JSON.parse(row.doc)
+  } finally {
+    db.close()
+  }
+}
+
+/** Saves a card's document as another program would (a running Hive sees it within about a second, #1017). */
+function writeCard(ws, n, doc) {
+  const { DatabaseSync } = require('node:sqlite')
+  const db = new DatabaseSync(path.join(ws, '.hive', 'hive.db'), { timeout: 5000 })
+  try {
+    db.prepare('INSERT INTO cards (number, doc) VALUES (?, ?) ON CONFLICT(number) DO UPDATE SET doc = excluded.doc').run(n, JSON.stringify(doc))
+  } finally {
+    db.close()
+  }
+}
+
 function probeDir(name = 'probe', root = TEST_ROOT) {
   const base = path.join(root, 'scratch')
   const label = String(name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'probe'
@@ -1051,4 +1078,4 @@ async function addMenuRun(page, label, then, ms = 10000) {
   await menuEntry(page, then).click()
 }
 
-module.exports = { addMenuRun, agentCount, agentMenu, agentsMenu, agentsMenuRun, menuEntry, openProjectSettings, paneHeader, showAgent, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
+module.exports = { readCard, writeCard, addMenuRun, agentCount, agentMenu, agentsMenu, agentsMenuRun, menuEntry, openProjectSettings, paneHeader, showAgent, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }

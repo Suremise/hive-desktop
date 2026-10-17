@@ -14,6 +14,10 @@ interface HiveMessageValues {
   'main.antivirus.tooLong': undefined
   'main.antivirus.unreadable': undefined
   'main.antivirus.windowsOnly': undefined
+  'main.board.damagedBody': { files: string | number; folder: string | number }
+  'main.board.damagedTitle': { n: number }
+  'main.board.foundBody': { folder: string | number }
+  'main.board.foundTitle': { n: number }
   'main.console.noWorkspace': undefined
   'main.console.title': { workspace: string | number }
   'main.corrupt.damaged': { file: string | number }
