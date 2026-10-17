@@ -65,6 +65,8 @@
   "panes.header.untakenTip": "Hive to wpisał, ale CLI tego nie przyjęło (nie czytało wejścia): „{line}”. Kliknij jego terminal i naciśnij Enter. Hive nie wpisze nic więcej, dopóki CLI tego nie przyjmie.",
   "panes.header.watchTip": "{watch}: Hive wpisze do niego wiersz, gdy {kind, select, agent {{n, plural, one {obserwowany agent skończy} few {któryś z nich skończy} many {któryś z nich skończy} other {któryś z nich skończy}}, zacznie czekać na Ciebie lub się zatrzyma} lane {recenzja nie przejdzie, karta zostanie zablokowana lub utknie albo tor będzie gotowy do scalenia lub się zakończy} other {{n, plural, one {karta się zmieni} few {któraś z nich się zmieni} many {któraś z nich się zmieni} other {któraś z nich się zmieni}}}}, albo o {limit}, jeśli nic się nie wydarzy. W międzyczasie nic nie działa, a agent nie przyjmuje innej pracy.",
   "panes.layout.name": "{layout, select, single {Pojedynczo} columns2 {Dwie kolumny} columns3 {Trzy kolumny} grid {Siatka 2×2} other {Siatka 3×2}}",
+  "panes.layout.narrowed": "{layout}: wyświetlane jako {shown}, dopóki w każdym panelu nie zmieści się terminal",
+  "panes.layout.shownName": "{layout, select, single {jeden naraz} columns2 {dwie kolumny} columns3 {trzy kolumny} grid {siatka na cztery} other {siatka na sześć}}",
   "panes.layout.wide": "{layout} (najlepiej w szerokim oknie lub z ukrytym paskiem bocznym: Ctrl+B)",
   "panes.leftovers.count": "{n, plural, one {# nadal działa} few {# nadal działają} many {# nadal działa} other {# nadal działa}}",
   "panes.leftovers.end": "{n, plural, one {Zakończ go} few {Zakończ wszystkie #} many {Zakończ wszystkie #} other {Zakończ wszystkie #}}",

@@ -6,7 +6,7 @@ import type { StartFailure } from '@shared/startFailure'
 import type { AdvancedState } from '@shared/advanced'
 import type { AgentLeftovers } from '@shared/agentProcesses'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
-import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage, projectSessionView } from '@shared/defaults'
+import { agentPtyKey, agentsPerPage, layoutFitting, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectSessionView } from '@shared/defaults'
 import { projectAgentStates, type AgentState } from '@shared/agentState'
 import { tileOrder, tilePageOf, tilePageShown, tilesOnPage } from '@shared/tiles'
 import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
@@ -18,7 +18,7 @@ import type { GitSection } from '@shared/gitRepo'
 import type { ProgressFilter } from '@shared/progress'
 import type { TemplateAgent, TemplateRef } from '@shared/templates'
 import type { GitTool } from '@shared/gitTool'
-import type { AgentBranchStatus, AssistantPanelSide, BoardFold, PageLayout, QuitScope, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
+import type { AgentBranchStatus, AssistantPanelSide, BoardFold, PageLayout, QuitScope, SessionLayout, TaskCard, TaskColumn, UpdateState, WorkspaceUsage, RecentWorkspace } from '@shared/types'
 import type {
   AgentApiInfo,
   AgentInfo,
@@ -239,6 +239,13 @@ interface State {
   lanes: LaneInfo[]
   /** A pane (an agent's, or the Assistant's panel) briefly highlighted because something asked to show it: its pty key. */
   paneFlash: { key: string; at: number } | null
+  /** How many panes fit side by side in the Session tab at its width now (#1037), each wide enough for a terminal; null before it is measured. */
+  paneColumns: number | null
+  /**
+   * How wide the focus view's strip may be beside a pane wide enough for a terminal (#1037): 0 hides it; null before it
+   * is measured. Its chosen width (#1021) is kept, and shown again once there is room.
+   */
+  tileStripRoom: number | null
   /** Assistant Settings is open. */
   assistantSettingsOpen: boolean
   /** What the Hive Assistant did in this window's workspace (oldest first), and what it is asking the user. */
@@ -440,6 +447,8 @@ export const useStore = create<State>(() => ({
   mergeSlots: [],
   lanes: [],
   paneFlash: null,
+  paneColumns: null,
+  tileStripRoom: null,
   assistantSettingsOpen: false,
   assistantActions: [],
   assistantQuestions: [],
@@ -637,14 +646,25 @@ export function focusAgent(path: string, agentId: string): void {
   set((s) => {
     const p = findProject(s, path)
     const i = p?.agents.findIndex((a) => a.id === agentId) ?? -1
-    return { focusedAgent: { ...s.focusedAgent, [path]: agentId }, ...(p && i >= 0 ? { pageFocus: { ...s.pageFocus, [`${path}#${pageOfAgent(i, projectPerPage(p.config))}`]: agentId } } : {}) }
+    return { focusedAgent: { ...s.focusedAgent, [path]: agentId }, ...(p && i >= 0 ? { pageFocus: { ...s.pageFocus, [`${path}#${pageOfAgent(i, shownPerPage(p, s))}`]: agentId } } : {}) }
   })
 }
+
+/**
+ * The layout a project's panes are shown in: the one chosen, with fewer columns while the Session tab is too narrow for
+ * them (#1037), back to the chosen one once there is room. The choice itself isn't changed.
+ */
+export function shownLayout(p: Pick<ProjectInfo, 'config'>, s: Pick<State, 'paneColumns'> = get()): SessionLayout {
+  return layoutFitting(projectLayout(p.config), s.paneColumns)
+}
+
+/** How many agents a page of a project's panes holds, in the layout shown (#134, #1037). */
+export const shownPerPage = (p: Pick<ProjectInfo, 'config'>, s: Pick<State, 'paneColumns'> = get()): number => agentsPerPage(shownLayout(p, s))
 
 /** The agent page a project shows: the focused agent's (a page holds as many agents as the layout has panes, #134). */
 export function agentPage(p: ProjectInfo, focused: string | null): number {
   const i = p.agents.findIndex((a) => a.id === focused)
-  return i < 0 ? 0 : pageOfAgent(i, projectPerPage(p.config))
+  return i < 0 ? 0 : pageOfAgent(i, shownPerPage(p))
 }
 
 /**
@@ -652,10 +672,9 @@ export function agentPage(p: ProjectInfo, focused: string | null): number {
  * spare panes empty (null). One at a time (Single) shows the focused agent.
  */
 export function paneAssignment(p: ProjectInfo, focused: string | null): (string | null)[] {
-  const layout = projectLayout(p.config)
-  const n = layoutPanes(layout)
+  const n = layoutPanes(shownLayout(p))
   if (n === 1) return [focused]
-  const ids = pageAgents(p.agents, agentPage(p, focused), projectPerPage(p.config)).map((a) => a.id)
+  const ids = pageAgents(p.agents, agentPage(p, focused), shownPerPage(p)).map((a) => a.id)
   return [...ids, ...Array<null>(Math.max(0, n - ids.length)).fill(null)]
 }
 
@@ -741,7 +760,7 @@ export function focusAfterRemoving(p: ProjectInfo, agentId: string): void {
 
 /** Goes to one of a project's agent pages, focusing the agent last focused there (else its first). */
 export function showPage(p: ProjectInfo, page: number): void {
-  const ids = pageAgents(p.agents, page, projectPerPage(p.config)).map((a) => a.id)
+  const ids = pageAgents(p.agents, page, shownPerPage(p)).map((a) => a.id)
   if (!ids.length) return
   const last = get().pageFocus[`${p.path}#${page}`]
   focusAgent(p.path, last && ids.includes(last) ? last : ids[0])

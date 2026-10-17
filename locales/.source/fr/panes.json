@@ -73,6 +73,8 @@
   "panes.header.untakenTip": "Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): \"{line}\". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.",
   "panes.header.watchTip": "{watch}: Hive types a line into it when {kind, select, agent {{n, plural, one {it finishes} other {one of them finishes}}, waits for you or stops} lane {a review fails, a card is blocked or stalled, or a lane is due to merge or ends} other {{n, plural, one {the card changes} other {one of them changes}}}}, or at {limit} if nothing does. Nothing runs meanwhile, and it takes no other work.",
   "panes.layout.name": "{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}",
+  "panes.layout.narrowed": "{layout}: shown as {shown} until there is room for a terminal in each pane",
+  "panes.layout.shownName": "{layout, select, single {one at a time} columns2 {two columns} columns3 {three columns} grid {a grid of four} other {a grid of six}}",
   "panes.layout.wide": "{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)",
   "panes.leftovers.count": "{n, plural, one {# left running} other {# left running}}",
   "panes.leftovers.end": "{n, plural, one {End It} other {End All #}}",

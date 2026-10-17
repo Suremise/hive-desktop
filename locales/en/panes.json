@@ -263,6 +263,14 @@
     "defaultMessage": "{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}",
     "description": "A pane layout's name: its button's tooltip and accessible name in the session toolbar."
   },
+  "panes.layout.narrowed": {
+    "defaultMessage": "{layout}: shown as {shown} until there is room for a terminal in each pane",
+    "description": "Tooltip of the chosen layout's button (the session toolbar) while the window is too narrow for its columns: {layout} is its name (\"Two columns\"), {shown} the layout shown meanwhile, lower case (\"one at a time\")."
+  },
+  "panes.layout.shownName": {
+    "defaultMessage": "{layout, select, single {one at a time} columns2 {two columns} columns3 {three columns} grid {a grid of four} other {a grid of six}}",
+    "description": "A pane layout's name in a sentence, lower case: the layout shown while the chosen one doesn't fit (panes.layout.narrowed's {shown})."
+  },
   "panes.layout.wide": {
     "defaultMessage": "{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)",
     "description": "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar."
