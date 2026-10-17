@@ -1,4 +1,4 @@
-// A long conversation: the transcript's size in the hover of the pane footer's context, then a warning of its own in the
+// A long conversation: the transcript's size plain on the pane footer's right (#1013) and in its context's hover, then a warning in the
 // footer past Settings → Sessions → Warn when a transcript is over (#978), with a notification once; clicking it opens Hand Over to… with the agent itself chosen, which
 // carries the work on in a new conversation. Also the footer's context count opening the Overview at the agent's
 // session. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and
@@ -64,7 +64,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await inv('pty:write', key, '\r')
   await until(async () => (await live(id))?.status === 'finished', HUNG_MS)
-  // Under the limit: in the context's hover, not in the footer's line (#978).
+  // Under the limit: plain, on the footer's right (#1013), and in the context's hover; not a warning (#978).
   const size = page.locator('.pane-footer-bar .foot-transcript')
   const ctxTip = page.locator('.tip .ctx-tip')
   const sized = await until(async () => {
@@ -73,7 +73,9 @@ const check = (name, ok, extra = '') => {
   }, 15000)
   check("the context's hover has the transcript's size", !!sized, await ctxTip.innerText().catch(() => ''))
   await page.mouse.move(5, 5)
-  check('under the limit it is not in the line', (await size.count()) === 0)
+  check('under the limit it is not a warning', (await size.count()) === 0)
+  const plain = page.locator('.pane-footer-bar .foot-size')
+  check('…but plain in the line', (await plain.count()) === 1 && /\d+(\.\d+)? KB/.test(await plain.innerText()) && !(await plain.getAttribute('class')).includes('warn'), await plain.innerText().catch(() => ''))
   const firstSession = (await live(id)).sessionId
 
   // Past 1 MB: orange, one notification, and the size in the agent's activity.
