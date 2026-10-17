@@ -1102,7 +1102,10 @@ export function offerNow(host: string, agentId: string, only?: string): Promise<
   return run
 }
 
-async function offerOnce(host: string, agentId: string, only?: string): Promise<boolean> {
+/** How many times an offer overtaken before its first key (what it was made from changed as it was planned) is made again at once. */
+const OVERTAKEN_TRIES = 3
+
+async function offerOnce(host: string, agentId: string, only?: string, tries = 1): Promise<boolean> {
   const store = await load(host)
   const st = sessions.liveFor(host, agentId)
   if (!st) return false
@@ -1141,7 +1144,13 @@ async function offerOnce(host: string, agentId: string, only?: string): Promise<
   }
   show(store, agentId)
   if (!offer || !offerHolds(store, offer)) {
-    if (offer) await unoffer(store, offer)
+    if (!offer) return false
+    await unoffer(store, offer)
+    // Overtaken as it was saved (#1036: the board changed after its line was made, e.g. the board folder's own event of
+    // the change that queued it): made again from things as they are now, at once; still overtaken, tried in a moment,
+    // never left for the tick.
+    if (tries < OVERTAKEN_TRIES) return offerOnce(host, agentId, only, tries + 1)
+    retrySoon(host, agentId)
     return false
   }
   const o = offer
