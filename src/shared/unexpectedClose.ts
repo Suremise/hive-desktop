@@ -141,6 +141,34 @@ export function stillRunningLine(processes: readonly AgentProcess[], kept: reado
   return tr(msg({ id: 'main.unexpectedClose.stillRunning', defaultMessage: '{n, plural, one {One process the agents started is still running: {processes}.} other {# processes the agents started are still running: {processes}.}}', description: 'The notice that Hive closed unexpectedly: processes the agents had started (test runs, servers) still run, checked to be the same ones. {n} is how many; {processes} lists them ("node serve.js, 2 × npm run e2e"). The notice has a Stop Them button.' }), { n: processes.length, processes: leftoversSummary({ processes: items, more: 0 }, 4, { tr, list: fmt.list }) })
 }
 
+/** What Stop Them does with the processes (#987, #1008): passed in, so the unit tests give their own. */
+export interface StopProcesses {
+  /** Ends these with all they started that runs now: those that still run after it, or null when it can't say. */
+  endTrees(roots: readonly AgentProcess[]): Promise<AgentProcess[] | null>
+  /** Ends these, each only while it is still the same process. */
+  endExact(processes: readonly AgentProcess[]): Promise<unknown>
+  /** Which still run as the same processes (null: it can't say). */
+  stillRunning(processes: readonly AgentProcess[]): Promise<AgentProcess[] | null>
+}
+
+/**
+ * The notice's Stop Them (#987): ends what the agents had started that still runs (running), each only while it is still
+ * the same process. A hive-progress run goes whole (#1008): from its top (the shell that ran it, while it still runs) and
+ * each of its processes still running, all they started that runs now, listed or not (found among all the marker kept).
+ * Replies with how many of those listed were stopped, and what still runs as the same processes after it: those listed,
+ * and those of a run's tree it couldn't end, to report and to try again (all of them when it can't say).
+ */
+export async function stopStillRunning(running: readonly AgentProcess[], kept: readonly AgentProcess[], ops: StopProcesses): Promise<{ stopped: number; still: AgentProcess[] }> {
+  const trees = progressRunsIn(running, kept).runs.flatMap((g) => [g.top, ...g.processes])
+  const treeFailed = trees.length ? ((await ops.endTrees(trees).catch(() => null)) ?? trees) : []
+  await ops.endExact(running)
+  const key = (p: AgentProcess): string => `${p.pid}:${p.created}`
+  const tried = [...new Map([...running, ...treeFailed].map((p) => [key(p), p])).values()]
+  const still = (await ops.stillRunning(tried).catch(() => null)) ?? tried
+  const listed = new Set(running.map(key))
+  return { stopped: running.length - new Set(still.map(key).filter((k) => listed.has(k))).size, still }
+}
+
 /** The notice's text: when, what was running, what became of it, what it started that still runs, a crash dump, merges left half done. */
 export function unexpectedCloseText(c: { lastSeen: string; agents: readonly RunningAgent[]; dump: boolean; merges: readonly LeftMerge[]; stillRunning?: readonly AgentProcess[]; kept?: readonly AgentProcess[] }, r: ResumeReport | null): string {
   const lines = [tr(msg({ id: 'main.unexpectedClose.when', defaultMessage: 'Hive was last seen on {date} at {time}.', description: 'The notice at start that the last run of Hive ended without quitting (its title says so): when that run was last seen running ({date}, {time}).' }), { date: formatDate(c.lastSeen), time: formatTime(c.lastSeen) })]

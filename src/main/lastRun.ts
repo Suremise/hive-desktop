@@ -4,10 +4,10 @@ import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync }
 import { join } from 'path'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { msg, tr } from '../shared/i18n'
-import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, resumeFailedLine, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
-import { progressRunsIn, type AgentProcess } from '../shared/agentProcesses'
+import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, resumeFailedLine, stopStillRunning, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
+import type { AgentProcess } from '../shared/agentProcesses'
 import type { ToastAction } from '../shared/types'
-import { endProcessesExactly, runningProcesses, stillRunningOf } from './agentProcesses'
+import { endProcessesExactly, endTreesExactly, runningProcesses, stillRunningOf } from './agentProcesses'
 import { assistantHome } from './assistantControl'
 import { config } from './config'
 import { createDelivery } from './deliveries'
@@ -290,12 +290,8 @@ export async function tellUnexpectedClose(): Promise<void> {
 export async function stopLeftAfterClose(): Promise<number> {
   const list = leftRunning
   if (!list.length) return 0
-  // A hive-progress run goes whole (#1008): its own process and all it started that runs now, listed or not.
-  await endProcessesExactly(list, progressRunsIn(list, leftKept).runs.map((g) => g.top))
-  // Those still running as the same processes after it: Windows didn't let Hive end them (or it can't tell).
-  const still = (await stillRunningOf(list).catch(() => null)) ?? list
+  const { stopped, still } = await stopStillRunning(list, leftKept, { endTrees: endTreesExactly, endExact: endProcessesExactly, stillRunning: stillRunningOf })
   leftRunning = still
-  const stopped = list.length - still.length
   if (stopped) log.info(`Stopped ${stopped} process(es) the agents had started before Hive closed unexpectedly`)
   if (still.length) {
     log.warn(`Couldn't stop ${still.length} process(es) the agents had started before Hive closed unexpectedly`)

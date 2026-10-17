@@ -294,14 +294,54 @@ public static class HiveJobs {
     }
     return "{\"ended\":" + ended + ",\"failed\":" + failed + "}";
   }
+  /** A process EndTree will end: its id and start time, and its handle, held from when it was checked until it is ended. */
+  public struct Picked { public int pid; public long created; public IntPtr h; }
+  /**
+   * What EndTree ends (#1008), the OS's answers passed in (the unit tests give their own): each root ("pid:created")
+   * only while it is still that process, and below it, by the parent ids of a snapshot taken at "at", each child that is
+   * still running, started after its parent and not after the snapshot. Each is checked through a handle opened on it
+   * and held (open; close lets one go), so its id can't name another process before it is ended: a process an id names
+   * by now (started after the snapshot), one that can't be opened or read, and a root that has gone are never taken or
+   * followed. A root that runs but can't be opened is in failed ("pid:created"): it still runs, as far as Hive can tell.
+   */
+  public static List<Picked> PickTree(string list, Dictionary<int, List<int>> children, long at, Func<int, IntPtr> open, Func<int, bool> absent, Func<IntPtr, long> createdOf, Func<IntPtr, bool> running, Action<IntPtr> close, List<string> failed) {
+    var picked = new List<Picked>();
+    var seen = new HashSet<int>();
+    var queue = new Queue<Picked>();
+    foreach (var r in Pairs(list)) {
+      if (seen.Contains(r.Key)) continue;
+      IntPtr h = open(r.Key);
+      if (h == IntPtr.Zero) { if (!absent(r.Key)) failed.Add(r.Key + ":" + r.Value); continue; }
+      if (createdOf(h) != r.Value || !running(h)) { close(h); continue; }
+      seen.Add(r.Key);
+      queue.Enqueue(new Picked { pid = r.Key, created = r.Value, h = h });
+    }
+    while (queue.Count > 0) {
+      var p = queue.Dequeue();
+      picked.Add(p);
+      List<int> c;
+      if (!children.TryGetValue(p.pid, out c)) continue;
+      foreach (int k in c) {
+        if (seen.Contains(k)) continue;
+        IntPtr h = open(k);
+        if (h == IntPtr.Zero) continue;
+        long kc = createdOf(h);
+        if (kc == 0 || kc < p.created || kc > at || !running(h)) { close(h); continue; }
+        seen.Add(k);
+        queue.Enqueue(new Picked { pid = k, created = kc, h = h });
+      }
+    }
+    return picked;
+  }
   /**
    * Ends processes by id and start time ("pid:created,…") with all they started that runs now (#1008: a test run's
-   * whole tree), each only while it is still that process (EndExact). Below each, by parent id from a snapshot, a child
-   * counts only if it started after its parent, so a parent id a later process took is never followed; nor is one
-   * whose id names another process by now. JSON {"ended":n,"failed":n}.
+   * whole tree), as PickTree picks them, each through the handle it was checked with. JSON {"ended":n,"failed":n,
+   * "failedIds":["pid:created",…]}: those failed still run (a root Hive couldn't open among them), to try again.
    */
   public static string EndTree(string list) {
     var children = new Dictionary<int, List<int>>();
+    // Taken before the snapshot: a process created after it can't be one the snapshot saw.
+    long at; GetSystemTimeAsFileTime(out at);
     // TH32CS_SNAPPROCESS
     IntPtr snap = CreateToolhelp32Snapshot(2, 0);
     if (snap != IntPtr.Zero && snap != new IntPtr(-1)) {
@@ -315,27 +355,25 @@ public static class HiveJobs {
         }
       } finally { CloseHandle(snap); }
     }
-    var all = new List<KeyValuePair<int, long>>();
-    var seen = new HashSet<int>();
-    var queue = new Queue<KeyValuePair<int, long>>();
-    foreach (var r in Pairs(list)) {
-      long now = CreatedOf(r.Key);
-      // Gone, its id held by no one: what it started may still run. Its id another process's now: not followed.
-      if ((now == r.Value || now == 0) && seen.Add(r.Key)) queue.Enqueue(r);
+    var failed = new List<string>();
+    int error = 0;
+    // PROCESS_TERMINATE | SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
+    Func<int, IntPtr> open = (pid) => { IntPtr h = OpenProcess(0x0001 | 0x100000 | 0x1000, false, pid); error = h == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0; return h; };
+    // ERROR_INVALID_PARAMETER: no process has the id.
+    Func<int, bool> absent = (pid) => error == 87;
+    Func<IntPtr, long> createdOf = (h) => { long c, x, k, u; return GetProcessTimes(h, out c, out x, out k, out u) ? c : 0; };
+    Func<IntPtr, bool> running = (h) => { uint code; return GetExitCodeProcess(h, out code) && code == 259; };
+    var picked = PickTree(list, children, at, open, absent, createdOf, running, (h) => CloseHandle(h), failed);
+    int ended = 0;
+    foreach (var p in picked) {
+      try {
+        if (!running(p.h) || (TerminateProcess(p.h, 1) && WaitForSingleObject(p.h, 2000) == 0)) ended++;
+        else failed.Add(p.pid + ":" + p.created);
+      } finally { CloseHandle(p.h); }
     }
-    while (queue.Count > 0) {
-      var p = queue.Dequeue();
-      all.Add(p);
-      List<int> c;
-      if (!children.TryGetValue(p.Key, out c)) continue;
-      foreach (int k in c) {
-        long kc = CreatedOf(k);
-        if (kc != 0 && kc >= p.Value && seen.Add(k)) queue.Enqueue(new KeyValuePair<int, long>(k, kc));
-      }
-    }
-    var b = new StringBuilder();
-    foreach (var p in all) b.Append(b.Length > 0 ? "," : "").Append(p.Key).Append(':').Append(p.Value);
-    return EndExact(b.ToString());
+    var b = new StringBuilder("{\"ended\":" + ended + ",\"failed\":" + failed.Count + ",\"failedIds\":[");
+    for (int i = 0; i < failed.Count; i++) b.Append(i > 0 ? "," : "").Append(Q(failed[i]));
+    return b.Append("]}").ToString();
   }
   /** Exits gathered for the next Settle: each pid with the entry held for it as its exit was read (null: none). */
   static List<KeyValuePair<int, Held>> exits = new List<KeyValuePair<int, Held>>();
@@ -1194,16 +1232,27 @@ export async function stillRunningOf(processes: readonly AgentProcess[]): Promis
   return (await stillRunning(mine))?.processes ?? null
 }
 
+/** Ends these processes, each only while it is still the same process (id and start time, #987): whether none still runs. */
+export async function endProcessesExactly(processes: readonly AgentProcess[]): Promise<boolean> {
+  return (await trackingReady()) && !killFailsForTests() && (await endExactly([...processes]))
+}
+
 /**
- * Ends these processes, each only while it is still the same process (id and start time, #987): whether none still
- * runs. trees: processes ended with all they started that runs now (#1008: a hive-progress run's process, so its whole
- * test run goes, what it started since Hive listed it too), each checked as these are.
+ * Ends these processes with all they started that runs now (#1008: a hive-progress run's processes, so its whole test
+ * run goes, what it started since Hive listed it too), each only while it is still the process it was checked to be
+ * (EndTree). Those that still run after it, by id and start time (no label: Hive didn't list them), for the caller to
+ * report and try again; null when the host can't say (none ended).
  */
-export async function endProcessesExactly(processes: readonly AgentProcess[], trees: readonly AgentProcess[] = []): Promise<boolean> {
-  if (!(await trackingReady()) || killFailsForTests()) return false
-  const list = identities([...trees])
-  const tree = !list || ((await host.request('endtree', list)) as { failed?: number } | null)?.failed === 0
-  return (await endExactly([...processes])) && tree
+export async function endTreesExactly(roots: readonly AgentProcess[]): Promise<AgentProcess[] | null> {
+  const list = identities([...roots])
+  if (!list) return []
+  if (!(await trackingReady()) || killFailsForTests()) return null
+  const r = (await host.request('endtree', list)) as { failedIds?: unknown } | null
+  if (!r || typeof r !== 'object' || !Array.isArray(r.failedIds)) return null
+  return r.failedIds.flatMap((id) => {
+    const [pid, created] = String(id).split(':')
+    return Number(pid) > 0 && /^\d+$/.test(created ?? '') ? [{ pid: Number(pid), name: '', label: '', created }] : []
+  })
 }
 
 async function restore(): Promise<AgentLeftovers[]> {
