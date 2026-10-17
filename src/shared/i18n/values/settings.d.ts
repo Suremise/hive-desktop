@@ -716,6 +716,9 @@ interface HiveMessageValues {
   'settings.sessions.resetPerformance.desc': undefined
   'settings.sessions.resetPerformance.tip': undefined
   'settings.sessions.resetPerformance.title': undefined
+  'settings.sessions.resumeAfterUnexpectedClose.desc': undefined
+  'settings.sessions.resumeAfterUnexpectedClose.tip': undefined
+  'settings.sessions.resumeAfterUnexpectedClose.title': undefined
   'settings.sessions.tileOrder.desc': undefined
   'settings.sessions.tileOrder.option.panes': undefined
   'settings.sessions.tileOrder.option.urgency': undefined

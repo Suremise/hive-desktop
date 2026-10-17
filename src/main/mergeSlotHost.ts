@@ -16,6 +16,7 @@ import { rebase, samePath } from '../shared/movePaths'
 import { NO_PROJECT_IDS, type ProjectIdIndex } from '../shared/projectIds'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { hiveName, safeWord } from '../shared/devConsole'
+import { addLeftMerge } from './lastRun'
 
 const log = createLogger('mergeSlots')
 
@@ -120,7 +121,9 @@ function heldIn(workspacePath: string): SlotRecord[] {
     }
     if (ws.path?.toLowerCase() !== workspacePath.toLowerCase()) return []
     const projectId = ws.projectIdsNow().byPath.get(h.projectPath.toLowerCase())
-    return [projectId ? { ...h, projectId } : h]
+    // Where its agent merges (#984): its worktree, or the main checkout.
+    const cwd = sessions.liveFor(h.projectPath, h.agentId)?.cwd
+    return [{ ...h, ...(projectId ? { projectId } : {}), ...(cwd ? { cwd } : {}) }]
   })
 }
 
@@ -171,12 +174,24 @@ async function orphansIn(file: string, workspacePath: string | null, place: (h: 
 }
 
 /**
+ * Tests only (unpackaged builds): HIVE_TEST_HOLD_MERGE_RECOVERY=<file> holds the recovery until that file exists, so a
+ * suite can show what waits for it (#984: the notice that Hive closed unexpectedly).
+ */
+async function testHold(): Promise<void> {
+  const file = !app.isPackaged ? process.env.HIVE_TEST_HOLD_MERGE_RECOVERY : undefined
+  if (!file) return
+  log.info('Merge slot recovery held until the test releases it')
+  while (!existsSync(file)) await new Promise((r) => setTimeout(r, 100))
+}
+
+/**
  * A workspace opened: holds its record has that Hive no longer has (it closed or crashed while an agent held the slot)
  * are told to the user, since that merge may be half done, and dropped from the record. Each is told in its project
  * now (#508), and so are the holds recorded where the workspace was before it moved (its record is by its folder) when
  * nothing is there now; one whose project can't be known is told in the workspace, and kept beside the record.
  */
 export async function recoverMergeSlots(workspacePath: string): Promise<void> {
+  await testHold()
   const ws = workspaceFor(workspacePath)
   const ids = (await ws?.projectIds({ fresh: true })) ?? NO_PROJECT_IDS
   const last = ws?.movedFrom
@@ -185,8 +200,12 @@ export async function recoverMergeSlots(workspacePath: string): Promise<void> {
   const gone = [...(await orphansIn(recordFile(workspacePath), workspacePath, place)), ...(from ? await orphansIn(recordFile(from), null, place) : [])]
   for (const { hold: h, at } of gone) {
     log.info(`Merge slot: Hive closed while ${userText(h.agentName)} held it for ${userText(h.branch)}`)
+    // The folder the merge was in (#984): the agent's own (its worktree), else the project's main checkout.
+    const folder = h.cwd ?? at ?? h.projectPath
+    // After an unexpected close, told in that notice (lastRun.ts).
+    if (at && addLeftMerge({ agentName: h.agentName, branch: h.branch, cards: h.cards, folder })) continue
     const where = at ? '' : ` in ${basename(h.projectPath)}, a project this workspace no longer has (its folder is another project's now, or gone)`
-    toast('warning', `${h.agentName} was merging when Hive closed`, `It held the merge slot for ${h.branch}${h.cards.length ? ` (${h.cards.map((n) => `#${n}`).join(', ')})` : ''}${where}. Check the project's main checkout for a merge left half done (git status there) before the next merge.`, undefined, at ?? workspacePath)
+    toast('warning', `${h.agentName} was merging when Hive closed`, `It held the merge slot for ${h.branch}${h.cards.length ? ` (${h.cards.map((n) => `#${n}`).join(', ')})` : ''}${where}. Check ${folder} for a merge left half done (git status there) before the next merge.`, undefined, at ?? workspacePath)
   }
 }
 

@@ -39,7 +39,7 @@
   "tips.assistantSettings.title": "Interroger l’Assistant sur un paramètre",
   "tips.assistantSide.text": "Des notifications Windows ou une autre application couvrent la droite de l’écran ? Affichage → Placer le panneau de l’Assistant à gauche met l’Assistant à côté de la liste des projets.",
   "tips.assistantSide.title": "L’Assistant à gauche",
-  "tips.assistantStatus.text": "La ligne sous l’en-tête de l’Assistant dit ce qu’il fait et, quand il attend des cartes, lesquelles et jusqu’à quand : clique sur une carte pour l’ouvrir. Clique sur Fait par l’Assistant pour replier sa liste, et sur la flèche devant le nom d’un projet pour le réduire à une ligne.",
+  "tips.assistantStatus.text": "La ligne sous l’en-tête de l’Assistant dit ce qu’il fait et, quand il attend des cartes, lesquelles et jusqu’à quand : clique sur une carte pour l’ouvrir. « Fait par l’Assistant », au bout de la ligne, ouvre ce qu’il a fait. Sous Espace de travail, survole la marque d’un agent pour voir ce qu’il fait, ou clique dessus pour y aller.",
   "tips.assistantStatus.title": "Ce que fait l’Assistant",
   "tips.assistantTeam.text": "Avec trois agents ou plus, ou des auteurs et des relecteurs, demande à l’Assistant en mode Coordinateur de mener tes cartes en couloirs : il les répartit selon les fichiers qu’elles touchent, donne ses consignes à chaque binôme et surveille chaque couloir jusqu’au bout. Avec un ou deux agents, il reste en retrait.",
   "tips.assistantTeam.title": "L’Assistant dirige ton équipe",

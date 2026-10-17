@@ -160,7 +160,7 @@
     "description": "A tip's title."
   },
   "tips.assistantStatus.text": {
-    "defaultMessage": "The line under the Assistant's header says what it is doing, and when it waits on cards, which ones and until when: click a card to open it. Click Done by the Assistant to fold its list away, and the arrow before a project's name to fold it to one line.",
+    "defaultMessage": "The line under the Assistant's header says what it is doing, and which cards it waits on and until when: click one to open it. Done by the Assistant at its end lists what it did. Under Workspace, hover an agent's mark for what it's doing; click to go there.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.assistantStatus.title": {
@@ -1078,6 +1078,14 @@
   "tips.ui.tryIt": {
     "defaultMessage": "Try it",
     "description": "Button on a tip: runs the command it is about."
+  },
+  "tips.unexpectedClose.text": {
+    "defaultMessage": "If Hive was ended without quitting (a crash, or something closed it), the next start says when it was last seen and which agents were running, with Resume All. Settings → Sessions → Resume agents after an unexpected close resumes them by itself.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.unexpectedClose.title": {
+    "defaultMessage": "Know when Hive closed unexpectedly",
+    "description": "A tip's title."
   },
   "tips.unmerged.text": {
     "defaultMessage": "The agent's tab shows how many commits aren't merged yet, Merge… in its ⋯ menu says what is left, and Git → Changes shows everything the agent changed since it branched.",

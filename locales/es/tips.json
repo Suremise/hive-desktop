@@ -39,7 +39,7 @@
   "tips.assistantSettings.title": "Pregunta al Asistente por una opción",
   "tips.assistantSide.text": "¿Las notificaciones de Windows u otra aplicación tapan la derecha de la pantalla? Ver → Mover el panel del Asistente a la izquierda pone el Asistente junto a la lista de proyectos.",
   "tips.assistantSide.title": "El Asistente a la izquierda",
-  "tips.assistantStatus.text": "La línea bajo el encabezado del Asistente dice qué está haciendo y, cuando espera tarjetas, cuáles y hasta cuándo: haz clic en una para abrirla. Haz clic en Hecho por el Asistente para plegar su lista, y en la flecha delante del nombre de un proyecto para plegarlo en una línea.",
+  "tips.assistantStatus.text": "La línea bajo el encabezado del Asistente dice qué está haciendo y, cuando espera tarjetas, cuáles y hasta cuándo: haz clic en una para abrirla. «Hecho por el Asistente», al final de la línea, abre lo que ha hecho. En Espacio de trabajo, pasa el ratón sobre la marca de un agente para ver qué hace, o haz clic para ir a él.",
   "tips.assistantStatus.title": "Qué está haciendo el Asistente",
   "tips.assistantTeam.text": "Con tres o más agentes, o con autores y revisores, pide al Asistente en el modo Coordinador que lleve tus tarjetas como carriles: las reparte según los archivos que tocan, instruye a cada pareja y vigila cada carril hasta el final. Con uno o dos agentes, no se mete.",
   "tips.assistantTeam.title": "El Asistente dirige tu equipo",

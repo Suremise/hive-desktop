@@ -164,7 +164,7 @@
   "panes.template.layout": "{layout, select, auto {automatisches Layout} single {einzeln} columns2 {zwei Spalten} columns3 {drei Spalten} grid {Vierer-Raster} grid6 {Sechser-Raster} other {{layout}}}",
   "panes.template.listFailed": "Vorlagen konnten nicht aufgelistet werden",
   "panes.template.noneSaved": "Noch keine Vorlagen gespeichert",
-  "panes.template.noneYet": "Noch keine Vorlagen: zuerst Vorlage ▾ → Vorlage speichern…",
+  "panes.template.noneYet": "Noch keine Vorlagen: zuerst + Hinzufügen ▾ → Vorlagen → Vorlage speichern…",
   "panes.template.ownWorktree": "eigener Worktree",
   "panes.template.save": "Vorlage speichern…",
   "panes.template.scopeHeading": "{scope, select, workspace {Vorlagen des Arbeitsbereichs} other {Vorlagen dieses Projekts}}",

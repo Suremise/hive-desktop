@@ -164,7 +164,7 @@
   "panes.template.layout": "{layout, select, auto {disposition automatique} single {un à la fois} columns2 {deux colonnes} columns3 {trois colonnes} grid {grille de quatre} grid6 {grille de six} other {{layout}}}",
   "panes.template.listFailed": "Impossible de lister les modèles",
   "panes.template.noneSaved": "Aucun modèle enregistré pour l’instant",
-  "panes.template.noneYet": "Aucun modèle pour l’instant : Modèle ▾ → Enregistrer le modèle… d’abord",
+  "panes.template.noneYet": "Aucun modèle pour l’instant : + Ajouter ▾ → Modèles → Enregistrer le modèle… d’abord",
   "panes.template.ownWorktree": "son propre worktree",
   "panes.template.save": "Enregistrer le modèle…",
   "panes.template.scopeHeading": "{scope, select, workspace {Modèles de l’espace de travail} other {Modèles de ce projet}}",

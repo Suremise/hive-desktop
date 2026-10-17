@@ -2859,6 +2859,18 @@
     "defaultMessage": "Reset performance metrics",
     "description": "A setting's title (Settings → Sessions)."
   },
+  "settings.sessions.resumeAfterUnexpectedClose.desc": {
+    "defaultMessage": "When Hive closed without quitting (a crash, or it was ended), resume the agents that were running when it starts again.",
+    "description": "What the setting \"Resume agents after an unexpected close\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.resumeAfterUnexpectedClose.tip": {
+    "defaultMessage": "Off: Hive only tells you, with Resume All for you to choose. Either way the notice says when Hive was last seen and which agents were running.",
+    "description": "The info tip of the setting \"Resume agents after an unexpected close\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.resumeAfterUnexpectedClose.title": {
+    "defaultMessage": "Resume agents after an unexpected close",
+    "description": "A setting's title (Settings → Sessions)."
+  },
   "settings.sessions.tileOrder.desc": {
     "defaultMessage": "The order of the agents' tiles in the Tiles view.",
     "description": "What the setting \"Tile order\" does, under its title (Settings → Sessions)."

@@ -1,7 +1,7 @@
 // An agent's card in Doing on the agent: the chip in its pane header (and its name's hover and the summary chip's list, #975) and the Workspace Overview's running
-// list, its line in the project's sidebar tooltip; clicking opens the card; leaving Doing removes it. In the strip, the
-// pane header and the Assistant's workspace overview the chip is its icon and number (+n), the titles on hover; the
-// overview's row also says what the agent is doing (its progress), cut short in a narrow panel (#311). The session
+// list, its line in the project's sidebar tooltip; clicking opens the card; leaving Doing removes it. In the pane header
+// the chip is its icon and number (+n), the titles on hover; in the Assistant's workspace section the agent's state mark
+// has its cards and what it is doing (its progress) in its tooltip (#311, #979). The session
 // records the card (sessions.json) and the Sessions tab shows "Worked on #n", unlinked once the card is deleted.
 // The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -125,8 +125,8 @@ const check = (name, ok, extra = '') => {
   await page.locator('.activity-btn[aria-label="Projects"]').click()
   await page.locator('.project-row', { hasText: 'alpha' }).click()
 
-  // The Assistant's workspace overview (#311): Coder's row has the short chip and what it is doing (its progress
-  // run), and its tooltip the rest; a click on the chip opens the card. Wide and narrow, both themes.
+  // The Assistant's workspace section (#311, #979): Coder's state mark has what it is doing (its progress run) and its
+  // cards in its tooltip and its accessible name.
   const launches = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   const coderToken = launches.filter((l) => l.cwd.toLowerCase() === alpha.toLowerCase()).at(-1)?.env?.HIVE_API_TOKEN
   const progress = async (p, body) => (await fetch(`http://127.0.0.1:${PORT}${p}`, { method: 'POST', headers: { Authorization: `Bearer ${coderToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json()
@@ -141,45 +141,16 @@ const check = (name, ok, extra = '') => {
     await until(async () => (await page.locator(`.assistant-agent[data-agent="${coder.id}"]`).count()) === 1, 10000)
   }
   const row = page.locator(`.assistant-agent[data-agent="${coder.id}"]`)
-  const rowShape = () =>
-    row.evaluate((el) => {
-      const panel = el.closest('.assistant-panel').getBoundingClientRect()
-      const chip = el.querySelector('.card-chip')?.getBoundingClientRect()
-      const status = el.querySelector('.assistant-agent-status')
-      return {
-        rowRight: el.getBoundingClientRect().right,
-        panelRight: panel.right,
-        chip: chip ? { width: chip.width, right: chip.right } : null,
-        chipText: el.querySelector('.card-chip')?.innerText.replace(/\s+/g, '') ?? null,
-        status: status?.textContent ?? null,
-        cut: status ? status.scrollWidth > status.clientWidth : null,
-        height: el.getBoundingClientRect().height
-      }
-    })
-  for (const theme of ['dark', 'light']) {
-    await inv('settings:update', { appearance: { theme } })
-    for (const width of [900, 300]) {
-      await assistantAt(width)
-      const shape = await until(async () => {
-        const g = await rowShape()
-        return g.status?.startsWith('e2e: 12 suites') ? g : null
-      }, 8000)
-      check(`${theme}, panel ${width} px: Coder's row has the chip (#n+1) and its progress`, !!shape && shape.chipText === `#${card.number}+1` && shape.status === 'e2e: 12 suites with a long title to cut short 4/12', JSON.stringify(shape))
-      check(`…inside the panel on one line${width === 300 ? ', the progress cut short with an ellipsis, the chip whole' : ''}`, !!shape && shape.rowRight <= shape.panelRight + 0.5 && shape.chip.right <= shape.panelRight + 0.5 && shape.chip.width >= 30 && shape.height < 30 && (width === 900 || shape.cut === true), JSON.stringify(shape))
-      await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, `cardchip-assistant-${theme}-${width}.png`) })
-    }
-  }
-  await inv('settings:update', { appearance: { theme: 'dark' } })
-  const rowTip = (t) => t.includes('Coder: ') && t.includes(`Working on #${card.number} Attention inbox`) && t.includes(`Working on #${second.number} Prompt snippets`) && t.includes('Progress: e2e: 12 suites with a long title to cut short 4/12')
+  await assistantAt(430)
+  // Its state first (#979: the state its mark draws), then what it is doing.
+  const rowTip = (t) => /^Coder: [^·\n]+ · e2e: 12 suites with a long title to cut short 4\/12/.test(t) && t.includes(`Working on #${card.number} Attention inbox`) && t.includes(`Working on #${second.number} Prompt snippets`) && t.includes('Progress: e2e: 12 suites with a long title to cut short 4/12')
   tip = await lib.hoverTip(page, row, rowTip)
-  check("the row's tooltip: its status, both cards with their titles and its progress", rowTip(tip), tip)
+  check("Coder's mark's tooltip: its progress, both cards with their titles and its run", rowTip(tip), tip)
+  check('…and its accessible name says its state and what it is doing', /^Coder: [^·]+ · e2e: 12 suites/.test((await row.getAttribute('aria-label')) ?? ''), await row.getAttribute('aria-label'))
   await page.mouse.move(5, 5)
-  await row.locator('.card-chip').click()
-  check("clicking the overview's chip opens the card", !!(await until(async () => (await dialog.count()) === 1, 5000)))
-  await page.keyboard.press('Escape')
-  await until(async () => (await dialog.count()) === 0, HUNG_MS)
+  await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, 'cardchip-assistant.png') })
   await progress(`/v1/progress/${run.id}/finish`, { ok: true })
-  check('once the run ends, the row says its status again', !!(await until(async () => !(await row.locator('.assistant-agent-status').textContent().catch(() => '')).startsWith('e2e'), 8000)))
+  check('once the run ends, the mark says its status again', !!(await until(async () => !((await row.getAttribute('aria-label')) ?? 'e2e').includes('e2e'), 8000)), await row.getAttribute('aria-label'))
   await page.keyboard.press('Control+Alt+I')
   await page.locator('.project-row', { hasText: 'alpha' }).click()
 

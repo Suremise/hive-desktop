@@ -87,7 +87,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     overviewRefresh: 'live',
     defaultView: 'panes',
     tileOrder: 'panes',
-    recordPerformance: true
+    recordPerformance: true,
+    resumeAfterUnexpectedClose: false
   },
   agentApi: {
     enabled: true,

@@ -103,8 +103,12 @@ const check = (name, ok, extra = '') => {
   // --- A change: Settings shows it, the panel lists it with Revert.
   check('it changes a setting', await say('skill tune-settings then hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":50}'))
   check('…which is now 50 MB', (await settings()).sessions.transcriptWarnMB === 50, String((await settings()).sessions.transcriptWarnMB))
+  // The list opens from "Done by the Assistant (n)" at the watch line's end (#979: closed until then).
+  const doneLink = panel.locator('.assistant-done-link')
+  await lib.until(async () => (await doneLink.count()) === 1, HUNG_MS)
+  if ((await doneLink.getAttribute('aria-expanded')) !== 'true') await doneLink.click()
   const action = panel.locator('.assistant-action', { hasText: 'Warn when a transcript is over' }).first()
-  const changed = /Changed Settings → Sessions → Warn when a transcript is over: 20 → 50/
+  const changed =/Changed Settings → Sessions → Warn when a transcript is over: 20 → 50/
   const changedText = await showsText('the change', action, changed)
   check('its panel lists the change, old → new', changed.test(changedText), changedText)
   const revert = action.getByRole('button', { name: /^Revert Settings → Sessions → Warn when a transcript is over to 20/ })

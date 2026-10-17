@@ -109,6 +109,7 @@ interface HiveMessageValues {
   'shell.command.session.removeAll': undefined
   'shell.command.session.removeAllLive': { n: number }
   'shell.command.session.resume': undefined
+  'shell.command.session.resumeAfterClose': undefined
   'shell.command.session.settleLeftovers': undefined
   'shell.command.session.startNewAll': undefined
   'shell.command.session.startNewAllLive': { several: string; n: string | number }
@@ -197,6 +198,7 @@ interface HiveMessageValues {
   'shell.error.allowEdit': undefined
   'shell.error.endProcesses': undefined
   'shell.error.keepProcesses': undefined
+  'shell.error.resumeAfterClose': undefined
   'shell.error.stopBackground': undefined
   'shell.error.switchModes': undefined
   'shell.errorBoundary.logs': undefined

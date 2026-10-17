@@ -6,6 +6,7 @@ import { enabledProviders, installSourceText } from '@shared/providers'
 import { ProviderIcon } from './ProviderIcon'
 import { cx, formatKeybinding, resetsIn, timeAgo } from '../util'
 import { commandKeybinding } from '../commands'
+import { AssistantMark } from './AssistantMark'
 import { Icon, Tooltip } from './ui'
 import { UpdateStatusItem } from './Updates'
 import { asksYou } from '@shared/inbox'
@@ -57,6 +58,9 @@ const M = {
   git: msg({ id: 'workspace.statusBar.git', defaultMessage: '{hasVersion, select, yes {Git {version}} other {Git}}', description: "The status bar's Git warning. Usually kept as Git." })
 }
 
+/** The activity bar's icon for the Assistant: its own mark rather than a codicon. */
+const ASSISTANT_ICON = 'hive-assistant'
+
 const ACTIVITIES: { id: Activity; icon: string; label: Msg; command: string }[] = [
   { id: 'projects', icon: 'files', label: M.projects, command: 'view.projects' },
   { id: 'overview', icon: 'dashboard', label: M.overview, command: 'view.overview' },
@@ -66,7 +70,8 @@ const ACTIVITIES: { id: Activity; icon: string; label: Msg; command: string }[] 
   { id: 'skills', icon: 'sparkle', label: M.skills, command: 'view.skills' },
   { id: 'templates', icon: 'library', label: M.templates, command: 'view.templates' },
   { id: 'mcp', icon: 'plug', label: M.mcp, command: 'view.mcp' },
-  { id: 'assistant', icon: 'hubot', label: M.assistant, command: 'view.assistant' }
+  // The Assistant's own mark (#979: the queen's crown on a hive cell, not a robot), drawn by AssistantMark.
+  { id: 'assistant', icon: ASSISTANT_ICON, label: M.assistant, command: 'view.assistant' }
 ]
 
 export function ActivityBar() {
@@ -84,7 +89,7 @@ export function ActivityBar() {
     return (
       <Tooltip key={id} content={kb ? tr(M.withKey, { label, key: formatKeybinding(kb) }) : label}>
         <button className={cx('activity-btn', activity === id && (sidebarVisible || id === 'docs' || id === 'settings') && 'active')} onClick={() => setActivity(id)} aria-label={label}>
-          <Icon name={icon} />
+          {icon === ASSISTANT_ICON ? <AssistantMark className="activity-mark" /> : <Icon name={icon} />}
           {!!badge && <span className="activity-badge">{badge}</span>}
         </button>
       </Tooltip>
