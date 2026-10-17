@@ -269,6 +269,8 @@
   "tips.ui.tip": "Tipp",
   "tips.ui.title": "Tipps",
   "tips.ui.tryIt": "Ausprobieren",
+  "tips.unexpectedClose.text": "Wurde Hive geschlossen, ohne beendet zu werden (ein Absturz, oder etwas hat es geschlossen), sagt der nächste Start, wann es zuletzt lief und welche Agenten liefen, mit „Alle fortsetzen“. Einstellungen → Sitzungen → Agenten nach unerwartetem Schließen fortsetzen setzt sie von selbst fort.",
+  "tips.unexpectedClose.title": "Erfahren, wann Hive unerwartet geschlossen wurde",
   "tips.unmerged.text": "Der Tab des Agenten zeigt, wie viele Commits noch nicht gemergt sind, „Mergen…“ in seinem ⋯-Menü sagt, was noch fehlt, und Git → Änderungen zeigt alles, was der Agent seit dem Abzweigen geändert hat.",
   "tips.unmerged.title": "Sehen, was ein Worktree-Agent noch mergen muss",
   "tips.unusedWorktrees.text": "Einen Agenten entfernt, aber seinen Worktree behalten? Git → Änderungen öffnet sich mit den Worktrees, die kein Agent verwendet, und zeigt, wer sie jeweils angelegt hat: Öffne einen, um seine Arbeit zu sehen und zu mergen, entferne die gemergten samt ihren Branches oder gib einen an einen Agenten zurück.",

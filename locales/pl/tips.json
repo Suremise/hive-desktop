@@ -269,6 +269,8 @@
   "tips.ui.tip": "Wskazówka",
   "tips.ui.title": "Wskazówki",
   "tips.ui.tryIt": "Wypróbuj",
+  "tips.unexpectedClose.text": "Jeśli Hive został zakończony bez wyjścia z niego (awaria albo coś go zamknęło), przy następnym uruchomieniu podaje, kiedy działał ostatnio i którzy agenci działali, z przyciskiem Wznów wszystkich. Ustawienia → Sesje → Wznawiaj agentów po nieoczekiwanym zamknięciu wznawia ich samoczynnie.",
+  "tips.unexpectedClose.title": "Dowiedz się, kiedy Hive zamknął się nieoczekiwanie",
   "tips.unmerged.text": "Karta agenta pokazuje, ile commitów nie jest jeszcze scalonych, Scal… w jego menu ⋯ mówi, co zostało, a Git → Zmiany pokazuje wszystko, co agent zmienił od utworzenia gałęzi.",
   "tips.unmerged.title": "Zobacz, co agent w worktree ma do scalenia",
   "tips.unusedWorktrees.text": "Usunięto agenta, ale zachowano jego worktree? Git → Zmiany otwiera się na worktree, których nie używa żaden agent, i pokazuje, kto utworzył każdy z nich: otwórz jeden, żeby zobaczyć jego pracę i ją scalić, usuń scalone razem z gałęziami albo oddaj jeden agentowi.",

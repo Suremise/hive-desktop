@@ -269,6 +269,8 @@
   "tips.ui.tip": "Consejo",
   "tips.ui.title": "Consejos",
   "tips.ui.tryIt": "Probar",
+  "tips.unexpectedClose.text": "Si Hive terminó sin salir (un fallo, o algo lo cerró), el siguiente inicio dice cuándo se vio por última vez y qué agentes estaban en ejecución, con Reanudar todos. Configuración → Sesiones → Reanudar los agentes tras un cierre inesperado los reanuda por sí solo.",
+  "tips.unexpectedClose.title": "Entérate de cuándo Hive se cerró inesperadamente",
   "tips.unmerged.text": "La pestaña del agente muestra cuántos commits faltan por fusionar, Fusionar… en su menú ⋯ dice lo que queda, y Git → Cambios muestra todo lo que cambió el agente desde que creó su rama.",
   "tips.unmerged.title": "Mira lo que un agente con worktree tiene por fusionar",
   "tips.unusedWorktrees.text": "¿Quitaste un agente pero conservaste su worktree? Git → Cambios se abre con los worktrees que no usa ningún agente, diciendo quién hizo cada uno: abre uno para ver su trabajo y fusionarlo, quita los fusionados con sus ramas, o devuélveselo a un agente.",
