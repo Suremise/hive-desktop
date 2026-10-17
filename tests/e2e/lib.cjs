@@ -545,6 +545,22 @@ _electron.launch = async (...args) => {
   // 10 Oct) left it running for a day. Chromium's own processes already name it (--user-data-dir).
   if (env.HIVE_USER_DATA) args[0] = { ...args[0], args: [...(args[0].args ?? []), `--hive-test-profile=${env.HIVE_USER_DATA}`] }
   const app = await launchElectron(...args)
+  // An app.evaluate reaches main through Node's inspector, which runs it at once even while main's JS is running: in a
+  // V8 interrupt, in the middle of whatever main was doing. A function that calls into Hive (a window event, a setting)
+  // then changes Node's timer queue while main is half way through changing it, which breaks the queue for good (#997:
+  // "reading 'expiry'" from ConfigStore.scheduleSave's clearTimeout under load, and every save after it failed). So
+  // each runs after an await: V8 queues the rest, which runs once the code it interrupted has finished. Not
+  // setImmediate or queueMicrotask: they are Node's own JS, changing queues the interrupted code may be changing.
+  const evaluate = app.evaluate.bind(app)
+  app.evaluate = (fn, arg) =>
+    evaluate(
+      async (modules, [source, a]) => {
+        await undefined
+        // eslint-disable-next-line eslint/no-eval -- the suite's own function, as Playwright would have run it (in main's global scope)
+        return (0, eval)(`(${source})`)(modules, a)
+      },
+      [String(fn), arg]
+    )
   apps.add(app)
   app.on('close', () => apps.delete(app))
   return app
