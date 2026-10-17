@@ -117,9 +117,9 @@ function commits(wt, n) {
     check(`${a.name}: the header starts with its state mark, a ring while idle`, !!mark && mark.first && mark.idle && mark.name === 'Idle', JSON.stringify(mark))
   }
   await header(long).locator('.agent-name').hover()
-  check("the name's tooltip says the agent and its provider", !!(await until(async () => (await tips()).some((t) => t === `${long.name} · Claude Code`))), JSON.stringify(await tips()))
+  check("the name's tooltip says the agent and its provider", !!(await until(async () => (await tips()).some((t) => t === `${long.name} · Claude Code`), HUNG_MS)), JSON.stringify(await tips()))
   await away()
-  await until(async () => (await tips()).length === 0)
+  await until(async () => (await tips()).length === 0, HUNG_MS)
 
   /** #287: on the strip's tab, the worktree is its icon only, with the details in its name and tooltip. */
   const worktreeMark = async (tag) => {
@@ -130,20 +130,20 @@ function commits(wt, n) {
     check(`${tag}…named "Worktree: <branch> in <folder>"`, label === `Worktree: ${long.worktree.branch} in ${long.worktree.path}`, label)
     const full = (t) => t.length === 1 && t[0].includes(`Worktree: ${long.worktree.branch}`) && t[0].includes(`in ${long.worktree.path}`) && t[0].includes('branched from')
     await away()
-    await until(async () => (await tips()).length === 0)
+    await until(async () => (await tips()).length === 0, HUNG_MS)
     await el.hover()
-    await until(async () => full(await tips()))
+    await until(async () => full(await tips()), HUNG_MS)
     check(`${tag}…hovered: one tooltip, with its branch, folder and base`, full(await tips()), JSON.stringify(await tips()))
     await away()
-    await until(async () => (await tips()).length === 0)
+    await until(async () => (await tips()).length === 0, HUNG_MS)
     await el.focus()
     await page.keyboard.press('Tab')
     await page.keyboard.press('Shift+Tab')
-    await until(async () => full(await tips()))
+    await until(async () => full(await tips()), HUNG_MS)
     check(`${tag}…focused from the keyboard: the same tooltip`, (await el.evaluate((n) => n === document.activeElement)) && full(await tips()), JSON.stringify(await tips()))
     await page.evaluate(() => document.activeElement?.blur())
     await away()
-    await until(async () => (await tips()).length === 0)
+    await until(async () => (await tips()).length === 0, HUNG_MS)
     check(`${tag}no worktree text in any tab or header`, (await page.locator('.agent-tab, .pane-header-bar').allInnerTexts()).every((t) => !t.includes('hive/')))
   }
   await worktreeMark('')
@@ -158,12 +158,12 @@ function commits(wt, n) {
   const menuItems = async () => page.locator('.menu .menu-item, .menu .menu-header').evaluateAll((els) => els.map((e) => e.innerText.replace(/\s+/g, ' ').trim()))
   const closeMenu = async () => {
     await page.keyboard.press('Escape')
-    await until(async () => (await page.locator('.menu').count()) === 0)
+    await until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
   }
   /** Opens agent a's ⋯ and returns its entries. */
   const moreMenu = async (a) => {
     await header(a).getByRole('button', { name: 'More', exact: true }).click()
-    await until(async () => (await page.locator('.menu .menu-item').count()) > 0)
+    await until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
     return menuItems()
   }
   const has = (items, start) => items.some((t) => t.startsWith(start))
@@ -175,7 +175,7 @@ function commits(wt, n) {
   await closeMenu()
   // Right-click on the header: the same menu.
   await header(other).locator('.agent-name').click({ button: 'right' })
-  await until(async () => (await page.locator('.menu .menu-item').count()) > 0)
+  await until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
   check('right-click on the header opens the same menu', JSON.stringify(await menuItems()) === JSON.stringify(items), JSON.stringify(await menuItems()))
   // An action's menu entry hovered (which also makes it the keyboard's choice): its own wash and icon colour, not the accent.
   const removeItem = page.locator('.menu .menu-item', { hasText: 'Remove Agent…' })
@@ -198,9 +198,9 @@ function commits(wt, n) {
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Shift+P')
   await page.locator('.palette input').fill('Agent Menu')
-  await until(async () => (await page.locator('.palette-item', { hasText: 'Agent Menu…' }).count()) > 0)
+  await until(async () => (await page.locator('.palette-item', { hasText: 'Agent Menu…' }).count()) > 0, HUNG_MS)
   await page.keyboard.press('Enter')
-  check("the palette's Agent Menu… opens the focused agent's ⋯ on its first entry", !!(await until(async () => (await page.locator('.menu .menu-item.active').count()) === 1 && has(await menuItems(), 'Stop'))), JSON.stringify(await menuItems()))
+  check("the palette's Agent Menu… opens the focused agent's ⋯ on its first entry", !!(await until(async () => (await page.locator('.menu .menu-item.active').count()) === 1 && has(await menuItems(), 'Stop'), HUNG_MS)), JSON.stringify(await menuItems()))
   const anchor = await page.evaluate(() => {
     const m = document.querySelector('.menu')?.getBoundingClientRect()
     const b = [...document.querySelectorAll('.pane-header-bar')].find((h) => h.textContent.includes('rather long'))?.querySelector('.pane-more')?.getBoundingClientRect()
@@ -252,7 +252,7 @@ function commits(wt, n) {
     // The mouse stays where the last click was, and resizing moves controls under it: their tooltip would cover the
     // headers. Into the panes below them, and wait for it to go.
     await page.mouse.move(box.x + 20 * zoom, box.y + 200 * zoom)
-    await until(async () => (await tips()).length === 0)
+    await until(async () => (await tips()).length === 0, HUNG_MS)
     await page.screenshot({ path: path.join(lib.WORK, file), clip: box })
   }
   let zoom = 1
@@ -263,6 +263,7 @@ function commits(wt, n) {
       if (w === target) return true
       viewport = Math.max(200, Math.round(viewport + (target - w) * zoom * 2))
       await page.setViewportSize({ width: viewport, height: HEIGHT })
+      // A short bound on purpose: a size the window can't take (its minimum) leaves the width as it is, and the next step tries again.
       await until(async () => (await inspect(a)).width !== w, 1000)
     }
     for (let i = 0; i < 40; i++) {
@@ -270,6 +271,7 @@ function commits(wt, n) {
       if (w === target) return true
       viewport += w < target ? 1 : -1
       await page.setViewportSize({ width: viewport, height: HEIGHT })
+      // A short bound on purpose, as above: one pixel the window can't take changes nothing.
       await until(async () => (await inspect(a)).width !== w, 500)
     }
     return (await inspect(a)).width === target
@@ -280,7 +282,7 @@ function commits(wt, n) {
       const r = await until(async () => {
         const x = await inspect(a)
         return x.bad.length ? null : x
-      }, 2000)
+      }, HUNG_MS)
       const x = r ?? (await inspect(a))
       check(`${what}: ${a.name === 'Three' ? 'stopped' : 'running'} agent's header fits at ${x.width}px`, !x.bad.length, x.bad.join('; '))
     }
@@ -309,7 +311,7 @@ function commits(wt, n) {
   /** The theme, for the pictures (the layout checks don't depend on it). */
   const theme = async (t) => {
     await inv('settings:update', { appearance: { theme: t } })
-    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme ?? document.body.className)).includes(t), 3000)
+    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme ?? document.body.className)).includes(t), HUNG_MS)
   }
 
   // Merge…'s detail in ⋯ says what is left to merge, whatever the count.
@@ -321,7 +323,7 @@ function commits(wt, n) {
       await closeMenu()
       return all.find((t) => t.startsWith('Merge…')) ?? ''
     }
-    const got = await until(async () => ((await merge()).includes(want) ? merge() : null))
+    const got = await until(async () => ((await merge()).includes(want) ? merge() : null), HUNG_MS)
     check(`…Merge… in ⋯ says so (${want})`, !!got, String(got))
   }
 
@@ -371,7 +373,7 @@ function commits(wt, n) {
   // Display scaling: the same widths in CSS pixels at 125%.
   zoom = 1.25
   await app.evaluate(({ BrowserWindow }, z) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(z), zoom)
-  await until(async () => (await page.evaluate(() => window.devicePixelRatio)) >= 1.24, 3000)
+  await until(async () => (await page.evaluate(() => window.devicePixelRatio)) >= 1.24, HUNG_MS)
   await atWidths('125%: ', 'paneheader-125')
   await worktreeMark('125%: ')
   zoom = 1
@@ -384,7 +386,7 @@ function commits(wt, n) {
   const compactItem = async () => {
     await header(long).getByRole('button', { name: 'More', exact: true }).click()
     const item = page.locator('.menu .menu-item', { hasText: 'Compact…' })
-    await until(() => item.isVisible())
+    await until(() => item.isVisible(), HUNG_MS)
     return item
   }
   const compactOffered = async () => {
@@ -396,7 +398,7 @@ function commits(wt, n) {
   const compactVia = async (focus) => {
     await (await compactItem()).click()
     const dialog = page.locator('[role=dialog]', { hasText: 'Compact alpha' })
-    await until(() => dialog.isVisible())
+    await until(() => dialog.isVisible(), HUNG_MS)
     await dialog.locator('textarea').fill(focus)
     await dialog.getByRole('button', { name: 'Compact', exact: true }).click()
     return !!(await until(async () => (await dialog.count()) === 0, 30000))
@@ -418,7 +420,7 @@ function commits(wt, n) {
   check('idle: Compact… is offered in ⋯', await compactOffered())
   check('the dialog closes after a long focus is entered', await compactVia(LONG_FOCUS))
   check('the agent is compacting', !!(await until(async () => (await live(long.id))?.statusMessage === 'Compacting the conversation…', 5000)))
-  check('its header says so', !!(await until(async () => (await statusOf()).includes('Compacting'))), await statusOf())
+  check('its header says so', !!(await until(async () => (await statusOf()).includes('Compacting'), HUNG_MS)), await statusOf())
   check('Compact… is unavailable meanwhile', !(await compactOffered()))
   await fits('while compacting')
   const again = await inv('session:compact', alpha, 'again', long.id).then(() => 'sent', (e) => String(e.message ?? e))
@@ -426,21 +428,21 @@ function commits(wt, n) {
   // The compaction it asked for has run, and the fake takes prompts again (#725). Bounded only for a hung run.
   check('the compaction ran', !!(await until(() => compactionsRun() >= 1, COMPACT_HUNG_MS)), String(compactionsRun()))
   check('the agent is ready once it has compacted', !!(await until(async () => (await live(long.id))?.status === 'ready' && (await promptAfterCompaction()), COMPACT_HUNG_MS)), JSON.stringify({ status: (await live(long.id))?.status, screen: (await prompts.screen()).slice(-200) }))
-  check('and Compact… is offered again', !!(await until(compactOffered)))
+  check('and Compact… is offered again', !!(await until(compactOffered, HUNG_MS)))
   check('exactly one compaction ran', compactionsRun() === 1, String(compactionsRun()))
 
   // A compaction that fails: it ends, and the agent is ready.
   await turn()
   check('a failing compaction is sent', await compactVia('compactfail hold 2'))
   check('after the failure the agent is ready', !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
-  check('and Compact… is offered', !!(await until(compactOffered)))
+  check('and Compact… is offered', !!(await until(compactOffered, HUNG_MS)))
 
   // Cancelled by stopping the agent: Resume is offered in Stop's place.
   await turn()
   check('a long compaction is sent', await compactVia('hold 30'))
   check('it is compacting', !!(await until(async () => (await live(long.id))?.statusMessage === 'Compacting the conversation…', 5000)))
   await inv('session:stop', alpha, long.id)
-  check("stopped mid-compaction: the header offers Resume in Stop's place", !!(await until(() => header(long).getByRole('button', { name: 'Resume', exact: true }).isVisible())))
+  check("stopped mid-compaction: the header offers Resume in Stop's place", !!(await until(() => header(long).getByRole('button', { name: 'Resume', exact: true }).isVisible(), HUNG_MS)))
   check("…in Resume's colour", (await actOf(long, 'Resume')) === 'act-resume')
   await fits('stopped after a cancelled compaction')
 
@@ -448,7 +450,7 @@ function commits(wt, n) {
   await header(long).getByRole('button', { name: 'More', exact: true }).click()
   await page.locator('.menu .menu-item', { hasText: 'New Session' }).click()
   check('a new session starts', !!(await until(async () => (await live(long.id))?.status === 'ready', 15000)))
-  check('Stop is back', !!(await until(() => header(long).getByRole('button', { name: 'Stop', exact: true }).isVisible())))
+  check('Stop is back', !!(await until(() => header(long).getByRole('button', { name: 'Stop', exact: true }).isVisible(), HUNG_MS)))
   await inv('session:compact', alpha, '', long.id)
   check('nothing to compact: it ends by itself', !!(await until(async () => (await live(long.id))?.status === 'ready' && !(await statusOf()).includes('Compacting'), 8000)))
 
