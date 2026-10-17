@@ -599,6 +599,22 @@
     "defaultMessage": "{agent}'s worktree folder is missing: {folder}. Start {agent} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.",
     "description": "Starting an agent is refused: its git worktree's folder is gone. {agent} is the agent's name, {folder} the folder's path. Repair… is a command."
   },
+  "session.state.idle": {
+    "defaultMessage": "Idle",
+    "description": "An agent's state, shown as a ring: ready, finished, waiting on cards, or stopped."
+  },
+  "session.state.stalled": {
+    "defaultMessage": "Stalled",
+    "description": "An agent's state, shown as a square: nothing will move it on by itself (its coding agent failed, it has gone silent, or it stopped watching its cards)."
+  },
+  "session.state.waiting": {
+    "defaultMessage": "Waiting for you",
+    "description": "An agent's state, shown as a diamond: it asks you something (a permission, a question, a sign-in) or a card it has is blocked on you."
+  },
+  "session.state.working": {
+    "defaultMessage": "Working",
+    "description": "An agent's state, shown as a pulsing dot: it is working (a turn, starting, or background tasks)."
+  },
   "session.status.asksAtStart": {
     "defaultMessage": "Asks something before it starts",
     "description": "An agent's status: its CLI asks the user something before it starts."

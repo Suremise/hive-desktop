@@ -37,6 +37,8 @@ import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBan
 import { chimeAllowed } from '@shared/bursts'
 import { loadAdvanced } from './advanced'
 import { applyProjectPref } from './projectPrefs'
+// The agent-state mark's test hook (the statemarks suite), until the session page shows the marks itself (#974).
+import './components/StateMark'
 
 function applyTheme(): void {
   const s = get().settings

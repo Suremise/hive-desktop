@@ -268,11 +268,23 @@ function measure([selector, parts]) {
           const r = Math.min(ratio(over(fill, under), under), pulsing ? ratio(over(shaded, under), under) : Infinity)
           if (r < 3 || Number(st.opacity) < 1) low.push(`dot ${s} on ${bg}: ${r}${pulsing ? ' (with its pulse)' : ''}${Number(st.opacity) < 1 ? ` at opacity ${st.opacity}` : ''}`)
         }
+        // The agent-state marks (#973): the ring in its border, the rest in their fill; the working dot through its pulse.
+        for (const s of ['waiting', 'stalled', 'working', 'idle']) {
+          const d = document.createElement('span')
+          d.className = `state-mark ${s}`
+          box.appendChild(d)
+          const st = getComputedStyle(d)
+          const fill = parse(s === 'idle' ? st.borderTopColor : st.backgroundColor)
+          const pulsing = st.animationName === 'pulse'
+          const shaded = [...fill.slice(0, 3).map((v) => Math.min(255, v * shade)), fill[3]]
+          const r = Math.min(ratio(over(fill, under), under), pulsing ? ratio(over(shaded, under), under) : Infinity)
+          if (r < 3 || Number(st.opacity) < 1) low.push(`state mark ${s} on ${bg}: ${r}${pulsing ? ' (with its pulse)' : ''}`)
+        }
         box.remove()
       }
       return low
     })
-    check(`${theme}: muted and faint text and the accent as text reach 4.5:1 (on its tint too), every status dot 3:1 through its pulse, on every background (#421)`, tokens.length === 0, tokens.join('; '))
+    check(`${theme}: muted and faint text and the accent as text reach 4.5:1 (on its tint too), every status dot and state mark 3:1 through its pulse, on every background (#421, #973)`, tokens.length === 0, tokens.join('; '))
     await page.evaluate(() => document.querySelectorAll('.probe-sub, .probe-caution, .probe-warn, .probe-update, .probe-ready, .probe-activity, .probe-need').forEach((e) => e.remove()))
   }
 

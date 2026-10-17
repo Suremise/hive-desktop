@@ -78,6 +78,12 @@
   --dot-background: #b07a1c;
   /* How the busy dots pulse: brighter here, deeper in light, never towards the background (a fade dropped them below 3:1). */
   --pulse-shade: 1.4;
+  /* The agent-state marks (#973): waiting for you, stalled, working, idle; 3:1 or more on every background, as icons
+     need (shape tells them apart as well). */
+  --state-waiting: var(--error);
+  --state-stalled: var(--signin);
+  --state-working: var(--dot-accent);
+  --state-idle: var(--success);
   /* The Assistant's status line when it needs you (#399): AA on its warning tint (4.5:1 or more). */
   --attention-fg: var(--warning);
 
@@ -154,6 +160,12 @@
   --dot-accent: var(--accent-strong);
   --dot-background: #bd6d2a;
   --pulse-shade: 0.65;
+  /* The agent-state marks (#973): waiting for you, stalled, working, idle; 3:1 or more on every background, as icons
+     need (shape tells them apart as well). */
+  --state-waiting: var(--error);
+  --state-stalled: var(--signin);
+  --state-working: var(--dot-accent);
+  --state-idle: var(--success);
   --attention-fg: #805600;
 
   /* The amber darkened only as far as AA needs for the white label (#384, as the primary button's, #360): 4.6:1. Hovered
@@ -1016,6 +1028,40 @@ kbd {
 .dot.signin { background: var(--signin); }
 .pane-status.signin { color: var(--signin); }
 .dot.unseen { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* ---------- Agent-state marks (#973) ---------- */
+/* One shape per state, so they read apart without colour: a diamond, a square, a dot (pulsing) and a ring, each about
+   as large as the others. */
+.state-mark {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+.state-mark.waiting { width: 8px; height: 8px; margin: 0.5px; background: var(--state-waiting); border-radius: 1px; transform: rotate(45deg); }
+.state-mark.stalled { width: 8px; height: 8px; margin: 0.5px; background: var(--state-stalled); border-radius: 1px; }
+.state-mark.working { background: var(--state-working); border-radius: 50%; animation: pulse 1.2s ease-in-out infinite; }
+.state-mark.idle { border: 2px solid var(--state-idle); border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .state-mark.working { animation: none; }
+}
+/* The statemarks suite's gallery (StateMark.tsx's test hook). */
+.state-mark-gallery {
+  position: fixed;
+  top: 40px;
+  left: 40px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+.state-mark-sample { display: inline-flex; align-items: center; gap: 8px; }
 
 /* The busy dots' pulse (#421): a change of shade away from the background (--pulse-shade), so a dot keeps 3:1 at every
    moment; fading it (opacity) took it below. */
