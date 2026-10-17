@@ -13,6 +13,7 @@ import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
+import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
 import { LANE_CARD_CHANGES, laneCardMark, laneHits, laneLimitLine, laneWakeLine, laneWatchLabel, mergeDue, mergeStallReason, newLaneBase, readSavedLaneCondition, readSavedLaneMark, verdictsOf, type LaneHit, type LaneMark, type LaneNow, type LaneWatchCards, type LaneWatchCondition, type WaitHit } from '../shared/laneWatch'
@@ -2197,7 +2198,8 @@ export function initWatches(): void {
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed') {
       const ws = openWorkspaces().find((w) => w.path && same(w.path, e.workspacePath))
-      if (ws) inBackground('checking watches', evaluate(ws))
+      // One check at a time for board changes (#1011): those told while one runs are seen by one more check after it.
+      if (ws) inBackground('checking watches', coalesced(`watches:${e.workspacePath.toLowerCase()}`, () => evaluate(ws).catch((err) => log.warn('checking watches', err))))
     } else if (e.type === 'lanes-changed') {
       const store = [...stores.values()].find((x) => same(x.path, e.workspacePath))
       if (store) laneCheckSoon(store)

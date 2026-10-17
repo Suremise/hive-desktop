@@ -11,6 +11,7 @@ import { onHiveEvent } from './events'
 import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName } from '../shared/projectIds'
 import { keepBeforeIds } from './beforeIds'
+import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { getTask, inScope } from './tasks'
 import { openWorkspaces, type WorkspaceService } from './workspace'
@@ -402,7 +403,8 @@ function changed(ws: WorkspaceService): void {
   if (!k || timers.has(k)) return
   const t = setTimeout(() => {
     timers.delete(k)
-    void refresh(ws).catch((e) => log.warn('following the lanes', e))
+    // One refresh at a time (#1011): a slow one isn't overlapped by the next.
+    void coalesced(`lanes:${k}`, () => refresh(ws).catch((e) => log.warn('following the lanes', e)))
   }, SETTLE_MS)
   t.unref?.()
   timers.set(k, t)

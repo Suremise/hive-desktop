@@ -26,6 +26,13 @@ import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, typ
 const log = createLogger('workspace')
 /** How often the board's folder is looked for again when it can't be watched (deleted while the workspace is open). */
 const TASKS_WATCH_RETRY_MS = 3000
+/**
+ * The board's folder changed: told once it has been quiet this long, or at least this often while changes go on (#1011).
+ * A card written is a temporary file and a rename, and a batch writes many cards: each tasks-changed told is a read of the
+ * whole board for its listeners, and told for each, they piled up until main ran out of memory (#988).
+ */
+const TASKS_QUIET_MS = 50
+const TASKS_MAX_WAIT_MS = 500
 
 /** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
 const M = {
@@ -273,6 +280,10 @@ export class WorkspaceService {
     this.rootWatcher = null
     if (this.tasksRetry) clearTimeout(this.tasksRetry)
     this.tasksRetry = null
+    if (this.tasksTimer) clearTimeout(this.tasksTimer)
+    this.tasksTimer = null
+    this.tasksSince = 0
+    this.tasksHeld = false
     this.tasksWatcher?.close()
     this.tasksWatcher = null
     await this.watcher?.close()
@@ -399,13 +410,51 @@ export class WorkspaceService {
 
   private tasksWatcher: RootWatcher | null = null
   private tasksRetry: NodeJS.Timeout | null = null
-  private tasksEvent = false
+  private tasksTimer: NodeJS.Timeout | null = null
+  private tasksSince = 0
+  private tasksHolds = 0
+  private tasksHeld = false
+
+  /**
+   * Tells the board its folder changed (tasks-changed), once a burst (TASKS_QUIET_MS): a change by hand shows at once, a
+   * long run of them at least every TASKS_MAX_WAIT_MS. While Hive writes a batch of cards (holdTaskEvents), only after it.
+   */
+  tasksChangedSoon(): void {
+    if (this.tasksHolds) {
+      this.tasksHeld = true
+      return
+    }
+    const generation = this.generation
+    this.tasksSince ||= Date.now()
+    if (this.tasksTimer) clearTimeout(this.tasksTimer)
+    this.tasksTimer = setTimeout(() => {
+      this.tasksTimer = null
+      this.tasksSince = 0
+      if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+    }, Math.max(0, Math.min(TASKS_QUIET_MS, this.tasksSince + TASKS_MAX_WAIT_MS - Date.now())))
+  }
+
+  /**
+   * Runs a batch of card writes (#1011) with the board's folder events held: what the watcher sees meanwhile (each card's
+   * temporary file and rename) is told once, after the batch, with the batch's own change.
+   */
+  async holdTaskEvents<T>(fn: () => Promise<T>): Promise<T> {
+    this.tasksHolds++
+    try {
+      return await fn()
+    } finally {
+      if (--this.tasksHolds === 0 && this.tasksHeld) {
+        this.tasksHeld = false
+        this.tasksChangedSoon()
+      }
+    }
+  }
 
   /**
    * The board's folder, watched on its own (#588): a card file changed there, by Hive, by hand or by another program,
    * tells the board (tasks-changed). chokidar read the whole folder again on each event (an lstat of every card file,
    * hundreds per card written on a big board, competing with the write for the thread pool); fs.watch names the file
-   * and reads nothing. The events of one moment are told once (a write is a rename and a change). The folder deleted,
+   * and reads nothing. A burst of events is told once (tasksChangedSoon: a write is a temporary file and a rename). The folder deleted,
    * the watch ends and is tried again every few seconds until it is back.
    */
   private watchTasks(retried = false): void {
@@ -419,12 +468,7 @@ export class WorkspaceService {
       }, TASKS_WATCH_RETRY_MS)
     }
     const changed = (): void => {
-      if (this.tasksEvent) return
-      this.tasksEvent = true
-      setImmediate(() => {
-        this.tasksEvent = false
-        if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
-      })
+      if (generation === this.generation) this.tasksChangedSoon()
     }
     let watcher: RootWatcher
     const end = (): void => {

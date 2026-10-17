@@ -5,6 +5,7 @@ import type { LiveSessionState } from '../shared/types'
 import { HISTORY, storedText } from '../shared/taskHistory'
 import { cardReadsBy, newDecisionsOn } from './decisionNotices'
 import { onHiveEvent } from './events'
+import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { noteOnCard } from './tasks'
@@ -199,7 +200,8 @@ export function initDecisionWakes(): void {
   onHiveEvent((e) => {
     if (e.type === 'tasks-changed') {
       const ws = openWorkspaces().find((w) => w.path && w.path.toLowerCase() === e.workspacePath.toLowerCase())
-      if (ws) settle(`ws:${e.workspacePath.toLowerCase()}`, () => void tellAll(ws).catch((err) => log.warn('telling of decisions', err)))
+      // One look at a time (#1011): a slow one isn't overlapped by the next.
+      if (ws) settle(`ws:${e.workspacePath.toLowerCase()}`, () => void coalesced(`decisions:${e.workspacePath.toLowerCase()}`, () => tellAll(ws).catch((err) => log.warn('telling of decisions', err))))
     } else if (e.type === 'session-status' && ready(e.state)) {
       // Its turn ended: decisions recorded while it worked (and not read since) reach it now.
       const { projectPath, agentId } = e.state

@@ -3,6 +3,7 @@ import { basename } from 'path'
 import { tasksWillWake } from '../shared/providers'
 import type { LiveSessionState, TaskCard } from '../shared/types'
 import { onHiveEvent } from './events'
+import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { sessions } from './sessions'
 import { allTasks } from './tasks'
@@ -138,7 +139,8 @@ export function initLoopCheck(): void {
     else if (e.type === 'tasks-changed') {
       for (const loop of loops.values()) {
         if (workspaceOf(loop.projectPath).path?.toLowerCase() !== e.workspacePath.toLowerCase()) continue
-        void recheck(loop).catch((err) => log.warn('checking a card loop', err))
+        // One check at a time per loop (#1011): a batch of card changes told each one.
+        void coalesced(`loop-check:${keyOf(loop.projectPath, loop.agentId)}`, () => recheck(loop).catch((err) => log.warn('checking a card loop', err)))
       }
     }
   })

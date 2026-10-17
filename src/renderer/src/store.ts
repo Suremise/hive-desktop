@@ -1035,12 +1035,32 @@ export function prompt(opts: Omit<PromptRequest, 'kind' | 'resolve'>): Promise<s
 export const filesListeners = new Set<(projectPath: string, dirs: string[]) => void>()
 
 let tasksLoad = 0
+/** The board's read going on, and the one asked for meanwhile (#1011). */
+let tasksReading: Promise<void> | null = null
+let tasksNext: Promise<void> | null = null
 
 /**
- * Reads the board again (after a change here or a tasks-changed event). Only the latest read is kept, and only for
- * the workspace it was made for: an older answer, or one for a workspace this window has since left, is dropped.
+ * Reads the board again (after a change here or a tasks-changed event), one read at a time (#1011): asked while one is
+ * going on, it reads once more after it, however often it was asked meanwhile, and resolves with that read. Started for
+ * each event while slow ones went on, reads of the whole board piled up in the main process (#988).
  */
-export async function loadTasks(): Promise<void> {
+export function loadTasks(): Promise<void> {
+  if (!tasksReading) {
+    tasksReading = readTasks().finally(() => (tasksReading = null))
+    return tasksReading
+  }
+  tasksNext ??= tasksReading.then(() => {
+    tasksNext = null
+    return loadTasks()
+  })
+  return tasksNext
+}
+
+/**
+ * Reads the board. Only the latest read is kept, and only for the workspace it was made for: an older answer, or one
+ * for a workspace this window has since left, is dropped.
+ */
+async function readTasks(): Promise<void> {
   const ws = get().workspace?.path
   const mine = ++tasksLoad
   if (!ws) return set({ tasks: [] })

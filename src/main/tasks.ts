@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
 import { mkdir, readdir, readFile, stat } from 'original-fs/promises'
@@ -122,7 +123,30 @@ export function boardLock<T>(ws: WorkspaceService, fn: () => Promise<T>): Promis
 }
 
 function changed(ws: WorkspaceService = workspace): void {
-  if (ws.path) emit({ type: 'tasks-changed', workspacePath: ws.path })
+  if (!ws.path) return
+  const batch = inBatch.getStore()
+  if (batch?.open && batch.path === ws.path.toLowerCase()) batch.changed = true
+  else emit({ type: 'tasks-changed', workspacePath: ws.path })
+}
+
+/** The batch of card changes running here (cardBatch): its board, whether it is still going on, and whether it changed it. */
+const inBatch = new AsyncLocalStorage<{ path: string; open: boolean; changed: boolean }>()
+
+/**
+ * A change of many cards (#1011), told to the board once, after it: its own changes (updateTasks changes card after card)
+ * and what the board folder's watcher sees of its writes. Each tasks-changed is a read of the whole board for each of
+ * its listeners; told for each card written, a batch under load piled up reads until main ran out of memory (#988).
+ */
+export async function cardBatch<T>(ws: WorkspaceService, fn: () => Promise<T>): Promise<T> {
+  const path = ws.path?.toLowerCase()
+  if (!path || inBatch.getStore()?.open) return fn()
+  const batch = { path, open: true, changed: false }
+  try {
+    return await ws.holdTaskEvents(() => inBatch.run(batch, fn))
+  } finally {
+    batch.open = false
+    if (batch.changed) ws.tasksChangedSoon()
+  }
 }
 
 /** A card loop's handoff (#405): a card arrived in Review (moved or returned there), or its review gave a verdict. */
@@ -608,7 +632,7 @@ function placement(all: CardPlace[], card: TaskCard, column: TaskColumn, patch: 
  * Done in order. An agent's or the Assistant's list adds a line to each card it moved.
  */
 export function reorderTasks(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
-  return boardLock(workspace, () => reorderTasksLocked(column, numbers, actor))
+  return cardBatch(workspace, () => boardLock(workspace, () => reorderTasksLocked(column, numbers, actor)))
 }
 
 async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: TaskActor): Promise<TaskCard[]> {
@@ -957,7 +981,11 @@ export function batchNumbers(numbers: unknown): number[] {
  * each card is all or nothing, the batch is not. Its error is the one a missing card gets, so it reveals no more.
  * Position applies to each card in turn, so the last listed ends at the top (or bottom): hive_reorder_tasks sets an order.
  */
-export async function updateTasks(numbers: number[], patch: BatchPatch, actor: TaskActor, opts: { commit?: () => void } = {}): Promise<BatchItem[]> {
+export function updateTasks(numbers: number[], patch: BatchPatch, actor: TaskActor, opts: { commit?: () => void } = {}): Promise<BatchItem[]> {
+  return cardBatch(workspace, () => updateTasksUnbatched(numbers, patch, actor, opts))
+}
+
+async function updateTasksUnbatched(numbers: number[], patch: BatchPatch, actor: TaskActor, opts: { commit?: () => void }): Promise<BatchItem[]> {
   const items: BatchItem[] = []
   for (const n of numbers) {
     const said: string[] = []
@@ -1045,7 +1073,11 @@ const REVIEW_END: Record<ReviewEnd, string> = { 'its session ended': 'sessionEnd
  * Stops the reviews an agent has going (its session ended, or it was removed), so a card never shows a reviewer that
  * has gone. A review started again meanwhile by another agent is left alone.
  */
-export async function endReviews(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService = workspace): Promise<number[]> {
+export function endReviews(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService = workspace): Promise<number[]> {
+  return cardBatch(ws, () => endReviewsUnbatched(project, agentId, why, ws))
+}
+
+async function endReviewsUnbatched(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService): Promise<number[]> {
   const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
   const out: number[] = []
   for (const c of mine) {
@@ -1197,7 +1229,11 @@ export async function archiveBatches(ws: WorkspaceService = workspace): Promise<
  * and come back in `skipped` with why; cards already archived or gone are passed over. Returns the batch (null when
  * nothing was archived) and the cards it archived.
  */
-export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor: TaskActor, opts: { busy?: (card: TaskCard) => string | null } = {}): Promise<ArchiveResult> {
+export function archiveBatch(numbers: unknown, req: ArchiveRequest, actor: TaskActor, opts: { busy?: (card: TaskCard) => string | null } = {}): Promise<ArchiveResult> {
+  return cardBatch(workspace, () => archiveBatchUnbatched(numbers, req, actor, opts))
+}
+
+async function archiveBatchUnbatched(numbers: unknown, req: ArchiveRequest, actor: TaskActor, opts: { busy?: (card: TaskCard) => string | null }): Promise<ArchiveResult> {
   if (actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserArchives', defaultMessage: 'Only the user archives cards.', description: 'An error: an agent or the Assistant tried to archive cards; only the user does that.' }))
   if (!Array.isArray(numbers) || !numbers.length) throw hiveError(msg({ id: 'tasks.error.archiveNone', defaultMessage: 'cards: list the cards to archive.', description: 'An error: a call to archive cards listed none. "cards:" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
   if (numbers.length > MAX_BATCH) throw hiveError(ERR.cardsTooMany, { max: MAX_BATCH }, { kind: 'invalid' })
@@ -1274,7 +1310,7 @@ export async function archiveBatch(numbers: unknown, req: ArchiveRequest, actor:
  * `failed`: the batch is kept, so bringing it back again retries those. Once nothing failed, the batch is forgotten.
  */
 export function unarchiveBatch(id: string, actor: TaskActor): Promise<UnarchiveResult> {
-  return boardLock(workspace, () => unarchiveBatchLocked(id, actor))
+  return cardBatch(workspace, () => boardLock(workspace, () => unarchiveBatchLocked(id, actor)))
 }
 
 async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<UnarchiveResult> {
@@ -1343,7 +1379,11 @@ export async function agentCards(project: string, agentId: string, ws: Workspace
  * Takes an agent's open cards from it (it is being removed): nobody has them, and Doing ones go back to Todo. A card
  * given to someone else meanwhile is left alone.
  */
-export async function releaseAgentCards(project: string, agentId: string, actor: TaskActor): Promise<number[]> {
+export function releaseAgentCards(project: string, agentId: string, actor: TaskActor): Promise<number[]> {
+  return cardBatch(workspace, () => releaseAgentCardsUnbatched(project, agentId, actor))
+}
+
+async function releaseAgentCardsUnbatched(project: string, agentId: string, actor: TaskActor): Promise<number[]> {
   const out: number[] = []
   for (const c of await agentCards(project, agentId)) {
     try {
@@ -1401,7 +1441,11 @@ export function doneSince(card: TaskCard): number {
 }
 
 /** Archives the cards that have been in Done for Settings → Board's days (none when that is 0). */
-export async function archiveOldDone(ws: WorkspaceService, now = Date.now()): Promise<number[]> {
+export function archiveOldDone(ws: WorkspaceService, now = Date.now()): Promise<number[]> {
+  return cardBatch(ws, () => archiveOldDoneUnbatched(ws, now))
+}
+
+async function archiveOldDoneUnbatched(ws: WorkspaceService, now: number): Promise<number[]> {
   const days = Number(config.settings.board?.archiveDoneDays) || 0
   if (!ws.path || days <= 0) return []
   const cutoff = now - days * 86_400_000
@@ -1435,7 +1479,11 @@ export async function projectCards(ws: WorkspaceService, project: string): Promi
 }
 
 /** Archives the project's cards that are on the board, marked so restoring the project brings them back. */
-export async function archiveProjectCards(ws: WorkspaceService, project: string, why: 'project-hidden' | 'project-removed'): Promise<TaskCard[]> {
+export function archiveProjectCards(ws: WorkspaceService, project: string, why: 'project-hidden' | 'project-removed'): Promise<TaskCard[]> {
+  return cardBatch(ws, () => archiveProjectCardsUnbatched(ws, project, why))
+}
+
+async function archiveProjectCardsUnbatched(ws: WorkspaceService, project: string, why: 'project-hidden' | 'project-removed'): Promise<TaskCard[]> {
   const out: TaskCard[] = []
   for (const c of await projectCards(ws, project)) {
     if (c.archived) continue
@@ -1453,7 +1501,11 @@ export async function archiveProjectCards(ws: WorkspaceService, project: string,
 }
 
 /** Brings back the cards archived when the project was hidden or removed. */
-export async function restoreProjectCards(ws: WorkspaceService, project: string): Promise<number> {
+export function restoreProjectCards(ws: WorkspaceService, project: string): Promise<number> {
+  return cardBatch(ws, () => restoreProjectCardsUnbatched(ws, project))
+}
+
+async function restoreProjectCardsUnbatched(ws: WorkspaceService, project: string): Promise<number> {
   let n = 0
   for (const c of await projectCards(ws, project)) {
     if (!c.archived || (c.archivedFor !== 'project-hidden' && c.archivedFor !== 'project-removed')) continue
@@ -1471,7 +1523,11 @@ export async function restoreProjectCards(ws: WorkspaceService, project: string)
 }
 
 /** Deletes the project's cards (to the Recycle Bin), with other cards' references to them. */
-export async function deleteProjectCards(ws: WorkspaceService, project: string): Promise<number> {
+export function deleteProjectCards(ws: WorkspaceService, project: string): Promise<number> {
+  return cardBatch(ws, () => deleteProjectCardsUnbatched(ws, project))
+}
+
+async function deleteProjectCardsUnbatched(ws: WorkspaceService, project: string): Promise<number> {
   const gone = new Set<number>()
   for (const c of await projectCards(ws, project)) {
     const f = cardFile(c.number, ws)
@@ -1492,7 +1548,7 @@ export async function deleteProjectCards(ws: WorkspaceService, project: string):
  * references to each other follow; references to cards that didn't come along are dropped.
  */
 export function importCards(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {
-  return boardLock(ws, () => importCardsLocked(ws, cards, project))
+  return cardBatch(ws, () => boardLock(ws, () => importCardsLocked(ws, cards, project)))
 }
 
 async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {

@@ -35,7 +35,7 @@ import { advanced, bindAdvancedSettings, mcpAdvancedEnv } from './advanced'
 import { GPU_SWITCH, advancedAtStart, relaunchArgs, startGpu } from './gpu'
 import { HARDWARE_ACCELERATION_OFF, HEAP_SNAPSHOT_NEAR_LIMIT } from '../shared/advanced'
 import { startHeapSnapshots, startMemoryLog } from './memory'
-import { recordLiveCards } from './cardSessions'
+import { recordLiveCardsSoon } from './cardSessions'
 import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
@@ -1012,7 +1012,7 @@ app.whenReady().then(async () => {
     // A CLI's installed version: what a CLI-facing advanced override is made for, and flagged against (#367).
     if (e.type === 'provider-install' && !e.info.checking) advanced.noteCli(e.provider, e.info.found ? (e.info.version ?? null) : null)
     // A card moved to Doing (or was given to a running agent): its session records it.
-    if (e.type === 'tasks-changed') void recordLiveCards(e.workspacePath, sessions.liveStates())
+    if (e.type === 'tasks-changed') void recordLiveCardsSoon(e.workspacePath, () => sessions.liveStates())
     // A reviewer whose session ended isn't reviewing any more: its cards stop showing it.
     if (e.type === 'session-exit' && !workspaceOf(e.projectPath).isAssistantHome(e.projectPath)) {
       void endReviews(basename(e.projectPath), e.agentId, 'its session ended', workspaceOf(e.projectPath)).catch(() => undefined) // i18n-ignore: card history, kept in English (E10b)

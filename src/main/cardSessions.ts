@@ -3,7 +3,8 @@
 // card it reviews (TaskCard.review), marked as reviewed, for "Reviewed #5 …".
 import { basename } from 'path'
 import { agentDoingCards, agentReviewCards } from '../shared/tasks'
-import type { LiveSessionState, StoredText } from '../shared/types'
+import type { LiveSessionState, StoredText, TaskCard } from '../shared/types'
+import { coalesced } from './coalesce'
 import { createLogger } from './logger'
 import { allTasks, commentAsHive } from './tasks'
 import { workspaceFor, type WorkspaceService } from './workspace'
@@ -13,10 +14,11 @@ const log = createLogger('cards')
 /**
  * Adds the agent's Doing cards, and those it reviews, to its session's record (only one Hive has recorded). `still`, asked
  * under the file's lock as the record is written: whether that session is still the agent's (a launch's own, #650).
+ * `board`: the board as just read, when the caller has it.
  */
-export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string, still?: () => boolean): Promise<void> {
+export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string, still?: () => boolean, board?: TaskCard[]): Promise<void> {
   if (ws.isAssistantHome(projectPath)) return
-  const all = await allTasks(ws)
+  const all = board ?? (await allTasks(ws))
   const project = basename(projectPath)
   const cards = [
     ...agentDoingCards(all, project, agentId).map((c) => ({ number: c.number, title: c.title })),
@@ -37,14 +39,25 @@ export async function recordCards(ws: WorkspaceService, projectPath: string, age
   })
 }
 
-/** After the board changed: records the Doing cards of every running agent in that workspace. */
+/** Records the Doing cards of every running agent in that workspace, from one read of the board. */
 export async function recordLiveCards(workspacePath: string, live: LiveSessionState[]): Promise<void> {
   const ws = workspaceFor(workspacePath)
   if (!ws?.path) return
-  for (const s of live) {
-    if (!s.sessionId || s.settingUp || workspaceFor(s.projectPath) !== ws) continue
-    await recordCards(ws, s.projectPath, s.agentId, s.sessionId).catch((e) => log.warn(`Could not record the cards of session ${s.sessionId}`, e))
+  const running = live.filter((s) => s.sessionId && !s.settingUp && workspaceFor(s.projectPath) === ws)
+  if (!running.length) return
+  const all = await allTasks(ws)
+  for (const s of running) {
+    await recordCards(ws, s.projectPath, s.agentId, s.sessionId!, undefined, all).catch((e) => log.warn(`Could not record the cards of session ${s.sessionId}`, e))
   }
+}
+
+/**
+ * After the board changed (tasks-changed): records the Doing cards of every running agent in that workspace, one run at a
+ * time (#1011): a change during a run gives one more run after it, with the sessions as they are then. Run for each
+ * change, a batch of card changes under load piled up reads of the whole board until main ran out of memory (#988).
+ */
+export function recordLiveCardsSoon(workspacePath: string, live: () => LiveSessionState[]): Promise<void> {
+  return coalesced(`live-cards:${workspacePath.toLowerCase()}`, () => recordLiveCards(workspacePath, live()).catch((e) => log.warn('Could not record the cards of running sessions', e)))
 }
 
 /** A comment from Hive on each card an agent of a project has in Doing (#606: its model changed after a safeguard stop). */
