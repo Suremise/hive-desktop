@@ -4,7 +4,7 @@
 import { spawnSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
-import { join, relative } from 'path'
+import { join, relative, sep } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { junction, shortPath } from './pathAliases'
 import { tempDir, tempRoot } from './tempDir'
@@ -88,14 +88,18 @@ describe('temp folders for tests (#448)', () => {
     expect(rawTempUses([{ name: 'e2e/runContext.cjs', text: `${fallback}\nconst x = os.tmpdir()\n// os.tmpdir() in a comment` }])).toEqual(['e2e/runContext.cjs:2'])
   })
 
-  it('tempDir makes a new, empty folder by its real path; tempRoot is the temp folder by its real path', () => {
+  it('tempDir makes a new, empty folder by its real path; tempRoot is hive-test\\tmp by its real path (#992)', () => {
     const a = dir('hive-tempdir-')
     const b = dir('hive-tempdir-')
     expect(a).not.toBe(b)
     expect(readdirSync(a)).toEqual([])
     expect(realpathSync.native(a)).toBe(a)
-    expect(tempRoot()).toBe(realpathSync.native(tmpdir()))
-    expect(a.startsWith(tempRoot())).toBe(true)
+    expect(a.startsWith(tempRoot() + sep)).toBe(true)
+    // In the test area, which Hive's Antivirus scanning setting covers, not in %TEMP%; the temp folder only off Windows.
+    const area = join(process.env.LOCALAPPDATA || tmpdir(), 'hive-test', 'tmp')
+    expect(tempRoot()).toBe(realpathSync.native(area))
+    // vitest.config.ts makes it the run's temp folder too, so what Vitest, Hive's code and git put in %TEMP% goes there.
+    if (process.env.LOCALAPPDATA) expect(tmpdir()).toBe(tempRoot())
   })
 })
 
