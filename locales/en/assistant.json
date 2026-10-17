@@ -183,10 +183,6 @@
     "defaultMessage": "Make this the mode of this workspace's Assistant (a running Assistant is told at once, keeping its conversation)",
     "description": "Tooltip on Use in This Workspace."
   },
-  "assistant.panel.agentTip": {
-    "defaultMessage": "{running, select, yes {{name}: {status}} other {{name}: not running}}",
-    "description": "The first line of an agent's tooltip in the Assistant's overview ({status}: Working…)."
-  },
   "assistant.panel.allConversations": {
     "defaultMessage": "All Conversations…",
     "description": "The Assistant's More menu: opens its conversations in the Assistant view."
@@ -274,6 +270,10 @@
   "assistant.panel.manageModes": {
     "defaultMessage": "Manage Modes…",
     "description": "The Assistant's mode and More menus: opens the modes in the Assistant view."
+  },
+  "assistant.panel.markLabel": {
+    "defaultMessage": "{name}: {state}{running, select, yes {{hasDetail, select, yes { · {detail}} other {}}} other { · not running}}",
+    "description": "An agent's state mark in the Assistant's workspace section: its name for screen readers and the first line of its tooltip. {state}: the state its mark draws (Working, Idle, Waiting for you, Stalled); {detail}: what it is doing, when that says more (\"e2e: 12 suites 4/12\"); \"not running\" while its session isn't. Lower case after the dot."
   },
   "assistant.panel.mode": {
     "defaultMessage": "Mode",

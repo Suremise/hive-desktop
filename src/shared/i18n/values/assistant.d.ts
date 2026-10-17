@@ -47,7 +47,6 @@ interface HiveMessageValues {
   'assistant.modes.updateTip': undefined
   'assistant.modes.useHere': undefined
   'assistant.modes.useTip': undefined
-  'assistant.panel.agentTip': { running: string; name: string | number; status: string | number }
   'assistant.panel.allConversations': undefined
   'assistant.panel.appliesNext': undefined
   'assistant.panel.asking': undefined
@@ -70,6 +69,7 @@ interface HiveMessageValues {
   'assistant.panel.inactive': { count: number }
   'assistant.panel.listFailed': undefined
   'assistant.panel.manageModes': undefined
+  'assistant.panel.markLabel': { name: string | number; state: string | number; running: string; hasDetail: string; detail: string | number }
   'assistant.panel.mode': undefined
   'assistant.panel.modeHeader': undefined
   'assistant.panel.modeHeaderLive': undefined

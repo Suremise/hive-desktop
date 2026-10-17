@@ -123,7 +123,7 @@ const check = (name, ok, extra = '') => {
   check("project agents' threshold is unchanged", (await settings()).sessions.compactSuggestTokens === 200000)
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(300) // on purpose: the theme's colours settle
+    await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
     await page.screenshot({ path: path.join(lib.WORK, `assistantcompact-highlighted-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })

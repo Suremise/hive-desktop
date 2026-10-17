@@ -75,10 +75,14 @@ const check = (name, ok, extra = '') => {
   const ends = async (typed) => !!(await prompts.over(typed))
   const say = async (text) => !!(await prompts.say(text))
   const box = async (sel) => (await panel().locator(sel).first().boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+  /** Switches the theme, waiting until the window has it. */
+  const themed = async (theme) => {
+    await inv('settings:update', { appearance: { theme } })
+    return !!(await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS))
+  }
   const shots = async (name) => {
     for (const theme of ['dark', 'light']) {
-      await inv('settings:update', { appearance: { theme } })
-      await lib.sleep(300) // on purpose: the theme's colours settle
+      await themed(theme)
       await page.screenshot({ path: path.join(lib.WORK, `assistantpanel-${name}-${theme}.png`) })
     }
     await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -130,13 +134,13 @@ const check = (name, ok, extra = '') => {
       const [hi, lo] = [lum(back), lum(text)].sort((x, y) => y - x)
       return { got: getComputedStyle(el).color, want, ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100 }
     })
-  /** The attention colour and its contrast in both themes (AA for its 12 px text: 4.5:1). */
+  /** The attention colour and its contrast in both themes (AA for its 12 px text: 4.5:1), once each theme's colour is drawn. */
   const attentionAA = async () => {
     const out = {}
     for (const theme of ['light', 'dark']) {
-      await inv('settings:update', { appearance: { theme } })
-      await lib.sleep(300) // on purpose: the theme's colours settle
-      out[theme] = await attentionColour()
+      await themed(theme)
+      // The line's colour once it is the theme's (a colour transition passes through others); the last read if never.
+      await lib.until(async () => { out[theme] = await attentionColour(); return out[theme].got === out[theme].want && out[theme].ratio >= 4.5 }, HUNG_MS)
     }
     return out
   }
@@ -196,14 +200,24 @@ const check = (name, ok, extra = '') => {
   check('the link is a button saying the list is open', (await head.evaluate((el) => el.tagName)) === 'BUTTON' && (await head.getAttribute('aria-expanded')) === 'true')
   // The terminal's drawn screen (xterm draws on a canvas here): taller once it has refitted to more rows.
   const rowsOf = async () => Math.round((await panel().locator('.assistant-terminal .xterm-screen').boundingBox())?.height ?? 0)
+  // Measured once the terminal has refitted to the open list (its screen inside its box), not while a refit is due.
+  const screenFits = () =>
+    page.evaluate(() => {
+      const t = document.querySelector('.assistant-panel .assistant-terminal')?.getBoundingClientRect()
+      const s = document.querySelector('.assistant-panel .assistant-terminal .xterm-screen')?.getBoundingClientRect()
+      return !!t && !!s && s.height > 0 && s.bottom <= t.bottom + 1 && t.bottom - s.bottom < 40
+    })
+  check('with the list open, the terminal fits its box', !!(await lib.until(screenFits, HUNG_MS)))
   const before = { term: await box('.assistant-terminal'), rows: await rowsOf() }
   await head.focus()
   await page.keyboard.press('Enter')
   check('Enter on it closes the list', !!(await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false' && (await rows.count()) === 0, HUNG_MS)))
-  await lib.sleep(500) // on purpose: the terminal refits after its box changes
-  const after = { term: await box('.assistant-terminal'), rows: await rowsOf() }
-  check('…the terminal gets the room', after.term.height > before.term.height + 40, `${before.term.height} → ${after.term.height}`)
-  check('…and refits to it: more rows (a taller screen)', after.rows > before.rows + 30, `${before.rows} → ${after.rows}`)
+  // The terminal's box grows, then it refits to more rows: both waited for (the last read is reported if not).
+  let after = { term: before.term, rows: before.rows }
+  const grown = await lib.until(async () => { after = { term: await box('.assistant-terminal'), rows: await rowsOf() }; return after.term.height > before.term.height + 40 }, HUNG_MS)
+  check('…the terminal gets the room', !!grown, `${before.term.height} → ${after.term.height}`)
+  const refitted = await lib.until(async () => { after.rows = await rowsOf(); return after.rows > before.rows + 30 }, HUNG_MS)
+  check('…and refits to it: more rows (a taller screen)', !!refitted, `${before.rows} → ${after.rows}`)
   const fits = await page.evaluate(() => {
     const t = document.querySelector('.assistant-panel .assistant-terminal')?.getBoundingClientRect()
     const s = document.querySelector('.assistant-panel .assistant-terminal .xterm-screen')?.getBoundingClientRect()
@@ -254,9 +268,13 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(edge.x + 60, edge.y + 200, { steps: 5 })
   await page.mouse.move(edge.x + 125, edge.y + 200, { steps: 5 })
   await page.mouse.up()
-  await lib.sleep(600)
-  const cut = await status().locator('.assistant-status-text').evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, ellipsis: getComputedStyle(el).textOverflow }))
-  check('narrow: the status line is cut short with “…”', cut.cut && cut.ellipsis === 'ellipsis', JSON.stringify(cut))
+  // Narrowed to about 310 px: the line cut once it has laid out at that width.
+  let cut = null
+  const narrowed = await lib.until(async () => {
+    cut = await status().locator('.assistant-status-text').evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, ellipsis: getComputedStyle(el).textOverflow, panel: Math.round(el.closest('.assistant-panel').getBoundingClientRect().width) }))
+    return cut.panel <= 320 && cut.cut
+  }, HUNG_MS)
+  check('narrow: the status line is cut short with “…”', !!narrowed && cut.ellipsis === 'ellipsis', JSON.stringify(cut))
   await status().locator('.assistant-status-text').hover()
   check('…its tooltip has the whole line', !!(await lib.until(async () => /Status: Waiting for #1, #2 → Review \(watch until/.test((await page.locator('.tip:visible').allInnerTexts()).join(' ')), HUNG_MS)))
   await page.mouse.move(0, 0)

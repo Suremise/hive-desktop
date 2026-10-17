@@ -72,6 +72,7 @@
   "assistant.panel.inactive": "{count, plural, one {# inactive project} other {# inactive projects}}",
   "assistant.panel.listFailed": "Could not list conversations",
   "assistant.panel.manageModes": "Manage Modes…",
+  "assistant.panel.markLabel": "{name}: {state}{running, select, yes {{hasDetail, select, yes { · {detail}} other {}}} other { · not running}}",
   "assistant.panel.mode": "Mode",
   "assistant.panel.modeHeader": "Mode",
   "assistant.panel.modeHeaderLive": "Mode (switches now, keeping the conversation)",

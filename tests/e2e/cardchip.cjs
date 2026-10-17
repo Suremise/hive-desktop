@@ -138,14 +138,15 @@ const check = (name, ok, extra = '') => {
   }
   const row = page.locator(`.assistant-agent[data-agent="${coder.id}"]`)
   await assistantAt(430)
-  const rowTip = (t) => t.startsWith('Coder: e2e: 12 suites with a long title to cut short 4/12') && t.includes(`Working on #${card.number} Attention inbox`) && t.includes(`Working on #${second.number} Prompt snippets`) && t.includes('Progress: e2e: 12 suites with a long title to cut short 4/12')
+  // Its state first (#979: the state its mark draws), then what it is doing.
+  const rowTip = (t) => /^Coder: [^·\n]+ · e2e: 12 suites with a long title to cut short 4\/12/.test(t) && t.includes(`Working on #${card.number} Attention inbox`) && t.includes(`Working on #${second.number} Prompt snippets`) && t.includes('Progress: e2e: 12 suites with a long title to cut short 4/12')
   tip = await lib.hoverTip(page, row, rowTip)
   check("Coder's mark's tooltip: its progress, both cards with their titles and its run", rowTip(tip), tip)
-  check('…and its accessible name says what it is doing', ((await row.getAttribute('aria-label')) ?? '').startsWith('Coder: e2e: 12 suites'), await row.getAttribute('aria-label'))
+  check('…and its accessible name says its state and what it is doing', /^Coder: [^·]+ · e2e: 12 suites/.test((await row.getAttribute('aria-label')) ?? ''), await row.getAttribute('aria-label'))
   await page.mouse.move(5, 5)
   await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, 'cardchip-assistant.png') })
   await progress(`/v1/progress/${run.id}/finish`, { ok: true })
-  check('once the run ends, the mark says its status again', !!(await until(async () => !((await row.getAttribute('aria-label')) ?? 'Coder: e2e').startsWith('Coder: e2e'), 8000)), await row.getAttribute('aria-label'))
+  check('once the run ends, the mark says its status again', !!(await until(async () => !((await row.getAttribute('aria-label')) ?? 'e2e').includes('e2e'), 8000)), await row.getAttribute('aria-label'))
   await page.keyboard.press('Control+Alt+I')
   await page.locator('.project-row', { hasText: 'alpha' }).click()
 

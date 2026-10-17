@@ -117,7 +117,37 @@ const check = (name, ok, extra = '') => {
     const worker = row('alpha').locator(`.assistant-agent[data-agent="${a.Worker.id}"]`)
     const tip = await lib.hoverTip(page, worker, (t) => /Claude Code/.test(t), HUNG_MS)
     check('a mark’s tooltip names the agent, its status and its provider', /Worker: Working/.test(tip ?? '') && /Claude Code/.test(tip ?? ''), tip)
-    check('…and screen readers get its name and status', ((await worker.getAttribute('aria-label')) ?? '').startsWith('Worker: Working'), await worker.getAttribute('aria-label'))
+    check('…and screen readers get its name and state', (await worker.getAttribute('aria-label')) === 'Worker: Working', await worker.getAttribute('aria-label'))
+
+    // The state its mark draws is in its words too, the board's included (#979 round 2): not running with a card in
+    // Doing is stalled; running with a card blocked on you is waiting for you.
+    const parked = row('alpha').locator(`.assistant-agent[data-agent="${a.Parked.id}"]`)
+    check('Parked (not running, a card in Doing): “Stalled · not running”', (await parked.getAttribute('aria-label')) === 'Parked: Stalled · not running', await parked.getAttribute('aria-label'))
+    const parkedTip = await lib.hoverTip(page, parked, (t) => t.includes('Stalled'), HUNG_MS)
+    check('…in its tooltip too', (parkedTip ?? '').startsWith('Parked: Stalled · not running'), parkedTip)
+    const blocked = await inv('tasks:create', { title: 'Blocked on you', project: 'alpha', column: 'doing', agent: a.Coder.id })
+    await inv('tasks:update', blocked.number, { blocked: 'Which colour?' })
+    const coder = row('alpha').locator(`.assistant-agent[data-agent="${a.Coder.id}"]`)
+    check('Coder (running, its card blocked on you): its mark waits for you, and says so', !!(await lib.until(async () => (await coder.getAttribute('data-state')) === 'waiting' && ((await coder.getAttribute('aria-label')) ?? '').startsWith('Coder: Waiting for you'), HUNG_MS)), `${await coder.getAttribute('data-state')} / ${await coder.getAttribute('aria-label')}`)
+    await inv('tasks:update', blocked.number, { blocked: null })
+    await lib.until(async () => (await coder.getAttribute('data-state')) === 'idle', HUNG_MS)
+
+    // From the keyboard: Tab onto a mark shows its whole tooltip, and a screen reader gets the rest as its description.
+    await page.mouse.move(5, 5)
+    await lib.until(async () => (await page.locator('.tip:visible').count()) === 0, HUNG_MS)
+    await row('alpha').locator('.assistant-project-name').focus()
+    await page.keyboard.press('Tab')
+    check('Tab from the project’s name reaches its first mark', !!(await lib.until(async () => (await page.evaluate(() => document.activeElement?.dataset?.agent ?? null)) === a.Coder.id, HUNG_MS)))
+    await page.keyboard.press('Tab')
+    const focusTip = await lib.until(async () => { const t = (await page.locator('.tip:visible').allInnerTexts()).join('\n'); return t.includes('Worker: Working') && t.includes('Claude Code') ? t : null }, HUNG_MS)
+    check('…the next, Worker: focused, it shows its whole tooltip', !!focusTip, await page.locator('.tip:visible').allInnerTexts().then((x) => x.join(' | ')))
+    const cdp = await page.context().newCDPSession(page)
+    const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.activeElement' })
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { objectId: result.objectId, fetchRelatives: false })
+    const ax = { role: nodes[0]?.role?.value, name: nodes[0]?.name?.value, description: nodes[0]?.description?.value ?? '' }
+    check('…and its accessibility node: a button named “Worker: Working”, described with its coding agent', ax.role === 'button' && ax.name === 'Worker: Working' && ax.description.includes('Coding agent: Claude Code'), JSON.stringify(ax))
+    await cdp.detach()
+    await page.evaluate(() => document.activeElement?.blur())
     await page.mouse.move(700, 600)
     await page.locator('.assistant-panel').screenshot({ path: path.join(lib.WORK, 'assistantoverview-marks.png') })
 

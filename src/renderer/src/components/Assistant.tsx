@@ -109,7 +109,7 @@ const M = {
   revertLabel: msg({ id: 'assistant.panel.revertLabel', defaultMessage: 'Revert {setting} to {value}', description: 'The Revert button, for screen readers ({setting}: the setting\'s path; {value}: its old value).' }),
   revert: msg({ id: 'assistant.panel.revert', defaultMessage: 'Revert', description: 'A button beside a setting the Assistant changed: puts the old value back.' }),
   doneBy: msg({ id: 'assistant.panel.doneBy', defaultMessage: 'Done by the Assistant', description: "The heading of the list of what the Assistant did (a count follows)." }),
-  agentTip: msg({ id: 'assistant.panel.agentTip', defaultMessage: '{running, select, yes {{name}: {status}} other {{name}: not running}}', description: "The first line of an agent's tooltip in the Assistant's overview ({status}: Working…)." }),
+  markLabel: msg({ id: 'assistant.panel.markLabel', defaultMessage: '{name}: {state}{running, select, yes {{hasDetail, select, yes { · {detail}} other {}}} other { · not running}}', description: "An agent's state mark in the Assistant's workspace section: its name for screen readers and the first line of its tooltip. {state}: the state its mark draws (Working, Idle, Waiting for you, Stalled); {detail}: what it is doing, when that says more (\"e2e: 12 suites 4/12\"); \"not running\" while its session isn't. Lower case after the dot." }),
   workingOn: msg({ id: 'assistant.panel.workingOn', defaultMessage: 'Working on #{number} {title}', description: "An agent's tooltip in the Assistant's overview: a card it works on." }),
   reviewing: msg({ id: 'assistant.panel.reviewing', defaultMessage: 'Reviewing #{number} {title}', description: "An agent's tooltip in the Assistant's overview: a card it reviews." }),
   progress: msg({ id: 'assistant.panel.progress', defaultMessage: '{hasStep, select, yes {Progress: {run} ({step})} other {Progress: {run}}}', description: "An agent's tooltip in the Assistant's overview: its test run ({run}: \"e2e: 12 suites 4/12\"; {step}: what it is on)." }),
@@ -752,18 +752,21 @@ function OverviewAgent({ project: p, a, state, names, onGo }: { project: Project
   const reviewing = useAgentReviews(p, a.id)
   const run = useStore((s) => agentOpenRun(s.progressRuns, p.path, a.id))
   const activity = activityOf(a.live, run)
-  const first = tr(M.agentTip, { name: a.name, running: a.live ? 'yes' : 'no', status: activity ?? tr(AGENT_STATE_LABEL[state]) })
-  const tip = [
-    first,
+  // The state its mark draws first (the board's too: a stalled or blocked card), then what it is doing when that says more.
+  const stateText = tr(AGENT_STATE_LABEL[state])
+  const detail = activity && !activity.toLowerCase().startsWith(stateText.toLowerCase()) ? activity : ''
+  const first = tr(M.markLabel, { name: a.name, state: stateText, running: a.live ? 'yes' : 'no', hasDetail: detail ? 'yes' : 'no', detail })
+  const rest = [
     tr(M.provider, { provider: providerDescriptor(agentProviderOf(p, a)).name }),
     ...doing.map((c) => tr(M.workingOn, { number: c.number, title: c.title })),
     ...reviewing.map((c) => tr(M.reviewing, { number: c.number, title: c.title })),
     ...(run ? [tr(M.progress, { run: runWords(run), hasStep: run.stepName ? 'yes' : 'no', step: run.stepName ?? '' })] : []),
     ...(a.worktree ? [tr(M.worktree, { branch: a.worktree.branch })] : [])
-  ].join('\n')
+  ]
+  // The whole of it on keyboard focus too, and for screen readers: the name and state as its label, the rest as its description.
   return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-      <button type="button" className={cx('assistant-agent', names && 'named')} data-agent={a.id} data-state={state} aria-label={first} onClick={onGo}>
+    <Tooltip focus content={<span style={{ whiteSpace: 'pre-line' }}>{[first, ...rest].join('\n')}</span>}>
+      <button type="button" className={cx('assistant-agent', names && 'named')} data-agent={a.id} data-state={state} aria-label={first} aria-description={fmt.list(rest, 'unit')} onClick={onGo}>
         <StateMark state={state} decorative />
         {names && <span className="assistant-agent-name">{a.name}</span>}
       </button>
