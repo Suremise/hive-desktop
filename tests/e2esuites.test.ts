@@ -157,7 +157,7 @@ describe('the suites a change needs (affected.mjs)', () => {
     expect(affectedSuites(['SRC\\Renderer\\src\\components\\Progress.tsx'], names).suites).toContain('progress')
   })
 
-  it('a file no area names falls back to the full set, real tier too, wherever it is (#628: merges run --affected)', () => {
+  it('a file no area names falls back to the full set, real tier too, wherever it is (#628)', () => {
     const unmapped = ['src/main/brandNewThing.ts', 'src/renderer/src/components/BrandNew.tsx', 'src/shared/brandNew.ts', 'src/brandNew/x.ts', 'resources/brandNew.bin', 'scripts/brandNew.mjs', 'build/brandNew.nsh', 'tests/e2e/brandNewHelper.mjs', 'tests/e2e/fake-brandnew/cli.cjs', 'brandNew.config.json']
     for (const f of unmapped) {
       const r = affectedSuites([f], names, realNames)

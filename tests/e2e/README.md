@@ -9,7 +9,7 @@ npm run e2e                      # the full set: every fake-tier suite (the pack
 npm run e2e -- --all --real      # everything, the real tier (real Claude Code and Codex) too
 npm run e2e -- --only-real       # only the real tier
 npm run e2e -- agents transcript # just these
-npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too; before a merge to main
+npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too; a tool for picking suites, not a merge's gate (#1010)
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
@@ -247,23 +247,24 @@ same code while every required check still runs:
   its verdict which and why.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
-- **Before a merge to main** (#628), run the **affected suites** on the merged code,
-  `npm run e2e -- --affected --build --record`, with the unit tests, typecheck and lint, so suites no card named but
-  the branch touches still pass. It picks the **full set** itself when the branch changes code every part of Hive goes
-  through, test tooling (the runner and its helpers, `lib.cjs`, the run context, the fake Claude Code, the concurrency
-  checker, the scenario harness, `affected.mjs` itself) or any file no area names (below); the record's `Selected:`
-  line says what it picked and why, so the reviewer sees it. It takes the **real tier**'s suites the branch needs too (the runner says which: a
-  change to providers, launching the CLIs, hooks and status, transcripts or `lib.cjs`). A real suite skipped for the
-  environment doesn't block a merge, but the record says so and the reviewer decides whether it must run again first.
-  CI runs only the unit tests.
-- **The full set runs at checkpoints**: `npm run e2e -- --all --build --record` for **every RC and release**
-  (RELEASING.md, with the real tier: `--all --real`), when `--affected` selects it (above), and **on request** (the
-  user, or a reviewer who says why). Run the real tier on its own (`--all --only-real`) **after updating Claude Code
-  or Codex**.
+- **A merge** (#1010; into main or an integration branch such as `feature/090-session`) runs **focused checks** on the
+  merged code: typecheck, lint, the unit tests, and the cards' own focused suites (those their reviews ran, plus any
+  suite the merge's conflicts touched), `npm run e2e -- <suites> --build --record`. **Not** the full set and **not**
+  `--affected`: merges take turns at one slot, and an hour or more of e2e for each kept every other lane waiting (a
+  phase of five merges took hours) and was the load Hive crashed under (#988). Every card has already passed review
+  with its focused suites, which its reviewer checked. A pre-merge run still goes first in the slot queue (#558). A
+  real suite skipped for the environment doesn't block a merge, but the record says so and the reviewer decides
+  whether it must run again first. CI runs only the unit tests.
+- **The full set runs at checkpoints**: `npm run e2e -- --all --build --record` **on the integration branch when the
+  lanes go quiet** (a phase's end, overnight with the load capped, before a long pause; a failure is carded at once and
+  bisected over the merge commits since the last full run), for **every RC and release** (RELEASING.md, with the real
+  tier: `--all --real`), and **on request** (the user, or a reviewer who says why). Run the real tier on its own
+  (`--all --only-real`) **after updating Claude Code or Codex**. `--affected` (below) stays a tool for picking the
+  suites a change needs, such as a review round's fixes, and isn't any merge's gate.
 - **A flake fix, or a change to a suite's waits**, is proven by focused repeats under load (the `investigate-flake`
   skill): the suite with its neighbours (its area's suites in `affected.mjs`, filling the four jobs) five times,
-  `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The merge's `--affected` run is the full-set check;
-  the full set repeated (`--all --repeat 5`) runs only when the user asks: it holds a heavy slot for over an hour while
+  `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The full-set check is the next quiet-time or
+  release run (above), not the merge's; the full set repeated (`--all --repeat 5`) runs only when the user asks: it holds a heavy slot for over an hour while
   other lanes queue, and under that load it fails on their flakes (a failure in another lane's suite is a card of its
   own, not a reason to fail the fix).
 - **When a change could make every suite flaky** (the runner, `lib.cjs`, the run context, how suites run side by side),
