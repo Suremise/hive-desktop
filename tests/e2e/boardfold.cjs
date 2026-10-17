@@ -249,7 +249,7 @@ const LABELS = ['On Hold', 'Todo', 'Doing', 'Review', 'Passed', 'Done']
   await until(async () => JSON.stringify(await state()) === JSON.stringify(before), 10000)
   check('after a restart too', JSON.stringify(await state()) === JSON.stringify(before), JSON.stringify([before, await state()]))
   const ui = JSON.parse(fs.readFileSync(path.join(userData, 'config.json'), 'utf8')).ui?.boardFold ?? {}
-  check("kept in Hive's own settings for this workspace, not in the cards", Object.keys(ui).length === 1 && Object.keys(ui)[0] === ws.toLowerCase() && !Object.keys(JSON.parse(fs.readFileSync(path.join(ws, '.hive', 'tasks', `${n.t1}.json`), 'utf8'))).some((k) => /fold|collapse/i.test(k)), JSON.stringify(ui))
+  check("kept in Hive's own settings for this workspace, not in the cards", Object.keys(ui).length === 1 && Object.keys(ui)[0] === ws.toLowerCase() && !Object.keys(lib.readCard(ws, n.t1)).some((k) => /fold|collapse/i.test(k)), JSON.stringify(ui))
 
   // --- Two windows, each with its own workspace, both open before either changes its board: A's change, then B's,
   // keep each other (a window saves a change on what is saved now, never the folds it read when it opened).

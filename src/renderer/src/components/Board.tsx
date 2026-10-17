@@ -7,7 +7,7 @@ import { COLUMN_TEXT, TASK_COLUMNS, applyBoardFold, archiveBatchLabel, archiveBa
 import { enabledProviders, isProviderEnabled, projectDefaultProvider, providerMessage, providerName } from '@shared/providers'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { call, errorMessage } from '../api'
-import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useLanguage, useStore, type ArchiveAllRequest, type DoingRequest } from '../store'
+import { NO_PROJECTS, agentProviderOf, choose, confirm, get, loadTasks, notify, revealAgent, set, setProjectTab, showView, useDateStyle, useLanguage, useStore, wantFullArchive, type ArchiveAllRequest, type DoingRequest } from '../store'
 import { selectProject } from '../actions'
 import { cx, timeAgo } from '../util'
 import { clampScroll, edgeSpeed, frameStep } from '@shared/edgeScroll'
@@ -16,7 +16,7 @@ import { returnRound } from '@shared/watch'
 import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, STATUS_TEXT, statusText, Tooltip, useBusy, useClipped, useContextMenu, type MenuEntry } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
-import { reportArchived, unarchiveBatch } from '../boardBatches'
+import { EXPORT_BOARD, exportBoard, reportArchived, unarchiveBatch } from '../boardBatches'
 import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
 import { CardCostLine } from './CardCost'
@@ -517,6 +517,8 @@ export function Board({ project, scope = null, query, archived }: { project: str
     dragNow.current = d
     showDrag(d)
   }
+  // The archived cards in full while they are shown (#1017): their search reads descriptions too.
+  useEffect(() => (archived ? wantFullArchive() : undefined), [archived])
   const cards = useMemo(
     () => all.filter((c) => c.archived === archived && (project === null || c.project.toLowerCase() === project.toLowerCase()) && cardMatches(c, query)),
     [all, project, query, archived]
@@ -953,7 +955,7 @@ export function BoardToolbar({
           className="board-more"
           onClick={(e) => {
             const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            menu.openAt(b.left, b.bottom, [archiveAllItem(get().tasks, { column: null, project, scope, query })])
+            menu.openAt(b.left, b.bottom, [archiveAllItem(get().tasks, { column: null, project, scope, query }), { label: tr(EXPORT_BOARD), icon: 'export', onClick: () => void exportBoard() }])
           }}
         />
       )}
@@ -1374,6 +1376,11 @@ export function TaskDialog() {
   const card = useStore((s) => (typeof s.taskOpen === 'number' ? (s.tasks.find((c) => c.number === s.taskOpen) ?? null) : null))
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
   const isNew = open !== null && typeof open === 'object'
+  // An archived card in full while its dialog is open (#1017): the board has it in short until then, and the dialog's
+  // fields are filled once it is in full.
+  const archivedCard = !!card?.archived
+  const ready = !card?.summary
+  useEffect(() => (archivedCard ? wantFullArchive() : undefined), [archivedCard, open])
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [project, setProject] = useState('')
@@ -1409,7 +1416,7 @@ export function TaskDialog() {
   // drawn or answered: a render with the last card's fields (or none) would show them, and take them for edits (#288).
   const { setError: setActionError } = action
   useLayoutEffect(() => {
-    if (open === null) return
+    if (open === null || !ready) return
     setActionError(null)
     const c = typeof open === 'number' ? get().tasks.find((x) => x.number === open) : null
     setTitle(c?.title ?? '')
@@ -1445,9 +1452,9 @@ export function TaskDialog() {
       if (!c && t && !t.closest('.dialog')?.contains(document.activeElement)) t.focus()
     }, 30)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, ready])
 
-  if (open === null || (!isNew && !card)) return null
+  if (open === null || (!isNew && (!card || !ready))) return null
   const close = (): void => set({ taskOpen: null })
   const proj = projects.find((p) => p.name === project) ?? null
   const labelList = labels

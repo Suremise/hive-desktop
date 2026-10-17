@@ -247,6 +247,14 @@
     "defaultMessage": "Passed, then Done once merged",
     "description": "A tip's title."
   },
+  "tips.boardExport.text": {
+    "defaultMessage": "The board is kept in the workspace's database. Export Board to JSON… in the board's ⋯ menu saves every card as a JSON file, archived ones too, in a folder you choose.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.boardExport.title": {
+    "defaultMessage": "Your board as plain files",
+    "description": "A tip's title."
+  },
   "tips.boardFold.text": {
     "defaultMessage": "Collapse a column to a narrow strip with the « in its header, and fold cards to one line with their ▾; a column's ⋯ collapses or expands all its cards. Hive remembers them for the workspace.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

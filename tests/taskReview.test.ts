@@ -6,6 +6,7 @@ import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
+import { readCard, writeCard } from './boardDb'
 
 const base = tempDir('hive-review-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -250,12 +251,11 @@ describe('reviewing a card', () => {
 
   it('a card file from before reviews, or with a damaged review, reads as not being reviewed', async () => {
     const c = await done('Old')
-    const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
-    const raw = JSON.parse((await import('fs')).readFileSync(file, 'utf8'))
-    writeFileSync(file, JSON.stringify({ ...raw, review: { agent: 42 } }))
+    const raw = readCard(w, c.number)
+    await writeCard(w, c.number, { ...raw, review: { agent: 42 } })
     expect((await run(() => tasks.getTask(c.number))).review).toBeUndefined()
     delete raw.review
-    writeFileSync(file, JSON.stringify(raw))
+    await writeCard(w, c.number, raw)
     expect((await run(() => tasks.getTask(c.number))).review).toBeUndefined()
   })
 

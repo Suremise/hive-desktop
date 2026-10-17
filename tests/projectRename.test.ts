@@ -11,10 +11,15 @@ import * as electron from 'electron'
 import type { NameJournal } from '../src/main/projectNames'
 import { moveFolder as move } from './moveFolder'
 import { tempDir } from './tempDir'
+import { readCardIn } from './boardDb'
+import { closeAllBoards } from '../src/main/boardStore'
 
 const base = tempDir('hive-projectrename-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-afterAll(() => rmSync(base, { recursive: true, force: true }))
+afterAll(() => {
+  closeAllBoards()
+  rmSync(base, { recursive: true, force: true })
+})
 
 const { WorkspaceService, createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const notes = await import('../src/main/notes')
@@ -417,7 +422,7 @@ describe('at the edges: a switched workspace, a name taken again, a failed write
     expect(first.failed.join(' ')).toMatch(/Repair tries again/)
     expect(journal(ws).projects[w.projectIdsNow().byPath.get(join(ws, 'website').toLowerCase())!].former).toContain('hive-website')
     // The card moved; the next Repair, still failing, isn't done either.
-    expect(JSON.parse(readFileSync(join(ws, '.hive', 'tasks', '1.json'), 'utf8')).project).not.toBe('hive-website')
+    expect(readCardIn(ws, 1).project).not.toBe('hive-website')
     expect((await inWorkspace(w, () => repairMove(w))).complete).toBe(false)
     spy.mockRestore()
     const third = await inWorkspace(w, () => repairMove(w))

@@ -1,12 +1,14 @@
 // The task board (.hive/tasks) and removing projects: who may change what, card numbers and order, and what Hide,
 // Remove from Hive and Delete do with a project's cards, handovers and folder (and what restoring brings back).
 import { execFileSync } from 'child_process'
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { rm } from 'fs/promises'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
+import { boardLockKey, editCard, readCard, removeCard, writeCard, writeCardOutside } from './boardDb'
+import { boardTestHooks } from '../src/main/boardStore'
 import { follow } from './followDoorbell'
 
 const base = tempDir('hive-tasks-')
@@ -363,31 +365,29 @@ describe('task board', () => {
   it('reads damaged card files safely', async () => {
     // Cards #1 to #3, so the reference to #3 is to a card that is there.
     for (const title of ['One', 'Two', 'Three']) await run(() => tasks.createTask({ title }, user))
-    writeFileSync(join(wsPath, '.hive', 'tasks', '500.json'), JSON.stringify({ title: 7, column: 'sideways', labels: 'x', blockedBy: ['a', 3] }))
-    writeFileSync(join(wsPath, '.hive', 'tasks', '501.json'), '{ not json')
+    // A card saved with fields of the wrong type (by an older Hive, a script, an export copied back).
+    await writeCard(w, 500, { title: 7, column: 'sideways', labels: 'x', blockedBy: ['a', 3] })
     const c = await run(() => tasks.getTask(500))
     expect(c.column).toBe('todo')
     expect(c.title).toBe('Task 500')
     expect(c.labels).toEqual([])
     expect(c.blockedBy).toEqual([3])
     await expect(run(() => tasks.getTask(501))).rejects.toThrow(/Unknown task/)
-    // Cards added by hand (or board.json lost): new cards get numbers past them, damaged ones too.
-    expect((await run(() => tasks.createTask({ title: 'After' }, user))).number).toBe(502)
-    rmSync(join(wsPath, '.hive', 'tasks', '500.json'))
-    rmSync(join(wsPath, '.hive', 'tasks', '501.json'))
+    // Cards added from outside: new cards get numbers past them.
+    expect((await run(() => tasks.createTask({ title: 'After' }, user))).number).toBe(501)
+    await removeCard(w, 500)
   })
   it('leaves out a reference to a card deleted as it was linked, and drops it from the file on the next save', async () => {
     const keep = await run(() => tasks.createTask({ title: 'Kept' }, user))
     const c = await run(() => tasks.createTask({ title: 'Linked' }, user))
     // As if the link was written just after #998 was deleted.
-    const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
-    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), blockedBy: [998], links: [keep.number, 998] }))
+    await editCard(w, c.number, (d) => ({ ...d, blockedBy: [998], links: [keep.number, 998] }))
     const read = await run(() => tasks.getTask(c.number))
     expect([read.blockedBy, read.links]).toEqual([[], [keep.number]])
     const listed = (await run(() => tasks.allTasks())).find((x) => x.number === c.number)!
     expect([listed.blockedBy, listed.links]).toEqual([[], [keep.number]])
     await run(() => tasks.commentTask(c.number, 'saved', agent))
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    const saved = readCard(w, c.number)
     expect([saved.blockedBy, saved.links]).toEqual([[], [keep.number]])
   })
 
@@ -427,8 +427,7 @@ describe('task board', () => {
     const at = (daysAgo: number): string => new Date(now - daysAgo * day).toISOString()
     const make = async (title: string, history: { at: string; what: string }[], column = 'done'): Promise<number> => {
       const c = await run(() => tasks.createTask({ title }, user))
-      const file = join(wsPath, '.hive', 'tasks', `${c.number}.json`)
-      writeFileSync(file, JSON.stringify({ ...c, column, history: history.map((h) => ({ ...h, by: 'You' })), updatedAt: at(0) }))
+      await writeCard(w, c.number, { ...c, column, history: history.map((h) => ({ ...h, by: 'You' })), updatedAt: at(0) })
       return c.number
     }
     const old = await make('Done long ago', [{ at: at(30), what: 'Created in Todo' }, { at: at(20), what: 'Moved to Done' }])
@@ -471,7 +470,6 @@ describe('archiving in batches', () => {
   const column = async (col: 'todo' | 'done'): Promise<string[]> => (await run(() => tasks.listTasks({ column: col }))).map((c) => c.title)
   // What the board asked for: the whole board by default, nobody's cards included.
   const req = (label: string, more: Partial<Parameters<typeof tasks.archiveBatch>[1]> = {}): Parameters<typeof tasks.archiveBatch>[1] => ({ label, column: null, project: null, query: '', includeBusy: false, ...more })
-  const cardFile = (n: number): string => join(wsPath, '.hive', 'tasks', `${n}.json`)
 
   it("is the user's alone: agents, scripts and the Assistant are refused", async () => {
     const n = await make('Mine')
@@ -559,15 +557,15 @@ describe('archiving in batches', () => {
   it("keeps the batch while a card can't come back, and brings the rest; another try brings that one", async () => {
     const [ok, stuck] = [await make('Comes back', 'done'), await make('Stuck', 'done')]
     const { batch } = await run(() => tasks.archiveBatch([ok, stuck], req('All in Done', { column: 'done' }), user))
-    // Its file can be read but not replaced (open in another program, read-only).
-    chmodSync(cardFile(stuck), 0o444)
+    // It can be read but not saved (a full disk, say).
+    boardTestHooks.failPut = (n) => n === stuck
     try {
       const first = await run(() => tasks.unarchiveBatch(batch!.id, user))
       expect([first.restored, first.failed]).toEqual([[ok], [stuck]])
       expect((await run(() => tasks.getTask(stuck))).archived).toBe(true)
       expect((await run(() => tasks.archiveBatches())).map((b) => b.id)).toContain(batch!.id)
     } finally {
-      chmodSync(cardFile(stuck), 0o666)
+      boardTestHooks.failPut = null
     }
     const again = await run(() => tasks.unarchiveBatch(batch!.id, user))
     expect([again.restored, again.failed]).toEqual([[stuck], []])
@@ -662,9 +660,8 @@ describe('card decisions', () => {
     const n = await make('Busy')
     await Promise.all([run(() => tasks.updateTask(n, { decision: 'One' }, coder)), run(() => tasks.updateTask(n, { decision: 'Two' }, assistant)), run(() => tasks.updateTask(n, { decision: 'Three' }, user))])
     expect((await run(() => tasks.getTask(n))).decisions!.map((d) => d.text).sort()).toEqual(['One', 'Three', 'Two'])
-    const file = join(wsPath, '.hive', 'tasks', `${n}.json`)
-    const raw = JSON.parse(readFileSync(file, 'utf8'))
-    writeFileSync(file, JSON.stringify({ ...raw, decisions: [...raw.decisions, null, { text: 5 }, { text: 'By hand' }] }))
+    const raw = readCard(w, n) as { decisions: { text: string }[] }
+    await writeCard(w, n, { ...raw, decisions: [...raw.decisions, null, { text: 5 }, { text: 'By hand' }] })
     const c = await run(() => tasks.getTask(n))
     expect(c.decisions!.map((d) => d.text)).toEqual([...raw.decisions.map((d: { text: string }) => d.text), 'By hand'])
     expect(c.decisions!.at(-1)).toMatchObject({ decidedBy: 'user', recordedBy: '' })
@@ -1284,27 +1281,28 @@ describe("a project agent's board", () => {
     await run(() => tasks.deleteTask(t.number))
   })
 
-  it('authorises every write on the card as it is under its lock (a project change while a write waits)', async () => {
+  it('authorises every write on the card as it is under the board lock (a project change while a write waits)', async () => {
     const { fileLockDepth, withFileLock } = await import('../src/main/fsutil')
-    const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
-    // Someone (the user, the Assistant) moves the card to beta while the agent's write waits for the card.
-    // Written as another copy of Hive from before project ids would (#508): without the id, which it doesn't keep.
+    const lock = boardLockKey(wsPath)
+    // Someone moves the card to beta while the agent's write waits for the board: another copy of Hive from before project
+    // ids (#508), without the id, which it doesn't keep.
     const toBeta = (x: number): void => {
-      const { projectId: _id, ...c } = JSON.parse(readFileSync(file(x), 'utf8'))
-      writeFileSync(file(x), JSON.stringify({ ...c, project: 'beta', agent: null }))
+      const { projectId: _id, ...c } = readCard(w, x)
+      writeCardOutside(wsPath, x, { ...c, project: 'beta', agent: null })
     }
     const c1 = (await run(() => tasks.createTask({ title: 'C1', project: 'alpha' }, user))).number
     const c2 = (await run(() => tasks.createTask({ title: 'C2', project: 'alpha' }, user))).number
     const before2 = await run(() => tasks.getTask(c2))
-    // A later card in a reorder: the first is written, the moved one is refused and left as it was.
+    // A later card in a reorder: the moved one is refused and left as it was (the reorder, one change, saves nothing).
     let reorder!: Promise<unknown>
-    await withFileLock(file(c2), async () => {
+    await withFileLock(lock, async () => {
       reorder = run(() => tasks.reorderTasks('todo', [c1, c2], alphaAgent))
-      // Its checks passed and its write to c2 waits behind this lock (the first card is written meanwhile).
-      await expect.poll(() => fileLockDepth(file(c2)), { timeout: HUNG_MS }).toBe(2)
+      // It waits behind this lock.
+      await expect.poll(() => fileLockDepth(lock), { timeout: HUNG_MS }).toBe(2)
       toBeta(c2)
     })
-    await expect(reorder).rejects.toThrow(`Unknown task #${c2}`)
+    // Checked once it has the board, on the card as it is then: another project's card is no card to the agent.
+    await expect(reorder).rejects.toThrow(`There is no card #${c2}.`)
     const after2 = await run(() => tasks.getTask(c2))
     expect(after2.order).toBe(before2.order)
     expect(after2.history).toEqual(before2.history)
@@ -1319,25 +1317,26 @@ describe("a project agent's board", () => {
       const x = (await run(() => tasks.createTask({ title: what, project: 'alpha' }, user))).number
       const before = await run(() => tasks.getTask(x))
       let outcome!: Promise<string>
-      await withFileLock(file(x), async () => {
-        // Caught as it happens: it is refused once the card is free.
+      await withFileLock(lock, async () => {
+        // Caught as it happens: it is refused once the board is free.
         outcome = write(x).then(() => 'written', (e: Error) => e.message)
-        // Its checks passed and its write waits behind this lock.
-        await expect.poll(() => fileLockDepth(file(x)), { timeout: HUNG_MS }).toBe(2)
+        // It waits behind this lock.
+        await expect.poll(() => fileLockDepth(lock), { timeout: HUNG_MS }).toBe(2)
         toBeta(x)
       })
-      expect([what, await outcome]).toEqual([what, `Unknown task #${x}`])
+      // A reorder checks its cards once it has the board: another project's card is no card to the agent.
+      expect([what, await outcome]).toEqual([what, what === 'reorder' ? `There is no card #${x}.` : `Unknown task #${x}`])
       const after = await run(() => tasks.getTask(x))
       expect([after.column, after.blocked, after.comments.length, after.order]).toEqual(['todo', null, 0, before.order])
       expect(after.history).toEqual(before.history)
     }
   })
 
-  it("notes a safeguard switch only on cards still the agent's in Doing as they are under their lock (#606)", async () => {
+  it("notes a safeguard switch only on cards still the agent's in Doing as they are under the board lock (#606)", async () => {
     const { fileLockDepth, withFileLock } = await import('../src/main/fsutil')
     const { commentOnDoingCards } = await import('../src/main/cardSessions')
-    const file = (x: number): string => join(wsPath, '.hive', 'tasks', `${x}.json`)
-    const edit = (x: number, change: Record<string, unknown>): void => writeFileSync(file(x), JSON.stringify({ ...JSON.parse(readFileSync(file(x), 'utf8')), ...change }))
+    const lock = boardLockKey(wsPath)
+    const edit = (x: number, change: Record<string, unknown>): void => writeCardOutside(wsPath, x, { ...readCard(w, x), ...change })
     const said = '**Agent 1, after a safeguard stop:** it now runs on another model.'
     // Each way a card stops being the agent's while the comment waits for it: moved on, given to no one, taken to another project.
     const changes: Record<string, unknown>[] = [{ column: 'review' }, { agent: null }, { project: 'beta', agent: null }]
@@ -1345,10 +1344,10 @@ describe("a project agent's board", () => {
       const x = (await run(() => tasks.createTask({ title: 'Mine', project: 'alpha', agent: 'a1', column: 'doing' }, user))).number
       const kept = (await run(() => tasks.createTask({ title: 'Still mine', project: 'alpha', agent: 'a1', column: 'doing' }, user))).number
       let noted!: Promise<number[]>
-      await withFileLock(file(x), async () => {
+      await withFileLock(lock, async () => {
         noted = commentOnDoingCards(w, join(wsPath, 'alpha'), 'a1', said)
         // It chose the card (from the board as it was) and its write waits behind this lock.
-        await expect.poll(() => fileLockDepth(file(x)), { timeout: HUNG_MS }).toBe(2)
+        await expect.poll(() => fileLockDepth(lock), { timeout: HUNG_MS }).toBe(2)
         edit(x, change)
       })
       expect([change, await noted]).toEqual([change, [kept]])
@@ -1371,9 +1370,7 @@ describe("a project agent's board", () => {
     expect(got.comment?.text).toBe('third, '.repeat(400).trim())
     expect(JSON.stringify(got)).not.toMatch(/first|second|xxxx/)
     // Equal times: the last added is the latest.
-    const f = join(wsPath, '.hive', 'tasks', `${l}.json`)
-    const c = JSON.parse(readFileSync(f, 'utf8'))
-    writeFileSync(f, JSON.stringify({ ...c, comments: c.comments.map((x: { text: string }) => ({ ...x, at: '2026-10-02T10:00:00.000Z' })) }))
+    await editCard(w, l, (c) => ({ ...c, comments: (c.comments as { text: string }[]).map((x) => ({ ...x, at: '2026-10-02T10:00:00.000Z' })) }))
     expect((await run(() => tasks.latestComment(l, alphaAgent))).comment?.by).toBe('Agent 1 (alpha)')
     // Another project's card, the workspace's or a missing one: unknown to the agent, readable for the others.
     await run(() => tasks.commentTask(n.B1, 'from the Assistant', assistant))

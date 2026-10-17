@@ -18,7 +18,7 @@ const log = createLogger('cards')
  */
 export async function recordCards(ws: WorkspaceService, projectPath: string, agentId: string, sessionId: string, still?: () => boolean, board?: TaskCard[]): Promise<void> {
   if (ws.isAssistantHome(projectPath)) return
-  const all = board ?? (await allTasks(ws))
+  const all = board ?? (await allTasks(ws, { archived: false }))
   const project = basename(projectPath)
   const cards = [
     ...agentDoingCards(all, project, agentId).map((c) => ({ number: c.number, title: c.title })),
@@ -45,7 +45,7 @@ export async function recordLiveCards(workspacePath: string, live: LiveSessionSt
   if (!ws?.path) return
   const running = live.filter((s) => s.sessionId && !s.settingUp && workspaceFor(s.projectPath) === ws)
   if (!running.length) return
-  const all = await allTasks(ws)
+  const all = await allTasks(ws, { archived: false })
   for (const s of running) {
     await recordCards(ws, s.projectPath, s.agentId, s.sessionId!, undefined, all).catch((e) => log.warn(`Could not record the cards of session ${s.sessionId}`, e))
   }
@@ -66,6 +66,6 @@ export async function commentOnDoingCards(ws: WorkspaceService, projectPath: str
   const project = basename(projectPath)
   const out: number[] = []
   // Each checked again under its lock: moved, reassigned or taken to another project meanwhile, it isn't the agent's now.
-  for (const c of agentDoingCards(await allTasks(ws), project, agentId)) if (await commentAsHive(c.number, said, ws, (card) => agentDoingCards([card], project, agentId).length === 1)) out.push(c.number)
+  for (const c of agentDoingCards(await allTasks(ws, { archived: false }), project, agentId)) if (await commentAsHive(c.number, said, ws, (card) => agentDoingCards([card], project, agentId).length === 1)) out.push(c.number)
   return out
 }
