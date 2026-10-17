@@ -62,7 +62,7 @@ const check = (name, ok, extra = '') => {
   await choose('Three columns')
   check('four agents in three columns: two page buttons, at once', (await buttons()) === 2, String(await buttons()))
   check('page 1 shows agents 1–3', (await shown()) === 'Agent 1,Agent 2,Agent 3', await shown())
-  check('the strip marks where page 2 starts', (await page.locator('.agent-tab[data-page-start]', { hasText: 'Agent 4' }).count()) === 1)
+  check('the summary chip counts the four agents (#975)', (await page.locator('.session-toolbar .summary-chip').innerText()).trim() === '4 idle', await page.locator('.session-toolbar .summary-chip').innerText())
   await go(2)
   check('page 2 has the fourth agent, its spare panes empty', (await shown()) === 'Agent 4' && (await panes()) === 3, `${await shown()} / ${await panes()}`)
   check('saved as the project layout', (await cfg()).layout === 'columns3', JSON.stringify(await cfg()))
@@ -82,12 +82,12 @@ const check = (name, ok, extra = '') => {
   const tipText = async () => (await page.locator('.tip').first().textContent({ timeout: 500 }).catch(() => '')) ?? ''
   check('the page button names its agents', !!(await lib.until(async () => (await tipText()).startsWith('Page 2: agents 5–6'), HUNG_MS)), await tipText())
   await page.mouse.move(0, 0)
-  // One at a time: no page buttons, the focused agent shown; clicking a tab shows that agent.
+  // One at a time: no page buttons, the focused agent shown; choosing an agent in the summary chip's list shows it (#975).
   await choose('One at a time')
   check('one at a time: no page buttons, one pane', (await buttons()) === 0 && (await panes()) === 1, `${await buttons()} / ${await panes()}`)
-  await page.locator('.agent-tab', { hasText: 'Agent 2' }).click()
+  await lib.showAgent(page, 'Agent 2')
   await lib.until(async () => (await shown()) === 'Agent 2', 5000)
-  check('a tab shows its agent', (await shown()) === 'Agent 2', await shown())
+  check("the summary chip's list shows its agent", (await shown()) === 'Agent 2', await shown())
   // The one that shows them all (six: a 3×2 grid) is automatic again.
   await choose('Grid of six')
   check('six agents in the grid of six: one page, saved as automatic', (await buttons()) === 0 && (await panes()) === 6 && (await cfg()).layout === 'auto', JSON.stringify((await cfg()).layout))
@@ -108,9 +108,9 @@ const check = (name, ok, extra = '') => {
   await add(1)
   check('Ctrl+Alt+PageDown: page 2, which grows as agents are added', (await active()) === '2' && (await shown()) === 'Agent 7,Agent 8', await shown())
   // Clicking an agent on the other page goes to that page.
-  await page.locator('.agent-tab', { hasText: 'Agent 3' }).click()
+  await lib.showAgent(page, 'Agent 3')
   await lib.until(async () => (await active()) === '1', 5000)
-  check('clicking an agent on page 1 goes there', (await active()) === '1')
+  check("choosing an agent on page 1 in the summary chip's list goes there", (await active()) === '1')
 
   // Twelve is the most.
   await add(4)
@@ -123,26 +123,23 @@ const check = (name, ok, extra = '') => {
   await page.screenshot({ path: path.join(lib.WORK, 'pages-3-twelve.png') })
 
   // Removing the focused agent on page 2 stays on page 2 (the next agent takes focus) until page 2 empties.
+  // Its menu from its pane's header (#975: the agent strip's tab had it), which shows and focuses it first.
   const remove = async (name) => {
-    await page.locator('.agent-tab', { hasText: name }).click({ button: 'right' })
+    await lib.agentMenu(page, name)
     await page.locator('.menu-item', { hasText: 'Remove Agent…' }).click()
     await page.locator('.dialog-footer button', { hasText: /^Remove$/ }).click()
-    // Gone from Hive and from the strip (the dialog closes before the removal has finished).
-    await lib.until(async () => !(await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === name) && !(await page.locator('.agent-tab').allInnerTexts()).some((t) => t.trim() === name), 10000)
+    // Gone from Hive and from the panes (the dialog closes before the removal has finished).
+    await lib.until(async () => !(await inv('workspace:refresh')).projects[0].agents.some((a) => a.name === name) && !(await page.locator('.pane-header-bar .agent-name').allInnerTexts()).some((t) => t.trim() === name), 10000)
   }
-  await page.locator('.agent-tab', { hasText: 'Agent 9' }).click()
-  await lib.sleep(300)
   await remove('Agent 9')
   check('removing an agent on page 2 stays on page 2', (await active()) === '2', await active())
-  check('the next agent takes its focus', (await page.locator('.agent-tab.focused, .agent-tab.active', { hasText: 'Agent 10' }).count()) === 1)
+  check('the next agent takes its focus', !!(await lib.until(async () => (await page.locator('.pane-header-bar.focused .agent-name', { hasText: /^Agent 10$/ }).count()) === 1, HUNG_MS)))
   await remove('Agent 12')
   check('removing another agent there stays too', (await active()) === '2', await active())
   const left = (await inv('workspace:refresh')).projects[0].agents
   for (const a of left.slice(7)) await inv('agents:remove', proj, a.id, { deleteWorktree: false })
   await inv('workspace:refresh')
   await lib.sleep(600)
-  await page.locator('.agent-tab', { hasText: 'Agent 7' }).click()
-  await lib.sleep(300)
   await remove('Agent 7')
   check('removing the only agent on page 2 goes to page 1', (await page.locator('.page-switch').count()) === 0 && (await panes()) >= 1)
 
@@ -150,13 +147,21 @@ const check = (name, ok, extra = '') => {
   const setLimit = (v) => inv('advanced:set', 'hive.agents.perProject', v, 'workspace')
   const agentsNow = async () => (await inv('workspace:refresh')).projects[0].agents
   const refusal = () => inv('agents:add', proj, { location: 'project', provider: 'claude-code' }).then(() => '', (e) => String(e.message ?? e))
-  const addButton = page.locator('.agent-strip button.agent-add').first()
+  // + Add ▾'s Configure Agent and Add… (#975), greyed out at the limit.
+  const addGreyed = async () => {
+    await page.locator('.session-toolbar .add-menu').click()
+    await lib.until(async () => (await lib.menuEntry(page, 'Configure Agent and Add…').count()) === 1, HUNG_MS)
+    const greyed = (await lib.menuEntry(page, 'Configure Agent and Add…').getAttribute('aria-disabled')) === 'true'
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
+    return greyed
+  }
   await add(12 - (await agentsNow()).length)
   const at12 = await refusal()
   check('back at twelve: a thirteenth is refused, naming the setting', /up to 12 agents \(Settings → Advanced → Agents per project\)/.test(at12), at12)
-  check('…and Add Agent is greyed out', !!(await lib.until(() => addButton.isDisabled(), HUNG_MS)))
+  check("…and + Add ▾'s Configure Agent and Add… is greyed out", !!(await lib.until(addGreyed, HUNG_MS)))
   await setLimit(24)
-  check('this workspace allows 24: Add Agent is back', !!(await lib.until(async () => !(await addButton.isDisabled()), HUNG_MS)))
+  check('this workspace allows 24: it is back', !!(await lib.until(async () => !(await addGreyed()), HUNG_MS)))
   await add(12)
   check('twenty-four agents', (await agentsNow()).length === 24, String((await agentsNow()).length))
   const at24 = await refusal()
@@ -165,16 +170,15 @@ const check = (name, ok, extra = '') => {
   check('24 in the grid of six: four pages', (await buttons()) === 4, String(await buttons()))
   await go(4)
   check('page 4: a full grid', (await shown()).split(',').length === 6, await shown())
-  // The most pages: two columns, all in the strip and the window, an agent tab or two too.
+  // The most pages: two columns, all in the toolbar and the window, beside Panes | Tiles, the summary chip and + Add ▾.
   const stripFits = () =>
     page.evaluate(() => {
-      const strip = document.querySelector('.agent-strip')
-      const out = [...document.querySelectorAll('.page-switch button, .layout-switch button, .agent-strip .agent-add')].filter((b) => {
+      const bar = document.querySelector('.session-toolbar')
+      const out = [...document.querySelectorAll('.page-switch button, .layout-switch button, .session-toolbar .add-menu, .session-toolbar .summary-chip, .view-switch button')].filter((b) => {
         const r = b.getBoundingClientRect()
         return r.width === 0 || r.left < 0 || r.right > window.innerWidth
       })
-      // Room left for the agent tabs (they scroll): at least one shows.
-      return { overflows: !!strip && strip.scrollWidth > strip.clientWidth + 1, out: out.length, tabs: (document.querySelector('.agent-tabs')?.clientWidth ?? 0) >= 100 }
+      return { overflows: !!bar && bar.scrollWidth > bar.clientWidth + 1, out: out.length }
     })
   // Twelve pages are more than buttons fit: ‹, "1 / 12" (a menu of every page), ›.
   const pager = async () => (await page.locator('.page-switch.compact .page-menu').innerText().catch(() => '')).trim()
@@ -189,11 +193,11 @@ const check = (name, ok, extra = '') => {
   check('› after the last goes round to page 1', !!(await lib.until(async () => (await pager()) === '1 / 12', HUNG_MS)), await pager())
   await page.locator('.page-switch button[aria-label="Previous agent page"]').click()
   check('‹ goes back to page 12', !!(await lib.until(async () => (await pager()) === '12 / 12', HUNG_MS)), await pager())
-  check('the pager and the layouts fit the strip', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0,"tabs":true}', JSON.stringify(await stripFits()))
+  check('the pager and the layouts fit the toolbar', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0}', JSON.stringify(await stripFits()))
   await page.screenshot({ path: path.join(lib.WORK, 'pages-4-24-columns2.png') })
   await lib.fitWindow(app, page, { width: 1024, height: 700 })
   await lib.until(async () => (await page.evaluate(() => window.innerWidth)) === 1024, HUNG_MS)
-  check('…also in a 1024-wide window', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0,"tabs":true}', JSON.stringify(await stripFits()))
+  check('…also in a 1024-wide window', JSON.stringify(await stripFits()) === '{"overflows":false,"out":0}', JSON.stringify(await stripFits()))
   await page.screenshot({ path: path.join(lib.WORK, 'pages-5-24-narrow.png') })
   // The agents table (#529) of 24 fits the window's height, without scrolling or fading out.
   const table = async () => {
@@ -236,7 +240,7 @@ const check = (name, ok, extra = '') => {
   check('the workspace value cleared (back to 12): the 24 agents stay', (await agentsNow()).length === 24)
   const after = await refusal()
   check('…and none can be added', /up to 12 agents/.test(after), after)
-  check('…Add Agent greyed out', !!(await lib.until(() => addButton.isDisabled(), HUNG_MS)))
+  check("…+ Add ▾'s Configure Agent and Add… greyed out", !!(await lib.until(addGreyed, HUNG_MS)))
 
   await app.close()
   process.exit(failed ? 1 : 0)

@@ -1,5 +1,5 @@
-// Moving a project's agents: dragging a strip tab, dragging a pane by its header onto another pane, dropping a tab on a
-// page button, Move Right across a page and its shortcut. The order is saved in project.json and a running agent's
+// Moving a project's agents: Move Left in an agent's menu (#975: the strip's tabs went), dragging a pane by its header
+// onto another pane, dropping a pane's header on a page button, Move Right across a page and its shortcut. The order is saved in project.json and a running agent's
 // terminal and session survive the moves. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -47,7 +47,6 @@ const check = (name, ok, extra = '') => {
   }
   const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
   const saved = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8')).agents.map((a) => a.name).join(',')
-  const tabNames = async () => (await page.locator('.agent-tab .agent-name').allInnerTexts()).join(',')
   const paneNames = async () => (await page.locator('.pane-header-bar .agent-name').allInnerTexts()).join(',')
   // A native drag: press, a first small move (so the drag starts), then over the target, and release.
   const drag = async (from, to, { dx = 0 } = {}) => {
@@ -80,15 +79,17 @@ const check = (name, ok, extra = '') => {
   await inv('pty:write', lib.ptyKey(alpha, one.id), '\r')
   await until(async () => (await live(one.id))?.status === 'finished', 15000)
   const session = (await live(one.id)).sessionId
-  check('starts in the order added', (await tabNames()) === 'One,Two,Three' && (await paneNames()) === 'One,Two,Three', await tabNames())
+  check('starts in the order added', saved() === 'One,Two,Three' && (await paneNames()) === 'One,Two,Three', await paneNames())
 
-  // Drag Three's tab onto One's left half: Three goes first.
-  const tab = (n) => page.locator('.agent-tab', { hasText: n })
-  await drag(tab('Three'), tab('One'), { dx: -20 })
-  check('dragging a tab moves the agent', !!(await until(async () => (await tabNames()) === 'Three,One,Two', HUNG_MS)), await tabNames())
-  check('the panes follow', (await paneNames()) === 'Three,One,Two', await paneNames())
-  check('the order is saved', !!(await until(async () => saved() === 'Three,One,Two', HUNG_MS)), saved())
-  await page.screenshot({ path: path.join(lib.WORK, 'reorder-1-tab.png') })
+  // Move Left twice in Three's menu (its pane header's, #975): Three goes first.
+  for (const want of ['One,Three,Two', 'Three,One,Two']) {
+    await lib.agentMenu(page, 'Three')
+    await lib.menuEntry(page, 'Move Left').click()
+    await until(async () => saved() === want, HUNG_MS)
+  }
+  check("Move Left in an agent's menu moves it", saved() === 'Three,One,Two', saved())
+  check('the panes follow', !!(await until(async () => (await paneNames()) === 'Three,One,Two', HUNG_MS)), await paneNames())
+  await page.screenshot({ path: path.join(lib.WORK, 'reorder-1-move-left.png') })
 
   // Drag One's pane by its header onto Two's pane: One takes Two's place.
   const header = (n) => page.locator('.pane-header-bar', { hasText: n }).locator('.agent-name')
@@ -119,8 +120,8 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
 
   // The shortcut moves the focused agent: One (last) to the left.
-  await page.locator('.agent-tab', { hasText: 'One' }).click()
-  await lib.sleep(300)
+  await lib.showAgent(page, 'One')
+  await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+Shift+ArrowLeft')
   check('Ctrl+Alt+Shift+Left moves the focused agent left', !!(await until(async () => saved() === 'Three,One,Two', HUNG_MS)), saved())
 
@@ -130,13 +131,13 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await page.locator('.page-switch button').count()) === 2, HUNG_MS)
   check('seven agents make two pages', (await page.locator('.page-switch button').count()) === 2)
   // Move Right on the sixth (last of page 1) takes it to page 2.
-  await page.locator('.agent-tab', { hasText: 'Six' }).click({ button: 'right' })
-  await page.locator('.menu .menu-item', { hasText: 'Move Right' }).click()
+  await lib.agentMenu(page, 'Six')
+  await lib.menuEntry(page, 'Move Right').click()
   check('Move Right crosses to the next page', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Seven,Six', HUNG_MS)), saved())
   check('and the view follows the agent to its page', !!(await until(async () => (await page.locator('.page-switch button.active').innerText()).trim() === '2', HUNG_MS)))
 
-  // Drop Six's tab on page 1's button: the last place on page 1.
-  await drag(tab('Six'), page.locator('.page-switch button[aria-label="Agent page 1"]'))
+  // Drop Six's pane header on page 1's button: the last place on page 1.
+  await drag(header('Six'), page.locator('.page-switch button[aria-label="Agent page 1"]'))
   check("dropping on a page button moves it to that page's last place", !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven', HUNG_MS)), saved())
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-3-pages.png') })
   check('still running throughout', (await live(one.id))?.sessionId === session)

@@ -169,6 +169,7 @@ interface HiveMessageValues {
   'actions.session.listFailed': undefined
   'actions.session.resumeFailed': undefined
   'actions.session.startFailed': undefined
+  'actions.sessionView.failed': undefined
   'actions.startAll.archiveMessage': { n: number; agent: string | number; project: string | number }
   'actions.startAll.failed': { all: string; tried: number; failed: string | number }
   'actions.startAll.noAgents': undefined

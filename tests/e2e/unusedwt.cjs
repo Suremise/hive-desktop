@@ -68,7 +68,7 @@ function pathWithoutGit() {
 
   // --- Remove Merged from its tab, keeping its worktree: one notice, with Review.
   await page.getByText('repo', { exact: true }).first().click()
-  await page.locator('.agent-tab', { hasText: 'Merged' }).click({ button: 'right' })
+  await lib.agentMenu(page, 'Merged')
   await page.locator('.menu-item', { hasText: 'Remove Agent…' }).click()
   await page.locator('.dialog').getByRole('button', { name: 'Keep worktree and branch' }).click()
   const keptToast = /Merged's worktree is kept/

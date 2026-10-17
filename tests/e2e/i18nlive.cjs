@@ -139,7 +139,8 @@ const check = (name, ok, extra = '') => {
     // sends it (no CLI runs); sent again while it is hovered, in case a refresh of the workspace replaced it.
     const signer = await lib.addAgent(inv, proj, { name: 'Signer' })
     await command('project.tab.session')
-    const tab = page.locator(`.agent-tab[data-agent="${signer.id}"]`)
+    // Its name on its pane's header, whose hover says what the strip's tab did (#975).
+    const tab = lib.paneHeader(page, 'Signer').locator('.agent-name')
     await lib.until(async () => (await tab.count()) === 1, HUNG_MS)
     const signedOut = { provider: 'claude-code', runId: 'i18nlive-signin', projectPath: proj, agentId: signer.id, agentName: 'Signer', cwd: proj, sessionId: '', status: 'signin', runtime: { lifecycle: 'signin', maintenance: null, attention: null, composer: 'free' }, startedAt: new Date().toISOString(), launchSignature: '', unseen: false, signIn: { message: 'Login expired · Please run /login', since: new Date().toISOString() } }
     const tipSays = (want) =>

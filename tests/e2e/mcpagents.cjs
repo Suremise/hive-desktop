@@ -56,9 +56,9 @@ const check = (name, ok, extra = '') => {
     check('a new agent gets all of the project\'s servers', !('mcpServers' in builder) && !('mcpServers' in tester))
 
     // --- Agent Settings: Only these, with notes unticked.
-    const tab = page.locator('.agent-tab', { hasText: 'Tester' })
-    await lib.until(async () => (await tab.count()) === 1, HUNG_MS)
-    await tab.click({ button: 'right' })
+    await lib.agentMenu(page, 'Tester')
+    // Its name on its pane's header: its hover is what its strip tab's was (#975).
+    const tab = lib.paneHeader(page, 'Tester').locator('.agent-name')
     await page.locator('.menu-item', { hasText: 'Agent Settings…' }).click()
     const dialog = page.getByRole('dialog', { name: 'Tester settings' })
     check('Agent Settings opens', !!(await lib.until(async () => (await dialog.count()) === 1, HUNG_MS)))

@@ -167,6 +167,7 @@
   "actions.session.listFailed": "无法列出会话",
   "actions.session.resumeFailed": "无法恢复会话",
   "actions.session.startFailed": "无法启动会话",
+  "actions.sessionView.failed": "无法切换视图",
   "actions.startAll.archiveMessage": "{n, plural, =1 {将归档 {project} 中 {agent} 的会话，并开始新会话：} other {将归档 {project} 中这 # 个智能体的会话，并各自开始新会话：}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, =1 {无法启动智能体} other {无法启动这些智能体}}} other {{tried} 个智能体中有 {failed} 个无法启动}}",
   "actions.startAll.noAgents": "没有智能体",

@@ -167,6 +167,7 @@
   "actions.session.listFailed": "Could not list sessions",
   "actions.session.resumeFailed": "Could not resume session",
   "actions.session.startFailed": "Could not start session",
+  "actions.sessionView.failed": "Could not change the view",
   "actions.startAll.archiveMessage": "{n, plural, one {{agent}'s session is archived in {project}, and each starts a fresh one:} other {The sessions of these # agents are archived in {project}, and each starts a fresh one:}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, one {Could not start the agent} other {Could not start the agents}}} other {{failed} of {tried} agents could not start}}",
   "actions.startAll.noAgents": "No agents",

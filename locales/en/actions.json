@@ -671,6 +671,10 @@
     "defaultMessage": "Could not start session",
     "description": "An error's title: starting a session failed."
   },
+  "actions.sessionView.failed": {
+    "defaultMessage": "Could not change the view",
+    "description": "An error's title: switching a project's Session tab between Panes and Tiles failed."
+  },
   "actions.startAll.archiveMessage": {
     "defaultMessage": "{n, plural, one {{agent}'s session is archived in {project}, and each starts a fresh one:} other {The sessions of these # agents are archived in {project}, and each starts a fresh one:}}",
     "description": "Archive and Start New (All)'s question, above the table of {n} agents ({agent}: the one's name) of a project ({project})."

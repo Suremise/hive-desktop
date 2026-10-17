@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
 import { StateMark } from './StateMark'
-import { AGENT_STATE_LABEL, agentState } from '@shared/agentState'
+import { AGENT_STATE_LABEL, AGENT_STATES, agentState, mostUrgent as mostUrgentState, projectAgentStates, stateSummary } from '@shared/agentState'
+import { agentDoingCards } from '@shared/tasks'
+import { cardsText } from '@shared/agentTable'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
-import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
 import { agentLimit, useAgentLimit } from '../advanced'
-import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
+import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage, SessionView } from '@shared/types'
 import { TEMPLATE_SCOPES, shownProblem, type TemplateEntry } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
 import type { AgentLeftovers } from '@shared/agentProcesses'
@@ -25,12 +27,11 @@ import { TerminalView } from './TerminalView'
 import { offerTip } from '../tips'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
 import { ModeBadge } from './PermissionMode'
-import { ProviderIcon } from './ProviderIcon'
 import { contextLines, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
 import { safeguardText } from '@shared/safeguards'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { unknownStateText } from '@shared/runtime'
-import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, Tooltip, useContextMenu, useFolds, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 26
@@ -365,7 +366,8 @@ function useDragCleanup(): void {
 
 const REMOVE_AGENT = msg({ id: 'panes.menu.remove', defaultMessage: 'Remove Agent…', description: "Menu item (an agent's menu): removes the agent from the project (asks first)." })
 const CANCEL_WATCH_FAILED = msg({ id: 'panes.watchCancel.failed', defaultMessage: 'Could not cancel the watch', description: "An error's title: ending an agent's watch failed." })
-const CONFIGURE_AGENT = msg({ id: 'panes.add.configure', defaultMessage: 'Configure Agent and Add…', description: 'Button and menu item (the agent strip): opens the Add Agent dialog (provider, where it works, settings).' })
+const FROM_TEMPLATE = msg({ id: 'panes.add.fromTemplate', defaultMessage: 'Add Agent from Template', description: "Menu item (+ Add ▾ in the session toolbar, and the Add Agent button's ▾): adds one agent of a saved template." })
+const CONFIGURE_AGENT = msg({ id: 'panes.add.configure', defaultMessage: 'Configure Agent and Add…', description: 'Menu item (+ Add ▾ in the session toolbar, and the Add Agent button\'s ▾): opens the Add Agent dialog (provider, where it works, settings).' })
 
 /** Move Left / Move Right, for a project with several agents (they cross pages at the edges). */
 function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
@@ -441,14 +443,14 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?:
 }
 
 /**
- * Add Agent split button (#286): the main part is Configure Agent and Add… (the Add Agent dialog: provider, where it
- * works, settings); ▾ offers it too and, for a project, Add Agent from Template (one agent of a template). The quick add
- * with default settings is the palette's Add Agent (Ctrl+Alt+Shift+N). `strip`: the agent strip's, which also answers
- * the palette's Add Agent from Template….
+ * Add Agent split button (#286), where a project or a pane has no agent yet: the main part is Configure Agent and Add…
+ * (the Add Agent dialog: provider, where it works, settings); ▾ offers it too and, for a project, Add Agent from Template
+ * (one agent of a template). The quick add with default settings is the palette's Add Agent (Ctrl+Alt+Shift+N), and the
+ * session toolbar's + Add ▾ has them all (#975).
  */
-const ADD_AGENT = msg({ id: 'panes.add.button', defaultMessage: 'Add Agent', description: 'Button (the agent strip): adds an agent to the project. Keep it short.' })
+const ADD_AGENT = msg({ id: 'panes.add.button', defaultMessage: 'Add Agent', description: 'Button (an empty project or pane), and an item of the session toolbar\'s + Add ▾ (a quick add with the default provider and settings): adds an agent to the project. Keep it short.' })
 
-export function AddAgentButton({ project, className, label, strip, iconOnly }: { project: ProjectInfo; className?: string; label?: string; strip?: boolean; iconOnly?: boolean }) {
+export function AddAgentButton({ project, className, label, iconOnly }: { project: ProjectInfo; className?: string; label?: string; iconOnly?: boolean }) {
   useLanguage()
   const menu = useContextMenu()
   const caret = useRef<HTMLButtonElement>(null)
@@ -456,7 +458,7 @@ export function AddAgentButton({ project, className, label, strip, iconOnly }: {
   const full = project.agents.length >= limit
   const templates = !isAssistantPath(project.path)
   const configure = (): void => set({ addAgentFor: project.path })
-  const tip = full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.tip', defaultMessage: 'Configure Agent and Add…: choose its provider, where it works and its settings', description: 'Tooltip of the Add Agent button (the agent strip). "Configure Agent and Add…" names the dialog it opens: use its translation.' }))
+  const tip = full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.tip', defaultMessage: 'Configure Agent and Add…: choose its provider, where it works and its settings', description: 'Tooltip of the Add Agent button (an empty project or pane). "Configure Agent and Add…" names the dialog it opens: use its translation.' }))
   const fromTemplate = async (keyboard: boolean): Promise<void> => {
     const at = caret.current && below(caret.current)
     const all = await templateList(project.path)
@@ -468,12 +470,11 @@ export function AddAgentButton({ project, className, label, strip, iconOnly }: {
       ...below(caret.current),
       [
         { label: tr(CONFIGURE_AGENT), icon: 'settings-gear', disabled: full, onClick: configure },
-        ...(templates ? [{ label: tr(msg({ id: 'panes.add.fromTemplate', defaultMessage: 'Add Agent from Template', description: 'Menu item (Add Agent ▾): adds one agent of a saved template.' })), icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) }] : [])
+        ...(templates ? [{ label: tr(FROM_TEMPLATE), icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) }] : [])
       ],
       keyboard
     )
   }
-  useStripMenu(strip ? project.path : null, 'addFromTemplate', () => void fromTemplate(true))
   return (
     <span className="split-btn">
       <Tooltip content={tip}>
@@ -506,61 +507,12 @@ function useUnmerged(project: ProjectInfo, a: AgentInfo): ReturnType<typeof unme
 
 const TO_MERGE = msg({ id: 'panes.worktree.toMerge', defaultMessage: 'To merge: {work}', description: "In a worktree agent's hover: what is left to merge ({work}: \"2 commits not merged into main\")." })
 
-/**
- * A worktree agent's mark on its tab and pane header (#287): the worktree icon only; its branch, folder, base and what
- * is left to merge are in its tooltip (on hover, or keyboard focus) and its accessible name.
- */
-function WorktreeMark({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
-  const work = useUnmerged(project, a)
-  if (!a.worktree) return null
-  const { branch, path, base } = a.worktree
-  const tip = [
-    tr(msg({ id: 'panes.worktree.tip', defaultMessage: 'Worktree: {branch}\nin {path}\nbranched from {base}', description: "Hover of a worktree agent's mark (its tab), three lines: its branch, its folder and the branch it was made from. Keep the line breaks." }), { branch, path, base }),
-    ...(work?.badge ? [tr(TO_MERGE, { work: work.text })] : [])
-  ].join('\n')
-  return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>} focus>
-      <span className="agent-branch" role="img" tabIndex={0} aria-label={tr(msg({ id: 'panes.worktree.label', defaultMessage: 'Worktree: {branch} in {path}', description: "Accessible name of a worktree agent's mark: its branch and its folder." }), { branch, path })}>
-        <Icon name="worktree" />
-      </span>
-    </Tooltip>
-  )
-}
-
-/** On an agent's tab: ↑ and its unmerged commits (• for only uncommitted files). */
-function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
-  const work = useUnmerged(project, a)
-  if (!work?.badge) return null
-  return (
-    <span className="agent-unmerged" aria-label={work.text}>
-      {work.badge === '•' ? '•' : <><Icon name="arrow-up" />{work.badge}</>}
-    </span>
-  )
-}
-
 /** "…and 5 more", the last line of a list cut short. */
 const MORE_LINES = msg({ id: 'panes.list.more', defaultMessage: '…and {n, number} more', description: 'The last line of a list in a hover cut short (files, processes): how many more ({n}).' })
 
-/** Above the files an agent is editing (its tab's lock mark, its pane's ⋯). */
-const LOCKS_TITLE = msg({ id: 'panes.locks.title', defaultMessage: 'Files it is editing this turn:', description: "Above the files an agent is editing (a worktree agent): its tab's lock mark's hover, its pane's ⋯ menu." })
-const LOCKS_TITLE_SHARED = msg({ id: 'panes.locks.titleShared', defaultMessage: 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:', description: "Above the files an agent is editing (an agent sharing the project's folder): its tab's lock mark's hover, its pane's ⋯ menu." })
-
-function Locks({ a }: { a: AgentInfo }) {
-  const files = a.live?.lockedFiles
-  if (!files?.length) return null
-  // A worktree has one agent, so nobody waits for its files; in a shared folder the lock is what matters.
-  const title = a.worktree
-    ? tr(LOCKS_TITLE)
-    : tr(LOCKS_TITLE_SHARED)
-  const more = files.length > 20 ? `\n${tr(MORE_LINES, { n: files.length - 20 })}` : ''
-  return (
-    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${title}\n${files.slice(0, 20).join('\n')}${more}`}</span>}>
-      <span className="agent-locks">
-        <Icon name="lock" /> {files.length}
-      </span>
-    </Tooltip>
-  )
-}
+/** Above the files an agent is editing (its pane's ⋯). */
+const LOCKS_TITLE = msg({ id: 'panes.locks.title', defaultMessage: 'Files it is editing this turn:', description: "Above the files an agent is editing (a worktree agent), in its pane's ⋯ menu." })
+const LOCKS_TITLE_SHARED = msg({ id: 'panes.locks.titleShared', defaultMessage: 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:', description: "Above the files an agent is editing (an agent sharing the project's folder), in its pane's ⋯ menu." })
 
 /**
  * What the pane's ⋯ shows above the agent's menu (#977: these were marks on its header), and what its badge says:
@@ -735,34 +687,6 @@ function useStripMenu(project: string | null, which: StripMenu, open: () => void
   }, [project, which, agent])
 }
 
-/**
- * The agent strip's Template ▾ (#126, #286): Save Template…, then the workspace's and the project's templates to load.
- * Labelled when there's room, its icon when less; the agent tabs give way first (they scroll).
- */
-const TEMPLATE = msg({ id: 'panes.template.button', defaultMessage: 'Template', description: 'The Template ▾ button on the agent strip (save or load agent templates). Keep it short.' })
-
-function TemplateButton({ project, labelled, bare }: { project: ProjectInfo; labelled: boolean; bare?: boolean }) {
-  const menu = useContextMenu()
-  const button = useRef<HTMLButtonElement>(null)
-  const open = async (keyboard: boolean): Promise<void> => {
-    const at = button.current && below(button.current)
-    const all = await templateList(project.path)
-    if (at && all) menu.openAt(...at, templateMenuItems(project, all), keyboard)
-  }
-  useStripMenu(project.path, 'loadTemplate', () => void open(true))
-  return (
-    <div className="template-controls">
-      <Tooltip content={tr(msg({ id: 'panes.template.tip', defaultMessage: "Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)", description: 'Tooltip of the Template ▾ button (the agent strip).' }))}>
-        <button ref={button} className="btn subtle small" aria-label={tr(TEMPLATE)} aria-haspopup="menu" onClick={(e) => void open(e.detail === 0)}>
-          <Icon name="library" />
-          {labelled && ` ${tr(TEMPLATE)}`} {!bare && <Icon name="chevron-down" />}
-        </button>
-      </Tooltip>
-      {menu.element}
-    </div>
-  )
-}
-
 /** The pane header's status, with what to do when a refused sign-in stopped the agent (#309). */
 function SignInTip({ live, children }: { live: LiveSessionState | null; children: ReactNode }) {
   const note = signInNote(live)
@@ -797,40 +721,42 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   return <span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>
 }
 
-/** A layout's name, for its button on the agent strip: "Two columns". */
-const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.name', defaultMessage: '{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}', description: "A pane layout's name: its button's tooltip and accessible name on the agent strip." }), { layout: l })
+/** A layout's name, for its button in the session toolbar: "Two columns". */
+const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.name', defaultMessage: '{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}', description: "A pane layout's name: its button's tooltip and accessible name in the session toolbar." }), { layout: l })
 
-/** The strip's width from which Template ▾ is labelled (else its icon). */
-const TEMPLATE_LABEL_FROM = 720
-/** The least room the agent tabs keep before the strip's other controls fold (#886): about one tab and a half. */
-const TABS_MIN = 96
 /**
- * How far the strip's controls fold: Add Agent shows its icon only; then the layouts are one button with a menu; then the
- * page buttons are the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
+ * How far the toolbar's controls fold when short of room (#886): the layouts become one button with a menu; then the page
+ * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
  */
-const STRIP_FOLDS = 4
+const TOOLBAR_FOLDS = 3
 
-/** The width the agent strip needs: its controls on one row, and the tabs their least room (`useFolds`, #886). */
-function stripNeed(el: HTMLElement): number | null {
-  const wrap = el.querySelector<HTMLElement>(':scope > .agent-tabs-wrap')
-  const tabs = wrap?.querySelector<HTMLElement>('.agent-tabs')
-  if (!wrap || !tabs) return null
-  const items = [...el.children].filter((c) => c !== wrap && !c.classList.contains('grow') && !c.classList.contains('menu')) as HTMLElement[]
+/** The width the session toolbar needs: its controls on one row, the summary chip whole (`useFolds`, #886). */
+function toolbarNeed(el: HTMLElement): number | null {
+  const items = [...el.children].filter((c) => !c.classList.contains('grow') && !c.classList.contains('menu')) as HTMLElement[]
+  if (!items.length) return null
   const gap = parseFloat(getComputedStyle(el).columnGap) || 0
-  return Math.ceil(items.reduce((n, c) => n + c.getBoundingClientRect().width, 0) + gap * items.length + Math.min(tabs.scrollWidth, TABS_MIN))
+  const chip = el.querySelector<HTMLElement>('.summary-chip-text')
+  const chipShort = chip ? chip.scrollWidth - chip.clientWidth : 0
+  return Math.ceil(items.reduce((n, c) => n + c.getBoundingClientRect().width, 0) + gap * Math.max(0, items.length - 1) + chipShort)
 }
 
-/** The row above the Session tab: one tab per agent, Add Agent, Template ▾, the pages and the layout choice. */
-export function AgentStrip({ project }: { project: ProjectInfo }) {
-  const panes = usePanes(project)
-  const [stripWidthRef, stripWidth] = useWidth<HTMLDivElement>()
-  const strip = useRef<HTMLDivElement | null>(null)
-  const stripRef = useCallback(
+const VIEW_NAME = msg({ id: 'panes.view.name', defaultMessage: '{view, select, tiles {Tiles} other {Panes}}', description: "The Session tab's two views, on its Panes | Tiles toggle: Panes shows the agents' terminals, Tiles a small tile per agent. Keep them short." })
+const ADD = msg({ id: 'panes.add.menu', defaultMessage: 'Add', description: "The session toolbar's + Add ▾ button: adds agents (the dialog, a quick add, from a template) and saves or loads templates. Keep it short." })
+
+/**
+ * The Session tab's toolbar (#975, replacing the agent strip): the Panes | Tiles toggle, the summary chip ("1 waiting ·
+ * 2 working · 3 idle", whose ▾ lists every agent to jump to), and on the right, for Panes, the pages and the layouts, then
+ * + Add ▾ (Add Agent…, Add Agent, Add Agent from Template ▸, Templates ▸). Each agent's own controls are on its pane.
+ */
+export function SessionToolbar({ project, view }: { project: ProjectInfo; view: SessionView }) {
+  const [widthRef, width] = useWidth<HTMLDivElement>()
+  const bar = useRef<HTMLDivElement | null>(null)
+  const barRef = useCallback(
     (el: HTMLDivElement | null) => {
-      strip.current = el
-      stripWidthRef(el)
+      bar.current = el
+      widthRef(el)
     },
-    [stripWidthRef]
+    [widthRef]
   )
   const language = useLanguage()
   // A second agent: the tip about layouts and file locks, the first time.
@@ -838,8 +764,12 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   useEffect(() => void (several && offerTip('second-agent')), [several])
   const focused = useStore((s) => s.focusedAgent[project.path]) ?? project.agents[0]?.id
   const menu = useContextMenu()
-  const picker = useSessionPicker()
+  const chipMenu = useContextMenu()
+  const addMenu = useContextMenu()
+  const chip = useRef<HTMLButtonElement>(null)
+  const add = useRef<HTMLButtonElement>(null)
   const page = agentPage(project, focused ?? null)
+  const panesView = view === 'panes'
   // One layout for the project; a page holds as many agents as it has panes (#134).
   const layout = projectLayout(project.config)
   const perPage = agentsPerPage(layout)
@@ -849,43 +779,93 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
   const fresh = useStore((s) => s.newAgents[project.path] ?? NO_IDS)
   // Agents the Assistant added on the page shown are seen.
   useEffect(() => {
+    if (!panesView) return
     const here = pageAgents(project.agents, page, perPage).map((a) => a.id).filter((id) => fresh.includes(id))
     if (here.length) seenAgents(project.path, here)
-  }, [fresh, page, perPage, project.agents, project.path])
+  }, [fresh, page, perPage, project.agents, project.path, panesView])
   const dragging = useAgentDrag(project)
   const removing = useStore((s) => s.running)
-  // Where a dragged agent would land: before this agent (null: at the end).
-  const [dropBefore, setDropBefore] = useState<string | null | undefined>(undefined)
+  const tasks = useStore((s) => s.tasks)
+  const limit = useAgentLimit()
+  const full = project.agents.length >= limit
+  const assistant = isAssistantPath(project.path)
   const [dropPage, setDropPage] = useState<number | null>(null)
   // A page button being held over while dragging: its page shows after PAGE_HOVER_MS.
   const pageHover = useRef<{ page: number; timer: ReturnType<typeof setTimeout> } | null>(null)
   useDragCleanup()
   useEffect(() => {
     if (!dragging) {
-      setDropBefore(undefined)
       setDropPage(null)
       if (pageHover.current) clearTimeout(pageHover.current.timer)
       pageHover.current = null
     }
   }, [dragging])
-  const ids = project.agents.map((a) => a.id)
-  // The focused agent's tab stays in view when the tabs don't all fit.
-  const tabs = useRef<HTMLDivElement>(null)
-  // Tabs scrolled out of view: the strip fades out at that end (#886).
-  const tabsMore = useScrollEdges(tabs)
-  // Short of room, the controls fold before the tabs lose their least room (#886): Add Agent to its icon, then the layouts
-  // to one button with a menu.
-  const folds = useFolds(strip, stripWidth, [language, project.agents.length, pages, layout, many, isAssistantPath(project.path)].join('|'), STRIP_FOLDS, stripNeed)
-  useEffect(() => {
-    tabs.current?.querySelector('.agent-tab.focused')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [focused, project.agents.length])
+  const folds = useFolds(bar, width, [language, project.agents.length, pages, layout, many, view, assistant].join('|'), TOOLBAR_FOLDS, toolbarNeed)
+  // Each agent's state (#973), with what the board says of it (a card blocked on you, a Doing card while it isn't running).
+  const states = projectAgentStates(project, tasks)
+  // The chip's list: every agent, most urgent first, the project's order within a state.
+  const agentList = (): MenuEntry[] =>
+    project.agents
+      .map((a, i) => ({ a, i, state: states[i] }))
+      .sort((x, y) => AGENT_STATES.indexOf(x.state) - AGENT_STATES.indexOf(y.state) || x.i - y.i)
+      .map(({ a, state }) => {
+        const busy = !!removing[`removeAgent:${project.path}#${a.id}`]
+        const cards = assistant ? [] : agentDoingCards(tasks, project.name, a.id)
+        const status = a.live ? statusText(a.live) : tr(msg({ id: 'panes.chip.notRunning', defaultMessage: 'Not running', description: "An agent's status in the summary chip's list of agents: its session isn't running." }))
+        return {
+          ...(busy ? { icon: 'loading' } : { state }),
+          label: a.name,
+          // Its state in words (the mark is decorative), unless its status already starts with them ("Working…").
+          detail: [busy ? tr(msg({ id: 'panes.chip.removing', defaultMessage: 'Removing…', description: "An agent's status in the summary chip's list while it is being removed." })) : tr(AGENT_STATE_LABEL[state]), status, cardsText(cards)]
+            .filter((part, k, all) => !!part && !(k === 1 && part.toLowerCase().startsWith(all[0].toLowerCase())))
+            .join(' · '),
+          onClick: () => showAgent(project, a.id)
+        }
+      })
+  const openChip = (keyboard: boolean): void => {
+    if (chip.current) chipMenu.openAt(...below(chip.current), agentList(), keyboard)
+  }
+  // + Add ▾: the dialog, the quick add, one agent of a template, and the templates themselves.
+  const fromTemplate = async (keyboard: boolean): Promise<void> => {
+    const at = add.current && below(add.current)
+    const all = await templateList(project.path)
+    if (at && all) addMenu.openAt(...at, addFromTemplateItems(project, all), keyboard)
+  }
+  const templates = async (keyboard: boolean): Promise<void> => {
+    const at = add.current && below(add.current)
+    const all = await templateList(project.path)
+    if (at && all) addMenu.openAt(...at, templateMenuItems(project, all), keyboard)
+  }
+  const quickKey = commandKeybinding('agent.add')
+  const openAdd = (keyboard: boolean): void => {
+    if (!add.current) return
+    addMenu.openAt(
+      ...below(add.current),
+      [
+        { label: tr(CONFIGURE_AGENT), icon: 'settings-gear', disabled: full, detail: full ? agentLimitText(limit, tr) : undefined, onClick: () => set({ addAgentFor: project.path }) },
+        { label: tr(ADD_AGENT), icon: 'add', disabled: full, keybinding: quickKey ? formatKeybinding(quickKey) : undefined, detail: tr(msg({ id: 'panes.add.quickDetail', defaultMessage: 'At once, with your defaults', description: "The detail of + Add ▾'s Add Agent: it adds an agent at once, with the default provider and settings, working in the project folder. Keep it short." })), onClick: () => void actions.quickAddAgent(project.path) },
+        ...(assistant
+          ? []
+          : [
+              { label: tr(FROM_TEMPLATE), icon: 'library', more: true, disabled: full, onClick: (k: boolean) => void fromTemplate(k) },
+              { separator: true as const },
+              { label: tr(msg({ id: 'panes.add.templates', defaultMessage: 'Templates', description: "Menu item (+ Add ▾): opens the templates menu (save this project's agents and layout as a template, or load one)." })), icon: 'library', more: true, onClick: (k: boolean) => void templates(k) }
+            ])
+      ],
+      keyboard
+    )
+  }
+  // The palette's Add Agent from Template… and Load Template… open their menus here.
+  useStripMenu(assistant ? null : project.path, 'addFromTemplate', () => void fromTemplate(true))
+  useStripMenu(assistant ? null : project.path, 'loadTemplate', () => void templates(true))
   /**
-   * The button that shows page i (#134): a dot for its most urgent agent, or one the Assistant added there; a drop target
-   * while an agent is dragged (#135, #238). `as`: the compact pager's ‹ and › (more than PAGE_BUTTONS_MAX pages, #562).
+   * The button that shows page i (#134): a mark for its most urgent agent, or a dot for one the Assistant added there; a
+   * drop target while an agent is dragged (#135, #238). `as`: the compact pager's ‹ and › (more than PAGE_BUTTONS_MAX
+   * pages, #562).
    */
   const pageButton = (i: number, as?: { label: string; name: string }): ReactNode => {
     const onPage = pageAgents(project.agents, i, perPage)
-    // Another page's most urgent agent shows as a dot on its button, or one the Assistant added there.
+    // Another page's most urgent agent shows on its button, or one the Assistant added there.
     const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
     const added = page !== i && onPage.some((a) => fresh.includes(a.id))
     // A drop here moves the agent to this page's last place: not a target where it already is (#238). Held over,
@@ -898,7 +878,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           msg({
             id: 'panes.pages.tip',
             defaultMessage: '{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}',
-            description: "Tooltip of a page button on the agent strip: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+            description: "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
           }),
           { button: as ? as.name : 'none', page: i + 1, count: onPage.length, first: i * perPage + 1, last: i * perPage + onPage.length, added: added ? 'yes' : 'no', key: pageKb ? formatKeybinding(pageKb) : 'none' }
         )}
@@ -906,12 +886,11 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
         <button
           className={cx(!as && page === i && 'active', moves && dropPage === i && 'drop-target')}
           onClick={() => showPage(project, i)}
-          aria-label={as ? as.name : tr(msg({ id: 'panes.pages.button', defaultMessage: 'Agent page {page}', description: 'Accessible name of a numbered page button on the agent strip.' }), { page: i + 1 })}
+          aria-label={as ? as.name : tr(msg({ id: 'panes.pages.button', defaultMessage: 'Agent page {page}', description: 'Accessible name of a numbered page button in the session toolbar.' }), { page: i + 1 })}
           onDragOver={(e) => {
             if (!dragging) return
             if (moves) e.preventDefault()
             setDropPage(moves ? i : null)
-            setDropBefore(undefined)
             // Held over another page's button for a moment, that page shows, to drop on one of its panes (#135).
             if (i !== page && pageHover.current?.page !== i) {
               if (pageHover.current) clearTimeout(pageHover.current.timer)
@@ -938,10 +917,10 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       </Tooltip>
     )
   }
+  // The compact pager for more pages than buttons, or (folded, #886) for any pages in a toolbar short of room.
+  const compactPager = pages > PAGE_BUTTONS_MAX || (pages > 1 && folds >= 2)
+  const bare = folds >= 3
   // Every other page's most urgent agent, for the compact pager's menu button.
-  // The compact pager for more pages than buttons, or (folded, #886) for any pages in a strip short of room.
-  const compactPager = pages > PAGE_BUTTONS_MAX || (pages > 1 && folds >= 3)
-  const bare = folds >= 4
   const elsewhere = compactPager ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
   const pageMenu = (el: Element, keyboard: boolean): void => {
     const r = el.getBoundingClientRect()
@@ -949,7 +928,7 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       r.left,
       r.bottom + 2,
       Array.from({ length: pages }, (_, k) => ({
-        label: tr(msg({ id: 'panes.pages.item', defaultMessage: 'Page {page}', description: "An item of the agent strip's page menu (many pages); its detail lists the page's agents." }), { page: k + 1 }),
+        label: tr(msg({ id: 'panes.pages.item', defaultMessage: 'Page {page}', description: "An item of the session toolbar's page menu (many pages); its detail lists the page's agents." }), { page: k + 1 }),
         icon: k === page ? 'check' : undefined,
         detail: pageAgents(project.agents, k, perPage).map((a) => a.name).join(', '),
         onClick: () => showPage(project, k)
@@ -957,76 +936,45 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
       keyboard
     )
   }
+  const urgent = mostUrgentState(states)
   return (
-    <div className="agent-strip" ref={stripRef} data-folded={folds > 0 || undefined}>
-      {/* Scrolls sideways (mouse wheel too) when a project's agents don't fit; a line marks where each page starts. */}
-      {/* A chevron over an end with agents scrolled out of view (#886); a click scrolls that way (the tabs themselves are what the keyboard reaches). */}
-      <div className="agent-tabs-wrap">
-      <div className="agent-tabs scroll-fade" data-more={tabsMore || undefined} ref={tabs} onWheel={(e) => e.deltaY && (e.currentTarget.scrollLeft += e.deltaY)}>
-      {project.agents.map((a, i) => (
-        <Tooltip key={a.id} content={<AgentTabTip project={project} a={a} />}>
-          <div
-            data-page-start={i > 0 && i % perPage === 0 ? '' : undefined}
-            className={cx('agent-tab', focused === a.id && 'focused', panes.includes(a.id) && 'shown', dragging === a.id && 'dragging', dragging && dropBefore === a.id && 'drop-before', dragging && dropBefore === null && i === project.agents.length - 1 && 'drop-after')}
-            data-agent={a.id}
-            {...agentDragProps(project, a)}
-            onDragOver={(e) => {
-              if (!dragging) return
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              const r = e.currentTarget.getBoundingClientRect()
-              // The left half drops before this agent, the right half before the next one; no marker where the agent
-              // would stay where it is (#135: a highlight only where a drop does something).
-              const before = e.clientX < r.left + r.width / 2 ? a.id : (project.agents[i + 1]?.id ?? null)
-              setDropBefore(dropIndex(ids, dragging, before) === ids.indexOf(dragging) ? undefined : before)
-              setDropPage(null)
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              if (dragging && dropBefore !== undefined) dropAgent(project, dropIndex(ids, dragging, dropBefore))
-            }}
-            onClick={() => showAgent(project, a.id)}
-            onDoubleClick={() => set({ agentSettingsFor: { project: project.path, agentId: a.id } })}
-            onContextMenu={(e) => {
-              const { clientX: x, clientY: y } = e
-              menu.open(e, agentMenu(project, a, () => void picker.openAt(project, a, x, y)))
-            }}
-          >
-            {removing[`removeAgent:${project.path}#${a.id}`] ? <Icon name="loading" spin title={tr(msg({ id: 'panes.tab.removing', defaultMessage: 'Removing…', description: "Tooltip of the spinner on an agent's tab while it is being removed." }))} /> : <AgentDot project={project} a={a} />}
-            <ProviderIcon provider={agentProviderOf(project, a)} />
-            <span className="agent-name">{a.name}</span>
-            <WorktreeMark project={project} a={a} />
-            <CardChip project={project} a={a} short tip={false} />
-            <Locks a={a} />
-            <UnmergedBadge project={project} a={a} />
-          </div>
+    <div className="session-toolbar" ref={barRef} data-folded={folds > 0 || undefined}>
+      {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
+      <div className="segmented view-switch" role="radiogroup" aria-label={tr(msg({ id: 'panes.view.label', defaultMessage: 'Session view', description: "Accessible name of the Session tab's Panes | Tiles toggle." }))}>
+        {(['panes', 'tiles'] as const).map((v) => (
+          <button key={v} role="radio" aria-checked={view === v} className={cx(view === v && 'active')} data-view={v} onClick={() => view !== v && void actions.setSessionView(project.path, v)}>
+            {tr(VIEW_NAME, { view: v })}
+          </button>
+        ))}
+      </div>
+      {project.agents.length > 0 && (
+        <Tooltip content={tr(msg({ id: 'panes.chip.tip', defaultMessage: "The project's agents by state: choose one to go to it", description: "Tooltip of the session toolbar's summary chip (\"1 waiting · 2 working\"), which opens a list of the agents." }))}>
+          <button ref={chip} className={cx('summary-chip', urgent)} aria-haspopup="menu" aria-expanded={chipMenu.shown} onClick={(e) => openChip(e.detail === 0)}>
+            <StateMark state={urgent} decorative />
+            <span className="summary-chip-text">{stateSummary(states, true)}</span>
+            {!bare && <Icon name="chevron-down" />}
+          </button>
         </Tooltip>
-      ))}
-      </div>
-      {tabsMore.includes('left') && <ScrollMore dir="left" target={tabs} />}
-      {tabsMore.includes('right') && <ScrollMore dir="right" target={tabs} />}
-      </div>
-      <AddAgentButton project={project} className="subtle small agent-add" strip iconOnly={folds >= 1} />
+      )}
       <div className="grow" />
-      {/* On the right: Template ▾, then the pages beside the layouts they follow from (#292). */}
-      {!isAssistantPath(project.path) && <TemplateButton project={project} labelled={stripWidth >= TEMPLATE_LABEL_FROM} bare={bare} />}
-      {pages > 1 && !compactPager && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
-      {/* More pages than fit as buttons (up to 24 agents, #562), or a strip short of room (#886): ‹, which page of how
+      {/* On the right, for Panes: the pages beside the layouts they follow from (#292), then + Add ▾. */}
+      {panesView && pages > 1 && !compactPager && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
+      {/* More pages than fit as buttons (up to 24 agents, #562), or a toolbar short of room (#886): ‹, which page of how
           many (a menu of them all), ›; shortest, only the menu. */}
-      {compactPager && (
+      {panesView && compactPager && (
         <div className="segmented page-switch compact">
-          {!bare && pageButton((page - 1 + pages) % pages, { label: '‹', name: tr(msg({ id: 'panes.pages.previous', defaultMessage: 'Previous agent page', description: 'The ‹ button of the agent strip\'s compact pager (many pages): shows the previous page of agents.' })) })}
-          <Tooltip content={tr(msg({ id: 'panes.pages.menuTip', defaultMessage: 'Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}', description: "Tooltip of the agent strip's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)." }), { page: page + 1, pages, key: pageKb ? formatKeybinding(pageKb) : 'none' })}>
-            <button className="page-menu" aria-label={tr(msg({ id: 'panes.pages.menu', defaultMessage: 'Agent pages', description: "Accessible name of the agent strip's page menu (many pages)." }))} aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
+          {!bare && pageButton((page - 1 + pages) % pages, { label: '‹', name: tr(msg({ id: 'panes.pages.previous', defaultMessage: 'Previous agent page', description: "The ‹ button of the session toolbar's compact pager (many pages): shows the previous page of agents." })) })}
+          <Tooltip content={tr(msg({ id: 'panes.pages.menuTip', defaultMessage: 'Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}', description: "Tooltip of the session toolbar's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)." }), { page: page + 1, pages, key: pageKb ? formatKeybinding(pageKb) : 'none' })}>
+            <button className="page-menu" aria-label={tr(msg({ id: 'panes.pages.menu', defaultMessage: 'Agent pages', description: "Accessible name of the session toolbar's page menu (many pages)." }))} aria-haspopup="menu" onClick={(e) => pageMenu(e.currentTarget, e.detail === 0)}>
               {page + 1} / {pages}
               {!bare && <Icon name="chevron-down" />}
               {elsewhere && <span className={cx('dot', elsewhere.status, elsewhere.unseen && 'unseen')} />}
             </button>
           </Tooltip>
-          {!bare && pageButton((page + 1) % pages, { label: '›', name: tr(msg({ id: 'panes.pages.next', defaultMessage: 'Next agent page', description: "The › button of the agent strip's compact pager (many pages): shows the next page of agents." })) })}
+          {!bare && pageButton((page + 1) % pages, { label: '›', name: tr(msg({ id: 'panes.pages.next', defaultMessage: 'Next agent page', description: "The › button of the session toolbar's compact pager (many pages): shows the next page of agents." })) })}
         </div>
       )}
-      {(many || layout !== 'single') && folds >= 2 && (
+      {panesView && (many || layout !== 'single') && folds >= 1 && (
         <div className="segmented layout-switch">
           <Tooltip content={layoutLabel(layout)}>
             <button
@@ -1044,10 +992,10 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           </Tooltip>
         </div>
       )}
-      {(many || layout !== 'single') && folds < 2 && (
+      {panesView && (many || layout !== 'single') && folds < 1 && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
+            <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
               <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={layoutLabel(l.value)}>
                 <LayoutGlyph layout={l.value} />
               </button>
@@ -1055,8 +1003,15 @@ export function AgentStrip({ project }: { project: ProjectInfo }) {
           ))}
         </div>
       )}
+      <Tooltip content={full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.menuTip', defaultMessage: 'Add an agent (Add Agent…: choose its provider, where it works and its settings), or save and load templates', description: "Tooltip of the session toolbar's + Add ▾ button. \"Add Agent…\" is its first menu item: use its translation." }))}>
+        <button ref={add} className="btn subtle small add-menu" aria-haspopup="menu" aria-expanded={addMenu.shown} onClick={(e) => openAdd(e.detail === 0)}>
+          <Icon name="add" /> {tr(ADD)}
+          {!bare && <Icon name="chevron-down" />}
+        </button>
+      </Tooltip>
       {menu.element}
-      {picker.element}
+      {chipMenu.element}
+      {addMenu.element}
     </div>
   )
 }
@@ -1101,7 +1056,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const [ref, width] = useWidth<HTMLDivElement>()
   const live = a.live
   const failure = useStartFailure(project, a)
-  const provider = agentProviderOf(project, a)
+  const removing = useStore((s) => !!s.running[`removeAgent:${project.path}#${a.id}`])
   const cards = useAgentCards(project, a.id)
   const state = agentState(live, { blocked: cards.some((c) => !!c.blocked) })
   // For Compact… in ⋯: unavailable while the conversation is empty, recommended once its context passes the threshold.
@@ -1142,8 +1097,11 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         openMenu(e.clientX, e.clientY, false)
       }}
     >
-      {/* Its state mark (#973): a launch that failed is stalled; a card of its blocked on you is waiting for you. */}
-      {!live && failure ? (
+      {/* Its state mark (#973): a launch that failed is stalled; a card of its blocked on you is waiting for you. While
+          Remove or Remove All removes it, a spinner (#975: its tab in the agent strip had it). */}
+      {removing ? (
+        <Icon name="loading" spin title={tr(msg({ id: 'panes.tab.removing', defaultMessage: 'Removing…', description: "Tooltip of the spinner on an agent's pane header while it is being removed." }))} />
+      ) : !live && failure ? (
         <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's state mark (stalled): the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
           <StateMark state="stalled" label={tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." }))} />
         </Tooltip>
@@ -1152,8 +1110,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <StateMark state={state} />
         </Tooltip>
       )}
-      {/* Its provider is in the name's tooltip (the header showed its icon before #977). */}
-      <Tooltip content={tr(msg({ id: 'panes.header.nameTip', defaultMessage: '{agent} · {provider}', description: "Tooltip of the agent's name on its pane's header: its name and its provider (\"Claude Code\")." }), { agent: a.name, provider: providerName(provider) })}>
+      {/* Its provider is in the name's tooltip (the header showed its icon before #977), with everything its tab in the
+          agent strip said (#975: role, cards, session, worktree and what is left to merge). */}
+      <Tooltip content={<AgentTabTip project={project} a={a} />}>
         <span className="agent-name">{a.name}</span>
       </Tooltip>
       {live?.untakenLine ? (
@@ -1463,12 +1422,6 @@ export function PaneFooter({
 /** Why an agent's CLI exited before its session started, if it did (until its next launch or ✕). */
 function useStartFailure(project: ProjectInfo, a: AgentInfo | null): StartFailure | undefined {
   return useStore((s) => (a ? s.startFailures[projectKey(project.path, a.id)] : undefined))
-}
-
-/** An agent tab's status dot: red when its last launch failed to start. */
-function AgentDot({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
-  const failure = useStartFailure(project, a)
-  return <span className={cx('dot', a.live?.status ?? (failure ? 'error' : project.active ? 'idle' : 'stopped'), a.live?.unseen && 'unseen')} />
 }
 
 /** In place of "Session ended": why the CLI didn't start, what to do about it, Retry. The terminal above keeps the full output. */

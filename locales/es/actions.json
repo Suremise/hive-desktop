@@ -167,6 +167,7 @@
   "actions.session.listFailed": "No se pudieron mostrar las sesiones",
   "actions.session.resumeFailed": "No se pudo reanudar la sesión",
   "actions.session.startFailed": "No se pudo iniciar la sesión",
+  "actions.sessionView.failed": "No se pudo cambiar la vista",
   "actions.startAll.archiveMessage": "{n, plural, one {Se archiva la sesión del agente {agent} en el proyecto {project}, y el agente empieza una nueva:} many {Se archivan las sesiones de estos # agentes en el proyecto {project}, y cada uno empieza una nueva:} other {Se archivan las sesiones de estos # agentes en el proyecto {project}, y cada uno empieza una nueva:}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, one {No se pudo iniciar el agente} many {No se pudieron iniciar los agentes} other {No se pudieron iniciar los agentes}}} other {No se pudieron iniciar {failed} de {tried} agentes}}",
   "actions.startAll.noAgents": "No hay agentes",

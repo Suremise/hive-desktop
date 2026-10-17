@@ -62,10 +62,8 @@ const same = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLower
 
   const dialog = page.locator('.dialog', { hasText: 'Add an agent' })
   const openDialog = async () => {
-    if ((await page.locator('.agent-add.split-caret').count()) && (await agents()).length) {
-      await page.locator('.agent-add.split-caret').click()
-      await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
-    } else await page.locator('.agent-add:not(.split-caret)').first().click()
+    // The session toolbar's + Add ▾ (#975), with agents or without.
+    await lib.addMenuRun(page, 'Configure Agent and Add…')
     await lib.until(async () => (await dialog.count()) === 1, 5000)
     await dialog.locator('label', { hasText: 'Start a session now' }).locator('input').uncheck()
   }

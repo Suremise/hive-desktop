@@ -167,6 +167,7 @@
   "actions.session.listFailed": "Nie udało się wczytać listy sesji",
   "actions.session.resumeFailed": "Nie udało się wznowić sesji",
   "actions.session.startFailed": "Nie udało się rozpocząć sesji",
+  "actions.sessionView.failed": "Nie udało się zmienić widoku",
   "actions.startAll.archiveMessage": "{n, plural, one {Sesja agenta {agent} zostanie zarchiwizowana w projekcie {project}, a agent zacznie nową:} few {Sesje tych agentów (#) zostaną zarchiwizowane w projekcie {project}, a każdy z nich zacznie nową:} many {Sesje tych agentów (#) zostaną zarchiwizowane w projekcie {project}, a każdy z nich zacznie nową:} other {Sesje tych agentów (#) zostaną zarchiwizowane w projekcie {project}, a każdy z nich zacznie nową:}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, one {Nie udało się uruchomić agenta} few {Nie udało się uruchomić agentów} many {Nie udało się uruchomić agentów} other {Nie udało się uruchomić agentów}}} other {Nie udało się uruchomić {failed} z {tried} agentów}}",
   "actions.startAll.noAgents": "Brak agentów",

@@ -10,7 +10,9 @@ import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
-import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
+import { AddAgentButton, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, SessionToolbar, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
+import { AgentTiles } from '../components/AgentTiles'
+import { projectSessionView } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
@@ -300,7 +302,9 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const agentsMenu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
-  const terminalVisibleFor = visible && project && tab === 'session' ? project.path : null
+  // The Session tab's view (#975): Panes shows the terminals; Tiles hides them (they keep running) for a tile each (#976).
+  const view = project ? projectSessionView(project.config, settings) : 'panes'
+  const terminalVisibleFor = visible && project && tab === 'session' && view === 'panes' ? project.path : null
   const panes = usePanes(project)
   const focusedAgent = useFocusedAgent(project)
   // A narrow header shortens Resume's label; tighter, Resume, Stop, Active and Agents ▾ show as icons; tighter still
@@ -498,12 +502,13 @@ export function ProjectView({ visible }: { visible: boolean }) {
       <ProjectTabStrip project={project} tab={tab} live={!!live} />
 
       <div className="tab-body">
-        {tab === 'session' && <AgentStrip project={project} />}
-        <div className={cx('agents-area', tab === 'session' ? 'shown' : 'hidden')}>
+        {tab === 'session' && <SessionToolbar project={project} view={view} />}
+        <div className={cx('agents-area', tab === 'session' && view === 'panes' ? 'shown' : 'hidden')}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />
-          {tab === 'session' && <PaneChrome project={project} panes={panes} />}
-          {tab === 'session' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}
+          {tab === 'session' && view === 'panes' && <PaneChrome project={project} panes={panes} />}
+          {tab === 'session' && view === 'panes' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}
         </div>
+        {tab === 'session' && view === 'tiles' && <AgentTiles project={project} />}
         <ErrorBoundary view="tab" resetKey={`${project.path}|${tab}`}>
           {tab === 'overview' && <OverviewTab project={project} />}
           {tab === 'performance' && <PerformanceTab project={project} />}

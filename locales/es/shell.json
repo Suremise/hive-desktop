@@ -111,6 +111,7 @@
   "shell.command.session.startNewAllLive": "{several, select, yes {Empezar de nuevo ({n})…} other {Empezar de nuevo…}}",
   "shell.command.session.stop": "Detener la sesión",
   "shell.command.session.stopBackgroundAndResume": "Detener una sesión en segundo plano y reanudarla",
+  "shell.command.session.toggleView": "Cambiar entre Paneles y Mosaicos",
   "shell.command.settings.advanced": "Configuración avanzada",
   "shell.command.settings.keybindings": "Personalizar los atajos de teclado",
   "shell.command.settings.notifications": "Configuración de notificaciones",

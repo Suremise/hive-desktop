@@ -7,6 +7,10 @@ interface HiveMessageValues {
   'panes.add.caretTipNoTemplates': undefined
   'panes.add.configure': undefined
   'panes.add.fromTemplate': undefined
+  'panes.add.menu': undefined
+  'panes.add.menuTip': undefined
+  'panes.add.quickDetail': undefined
+  'panes.add.templates': undefined
   'panes.add.tip': undefined
   'panes.agent.merge': undefined
   'panes.agent.settings': undefined
@@ -20,6 +24,9 @@ interface HiveMessageValues {
   'panes.body.setupFirst': undefined
   'panes.body.skipSetup': undefined
   'panes.body.worktree': { branch: string | number }
+  'panes.chip.notRunning': undefined
+  'panes.chip.removing': undefined
+  'panes.chip.tip': undefined
   'panes.compact.busy': undefined
   'panes.compact.empty': undefined
   'panes.compact.running': undefined
@@ -50,7 +57,6 @@ interface HiveMessageValues {
   'panes.header.markIdle': undefined
   'panes.header.markIdleFailed': undefined
   'panes.header.more': undefined
-  'panes.header.nameTip': { agent: string | number; provider: string | number }
   'panes.header.notRunning': undefined
   'panes.header.stopTip': undefined
   'panes.header.unknownTip': undefined
@@ -153,7 +159,6 @@ interface HiveMessageValues {
   'panes.table.watching': undefined
   'panes.table.worktree': undefined
   'panes.table.worktreePrefix': { value: string | number }
-  'panes.template.button': undefined
   'panes.template.detail': { n: number; layout: string | number }
   'panes.template.heading': { template: string | number; scope: string }
   'panes.template.layout': { layout: string }
@@ -163,9 +168,12 @@ interface HiveMessageValues {
   'panes.template.ownWorktree': undefined
   'panes.template.save': undefined
   'panes.template.scopeHeading': { scope: string }
-  'panes.template.tip': undefined
   'panes.terminal.exited': { code: string | number }
   'panes.terminal.pasteFailed': undefined
+  'panes.tiles.backToPanes': undefined
+  'panes.tiles.placeholder': undefined
+  'panes.view.label': undefined
+  'panes.view.name': { view: string }
   'panes.watch.agents': { agents: string | number }
   'panes.watch.cards': { cards: string | number }
   'panes.watch.cardsInto': { cards: string | number; column: string | number }
@@ -173,7 +181,5 @@ interface HiveMessageValues {
   'panes.watchCancel.failed': undefined
   'panes.watchCell.agents': { agents: string | number }
   'panes.watchCell.cardsInto': { cards: string | number; column: string | number }
-  'panes.worktree.label': { branch: string | number; path: string | number }
-  'panes.worktree.tip': { branch: string | number; path: string | number; base: string | number }
   'panes.worktree.toMerge': { work: string | number }
 }

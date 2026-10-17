@@ -167,6 +167,7 @@
   "actions.session.listFailed": "Sitzungen konnten nicht aufgelistet werden",
   "actions.session.resumeFailed": "Sitzung konnte nicht fortgesetzt werden",
   "actions.session.startFailed": "Sitzung konnte nicht gestartet werden",
+  "actions.sessionView.failed": "Ansicht konnte nicht gewechselt werden",
   "actions.startAll.archiveMessage": "{n, plural, one {Die Sitzung von Agent {agent} wird in {project} archiviert, und der Agent beginnt eine neue:} other {Die Sitzungen dieser # Agenten werden in {project} archiviert, und jeder beginnt eine neue:}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, one {Agent konnte nicht gestartet werden} other {Agenten konnten nicht gestartet werden}}} other {{failed} von {tried} Agenten konnten nicht gestartet werden}}",
   "actions.startAll.noAgents": "Keine Agenten",
