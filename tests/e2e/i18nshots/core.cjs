@@ -53,7 +53,7 @@ async function progress(ctx) {
   const passed = (await api('POST', '/v1/progress', { title: 'lint', command: 'npm run lint' })).id
   await api('POST', `/v1/progress/${passed}/finish`, { ok: true })
   await api('POST', '/v1/progress', { title: 'unit tests', command: 'npm test', waiting: 'a test slot' })
-  await api('POST', '/v1/progress', { title: 'e2e: full set before merging', command: 'npm run e2e -- --affected', total: 12, step: 4, stepName: 'carddialog', estimateMs: 6 * 60_000 })
+  await api('POST', '/v1/progress', { title: 'e2e: full set before the release', command: 'npm run e2e -- --all', total: 12, step: 4, stepName: 'carddialog', estimateMs: 6 * 60_000 })
   const panel = page.locator('.progress-panel')
   if (!(await panel.count())) await ctx.command('progress.toggle')
   await shown(ctx, panel.locator('.progress-run'), 'the Progress panel with its runs')

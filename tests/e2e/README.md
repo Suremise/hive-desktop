@@ -9,7 +9,7 @@ npm run e2e                      # the full set: every fake-tier suite (the pack
 npm run e2e -- --all --real      # everything, the real tier (real Claude Code and Codex) too
 npm run e2e -- --only-real       # only the real tier
 npm run e2e -- agents transcript # just these
-npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too; before a merge to main
+npm run e2e -- --affected        # the suites the changes since main need (affected.mjs), uncommitted ones included, real ones too; a tool for picking suites, not a merge's gate (#1010)
 npm run e2e -- <suites> --build --record # and print a run record for the card (saved with the run's logs, and the latest as logs/run-record.md)
 npm run e2e -- --fingerprint     # the code's fingerprint, to compare with a run record
 npm run e2e -- <suites> --repeat 3 --build --record # three runs, stopping at the first that fails; one record for all
@@ -192,6 +192,15 @@ repeats. The merge-ready skill claims the merge slot before its checks, so its r
 `%LOCALAPPDATA%\hive-test\heavy-slots` (`slot-<k>.json` held, `wait-<pid>.json` waiting, each with its runner's
 process id, and `first` for a pre-merge run, under the same claims lock as lanes); a crashed or killed run's slot, or
 place in the queue, expires at once (its process is gone).
+**A run left over** (#1008): a run started in an agent's session that ended since (Hive closed under it, the agent
+stopped or restarted) keeps going, and keeps its slot, while its process lives. Its slot records the agent's launch
+(`owner`: `HIVE_PROJECT`, `HIVE_AGENT`, `HIVE_RUN_ID`, `HIVE_WORKSPACE`), and a waiting run asks Hive's Agent API whether
+that launch still runs (`GET /v1/projects/{name}/agents/{agent}/launches/{run}`, at its first look and every 30 s): the
+wait line, and the Progress panel, then name it `held by e2e: 196 suites in <worktree>, left over from a session that
+ended (process 39788, 41 min)`. A run starting in the same worktree says so too (`Still running in this worktree, left
+over from a session that ended: …`), so a resumed agent knows its earlier run still goes. Nothing is stopped on its own:
+its results may still be wanted. Stop it by its process id (never by name), or with **Stop Them** in Hive's notice after
+an unexpected close, which ends the whole run.
 `npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
 own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's slot, a pre-merge run taking the slot
 before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's
@@ -238,27 +247,31 @@ same code while every required check still runs:
   its verdict which and why.
 - **Follow-up rounds** run the suites the fixes affect (`--affected`). **Before a card passes**, every suite it names
   has run on its final code (the builder's last record).
-- **Before a merge to main** (#628), run the **affected suites** on the merged code,
-  `npm run e2e -- --affected --build --record`, with the unit tests, typecheck and lint, so suites no card named but
-  the branch touches still pass. It picks the **full set** itself when the branch changes code every part of Hive goes
-  through, test tooling (the runner and its helpers, `lib.cjs`, the run context, the fake Claude Code, the concurrency
-  checker, the scenario harness, `affected.mjs` itself) or any file no area names (below); the record's `Selected:`
-  line says what it picked and why, so the reviewer sees it. It takes the **real tier**'s suites the branch needs too (the runner says which: a
-  change to providers, launching the CLIs, hooks and status, transcripts or `lib.cjs`). A real suite skipped for the
-  environment doesn't block a merge, but the record says so and the reviewer decides whether it must run again first.
-  CI runs only the unit tests.
-- **The full set runs at checkpoints**: `npm run e2e -- --all --build --record` for **every RC and release**
-  (RELEASING.md, with the real tier: `--all --real`), when `--affected` selects it (above), and **on request** (the
-  user, or a reviewer who says why). Run the real tier on its own (`--all --only-real`) **after updating Claude Code
-  or Codex**.
+- **A merge** (#1010; into main or an integration branch such as `feature/090-session`) runs **focused checks** on the
+  merged code: typecheck, lint, the unit tests, and the cards' own focused suites (those their reviews ran, plus any
+  suite the merge's conflicts touched), `npm run e2e -- <suites> --build --record`. **Not** the full set and **not**
+  `--affected`: merges take turns at one slot, and an hour or more of e2e for each kept every other lane waiting (a
+  phase of five merges took hours) and was the load Hive crashed under (#988). Every card has already passed review
+  with its focused suites, which its reviewer checked. A pre-merge run still goes first in the slot queue (#558). A
+  real suite skipped for the environment doesn't block a merge, but the record says so and the reviewer decides
+  whether it must run again first. CI runs only the unit tests.
+- **The full set runs at checkpoints**: `npm run e2e -- --all --build --record` **on the integration branch when the
+  lanes go quiet** (a phase's end, overnight with the load capped, before a long pause; a failure is carded at once and
+  bisected over the merge commits since the last full run), for **every RC and release** (RELEASING.md, with the real
+  tier: `--all --real`), and **on request** (the user, or a reviewer who says why). Run the real tier on its own
+  (`--all --only-real`) **after updating Claude Code or Codex**. `--affected` (below) stays a tool for picking the
+  suites a change needs, such as a review round's fixes, and isn't any merge's gate.
 - **A flake fix, or a change to a suite's waits**, is proven by focused repeats under load (the `investigate-flake`
   skill): the suite with its neighbours (its area's suites in `affected.mjs`, filling the four jobs) five times,
-  `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The merge's `--affected` run is the full-set check;
-  the full set repeated (`--all --repeat 5`) runs only when the user asks: it holds a heavy slot for over an hour while
-  other lanes queue, and under that load it fails on their flakes (a failure in another lane's suite is a card of its
-  own, not a reason to fail the fix).
+  `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The full-set check is the next quiet-time or
+  release run (above), not the card's or the merge's; the full set repeated (`--all --repeat 5`) runs only when the
+  user asks: it holds a heavy slot for over an hour while other lanes queue, and under that load it fails on their
+  flakes (a failure in another lane's suite is a card of its own, not a reason to fail the fix).
 - **When a change could make every suite flaky** (the runner, `lib.cjs`, the run context, how suites run side by side),
-  run the full set several times: `npm run e2e -- --all --build --record --repeat 3`.
+  the card proves it with focused loaded runs: `npm run e2e:concurrency` (`-- --heavy` after a change to `slots.mjs`)
+  and the suites closest to the change with their neighbours, repeated (`--repeat 3`). The full set, repeated if need
+  be (`--all --build --record --repeat 3`), is then the next quiet-time run on the integration branch (say on the card
+  that it's due), or runs when the user asks: never a per-card mandate.
 - A repeat stops at the first run that fails, and its one record is valid only if every run passed on the same code. A
   failure means fix it and start a new repeat: a later passing run doesn't make up for an earlier failure.
 

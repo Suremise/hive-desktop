@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "Nothing was resumed.",
   "main.unexpectedClose.notStopped": "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.",
   "main.unexpectedClose.overview": "Show Overview",
+  "main.unexpectedClose.progressRun": "{title} ({n, plural, one {# process} other {# processes}})",
   "main.unexpectedClose.resumeAll": "Resume All",
   "main.unexpectedClose.resumeFailedTitle": "Some agents couldn't resume",
   "main.unexpectedClose.resumed": "{n, plural, =0 {None was resumed.} one {One was resumed, as Settings → Sessions says.} other {# were resumed, as Settings → Sessions says.}}",

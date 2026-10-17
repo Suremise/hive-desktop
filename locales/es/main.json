@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "No se reanudó nada.",
   "main.unexpectedClose.notStopped": "{n, plural, one {# proceso sigue en ejecución: Windows no dejó que Hive lo terminara.} many {# procesos siguen en ejecución: Windows no dejó que Hive los terminara.} other {# procesos siguen en ejecución: Windows no dejó que Hive los terminara.}} Terminarlos en el aviso lo vuelve a intentar.",
   "main.unexpectedClose.overview": "Mostrar resumen",
+  "main.unexpectedClose.progressRun": "{title} ({n, plural, one {# proceso} many {# procesos} other {# procesos}})",
   "main.unexpectedClose.resumeAll": "Reanudar todos",
   "main.unexpectedClose.resumeFailedTitle": "Algunos agentes no se pudieron reanudar",
   "main.unexpectedClose.resumed": "{n, plural, =0 {No se reanudó ninguno.} one {Se reanudó uno, según Configuración → Sesiones.} many {Se reanudaron #, según Configuración → Sesiones.} other {Se reanudaron #, según Configuración → Sesiones.}}",

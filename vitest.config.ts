@@ -1,13 +1,14 @@
 import { fileURLToPath } from 'url'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { progressWanted, VitestProgress } from './tests/progressReport.mts'
-import { tempRoot } from './tests/tempDir'
+import { startRunTemp } from './tests/tempDir'
 
-// The run's temp folder is the tests' own, hive-test\tmp (tests/tempDir.ts, #992), not %TEMP%: Vitest's copies of the
-// modules it serves the workers (about 600 files a run, and left behind), the temp files of Hive's code under test and of
-// the programs tests start (git) go there too, where Hive's Antivirus scanning setting covers them and npm run test:clean
-// sweeps them. Set before Vitest starts its workers, which inherit it.
-if (process.env.LOCALAPPDATA) process.env.TEMP = process.env.TMP = tempRoot()
+// The run's temp folder is the tests' own, in hive-test\tmp (tests/tempDir.ts, #992), not %TEMP%: Vitest's copies of the
+// modules it serves the workers (about 600 files a run, which it leaves behind), the temp files of Hive's code under test
+// and of the programs tests start (git) go there too, where Hive's Antivirus scanning setting covers them. Set before
+// Vitest starts its workers, which inherit it. It is the run's own folder, which tests/tempRun.ts removes once the run
+// has ended (#995); npm run test:clean sweeps one a stopped run left.
+if (process.env.LOCALAPPDATA) process.env.TEMP = process.env.TMP = startRunTemp()
 
 export default defineConfig({
   // Hive's main-process modules import Electron; unit tests use a stub (no Electron binary needed, e.g. in CI). They
@@ -19,10 +20,10 @@ export default defineConfig({
     environment: 'node',
     // fs.watch watches real paths, so a short (8.3) temp folder can't trip Node's libuv (tests/watchRealPaths.ts, #389), and
     // git runs with none of the shell's GIT_* variables (tests/cleanGitEnv.ts, #425, first) and no global config, as on
-    // GitHub's runner (tests/noGlobalGit.ts, #448).
-    setupFiles: ['tests/cleanGitEnv.ts', 'tests/watchRealPaths.ts', 'tests/noGlobalGit.ts'],
+    // GitHub's runner (tests/noGlobalGit.ts, #448). Each file's temp folders go when it ends (tests/tempCleanup.ts, #995).
+    setupFiles: ['tests/cleanGitEnv.ts', 'tests/watchRealPaths.ts', 'tests/noGlobalGit.ts', 'tests/tempCleanup.ts'],
     // A full run is a heavy run: it waits for a test slot as a full e2e set does (tests/unitSlot.ts, #599).
-    globalSetup: ['tests/unitSlot.ts'],
+    globalSetup: ['tests/unitSlot.ts', 'tests/tempRun.ts'],
     // Under load (e2e sets, scenario runs and other agents' tests on the same machine), Vitest's defaults (5 s a test, a
     // worker per core) made tests fail that pass alone (#189, #196, #204): half the cores, so a full run beside an e2e set
     // leaves it room, and longer limits. Not to cover a wait for time: tests wait for conditions (#524's rule,

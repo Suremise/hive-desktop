@@ -11,7 +11,7 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, SessionToolbar, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { AgentTiles } from '../components/AgentTiles'
+import { AgentTiles, useTileStripWidth } from '../components/AgentTiles'
 import { projectSessionView } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
@@ -307,6 +307,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // A tile's focus view (#976): that agent's pane, beside the strip of the others.
   const tileFocus = useStore((s) => (view === 'tiles' ? tileFocusOf(project, s) : null))
   const panesShown = view === 'panes' || !!tileFocus
+  // The focus view's pane beside its strip, as wide as the user made it (#1021).
+  const stripWidth = useTileStripWidth()
   const terminalVisibleFor = visible && project && tab === 'session' && panesShown ? project.path : null
   const layoutShows = usePanes(project)
   const panes = tileFocus ? [tileFocus] : layoutShows
@@ -508,7 +510,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
 
       <div className="tab-body">
         {tab === 'session' && <SessionToolbar project={project} view={view} />}
-        <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')}>
+        <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')} style={tileFocus ? { left: stripWidth } : undefined}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />
           {tab === 'session' && panesShown && <PaneChrome project={project} panes={panes} />}
           {tab === 'session' && view === 'panes' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}

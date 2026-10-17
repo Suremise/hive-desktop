@@ -31,7 +31,7 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 ## 4. Prove it
 
 - Repeat the fixed test under the load that showed the flake, on a verified build (`--build --record`): the suite with its neighbours five times (`npm run e2e -- <suite> <neighbours> --build --record --repeat 5`), or the unit test's files five times under load (step 1). A repeat of one suite alone doesn't count as that load. A later pass doesn't make up for an earlier failure: start a new repeat. These focused repeats, with the cause shown and their run record, are the proof the card needs.
-- The full-set check is the merge's own run (`npm run e2e -- --affected --build --record`, which picks the full set itself when the change touches what every suite goes through). Don't repeat the full set on the final code unless the user asks. A failure in that run in another lane's suite doesn't count against the card: add a card for it.
+- The full-set check is the next full run on the integration branch, when the lanes go quiet, or before the release (#1010: merges run focused checks only, tests/e2e/README.md). Don't run or repeat the full set for the card unless the user asks. A failure there in another lane's suite doesn't count against the card: add a card for it.
 - Where it is cheap, check that the old wait fails in the same conditions. A fix that passes either way proves nothing.
 
 ## 5. Closing
