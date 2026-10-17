@@ -85,7 +85,7 @@ const check = (name, ok, extra = '') => {
   const labels = async () => (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean)
   check('the header shows Resume Agent, Stop (2) and Agents, in that order', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume Agent', 'Stop (2)', 'Agents']), 5000)), JSON.stringify(await labels()))
   const stateLine = page.locator('.project-header .project-state')
-  check('its state line: 1 working (idle agents left out), with the working mark', !!(await until(async () => (await stateLine.innerText().catch(() => '')).trim() === '1 working' && (await stateLine.locator('.state-mark.working').count()) === 1, 5000)), await stateLine.innerText().catch(() => ''))
+  check('its state line: 1 working · 1 idle · 1 stopped (the idle ones and the stopped apart, #1035), with the working mark', !!(await until(async () => (await stateLine.innerText().catch(() => '')).trim() === '1 working · 1 idle · 1 stopped' && (await stateLine.locator('.state-mark.working').count()) === 1, 5000)), await stateLine.innerText().catch(() => ''))
   const tipOf = async (name) => {
     await header.getByRole('button', { name, exact: true }).hover()
     const tip = page.locator('.tip')
@@ -95,7 +95,24 @@ const check = (name, ok, extra = '') => {
     await lib.until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
     return t
   }
-  check('the tooltips keep the full meaning', (await tipOf('Stop (2)')) === 'Stop the 2 running agents' && /Actions on all the project's agents/.test((await tipOf('Agents')) ?? ''), `${await tipOf('Stop (2)')} / ${await tipOf('Agents')}`)
+  // Short labels, the full wording in the tooltip and the accessible name (#1035).
+  check('the tooltips and accessible names keep the full meaning', (await tipOf('Stop all 2 running agents')) === 'Stop all 2 running agents' && /Actions on all the project's agents/.test((await tipOf('Agents')) ?? ''), `${await tipOf('Stop all 2 running agents')} / ${await tipOf('Agents')}`)
+  // Quiet (#1035): Resume and Stop look like Agents ▾ (its fill, no coloured edge), their colour on the icon; Stop's wash on hover.
+  const look = (sel) =>
+    header.locator(sel).evaluate((b) => {
+      const css = getComputedStyle(b)
+      return { bg: css.backgroundColor, border: css.borderColor, color: css.color, icon: getComputedStyle(b.querySelector('.codicon')).color }
+    })
+  const agentsLook = await look('button.agents-menu')
+  const stopLook = await look('button.act-stop')
+  const resumeLook = await look('button.act-resume')
+  check("Resume and Stop wear Agents ▾'s quiet style, their colour on the icon only", [stopLook, resumeLook].every((l) => l.bg === agentsLook.bg && l.border === agentsLook.border && l.color === agentsLook.color && l.icon !== l.color), JSON.stringify({ agentsLook, stopLook, resumeLook }))
+  await header.locator('button.act-stop').hover()
+  check("…and Stop's red wash shows on hover", !!(await until(async () => {
+    const l = await look('button.act-stop')
+    return l.bg !== agentsLook.bg && l.border !== agentsLook.border
+  }, 5000)), JSON.stringify(await look('button.act-stop')))
+  await page.mouse.move(0, 0)
   check('no Explorer or Terminal button in the header', (await header.locator('button', { hasText: /Explorer|Terminal/ }).count()) === 0)
   // Agents ▾: the batch actions with their counts, Remove All last after a line; each in its action's colour (#344).
   check('Agents ▾ has Start New (3), Archive and Start New (3) and Remove All (3)…', JSON.stringify(await lib.agentsMenu(page)) === JSON.stringify(['Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…']))
@@ -159,7 +176,7 @@ const check = (name, ok, extra = '') => {
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
     await lib.fitWindow(app, page, { width: 900, height: 900 })
-    const names = ['Active', 'Resume Agent', 'Stop (2)', 'Agents', 'More actions']
+    const names = ['Active', "Resume Stopped's last session", 'Stop all 2 running agents', 'Agents', 'More actions']
     const at = (await lib.until(async () => {
       const a = await actionsAt()
       return JSON.stringify(a.map((x) => x.name)) === JSON.stringify(names) && allReachable(a) ? a : null
@@ -272,7 +289,7 @@ const check = (name, ok, extra = '') => {
   const cdp = await page.context().newCDPSession(page)
   const axTexts = async () => (await cdp.send('Accessibility.getFullAXTree')).nodes.filter((n) => !n.ignored).map((n) => n.name?.value ?? '')
   const stopDialog = page.locator('.dialog', { hasText: 'Stop all agents?' })
-  await header.getByRole('button', { name: 'Stop (2)', exact: true }).click()
+  await header.getByRole('button', { name: 'Stop all 2 running agents', exact: true }).click()
   await stopDialog.waitFor({ timeout: 5000 })
   const stopTable = await tableOf(stopDialog)
   check('Stop all lists the running agents as a table: Agent, State, Card', JSON.stringify(stopTable.heads) === JSON.stringify(['Agent', 'State', 'Card']) && JSON.stringify(Object.keys(stopTable.rows).sort()) === JSON.stringify(['Idle', 'Worker']), JSON.stringify(stopTable))
@@ -358,8 +375,8 @@ const check = (name, ok, extra = '') => {
     await until(async () => !(await live(a.id)), HUNG_MS)
   }
   await inv('workspace:refresh')
-  check('one running, two to resume: Resume All Agents (2), Stop Agent, Agents', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume All Agents (2)', 'Stop Agent', 'Agents']), 10000)), JSON.stringify(await labels()))
-  check('…and Resume says which in its tooltip', (await tipOf('Resume All Agents (2)')) === 'Resume the 2 stopped agents (running ones are left alone)')
+  check('one running, two to resume: Resume (2), Stop Agent, Agents', !!(await until(async () => JSON.stringify(await labels()) === JSON.stringify(['Resume (2)', 'Stop Agent', 'Agents']), 10000)), JSON.stringify(await labels()))
+  check('…and Resume says it in full in its tooltip and accessible name', (await tipOf('Resume all 2 stopped agents')) === 'Resume all 2 stopped agents')
   // The count is what the question lists.
   await lib.agentsMenuRun(page, 'Archive and Start New (3)')
   await archiveDialog.waitFor({ timeout: 5000 })
@@ -367,7 +384,7 @@ const check = (name, ok, extra = '') => {
   check('Archive and Start New (3) lists 3 agents', listed.length === 3, JSON.stringify(listed))
   await archiveDialog.getByRole('button', { name: 'Cancel' }).click()
   // Idle resumes: two running again, one to resume.
-  await header.getByRole('button', { name: 'Resume All Agents (2)' }).waitFor({ timeout: 5000 })
+  await header.getByRole('button', { name: 'Resume all 2 stopped agents' }).waitFor({ timeout: 5000 })
   const idleSession = (await inv('session:list', alpha)).find((x) => x.agentId === i.id && !x.archived && x.id !== current[i.id])
   await inv('session:start', alpha, { agentId: i.id, resumeId: idleSession?.id })
   check('Idle resumed: Resume Agent, Stop (2)', !!(await until(async () => JSON.stringify((await labels()).slice(0, 2)) === JSON.stringify(['Resume Agent', 'Stop (2)']), 15000)), JSON.stringify(await labels()))

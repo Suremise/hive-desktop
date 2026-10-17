@@ -607,6 +607,10 @@
     "defaultMessage": "{n, plural, other {# stalled}}",
     "description": "How many agents are stalled, in a summary of the agents of a project (\"1 stalled · 2 working\"). {n} is how many."
   },
+  "session.state.countStopped": {
+    "defaultMessage": "{n, plural, other {# stopped}}",
+    "description": "How many agents have no session running, last in the project header's summary of its agents (\"3 working · 7 idle · 2 stopped\"). {n} is how many."
+  },
   "session.state.countWaiting": {
     "defaultMessage": "{n, plural, other {# waiting}}",
     "description": "How many agents wait for you, in a summary of the agents of a project (\"1 waiting · 2 working\"). {n} is how many."

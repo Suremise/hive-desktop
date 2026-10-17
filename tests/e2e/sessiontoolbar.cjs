@@ -197,7 +197,8 @@ const check = (name, ok, extra = '') => {
     await inv('session:start', alpha, { agentId: f.id }).catch(() => undefined)
     const headerLine = () => page.locator('.project-header .project-state .badge-text').innerText().catch(() => '')
     check('a failed launch: the chip counts it stalled', !!(await lib.until(async () => (await chipText()) === '1 waiting · 1 stalled · 1 working · 2 idle', HUNG_MS)), await chipText())
-    check("…and so does the header's state line", (await headerLine()) === '1 waiting · 1 stalled · 1 working', await headerLine())
+    // Y and Z never started: the header counts them stopped, apart from the idle ones Stop counts (#1035).
+    check("…and so does the header's state line, Y and Z counted as stopped", (await headerLine()) === '1 waiting · 1 stalled · 1 working · 2 stopped', await headerLine())
     await chip.click()
     await lib.until(async () => (await lib.menuEntry(page, 'F').count()) === 1, HUNG_MS)
     const fEntry = await lib.menuEntry(page, 'F').evaluate((e) => ({ detail: e.querySelector('.menu-detail')?.textContent ?? '', mark: [...(e.querySelector('.state-mark')?.classList ?? [])].join(' ') }))

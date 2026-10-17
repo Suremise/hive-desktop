@@ -151,6 +151,7 @@
   "session.start.worktreeMissing": "{agent}'s worktree folder is missing: {folder}. Start {agent} from its pane to recreate the worktree on its branch (Repair… if the workspace moved), or remove the agent.",
   "session.state.countIdle": "{n, plural, other {# idle}}",
   "session.state.countStalled": "{n, plural, other {# stalled}}",
+  "session.state.countStopped": "{n, plural, other {# stopped}}",
   "session.state.countWaiting": "{n, plural, other {# waiting}}",
   "session.state.countWorking": "{n, plural, other {# working}}",
   "session.state.idle": "Idle",

@@ -334,15 +334,14 @@ kbd {
 .menubar-item.open {
   background: var(--bg-hover);
 }
+/* Its left and max-width are set by TitleBar (useTitleFit): centred while it fits between the menu bar and the pin. */
 .titlebar-title {
   position: absolute;
   left: 50%;
-  transform: translateX(-50%);
   color: var(--fg-muted);
   font-size: 12px;
   pointer-events: none;
   white-space: nowrap;
-  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1472,11 +1471,11 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
-  /* Compact (#974): one quiet row. */
-  padding: 5px 12px;
+  /* Compact (#974): one quiet row, a few pixels closer to the tabs under it (#1035). */
+  padding: 3px 12px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  min-height: 40px;
+  min-height: 36px;
 }
 .project-header h1 {
   font-size: 16px;
@@ -4129,6 +4128,24 @@ h2.section#unused-worktrees {
 .btn:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) .btn-count {
   background: var(--act);
   color: var(--act-on);
+}
+/* Quiet (the project header's Resume and Stop, #1035): a plain button like Agents ▾ beside them, the action's colour
+   on the icon only, so the header never outshouts the project's name; hovered or focused, the action's wash and edge. */
+.btn.quiet:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) {
+  color: var(--fg);
+  background: var(--bg-elevated);
+  border-color: transparent;
+}
+.btn.quiet:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):not(:disabled) .codicon {
+  color: var(--act-fg);
+}
+.btn.quiet:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume):focus-visible {
+  background: color-mix(in srgb, var(--act) 18%, transparent);
+  border-color: color-mix(in srgb, var(--act) 75%, transparent);
+}
+.btn.quiet:is(.act-stop, .act-remove, .act-start, .act-archive-start, .act-resume) .btn-count {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 /* Solid: filled like .primary, where the action is the main choice (an empty pane's New Session, the question
    that asks before a Stop or a Remove). */
