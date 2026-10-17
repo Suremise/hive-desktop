@@ -4821,14 +4821,12 @@ body.pane-resizing .monaco-editor {
   color: var(--fg-muted);
   font-family: var(--mono, monospace);
 }
-/* A worktree agent's icon on its tab and pane header (#287): the branch and folder are in its tooltip. */
-.agent-tab .agent-branch,
-.pane-header-bar .agent-branch {
+/* A worktree agent's icon on its tab (#287): the branch and folder are in its tooltip. */
+.agent-tab .agent-branch {
   flex-shrink: 0;
   border-radius: 3px;
 }
-.agent-tab .agent-branch:focus-visible,
-.pane-header-bar .agent-branch:focus-visible {
+.agent-tab .agent-branch:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
@@ -4838,36 +4836,6 @@ body.pane-resizing .monaco-editor {
   gap: 2px;
   font-size: 11px;
   color: var(--accent-ink);
-}
-/* Processes a stopped agent left running (#507): a click ends or keeps them. */
-.agent-leftovers,
-.agent-messages {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 3px;
-  background: none;
-  font: inherit;
-  font-size: 11px;
-  color: var(--warning);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.agent-leftovers:hover {
-  background: color-mix(in srgb, var(--warning) 14%, transparent);
-}
-/* What was left for it and isn't received yet (#530, #647); not acked in time, it is overdue. */
-.agent-messages {
-  color: var(--accent-ink);
-}
-.agent-messages.overdue {
-  color: var(--warning);
-}
-.agent-messages:hover {
-  background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
 }
 /* A worktree agent's unmerged commits on its tab. */
 .agent-unmerged {
@@ -5115,11 +5083,11 @@ body.pane-resizing .monaco-editor {
   top: 0;
   left: 0;
   right: 0;
-  height: 30px;
+  height: 26px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 4px 0 10px;
+  padding: 0 3px 0 8px;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
   border-top: 2px solid transparent;
@@ -5140,20 +5108,57 @@ body.pane-resizing .monaco-editor {
 .pane-header-bar .icon-btn {
   flex-shrink: 0;
 }
-/* Short of room, the agent's details give way to its controls: the card first, then the status and the name (they
-   shorten with an ellipsis; each has the full text in a tooltip). A worktree is only its icon, which stays (#287). */
+/* Short of room (#977), the status gives way first, then the name (both shorten with an ellipsis; the status's tooltip
+   has it all, the name's says who it is); the card, Stop and ⋯ keep their size. */
 .pane-header-bar .agent-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 0.25;
+  font-weight: 600;
 }
-.pane-header-bar .tip-wrap:has(> .agent-branch) {
-  display: inline-flex;
-  flex-shrink: 0;
+.pane-header-bar > .tip-wrap:has(> .agent-name) {
+  min-width: 24px;
 }
-/* The agent's controls: labelled while the pane is wide, icons when narrower (see PaneHeader). They never shrink, and a
-   count widens its button rather than spilling out of it. */
+/* The status gives way entirely before the name does (its shrink far outweighs the name's), and the review and
+   safeguard shields with it. */
+.pane-header-bar > .tip-wrap:has(> .pane-status),
+.pane-header-bar > .tip-wrap:has(> .review-mark),
+.pane-header-bar > .tip-wrap:has(> .safeguard-mark),
+.pane-header-bar > .pane-status {
+  min-width: 0;
+  overflow: hidden;
+  flex-shrink: 1000;
+}
+/* Stop's place (Resume or New Session while it isn't running) and ⋯: quiet icons in their actions' colours. */
+.pane-header-bar .pane-btn.icon-only {
+  height: 20px;
+  min-width: 22px;
+  padding: 0 3px;
+  border-color: transparent;
+  background: none;
+}
+.pane-header-bar .pane-btn.icon-only:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.pane-header-bar .pane-more {
+  position: relative;
+}
+/* Something in ⋯ needs a look (processes left running, unread or overdue messages): a dot, amber for a warning. */
+.pane-more-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+  pointer-events: none;
+}
+.pane-more-badge.warn {
+  background: var(--warning);
+}
+/* The Assistant's controls, and the agent's. They never shrink, and a count widens its button rather than spilling out
+   of it. */
 .pane-header-bar .pane-btn,
 .assistant-header .pane-btn {
   flex-shrink: 0;
@@ -8249,56 +8254,25 @@ textarea.input.task-blocked-input {
 .perf-compare-hint {
   margin-top: 0;
 }
-/* An agent waiting on cards (a watch, #128): what for, and Cancel. */
+/* An agent waiting on cards (a watch, #128): what for (Cancel is in its ⋯, #977). */
 .pane-status.watching {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   color: var(--info);
-}
-/* Short of room, only the label shortens (its tooltip has it all): Cancel keeps its size and stays in the pane. */
-.pane-header-bar .pane-status.watching {
-  flex-shrink: 8;
-  /* Room for the eye and Cancel, whatever the label's length. */
-  min-width: 80px;
-  overflow: visible;
-}
-.pane-status.watching > .tip-wrap {
-  display: inline-flex;
-  flex: 0 1 auto;
-  min-width: 14px;
-  overflow: hidden;
-}
-.pane-status.watching .watch-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pane-status.watching .watch-cancel {
-  flex-shrink: 0;
 }
 .pane-status.watching .codicon {
   font-size: 12px;
+  vertical-align: -2px;
 }
-.pane-status.watching .btn {
-  height: 20px;
-  padding: 0 6px;
-  font-size: 11px;
-}
-/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size. */
+/* An agent whose state is unknown (#648): how long it has been silent, and Mark idle, which keeps its size while it
+   shows; under 300 px (MARKS_FROM) Mark idle is only in ⋯ and the status shortens like any other (#977). */
 .pane-header-bar .pane-status.unknown-state {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 8;
-  min-width: 80px;
-  overflow: visible;
 }
 .pane-status.unknown-state > .tip-wrap {
   display: inline-flex;
   flex: 0 1 auto;
-  min-width: 14px;
+  min-width: 0;
   overflow: hidden;
 }
 .pane-status.unknown-state .pane-status {

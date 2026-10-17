@@ -228,8 +228,8 @@
     "description": "The last item of a list of the processes an agent left running, after the first few: how many more there are. Hive joins it to the list (\"node serve.js, 2 × tail -f capture.log and 3 more processes\")."
   },
   "session.leftovers.notEnded": {
-    "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the agent's pane header, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the agent's pane header, to try again or keep.}}",
-    "description": "Ending the processes an agent left running failed. {n} is how many are still running; the pane header lists them with End and Keep."
+    "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the ⋯ menu on the agent's pane, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the ⋯ menu on the agent's pane, to try again or keep.}}",
+    "description": "Ending the processes an agent left running failed. {n} is how many are still running; the ⋯ menu on the agent's pane lists them with End and Keep."
   },
   "session.leftovers.notEndedBody": {
     "defaultMessage": "{processes}. {n, plural, one {It was started by the agent and may hold the project's folder or ports. Hive couldn't end it by itself.} other {They were started by the agent and may hold the project's folder or ports. Hive couldn't end them by itself.}}",

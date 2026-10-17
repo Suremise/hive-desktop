@@ -72,7 +72,7 @@ const MENUS: MenuDef[] = [
     // Its tabs are the tab strip's, in its order (#216).
     items: PROJECT_MENU
   },
-  { id: 'session', label: msg({ id: 'shell.menu.session', defaultMessage: 'Session', description: "A menu of the title bar's menu bar." }), items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', '-', 'session.startNewAll', 'session.archiveAll', 'session.removeAll', '-', 'project.tab.sessions'] },
+  { id: 'session', label: msg({ id: 'shell.menu.session', defaultMessage: 'Session', description: "A menu of the title bar's menu bar." }), items: ['session.new', 'session.resume', 'session.stop', '-', 'session.compact', 'session.archive', 'agent.menu', '-', 'session.startNewAll', 'session.archiveAll', 'session.removeAll', '-', 'project.tab.sessions'] },
   {
     id: 'help',
     label: msg({ id: 'shell.menu.help', defaultMessage: 'Help', description: "A menu of the title bar's menu bar." }),

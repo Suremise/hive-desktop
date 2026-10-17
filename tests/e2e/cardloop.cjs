@@ -100,20 +100,24 @@ const check = (name, ok, extra = '') => {
   const watching = await until(async () => (await live(reviewer.id))?.status === 'watching', HUNG_MS)
   const st = await live(reviewer.id)
   check('the reviewer is watching: status watching, with what for', !!watching && st?.watch?.label === `Waiting for #${c1} → Review`, JSON.stringify({ status: st?.status, watch: st?.watch }))
-  check('its header says so, with Cancel', !!(await until(async () => (await page.locator('.pane-status.watching', { hasText: `Waiting for #${c1} → Review` }).count()) >= 1, 5000)))
+  check('its header says so', !!(await until(async () => (await page.locator('.pane-status.watching', { hasText: `Waiting for #${c1} → Review` }).count()) >= 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching.png') })
-  /** Whether the watching header's Cancel is on screen where a click lands on it (not clipped or covered). */
+  /** Whether the watching header's ⋯ (Cancel Card Watch is in its menu, #977) is on screen where a click lands on it (not clipped or covered). */
   const cancelHit = (agentName) =>
-    page.locator('.pane-header-bar', { hasText: agentName }).locator('.pane-status.watching .watch-cancel').first().evaluate((b) => {
+    page.locator('.pane-header-bar', { hasText: agentName }).locator('.pane-more').first().evaluate((b) => {
       const r = b.getBoundingClientRect()
       const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
       return { clickable: !!hit && (hit === b || b.contains(hit)), x: Math.round(r.x), width: Math.round(r.width), hit: hit?.className ?? null }
     })
-  // Hive's narrowest window (900 px), two panes: Cancel still fits, the label gives way.
+  /** Polls cancelHit until ⋯ is clickable (the layout settles after a resize), bounded for a hung run. */
+  const cancelHitWhenSettled = async (agentName) => (await until(async () => {
+    const r = await cancelHit(agentName).catch(() => null)
+    return r?.clickable && r
+  }, HUNG_MS)) || (await cancelHit(agentName).catch(() => ({ clickable: false })))
+  // Hive's narrowest window (900 px), two panes: ⋯ still fits, the label gives way.
   await lib.fitWindow(app, page, { width: 900, height: 750 })
-  await lib.sleep(700)
-  const narrow = await cancelHit('Reviewer')
-  check('at 900 px in two panes, Cancel is where a click lands on it', narrow.clickable, JSON.stringify(narrow))
+  const narrow = await cancelHitWhenSettled('Reviewer')
+  check('at 900 px in two panes, ⋯ is where a click lands on it', narrow.clickable, JSON.stringify(narrow))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching-narrow.png') })
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await lib.sleep(500)
@@ -239,9 +243,12 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await page.keyboard.press('Control+3')
   await lib.sleep(500)
-  const compactBtn = page.locator('.pane-header-bar', { hasText: 'Third' }).locator('button[aria-label="Compact"]').first()
-  check('Compact is on for a watching agent', await compactBtn.isEnabled())
-  await compactBtn.click()
+  // Compact… in its ⋯ (#977).
+  await page.locator('.pane-header-bar', { hasText: 'Third' }).getByLabel('More').first().click()
+  const compactItem = page.locator('.menu .menu-item', { hasText: 'Compact…' })
+  await until(() => compactItem.isVisible(), HUNG_MS)
+  check('Compact… is on for a watching agent', !(await compactItem.evaluate((el) => el.classList.contains('disabled'))))
+  await compactItem.click()
   await page.locator('.compact-focus textarea').fill('hold 4')
   await page.locator('.dialog button', { hasText: /^\s*Compact\s*$/ }).click()
   const compactingNow = await until(async () => (await live(third.id))?.status === 'working', 8000)
@@ -251,24 +258,20 @@ const check = (name, ok, extra = '') => {
   check('no wake while it compacts', wakes('Third').length === 3, JSON.stringify(wakes('Third')))
   check('…and one wake once the compaction has ended', !!(await until(async () => wakes('Third').length === 4, 20000)))
   await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
-  // Cancel: the watch ends, the status is finished again, and a change wakes nothing. A longer label (three cards) in a
-  // pane at its narrowest header (three panes, under 340 px each): Cancel stays clickable, and is clicked there. The
-  // agent's More menu has Cancel Card Watch too, for a pane too narrow for anything else.
+  // Cancel Card Watch in its ⋯ (#977): the watch ends, the status is finished again, and a change wakes nothing. A longer
+  // label (three cards) in a narrow pane (three panes, under 340 px each): ⋯ stays clickable, and Cancel is chosen there.
   await say(third.id, wait([c3, c1, c2], { changes: ['comment'] }))
   await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
   await page.keyboard.press('Control+3')
   await lib.sleep(500)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.setZoomFactor(1))
   await lib.fitWindow(app, page, { width: 1100, height: 750 })
-  await lib.sleep(800)
-  const tight = await cancelHit('Third')
-  check('three panes (under 340 px each), a three-card label: Cancel is clickable', tight.clickable, JSON.stringify(tight))
+  const tight = await cancelHitWhenSettled('Third')
+  check('three panes (under 340 px each), a three-card label: ⋯ is clickable', tight.clickable, JSON.stringify(tight))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching-tight.png') })
-  // The More menu has it as well.
   await page.locator('.pane-header-bar', { hasText: 'Third' }).getByLabel('More').first().click()
   check('the agent menu offers Cancel Card Watch', (await page.getByText('Cancel Card Watch').count()) >= 1)
-  await page.keyboard.press('Escape')
-  await page.locator('.pane-header-bar', { hasText: 'Third' }).locator('.watch-cancel').first().click()
+  await page.getByText('Cancel Card Watch').first().click()
   check('Cancel ends the watch', !!(await until(async () => (await live(third.id))?.status === 'finished' && !(await live(third.id))?.watch, 5000)))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
   await lib.sleep(500)

@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "自動検出",
   "settings.sessions.cacheTtl.tip": "「自動検出」は、トランスクリプトからキャッシュの種類（5分または1時間）を判断します。",
   "settings.sessions.cacheTtl.title": "プロンプトキャッシュの有効期間",
-  "settings.sessions.compactSuggestTokens.desc": "「コンパクト化」ボタンとステータスバーのコンテキスト数がオレンジ色になる、コンテキストのサイズ（トークン）です。「しない」：ボタンはオレンジ色になりません。",
+  "settings.sessions.compactSuggestTokens.desc": "エージェントのペインのフッターでコンテキストがオレンジ色になる、コンテキストのサイズ（トークン）です。「しない」：オレンジ色になりません。",
   "settings.sessions.compactSuggestTokens.off": "しない",
   "settings.sessions.compactSuggestTokens.tip": "コンパクト化すると会話が要約され、その後のメッセージがすべて安くなります。履歴全体はトランスクリプトに残ります。プロジェクトは「プロジェクト設定」で独自の値を設定でき、アシスタントには専用の値があります（「設定」→「アシスタント」）。エージェントが完了すれば、「コンパクト化」はいつでも使えます。",
   "settings.sessions.compactSuggestTokens.title": "コンパクト化を提案するサイズ",

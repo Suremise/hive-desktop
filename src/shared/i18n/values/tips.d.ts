@@ -7,6 +7,8 @@ interface HiveMessageValues {
   'tips.agentConsole.title': undefined
   'tips.agentLayouts.text': undefined
   'tips.agentLayouts.title': undefined
+  'tips.agentMenu.text': { key: string | number }
+  'tips.agentMenu.title': undefined
   'tips.agentSettings.text': undefined
   'tips.agentSettings.title': undefined
   'tips.agentStates.text': undefined

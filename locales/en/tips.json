@@ -23,6 +23,14 @@
     "defaultMessage": "Several agents side by side",
     "description": "A tip's title."
   },
+  "tips.agentMenu.text": {
+    "defaultMessage": "An agent's pane header keeps to its state, its card and Stop. Compact, Hand Over, Merge…, its settings and anything that needs a look (a dot on ⋯ says so) are in its ⋯ menu, or right-click the header. {key}",
+    "description": "A tip. {key} is a shortcut (its keys, or the command's name when it has none). ⋯ is the button on an agent's pane header: keep it. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.agentMenu.title": {
+    "defaultMessage": "Everything else is under an agent's ⋯",
+    "description": "A tip's title. ⋯ is the button on an agent's pane header: keep it."
+  },
   "tips.agentSettings.text": {
     "defaultMessage": "Click an agent's model in its footer for Agent Settings: give a reviewer a faster model while another agent codes with the strongest.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
@@ -564,7 +572,7 @@
     "description": "A tip's title."
   },
   "tips.leftoverProcesses.text": {
-    "defaultMessage": "A preview server or a tail -f an agent started can keep running after it stops, holding the project's folder or a port. Hive lists them in the agent's pane header and offers to end them; Settings → Agents can end them every time.",
+    "defaultMessage": "A preview server or a tail -f an agent started can keep running after it stops, holding the project's folder or a port. Hive lists them in the ⋯ menu on the agent's pane and offers to end them; Settings → Agents can end them every time.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.leftoverProcesses.title": {
@@ -1056,7 +1064,7 @@
     "description": "Button on a tip: runs the command it is about."
   },
   "tips.unmerged.text": {
-    "defaultMessage": "Merge… turns orange with the number of commits not yet merged, and Git → Changes shows everything the agent changed since it branched.",
+    "defaultMessage": "The agent's tab shows how many commits aren't merged yet, Merge… in its ⋯ menu says what is left, and Git → Changes shows everything the agent changed since it branched.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.unmerged.title": {

@@ -1,10 +1,10 @@
 // The Assistant leaves a message for an agent that can't take a prompt now (#530), on fake Claude Code agents
 // (fake-claude/), through hive_message_agent as the Assistant calls it (hive-mcp.js with the Assistant's token): a
 // watching reviewer is woken by it at once and keeps its watch (hive_prompt_agent is refused and points to the tool); a
-// working builder gets it queued (a delivery, #647, with its id), its pane shows "1 unread", and it is typed as its next
+// working builder gets it queued (a delivery, #647, with its id), its pane's ⋯ shows "1 unread" (#977), and it is typed as its next
 // line once the builder is idle, with its id to ack; hive_agent_activity says what waits and that it was offered (typed;
 // received only when fetched with hive_inbox), and the pane shows it until the builder acks it with hive_inbox; the user
-// cancels one from the pane, and it is
+// cancels one from the ⋯, and it is
 // never typed; one tied to a card's round (#652) is refused for a card out of Doing and Review, and stale, never told,
 // once that card passes; a message queued for an agent whose card or agent watch fires meanwhile goes in one doorbell
 // with that wake, read first; one whose sender may no longer send it (Control turned down) is refused, never typed. Dev build, throwaway
@@ -118,32 +118,37 @@ const check = (name, ok, extra = '') => {
   // Its id: the project's next (the reviewer's wake was a delivery too, #649).
   const mid = /^Queued for Builder \((m\d+), working\)/.exec(queued.text)?.[1] ?? '?'
   check('a message to a working agent is queued', !queued.isError && queued.text === `Queued for Builder (${mid}, working): Hive tells it at its next tool call or turn's end, or once it is idle; 1 waiting. hive_agent_activity says when it is received and acked.`, queued.text)
-  const pane = page.locator('.pane-header-bar', { hasText: 'Builder' }).locator('.agent-messages')
-  check("the builder's pane shows it waiting", !!(await until(async () => /1 unread/.test((await pane.innerText().catch(() => '')) ?? ''), 10000)))
-  await pane.hover()
-  check('…its tooltip says who from and what', !!(await until(async () => (await page.locator('.tip', { hasText: `${mid} from the Assistant (waiting): Add #${c1}'s follow-up` }).count()) === 1, 5000)))
+  // Its pane's ⋯ (#977): a badge, "1 unread" in its name's description, and an entry whose menu lists the messages.
+  const pane = page.locator('.pane-header-bar', { hasText: 'Builder' }).locator('.pane-more')
+  const unread = async () => /unread/.test((await pane.getAttribute('aria-description').catch(() => null)) ?? '')
+  check("the builder's pane shows it waiting", !!(await until(async () => /1 unread/.test((await pane.getAttribute('aria-description').catch(() => null)) ?? '') && (await pane.locator('.pane-more-badge').count()) === 1, 10000)))
+  await pane.click()
+  await page.locator('.menu .menu-item', { hasText: '1 unread' }).click()
+  check('…its ⋯ says who from and what', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: `${mid} from the Assistant (waiting): Add #${c1}'s follow-up` }).count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'agentmessage-waiting.png') })
+  await page.keyboard.press('Escape')
   const waiting = activity('Builder')
   check('its activity lists the message waiting', waiting.inbox?.unread === 1 && waiting.inbox.deliveries.at(-1)?.id === mid && waiting.inbox.deliveries.at(-1)?.from === 'the Assistant' && waiting.inbox.deliveries.at(-1)?.state === 'queued', JSON.stringify(waiting))
   check('…not typed while it works', !wakes('Builder').length)
   check('once idle, its doorbell is typed, and the builder reads it', !!(await until(async () => wakes('Builder').some((t) => t === `Add #${c1}'s follow-up to your lane after it.`), 30000)) && bells('Builder').includes(`[Hive] New in your inbox: 1 message (${mid}). Call hive_inbox to read it.`), JSON.stringify(wakeLog('Builder')))
   // Read (#650: the only receipt): received through the inbox, and no longer unread in the pane; still the builder's to ack.
-  check('…received as it reads it, and no longer unread in its pane', !!(await until(async () => lastDelivery('Builder')?.state === 'received' && lastDelivery('Builder')?.receivedVia === 'inbox' && (await pane.count()) === 0, 15000)), JSON.stringify(lastDelivery('Builder')))
+  check('…received as it reads it, and no longer unread in its pane', !!(await until(async () => lastDelivery('Builder')?.state === 'received' && lastDelivery('Builder')?.receivedVia === 'inbox' && !(await unread()), 15000)), JSON.stringify(lastDelivery('Builder')))
   const done = activity('Builder')
   check('…and its activity says when it was offered and received', done.inbox?.unread === 0 && !!done.inbox.deliveries.at(-1)?.offered && !!done.inbox.deliveries.at(-1)?.received, JSON.stringify(done))
   await until(() => idle(builder.id), 15000)
   await say(builder.id, `hive hive_inbox {"ack":["${mid}"]}`)
-  check('the builder acks it (hive_inbox): acked', !!(await until(async () => lastDelivery('Builder')?.state === 'acked' && (await pane.count()) === 0, 15000)), JSON.stringify(lastDelivery('Builder')))
+  check('the builder acks it (hive_inbox): acked', !!(await until(async () => lastDelivery('Builder')?.state === 'acked' && !(await unread()), 15000)), JSON.stringify(lastDelivery('Builder')))
 
   // --- 3. Cancelled by the user from the pane: never typed.
   await until(() => idle(builder.id), 15000)
   await say(builder.id, 'work 6')
   await until(async () => (await live(alpha, builder.id))?.status === 'working', 10000)
   tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Never mind this one.' })
-  await until(async () => (await pane.count()) === 1, 10000)
+  await until(unread, 10000)
   await pane.click()
+  await page.locator('.menu .menu-item', { hasText: '1 unread' }).click()
   await page.getByText('Cancel the Message', { exact: true }).click()
-  check('the user cancels it from the pane', !!(await until(async () => (await pane.count()) === 0, 5000)))
+  check('the user cancels it from the pane', !!(await until(async () => !(await unread()), 5000)))
   check('…its activity says so', lastDelivery('Builder')?.state === 'cancelled' && lastDelivery('Builder')?.detail === 'cancelled by the user', JSON.stringify(lastDelivery('Builder')))
   await until(() => idle(builder.id), 20000)
   await lib.sleep(2000) // A fixed wait on purpose: this checks that the cancelled message is NOT typed.
@@ -161,7 +166,7 @@ const check = (name, ok, extra = '') => {
   check('a message tied to its round is queued, saying the round', !tied.isError && !!tiedId && tied.text.startsWith(`Queued for Builder (${tiedId}, for #${c3} round 1, working)`), tied.text)
   await inv('tasks:update', c3, { column: 'passed' })
   check('…the card passes before it is read: stale, saying why', !!(await until(() => lastDelivery('Builder')?.id === tiedId && lastDelivery('Builder')?.state === 'stale' && lastDelivery('Builder')?.detail === `#${c3} passed review`, 15000)), JSON.stringify(lastDelivery('Builder')))
-  check('…and no longer unread in its pane', !!(await until(async () => (await pane.count()) === 0, 10000)))
+  check('…and no longer unread in its pane', !!(await until(async () => !(await unread()), 10000)))
   await until(() => idle(builder.id), 20000)
   // Stale is an end: nothing can offer it after, so no doorbell names it and the builder never reads it.
   check('…never told or read', !bells('Builder').some((t) => t.includes(`${tiedId})`) || t.includes(`${tiedId},`)) && !wakes('Builder').some((t) => t.includes('Round 1: also cover the empty case.')), JSON.stringify(wakeLog('Builder')))

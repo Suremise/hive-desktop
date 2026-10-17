@@ -79,8 +79,17 @@ const check = (name, ok, extra = '') => {
   const button = page.locator('.project-header button', { hasText: 'Resume All' })
   check('Resume All shows while agents are stopped', !!(await until(async () => (await button.count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'resumeall-1-header.png') })
-  // Its colours are those of the agent header's Resume button (an icon in a narrow pane), in both themes and on hover.
-  const agentResume = page.locator('.pane-header-bar button.act-resume').first()
+  // Its colours are a Resume action button's (#344: a probe beside it), in both themes and on hover; an agent's header
+  // has Resume as a quiet icon in the same colour (#977).
+  await page.evaluate(() => {
+    const b = document.createElement('button')
+    b.id = 'resume-probe'
+    b.className = 'btn act-resume'
+    b.textContent = 'Resume'
+    document.querySelector('.project-header').appendChild(b)
+  })
+  const agentResume = page.locator('#resume-probe')
+  const headerResume = page.locator('.pane-header-bar button.act-resume').first()
   const colours = (b) => b.evaluate((el) => ['color', 'background-color', 'border-color'].map((k) => getComputedStyle(el).getPropertyValue(k)).join(' | '))
   const seen = []
   for (const theme of ['dark', 'light']) {
@@ -90,6 +99,8 @@ const check = (name, ok, extra = '') => {
     const [all, one] = [await colours(button), await colours(agentResume)]
     seen.push(all)
     check(`${theme}: Resume All has the Resume button's colours`, all === one, `${all} vs ${one}`)
+    const [allInk, iconInk] = [await button.evaluate((el) => getComputedStyle(el).color), await headerResume.evaluate((el) => getComputedStyle(el).color)]
+    check(`${theme}: an agent header's Resume icon has its colour`, allInk === iconInk, `${allInk} vs ${iconInk}`)
     await agentResume.hover()
     const oneHover = await colours(agentResume)
     await button.hover()
@@ -98,6 +109,7 @@ const check = (name, ok, extra = '') => {
     await page.screenshot({ path: path.join(lib.WORK, `resumeall-colours-${theme}.png`) })
   }
   check('the light theme has its own colours', seen[0] !== seen[1], seen.join(' / '))
+  await page.evaluate(() => document.getElementById('resume-probe')?.remove())
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.mouse.move(0, 0)
   await button.click()

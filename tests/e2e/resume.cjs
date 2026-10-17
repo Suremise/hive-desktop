@@ -5,6 +5,8 @@
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 10000
 const scratch = lib.WORK, userData = path.join(scratch, 'resume-profile')
 // Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test session (#174).
 const ws = path.join(scratch, 'resume-ws')
@@ -53,9 +55,16 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('Agent 2 has nothing of its own', a2().resume === null)
 
   // Two columns so both pane headers show.
-  await inv('project:updateConfig', proj, { layout: 'columns2' }); await sleep(800)
+  await inv('project:updateConfig', proj, { layout: 'columns2' })
   const h2 = page.locator('.pane-header-bar', { hasText: 'Agent 2' })
-  check('Agent 2 Resume disabled', await h2.locator('button[aria-label="Resume"]').isDisabled())
+  // Nothing to resume: its header offers New Session in Stop's place (#977), and Resume is greyed out in its ⋯.
+  const offers = await lib.until(async () => (await h2.locator('button[aria-label="New Session"]').count()) === 1 && (await h2.locator('button[aria-label="Resume"]').count()) === 0, HUNG_MS)
+  check('Agent 2 offers New Session, no Resume', !!offers)
+  /** Opens agent h's ⋯ and chooses Resume a Session… (#977: a header button before). */
+  const pickFrom = async (h) => {
+    await h.getByRole('button', { name: 'More', exact: true }).click()
+    await page.locator('.menu .menu-item', { hasText: 'Resume a Session…' }).click()
+  }
 
   // Start Agent 1 fresh (no prompt sent).
   const st = await inv('session:start', proj, { agentId: A1.id })
@@ -75,7 +84,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('session tag shown', (await tag1.count()) === 1, await tag1.textContent().catch(() => ''))
 
   // Picker for Agent 2: Agent 1's open session greyed, old sessions resumable.
-  await h2.locator('button[aria-label="Resume a Session…"]').click(); await lib.until(async () => (await page.locator('.menu .menu-item.two-line').count()) > 0, 10000)
+  await pickFrom(h2); await lib.until(async () => (await page.locator('.menu .menu-item.two-line').count()) > 0, 10000)
   const rows = page.locator('.menu .menu-item.two-line')
   const texts = await rows.allTextContents()
   check('picker lists 3 sessions', texts.length === 3, JSON.stringify(texts))
@@ -103,12 +112,14 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await shot(page, '3-resume-in')
   await page.keyboard.press('Escape')
 
-  // The agent header's Resume and Resume a Session… buttons
+  // The agent's ⋯: Resume (disabled: nothing of its own) and Resume a Session…
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().click(); await sleep(500)
   await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).click(); await sleep(300)
-  check('header Resume disabled for Agent 2', await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume"]').isDisabled())
-  await page.locator('.pane-header-bar', { hasText: 'Agent 2' }).locator('button[aria-label="Resume a Session…"]').click(); await lib.until(async () => (await page.locator('.menu .menu-header').textContent().catch(() => '')) === 'Resume in Agent 2', 10000)
-  check('header picker opens', (await page.locator('.menu .menu-header').textContent()) === 'Resume in Agent 2')
+  await h2.getByRole('button', { name: 'More', exact: true }).click()
+  check("Resume disabled in Agent 2's ⋯", await page.locator('.menu .menu-item', { hasText: /^\s*Resume\s*$/ }).evaluate((el) => el.classList.contains('disabled')).catch(() => false))
+  await page.keyboard.press('Escape')
+  await pickFrom(h2); await lib.until(async () => (await page.locator('.menu .menu-header').textContent().catch(() => '')) === 'Resume in Agent 2', 10000)
+  check("the ⋯'s picker opens", (await page.locator('.menu .menu-header').textContent()) === 'Resume in Agent 2')
   await shot(page, '4-header')
   await page.keyboard.press('Escape')
 

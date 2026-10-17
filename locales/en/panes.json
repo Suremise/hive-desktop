@@ -77,27 +77,23 @@
   },
   "panes.compact.busy": {
     "defaultMessage": "Available once the agent has finished.",
-    "description": "Tooltip of the Compact button (disabled) while the agent works."
-  },
-  "panes.compact.button": {
-    "defaultMessage": "Compact",
-    "description": "Button on an agent's pane: summarises its conversation to shrink its context. Keep it short."
+    "description": "The detail of Compact… (disabled) in an agent's menu while the agent works."
   },
   "panes.compact.empty": {
     "defaultMessage": "Nothing to compact yet: the conversation has no messages.",
-    "description": "Tooltip of the Compact button (disabled) when the conversation has no messages."
+    "description": "The detail of Compact… (disabled) in an agent's menu when the conversation has no messages."
   },
   "panes.compact.running": {
     "defaultMessage": "Compacting the conversation…",
-    "description": "Tooltip of the Compact button while the agent compacts its conversation."
+    "description": "The detail of Compact… in an agent's menu while the agent compacts its conversation."
   },
-  "panes.compact.tip": {
-    "defaultMessage": "Summarise the conversation to shrink its context{tokens, select, none {} other { (now {tokens} tokens)}}. The full history stays in the transcript.{suggested, select, yes { Recommended: the context is over your threshold.} other {}}",
-    "description": "Tooltip of the Compact button: what it does, how big the context is now ({tokens}: \"120K\"; none: leave that branch empty) and, past the user's threshold, that it is recommended."
+  "panes.compact.suggested": {
+    "defaultMessage": "Recommended: the context is over your threshold.",
+    "description": "The detail of Compact… in an agent's menu once the context passes the user's Suggest compacting above threshold."
   },
   "panes.compact.waiting": {
     "defaultMessage": "The agent is waiting for your answer. Compact after it has finished.",
-    "description": "Tooltip of the Compact button (disabled) while the agent waits for the user."
+    "description": "The detail of Compact… (disabled) in an agent's menu while the agent waits for the user."
   },
   "panes.drop.move": {
     "defaultMessage": "Move here",
@@ -179,41 +175,29 @@
     "defaultMessage": "Asks you something",
     "description": "Tooltip of a pane's status: the agent has asked the user something."
   },
-  "panes.header.cancel": {
-    "defaultMessage": "Cancel",
-    "description": "Button beside a watching agent's status: ends its watch. Keep it short."
-  },
-  "panes.header.cancelWatch": {
-    "defaultMessage": "{kind, select, agent {Cancel the agent watch} lane {Cancel the lane watch} other {Cancel the card watch}}",
-    "description": "Accessible name of the Cancel button beside a watching agent's status: ends its agent, lane or card watch."
-  },
   "panes.header.failed": {
     "defaultMessage": "Failed to start",
     "description": "A pane's status: the agent's last launch failed."
   },
   "panes.header.failedTip": {
     "defaultMessage": "Failed to start: {why}",
-    "description": "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)."
+    "description": "Tooltip of a pane's state mark (stalled): the agent's last launch failed ({why}: the error)."
   },
   "panes.header.markIdle": {
     "defaultMessage": "Mark idle",
-    "description": "Button beside a pane's unknown state: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short."
+    "description": "Button beside a pane's unknown state, and an item of its ⋯ menu: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short."
   },
   "panes.header.markIdleFailed": {
     "defaultMessage": "Could not mark the agent idle",
     "description": "An error's title: Mark idle failed."
   },
-  "panes.header.mergeInto": {
-    "defaultMessage": "Merge {branch} into the project folder",
-    "description": "Tooltip of a worktree pane's Merge button before Hive knows what is left to merge."
-  },
-  "panes.header.mergeTip": {
-    "defaultMessage": "Merge {branch}: {work}",
-    "description": "Tooltip of a worktree pane's Merge button: its branch and what is left to merge ({work}: \"2 commits not merged into main\")."
-  },
   "panes.header.more": {
     "defaultMessage": "More",
     "description": "Tooltip of the ⋯ button on a pane's header: the agent's menu."
+  },
+  "panes.header.nameTip": {
+    "defaultMessage": "{agent} · {provider}",
+    "description": "Tooltip of the agent's name on its pane's header: its name and its provider (\"Claude Code\")."
   },
   "panes.header.notRunning": {
     "defaultMessage": "Not running",
@@ -249,7 +233,7 @@
   },
   "panes.leftovers.count": {
     "defaultMessage": "{n, plural, one {# left running} other {# left running}}",
-    "description": "On an agent's tab: how many processes it left running ({n}). Keep it short."
+    "description": "An item of a pane's ⋯ menu, and a line of its badge's hover: how many processes the agent left running ({n}). Keep it short."
   },
   "panes.leftovers.end": {
     "defaultMessage": "{n, plural, one {End It} other {End All #}}",
@@ -267,29 +251,25 @@
     "defaultMessage": "Could not keep the processes",
     "description": "An error's title: keeping the processes an agent left running (and no longer listing them) failed."
   },
-  "panes.leftovers.label": {
-    "defaultMessage": "{processes} left running",
-    "description": "Accessible name of an agent's left-running mark ({processes}: \"2 processes\")."
-  },
   "panes.leftovers.tip": {
     "defaultMessage": "{n, plural, one {# process this agent started is still running after it stopped. It may hold the project's folder or ports:} other {# processes this agent started are still running after it stopped. They may hold the project's folder or ports:}}",
-    "description": "Hover of an agent's left-running mark, above the processes listed: how many ({n}) its stopped launches left running."
-  },
-  "panes.leftovers.tipClick": {
-    "defaultMessage": "{n, plural, one {Click to end it, or keep it running.} other {Click to end them, or keep them running.}}",
-    "description": "Hover of an agent's left-running mark, its last line: what clicking offers ({n} processes)."
+    "description": "The heading of the menu of an agent's left-running processes, above the processes listed: how many ({n}) its stopped launches left running."
   },
   "panes.list.more": {
     "defaultMessage": "…and {n, number} more",
     "description": "The last line of a list in a hover cut short (files, processes): how many more ({n})."
   },
+  "panes.locks.item": {
+    "defaultMessage": "{n, plural, one {Editing # file} other {Editing # files}}",
+    "description": "An item of a pane's ⋯ menu: how many files ({n}) the agent is editing this turn; its menu lists them."
+  },
   "panes.locks.title": {
     "defaultMessage": "Files it is editing this turn:",
-    "description": "Hover of an agent's lock mark (a worktree agent), above the files it is editing."
+    "description": "Above the files an agent is editing (a worktree agent): its tab's lock mark's hover, its pane's ⋯ menu."
   },
   "panes.locks.titleShared": {
     "defaultMessage": "Files it is editing this turn. Other agents in this folder wait until it finishes with them:",
-    "description": "Hover of an agent's lock mark (an agent sharing the project's folder), above the files it is editing."
+    "description": "Above the files an agent is editing (an agent sharing the project's folder): its tab's lock mark's hover, its pane's ⋯ menu."
   },
   "panes.menu.archiveStartNew": {
     "defaultMessage": "Archive and Start New…",
@@ -335,29 +315,25 @@
     "defaultMessage": "Could not cancel the messages",
     "description": "An error's title: cancelling messages left for an agent failed."
   },
-  "panes.messages.clickCancel": {
-    "defaultMessage": "{n, plural, one {Click to cancel the one waiting.} other {Click to cancel the # waiting.}}",
-    "description": "Hover of an agent's unread messages: clicking cancels the {n} still waiting."
-  },
   "panes.messages.line": {
     "defaultMessage": "{id} from {from} ({state, select, queued {waiting} offered {typed, not fetched or acked yet} other {its offer not confirmed}}): {text}",
-    "description": "A message left for an agent, in its tab's hover: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)."
+    "description": "A message left for an agent, in the menu of its unread messages: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)."
   },
   "panes.messages.overdue": {
     "defaultMessage": "{n, plural, one {# overdue} other {# overdue}}",
-    "description": "On an agent's tab: how many deliveries it didn't ack in time. Keep it short."
+    "description": "An item of a pane's ⋯ menu, and a line of its badge's hover: how many deliveries the agent didn't ack in time. Keep it short."
   },
   "panes.messages.overdueTip": {
     "defaultMessage": "{n, plural, one {One delivery was not acked in time: the agent hasn't said it acted on it.} other {# deliveries were not acked in time: the agent hasn't said it acted on them.}}",
-    "description": "Hover of an agent's unread messages: how many deliveries ({n}) it didn't ack in time."
+    "description": "In the menu of an agent's unread messages: how many deliveries ({n}) it didn't ack in time."
   },
   "panes.messages.tip": {
     "defaultMessage": "{n, plural, one {A message} other {# messages}} for {agent} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.",
-    "description": "Hover of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it."
+    "description": "The heading of the menu of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it."
   },
   "panes.messages.unread": {
     "defaultMessage": "{n, plural, one {# unread} other {# unread}}",
-    "description": "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short."
+    "description": "An item of a pane's ⋯ menu, and a line of its badge's hover: how many messages left for the agent it hasn't fetched or acked yet. Keep it short."
   },
   "panes.pages.button": {
     "defaultMessage": "Agent page {page}",
@@ -717,7 +693,7 @@
   },
   "panes.worktree.tip": {
     "defaultMessage": "Worktree: {branch}\nin {path}\nbranched from {base}",
-    "description": "Hover of a worktree agent's mark (its tab and pane header), three lines: its branch, its folder and the branch it was made from. Keep the line breaks."
+    "description": "Hover of a worktree agent's mark (its tab), three lines: its branch, its folder and the branch it was made from. Keep the line breaks."
   },
   "panes.worktree.toMerge": {
     "defaultMessage": "To merge: {work}",

@@ -56,7 +56,7 @@
   "session.leftovers.end": "End Them",
   "session.leftovers.keep": "Keep Running",
   "session.leftovers.more": "{n, plural, one {# more process} other {# more processes}}",
-  "session.leftovers.notEnded": "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the agent's pane header, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the agent's pane header, to try again or keep.}}",
+  "session.leftovers.notEnded": "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the ⋯ menu on the agent's pane, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the ⋯ menu on the agent's pane, to try again or keep.}}",
   "session.leftovers.notEndedBody": "{processes}. {n, plural, one {It was started by the agent and may hold the project's folder or ports. Hive couldn't end it by itself.} other {They were started by the agent and may hold the project's folder or ports. Hive couldn't end them by itself.}}",
   "session.leftovers.times": "{n, number} × {label}",
   "session.leftovers.title": "{agent} left {processes} running",

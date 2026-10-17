@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Auto-detect",
   "settings.sessions.cacheTtl.tip": "Auto detects the cache type from the transcript (5 minutes or 1 hour).",
   "settings.sessions.cacheTtl.title": "Prompt cache lifetime",
-  "settings.sessions.compactSuggestTokens.desc": "Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. Never: the button never turns orange.",
+  "settings.sessions.compactSuggestTokens.desc": "Context size, in tokens, at which the context in an agent's pane footer turns orange. Never: it never does.",
   "settings.sessions.compactSuggestTokens.off": "Never",
   "settings.sessions.compactSuggestTokens.tip": "Compacting summarises the conversation so every later message is cheaper; the full history stays in the transcript. Projects can set their own value in Project Settings, and the Assistant has its own (Settings → Assistant). Compact is always available once the agent has finished.",
   "settings.sessions.compactSuggestTokens.title": "Suggest compacting above",

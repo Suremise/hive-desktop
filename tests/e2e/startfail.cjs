@@ -62,7 +62,7 @@ const check = (name, ok, extra = '') => {
   check("it gives the CLI's error", /Couldn't start: error: option '--model <model>' argument 'fail-start' is invalid\./.test(said), said)
   check('with a hint for the fix', /choose another in Agent Settings/.test(said), said)
   check('with Retry and Agent Settings…', (await bar.getByRole('button', { name: 'Retry' }).count()) === 1 && (await bar.getByRole('button', { name: 'Agent Settings…' }).count()) === 1)
-  check('the header says Failed to start, in red', /Failed to start/.test(await text(header.locator('.pane-status.failed'))) && (await header.locator('.dot.error').count()) === 1)
+  check('the header says Failed to start, in red', /Failed to start/.test(await text(header.locator('.pane-status.failed'))) && (await header.locator('.state-mark.stalled').count()) === 1)
   check('the tab is red', (await tab.locator('.dot.error').count()) === 1)
   check('no toast while its pane is on screen', (await page.locator('.toast', { hasText: "couldn't start" }).count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-1-bar.png') })
@@ -118,7 +118,9 @@ const check = (name, ok, extra = '') => {
   check('a saved bare "--" stops the launch, saying why', started.includes(refused) && started.includes('Fix it in Project Settings or Settings → Claude Code.'), started)
   check('and the CLI never started', !(await live()))
   // Started from the window, the refusal shows as a notification.
-  await header.getByRole('button', { name: 'New Session' }).click()
+  // New Session from its ⋯ (#977: the header shows Resume in Stop's place while it has a session to resume).
+  await header.getByRole('button', { name: 'More', exact: true }).click()
+  await page.locator('.menu .menu-item', { hasText: 'New Session' }).click()
   const notice = page.locator('.toast', { hasText: refused })
   check('the window shows why', !!(await until(async () => (await notice.count()) === 1, HUNG_MS)), JSON.stringify(await page.locator('.toast').allInnerTexts()))
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-4-dashes.png') })

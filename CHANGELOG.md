@@ -4,6 +4,7 @@
 
 - **A calmer project header and tabs.** The project header is one quiet row: the project's name, its agents' states in one line (*1 waiting · 2 working*), the **Active** switch, **Resume** and **Stop**, and an **Agents ▾** menu for **Start New**, **Archive and Start New** and **Remove All…**, which were three buttons. The project tabs are shorter and tighter, and **Project Settings** has left them: it opens from the header's **⋯**, **Project → Go to Project Settings** or **Alt+0**.
 - **Agent states you can tell apart without colour.** Hive sums up each agent as waiting for you, stalled, working or idle, each drawn with its own shape (a diamond, a square, a pulsing dot, a ring) as well as its own colour; the project header's state line uses them first.
+- **A quieter pane header.** Each agent's pane header now shows only its state, its name, its status and its card, with **Stop** (or **Resume** while it isn't running) and **⋯**. Everything else is in **⋯**, also a right-click on the header: Compact…, Hand Over to…, Review Changes and Merge… (with what is left to merge), the agent's settings and Remove. Processes it left running, unread messages and the files it is editing are at the top of that menu, with a dot on ⋯ when something needs a look. **Session → Agent Menu…** opens it from the keyboard. Hover the agent's name for its provider.
 
 ## 0.8.1 — 17 October 2026
 

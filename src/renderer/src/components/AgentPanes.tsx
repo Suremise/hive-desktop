@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
+import { StateMark } from './StateMark'
+import { AGENT_STATE_LABEL, agentState } from '@shared/agentState'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
@@ -7,7 +9,7 @@ import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage } from '@shared/types'
 import { TEMPLATE_SCOPES, shownProblem, type TemplateEntry } from '@shared/templates'
 import type { StartFailure } from '@shared/startFailure'
-import { processCount } from '@shared/agentProcesses'
+import type { AgentLeftovers } from '@shared/agentProcesses'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
@@ -28,10 +30,10 @@ import { contextLines, projectProviderConfig, providerDescriptor, providerName, 
 import { safeguardText } from '@shared/safeguards'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { unknownStateText } from '@shared/runtime'
-import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
-export const PANE_HEADER = 30
+export const PANE_HEADER = 26
 export const PANE_FOOTER = 24
 
 interface Rect {
@@ -180,7 +182,6 @@ const NEW_SESSION = msg({ id: 'panes.session.new', defaultMessage: 'New Session'
 const RESUME_SESSION = msg({ id: 'panes.resume.pick', defaultMessage: 'Resume a Session…', description: "Menu item (an agent's pane): opens the session picker to resume one of its sessions." })
 const MERGE = msg({ id: 'panes.agent.merge', defaultMessage: 'Merge…', description: "Button and menu item (a worktree agent's pane): opens the merge dialog for its branch." })
 const AGENT_SETTINGS = msg({ id: 'panes.agent.settings', defaultMessage: 'Agent Settings…', description: "Menu item and button (an agent's pane): opens the agent's settings." })
-const COMPACT = msg({ id: 'panes.compact.button', defaultMessage: 'Compact', description: "Button on an agent's pane: summarises its conversation to shrink its context. Keep it short." })
 const STOP = msg({ id: 'panes.agent.stop', defaultMessage: 'Stop', description: "Button and menu item (an agent's pane): stops the agent's session (the conversation is kept). Keep it short." })
 
 /** Resume split button: the main part resumes the agent's last session, ▾ picks another. */
@@ -381,20 +382,37 @@ function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
   ]
 }
 
-/** An agent's menu. `inHeader`: the pane's header shows the session and Merge buttons, so the menu leaves them out. */
-function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeader = false): MenuEntry[] {
+/**
+ * Compact…'s detail in an agent's menu: why it is unavailable, or that it is recommended (the pane's header had these as
+ * its Compact button's tooltip before #977). `usage`: the pane's, when known (the tab's menu goes without).
+ */
+function compactDetail(live: LiveSessionState, usage?: { empty: boolean; suggested: boolean }): string | undefined {
+  const idle = live.status === 'ready' || live.status === 'finished' || live.status === 'watching'
+  if (isCompacting(live)) return tr(msg({ id: 'panes.compact.running', defaultMessage: 'Compacting the conversation…', description: "The detail of Compact… in an agent's menu while the agent compacts its conversation." }))
+  if (!idle)
+    return live.status === 'waiting'
+      ? tr(msg({ id: 'panes.compact.waiting', defaultMessage: 'The agent is waiting for your answer. Compact after it has finished.', description: "The detail of Compact… (disabled) in an agent's menu while the agent waits for the user." }))
+      : tr(msg({ id: 'panes.compact.busy', defaultMessage: 'Available once the agent has finished.', description: "The detail of Compact… (disabled) in an agent's menu while the agent works." }))
+  if (usage?.empty) return tr(msg({ id: 'panes.compact.empty', defaultMessage: 'Nothing to compact yet: the conversation has no messages.', description: "The detail of Compact… (disabled) in an agent's menu when the conversation has no messages." }))
+  if (usage?.suggested) return tr(msg({ id: 'panes.compact.suggested', defaultMessage: 'Recommended: the context is over your threshold.', description: "The detail of Compact… in an agent's menu once the context passes the user's Suggest compacting above threshold." }))
+  return undefined
+}
+
+/**
+ * An agent's menu: its pane's ⋯ (after the pane's own items), its tab's and its pane header's right-click. `usage`: what
+ * the pane knows of its conversation, for Compact… (unavailable while it is empty, recommended past the threshold).
+ */
+function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?: { empty: boolean; suggested: boolean }): MenuEntry[] {
   const worktree = !!a.worktree
   const archiveItem = { label: tr(msg({ id: 'panes.menu.archiveStartNew', defaultMessage: 'Archive and Start New…', description: "Menu item (an agent's menu): archives the agent's conversation and starts a new one." })), icon: 'archive', action: 'archive-start' as const, onClick: () => void actions.archiveCurrent(project.path, a.id) }
+  // What is left to merge, under Merge… (its count was the header's Merge button's before #977).
+  const unmerged = worktree ? unmergedWork(useStore.getState().branchStatus[projectKey(project.path, a.id)], tr) : null
+  const blocked = mergeBlocked(a.name, a.live?.status, tr)
   return [
-    ...(inHeader
-      ? // The header's buttons are Compact and Stop; archiving is used less often, so it's here.
-        a.live
-        ? [archiveItem]
-        : []
-      : a.live
+    ...(a.live
       ? [
           { label: tr(STOP), icon: 'debug-stop', action: 'stop' as const, onClick: () => void actions.stopSession(project.path, a.id) },
-          { label: tr(msg({ id: 'panes.menu.compact', defaultMessage: 'Compact…', description: "Menu item (an agent's menu): summarises its conversation to shrink its context (asks first)." })), icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching'), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
+          { label: tr(msg({ id: 'panes.menu.compact', defaultMessage: 'Compact…', description: "Menu item (an agent's menu): summarises its conversation to shrink its context (asks first)." })), icon: 'fold', disabled: !(a.live.status === 'ready' || a.live.status === 'finished' || a.live.status === 'watching') || isCompacting(a.live) || !!usage?.empty, detail: compactDetail(a.live, usage), onClick: () => set({ compactFor: { project: project.path, agentId: a.id } }) },
           archiveItem
         ]
       : [
@@ -402,7 +420,6 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
           { label: tr(RESUME_SESSION), icon: 'history', action: 'resume' as const, onClick: pick },
           { label: tr(NEW_SESSION), icon: 'add', action: 'start' as const, onClick: () => void actions.newSession(project.path, a.id) }
         ]),
-    // Also in the header; here too for a pane too narrow to show it.
     ...(a.live?.status === 'watching'
       ? [{ label: tr(msg({ id: 'panes.menu.cancelWatch', defaultMessage: 'Cancel Card Watch', description: "Menu item (a watching agent's menu): ends its watch, so nothing wakes it." })), icon: 'eye-closed', onClick: () => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', tr(CANCEL_WATCH_FAILED), String((e as Error).message ?? e))) }]
       : []),
@@ -410,10 +427,11 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, inHeade
     ...moveItems(project, a),
     { separator: true },
     { label: tr(AGENT_SETTINGS), icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
-    ...(worktree
-      ? [
-          { label: tr(msg({ id: 'panes.menu.reviewChanges', defaultMessage: 'Review Changes', description: "Menu item (a worktree agent's menu): shows its changes in the Git tab." })), icon: 'git-compare', onClick: () => reviewChanges(project, a) },
-          ...(inHeader ? [] : [{ label: tr(MERGE), icon: 'git-merge', disabled: !!mergeBlocked(a.name, a.live?.status, tr), detail: mergeBlocked(a.name, a.live?.status, tr) ?? undefined, onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) }]),
+    ...(a.worktree
+      ? // Its branch under Review Changes (the pane's header showed it as a mark before #977).
+        [
+          { label: tr(msg({ id: 'panes.menu.reviewChanges', defaultMessage: 'Review Changes', description: "Menu item (a worktree agent's menu): shows its changes in the Git tab." })), icon: 'git-compare', detail: a.worktree.branch, onClick: () => reviewChanges(project, a) },
+          { label: tr(MERGE), icon: 'git-merge', disabled: !!blocked, detail: blocked ?? (unmerged?.badge ? unmerged.text : undefined), onClick: () => set({ mergeFor: { project: project.path, agentId: a.id } }) },
           { separator: true },
           { label: tr(REMOVE_AGENT), icon: 'close', action: 'remove' as const, onClick: () => void actions.removeAgent(project.path, a.id) },
           { label: tr(msg({ id: 'panes.menu.discard', defaultMessage: 'Discard Worktree and Branch…', description: "Menu item (a worktree agent's menu): removes the agent and deletes its worktree and branch (asks first)." })), icon: 'trash', danger: true, onClick: () => void actions.discardAgent(project.path, a.id) }
@@ -497,7 +515,7 @@ function WorktreeMark({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   if (!a.worktree) return null
   const { branch, path, base } = a.worktree
   const tip = [
-    tr(msg({ id: 'panes.worktree.tip', defaultMessage: 'Worktree: {branch}\nin {path}\nbranched from {base}', description: "Hover of a worktree agent's mark (its tab and pane header), three lines: its branch, its folder and the branch it was made from. Keep the line breaks." }), { branch, path, base }),
+    tr(msg({ id: 'panes.worktree.tip', defaultMessage: 'Worktree: {branch}\nin {path}\nbranched from {base}', description: "Hover of a worktree agent's mark (its tab), three lines: its branch, its folder and the branch it was made from. Keep the line breaks." }), { branch, path, base }),
     ...(work?.badge ? [tr(TO_MERGE, { work: work.text })] : [])
   ].join('\n')
   return (
@@ -523,13 +541,17 @@ function UnmergedBadge({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 /** "…and 5 more", the last line of a list cut short. */
 const MORE_LINES = msg({ id: 'panes.list.more', defaultMessage: '…and {n, number} more', description: 'The last line of a list in a hover cut short (files, processes): how many more ({n}).' })
 
+/** Above the files an agent is editing (its tab's lock mark, its pane's ⋯). */
+const LOCKS_TITLE = msg({ id: 'panes.locks.title', defaultMessage: 'Files it is editing this turn:', description: "Above the files an agent is editing (a worktree agent): its tab's lock mark's hover, its pane's ⋯ menu." })
+const LOCKS_TITLE_SHARED = msg({ id: 'panes.locks.titleShared', defaultMessage: 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:', description: "Above the files an agent is editing (an agent sharing the project's folder): its tab's lock mark's hover, its pane's ⋯ menu." })
+
 function Locks({ a }: { a: AgentInfo }) {
   const files = a.live?.lockedFiles
   if (!files?.length) return null
   // A worktree has one agent, so nobody waits for its files; in a shared folder the lock is what matters.
   const title = a.worktree
-    ? tr(msg({ id: 'panes.locks.title', defaultMessage: 'Files it is editing this turn:', description: "Hover of an agent's lock mark (a worktree agent), above the files it is editing." }))
-    : tr(msg({ id: 'panes.locks.titleShared', defaultMessage: 'Files it is editing this turn. Other agents in this folder wait until it finishes with them:', description: "Hover of an agent's lock mark (an agent sharing the project's folder), above the files it is editing." }))
+    ? tr(LOCKS_TITLE)
+    : tr(LOCKS_TITLE_SHARED)
   const more = files.length > 20 ? `\n${tr(MORE_LINES, { n: files.length - 20 })}` : ''
   return (
     <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${title}\n${files.slice(0, 20).join('\n')}${more}`}</span>}>
@@ -541,90 +563,114 @@ function Locks({ a }: { a: AgentInfo }) {
 }
 
 /**
- * Processes the agent's stopped launches left running (#507), such as a preview server: how many, each in the tooltip,
- * and a click to end them or keep them running (then no longer listed). Gone once they end by themselves.
+ * What the pane's ⋯ shows above the agent's menu (#977: these were marks on its header), and what its badge says:
+ * - processes its stopped launches left running (#507), such as a preview server: how many, the first few, and End or
+ *   Keep Running (then no longer listed); gone once they end by themselves;
+ * - what was left for it and isn't received yet (#530, #647: its deliveries), and Cancel for those still waiting; how
+ *   many weren't acked in time;
+ * - the files it is editing this turn;
+ * - Mark Idle (beside the status too while the header has room) when Hive doesn't know its state (#648);
+ * - `narrow` (the header too narrow for its inline marks): what its safety classifier did (#606), from its shield.
+ * `sub` opens a menu in the ⋯ menu's place. `alert`: the badge's lines; `warn` when one of them is a warning.
  */
-/**
- * What was left for it and isn't received yet (#530, #647: its deliveries): "✉ 2 unread", who from and the start of each
- * in the tooltip, and Cancel for those still waiting; and how many weren't acked in time ("1 overdue").
- */
-function AgentInbox({ project, a, live }: { project: ProjectInfo; a: AgentInfo; live: LiveSessionState | null | undefined }) {
-  const menu = useContextMenu()
-  const inbox = live?.inbox
-  if (!inbox) return null
-  const n = inbox.unread.length
-  const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
-  const cancel = () => void actions.attempt(tr(msg({ id: 'panes.messages.cancelFailed', defaultMessage: 'Could not cancel the messages', description: "An error's title: cancelling messages left for an agent failed." })), () => call('session:cancelMessages', project.path, a.id))
-  const label = [
-    n ? tr(msg({ id: 'panes.messages.unread', defaultMessage: '{n, plural, one {# unread} other {# unread}}', description: "On an agent's tab: how many messages left for it it hasn't fetched or acked yet. Keep it short." }), { n }) : '',
-    inbox.overdue ? tr(msg({ id: 'panes.messages.overdue', defaultMessage: '{n, plural, one {# overdue} other {# overdue}}', description: "On an agent's tab: how many deliveries it didn't ack in time. Keep it short." }), { n: inbox.overdue }) : ''
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const lines = inbox.unread.map((m) => tr(msg({ id: 'panes.messages.line', defaultMessage: '{id} from {from} ({state, select, queued {waiting} offered {typed, not fetched or acked yet} other {its offer not confirmed}}): {text}', description: "A message left for an agent, in its tab's hover: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)." }), { id: m.id, from: m.from, state: m.state, text: m.text }))
-  const tip = [
-    n ? `${tr(msg({ id: 'panes.messages.tip', defaultMessage: "{n, plural, one {A message} other {# messages}} for {agent} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.", description: "Hover of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it." }), { n, agent: a.name })}\n${lines.join('\n')}` : '',
-    inbox.overdue ? tr(msg({ id: 'panes.messages.overdueTip', defaultMessage: "{n, plural, one {One delivery was not acked in time: the agent hasn't said it acted on it.} other {# deliveries were not acked in time: the agent hasn't said it acted on them.}}", description: "Hover of an agent's unread messages: how many deliveries ({n}) it didn't ack in time." }), { n: inbox.overdue }) : '',
-    waiting ? tr(msg({ id: 'panes.messages.clickCancel', defaultMessage: '{n, plural, one {Click to cancel the one waiting.} other {Click to cancel the # waiting.}}', description: "Hover of an agent's unread messages: clicking cancels the {n} still waiting." }), { n: waiting }) : ''
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-  return (
-    <>
-      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-        <button
-          type="button"
-          className={`agent-messages${inbox.overdue ? ' overdue' : ''}`}
-          aria-label={label}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (waiting) menu.openAt(...below(e.currentTarget), [{ label: tr(msg({ id: 'panes.messages.cancel', defaultMessage: '{n, plural, one {Cancel the Message} other {Cancel the # Messages}}', description: "Menu item on an agent's unread messages: cancels the {n} still waiting to be delivered." }), { n: waiting }), icon: 'close', onClick: cancel }])
-          }}
-        >
-          <Icon name="mail" /> {label}
-        </button>
-      </Tooltip>
-      {menu.element}
-    </>
-  )
+function paneItems(project: ProjectInfo, a: AgentInfo, left: AgentLeftovers | undefined, sub: (items: MenuEntry[], keyboard: boolean) => void, narrow = false): { items: MenuEntry[]; alert: string[]; warn: boolean } {
+  const items: MenuEntry[] = []
+  const alert: string[] = []
+  let warn = false
+  const note = a.live?.safeguard
+  if (narrow && note) {
+    const text = safeguardText(note, providerDescriptor(a.live?.provider).modelLabel, tr)
+    items.push({ label: text, icon: 'shield', disabled: true })
+    alert.push(text)
+    if (note.switched || note.prompt || note.idle) warn = true
+  }
+  if (left) {
+    const n = left.processes.length + left.more
+    const settle = (how: 'end' | 'keep') => () =>
+      void actions.attempt(
+        how === 'end' ? tr(msg({ id: 'panes.leftovers.endFailed', defaultMessage: 'Could not end the processes', description: "An error's title: ending the processes an agent left running failed." })) : tr(msg({ id: 'panes.leftovers.keepFailed', defaultMessage: 'Could not keep the processes', description: "An error's title: keeping the processes an agent left running (and no longer listing them) failed." })),
+        () => call('session:settleLeftovers', project.path, a.id, how)
+      )
+    const label = tr(msg({ id: 'panes.leftovers.count', defaultMessage: '{n, plural, one {# left running} other {# left running}}', description: "An item of a pane's ⋯ menu, and a line of its badge's hover: how many processes the agent left running ({n}). Keep it short." }), { n })
+    const labels = left.processes.slice(0, 3).map((p) => p.label)
+    items.push({
+      label,
+      icon: 'warning',
+      detail: [...labels, ...(n > labels.length ? [tr(MORE_LINES, { n: n - labels.length })] : [])].join(', '),
+      more: true,
+      onClick: (k) =>
+        sub(
+          [
+            { header: true, label: tr(msg({ id: 'panes.leftovers.tip', defaultMessage: "{n, plural, one {# process this agent started is still running after it stopped. It may hold the project's folder or ports:} other {# processes this agent started are still running after it stopped. They may hold the project's folder or ports:}}", description: "The heading of the menu of an agent's left-running processes, above the processes listed: how many ({n}) its stopped launches left running." }), { n }) },
+            ...left.processes.slice(0, 15).map((p) => ({ label: p.label, disabled: true })),
+            ...(n > 15 ? [{ label: tr(MORE_LINES, { n: n - 15 }), disabled: true }] : []),
+            { separator: true },
+            { label: tr(msg({ id: 'panes.leftovers.end', defaultMessage: '{n, plural, one {End It} other {End All #}}', description: 'Menu item on the processes an agent left running: ends it or all {n} of them.' }), { n }), icon: 'stop-circle', onClick: settle('end') },
+            { label: tr(msg({ id: 'panes.leftovers.keep', defaultMessage: 'Keep Running (Stop Listing)', description: 'Menu item on the processes an agent left running: keeps them running and stops listing them.' })), icon: 'check', onClick: settle('keep') }
+          ],
+          k
+        )
+    })
+    alert.push(label)
+    warn = true
+  }
+  const inbox = a.live?.inbox
+  if (inbox && (inbox.unread.length || inbox.overdue)) {
+    const n = inbox.unread.length
+    const waiting = inbox.unread.filter((m) => m.state === 'queued' || m.state === 'uncertain').length
+    const label = [
+      n ? tr(msg({ id: 'panes.messages.unread', defaultMessage: '{n, plural, one {# unread} other {# unread}}', description: "An item of a pane's ⋯ menu, and a line of its badge's hover: how many messages left for the agent it hasn't fetched or acked yet. Keep it short." }), { n }) : '',
+      inbox.overdue ? tr(msg({ id: 'panes.messages.overdue', defaultMessage: '{n, plural, one {# overdue} other {# overdue}}', description: "An item of a pane's ⋯ menu, and a line of its badge's hover: how many deliveries the agent didn't ack in time. Keep it short." }), { n: inbox.overdue }) : ''
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    const overdue = inbox.overdue ? tr(msg({ id: 'panes.messages.overdueTip', defaultMessage: "{n, plural, one {One delivery was not acked in time: the agent hasn't said it acted on it.} other {# deliveries were not acked in time: the agent hasn't said it acted on them.}}", description: "In the menu of an agent's unread messages: how many deliveries ({n}) it didn't ack in time." }), { n: inbox.overdue }) : null
+    const cancel = () => void actions.attempt(tr(msg({ id: 'panes.messages.cancelFailed', defaultMessage: 'Could not cancel the messages', description: "An error's title: cancelling messages left for an agent failed." })), () => call('session:cancelMessages', project.path, a.id))
+    items.push({
+      label,
+      icon: 'mail',
+      more: true,
+      onClick: (k) =>
+        sub(
+          [
+            ...(n ? [{ header: true, label: tr(msg({ id: 'panes.messages.tip', defaultMessage: "{n, plural, one {A message} other {# messages}} for {agent} that it hasn't fetched or acked yet: offered as its next line once it is idle, or read with hive_inbox.", description: "The heading of the menu of an agent's unread messages, above the list of them: how many ({n}) for the agent ({agent}: its name). hive_inbox is a tool's name: keep it." }), { n, agent: a.name }) }] : []),
+            ...inbox.unread.map((m) => ({ label: tr(msg({ id: 'panes.messages.line', defaultMessage: '{id} from {from} ({state, select, queued {waiting} offered {typed, not fetched or acked yet} other {its offer not confirmed}}): {text}', description: "A message left for an agent, in the menu of its unread messages: its id, who from ({from}), its state (waiting; typed into the agent but not fetched or acked; or offered but not confirmed), and the start of its text ({text}, the sender's own words)." }), { id: m.id, from: m.from, state: m.state, text: m.text }), disabled: true })),
+            ...(overdue ? [{ label: overdue, disabled: true }] : []),
+            ...(waiting ? [{ separator: true }, { label: tr(msg({ id: 'panes.messages.cancel', defaultMessage: '{n, plural, one {Cancel the Message} other {Cancel the # Messages}}', description: "Menu item on an agent's unread messages: cancels the {n} still waiting to be delivered." }), { n: waiting }), icon: 'close', onClick: cancel }] : [])
+          ],
+          k
+        )
+    })
+    alert.push(label)
+    if (inbox.overdue) warn = true
+  }
+  const files = a.live?.lockedFiles
+  if (files?.length) {
+    // A worktree has one agent, so nobody waits for its files; in a shared folder the lock is what matters.
+    items.push({
+      label: tr(msg({ id: 'panes.locks.item', defaultMessage: '{n, plural, one {Editing # file} other {Editing # files}}', description: "An item of a pane's ⋯ menu: how many files ({n}) the agent is editing this turn; its menu lists them." }), { n: files.length }),
+      icon: 'lock',
+      more: true,
+      onClick: (k) =>
+        sub(
+          [
+            { header: true, label: a.worktree ? tr(LOCKS_TITLE) : tr(LOCKS_TITLE_SHARED) },
+            ...files.slice(0, 20).map((f) => ({ label: f, disabled: true })),
+            ...(files.length > 20 ? [{ label: tr(MORE_LINES, { n: files.length - 20 }), disabled: true }] : [])
+          ],
+          k
+        )
+    })
+  }
+  if (unknownStateText(a.live, Date.now(), tr)) {
+    items.push({ label: tr(MARK_IDLE), icon: 'check', onClick: () => markIdle(project, a) })
+    // Without its button beside the status, ⋯ says it needs a look.
+    if (narrow) alert.push(unknownStateText(a.live, Date.now(), tr)!)
+  }
+  return { items: items.length ? [...items, { separator: true }] : items, alert, warn }
 }
 
-function Leftovers({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
-  const menu = useContextMenu()
-  const left = useStore((s) => s.leftovers[projectKey(project.path, a.id)])
-  if (!left) return null
-  const n = left.processes.length + left.more
-  const labels = left.processes.slice(0, 15).map((p) => p.label)
-  const rest = n - labels.length
-  const settle = (how: 'end' | 'keep') => () =>
-    void actions.attempt(
-      how === 'end' ? tr(msg({ id: 'panes.leftovers.endFailed', defaultMessage: 'Could not end the processes', description: "An error's title: ending the processes an agent left running failed." })) : tr(msg({ id: 'panes.leftovers.keepFailed', defaultMessage: 'Could not keep the processes', description: "An error's title: keeping the processes an agent left running (and no longer listing them) failed." })),
-      () => call('session:settleLeftovers', project.path, a.id, how)
-    )
-  const head = tr(msg({ id: 'panes.leftovers.tip', defaultMessage: "{n, plural, one {# process this agent started is still running after it stopped. It may hold the project's folder or ports:} other {# processes this agent started are still running after it stopped. They may hold the project's folder or ports:}}", description: "Hover of an agent's left-running mark, above the processes listed: how many ({n}) its stopped launches left running." }), { n })
-  const foot = tr(msg({ id: 'panes.leftovers.tipClick', defaultMessage: '{n, plural, one {Click to end it, or keep it running.} other {Click to end them, or keep them running.}}', description: "Hover of an agent's left-running mark, its last line: what clicking offers ({n} processes)." }), { n })
-  return (
-    <>
-      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{[head, ...labels, ...(rest > 0 ? [tr(MORE_LINES, { n: rest })] : []), '', foot].join('\n')}</span>}>
-        <button
-          type="button"
-          className="agent-leftovers"
-          aria-label={tr(msg({ id: 'panes.leftovers.label', defaultMessage: '{processes} left running', description: "Accessible name of an agent's left-running mark ({processes}: \"2 processes\")." }), { processes: processCount(n, tr) })}
-          onClick={(e) => {
-            e.stopPropagation()
-            menu.openAt(...below(e.currentTarget), [
-              { label: tr(msg({ id: 'panes.leftovers.end', defaultMessage: '{n, plural, one {End It} other {End All #}}', description: 'Menu item on the processes an agent left running: ends it or all {n} of them.' }), { n }), icon: 'stop-circle', onClick: settle('end') },
-              { label: tr(msg({ id: 'panes.leftovers.keep', defaultMessage: 'Keep Running (Stop Listing)', description: 'Menu item on the processes an agent left running: keeps them running and stops listing them.' })), icon: 'check', onClick: settle('keep') }
-            ])
-          }}
-        >
-          <Icon name="warning" /> {tr(msg({ id: 'panes.leftovers.count', defaultMessage: '{n, plural, one {# left running} other {# left running}}', description: "On an agent's tab: how many processes it left running ({n}). Keep it short." }), { n })}
-        </button>
-      </Tooltip>
-      {menu.element}
-    </>
-  )
-}
+const markIdle = (project: ProjectInfo, a: AgentInfo): void => void call('session:markIdle', project.path, a.id).catch((e) => notify('error', tr(msg({ id: 'panes.header.markIdleFailed', defaultMessage: 'Could not mark the agent idle', description: "An error's title: Mark idle failed." })), String((e as Error).message ?? e)))
 
 /** Where a menu opens under a button. */
 const below = (el: Element): [number, number] => {
@@ -678,15 +724,15 @@ function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntr
 }
 
 /** Opens a strip menu the palette asked for, now or once this strip shows (`project` null: not the strip's). */
-function useStripMenu(project: string | null, which: StripMenu, open: () => void): void {
+function useStripMenu(project: string | null, which: StripMenu, open: () => void, agent?: string): void {
   const run = useRef(open)
   run.current = open
   useEffect(() => {
     if (!project) return
-    const check = (): void => void (takeStripMenu(project, which) && run.current())
+    const check = (): void => void (takeStripMenu(project, which, agent) && run.current())
     check()
     return onStripMenu(check)
-  }, [project, which])
+  }, [project, which, agent])
 }
 
 /**
@@ -1031,77 +1077,85 @@ export function useWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
   return [ref, w]
 }
 
-const MARK_IDLE = msg({ id: 'panes.header.markIdle', defaultMessage: 'Mark idle', description: "Button beside a pane's unknown state: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short." })
+const MARK_IDLE = msg({ id: 'panes.header.markIdle', defaultMessage: 'Mark idle', description: "Button beside a pane's unknown state, and an item of its ⋯ menu: tells Hive the agent is idle (its terminal shows it at its prompt). Keep it short." })
+
+/** The header's width from which its card shows (tests/e2e/paneheader.cjs measures every width). */
+const CARD_FROM = 200
+/** From which Mark idle shows beside an unknown state (else only in ⋯), and below which ⋯ has the safeguard's note too. */
+const MARKS_FROM = 300
+
+const MORE = msg({ id: 'panes.header.more', defaultMessage: 'More', description: "Tooltip of the ⋯ button on a pane's header: the agent's menu." })
 
 /**
- * Header buttons with labels while the pane is wide, icons when narrower, and only in ⋯ (which has them all) when narrow.
- * The mode follows the header's width both ways. The agent's details (name, branch, status, card) give way to the buttons,
- * so each mode only has to fit its widest set of buttons: a stopped worktree agent's, with a four-digit Merge count, and room
- * for the status dot and provider icon (tests/e2e/paneheader.cjs measures it at both widths).
+ * A pane's header (#977): the agent's state mark, its name, its status and its card, then Stop (Resume, or New Session
+ * when there is nothing to resume, while it isn't running) and ⋯, which has everything else: what needs a look (processes
+ * left running, unread messages, the files it is editing; its badge says so), then the agent's menu (Compact, Hand Over,
+ * worktree and Merge, settings, Remove). The status gives way first, then the name; Stop and ⋯ never shrink.
  */
-const LABELS_FROM = 565
-const ICONS_FROM = 340
-
 function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInfo; focused: boolean }) {
   useLanguage()
   const menu = useContextMenu()
   const picker = useSessionPicker()
+  const left = useStore((s) => s.leftovers[projectKey(project.path, a.id)])
+  const more = useRef<HTMLButtonElement>(null)
   const [ref, width] = useWidth<HTMLDivElement>()
-  const settings = useStore((s) => s.settings)
-  const usage = useLiveUsage(project, a.id)
-  const unmerged = useUnmerged(project, a)
   const live = a.live
   const failure = useStartFailure(project, a)
-  // Idle for Compact: a watching agent too (its watch is kept; a wake waits for the compaction to end).
-  const idle = live && (live.status === 'ready' || live.status === 'finished' || live.status === 'watching')
-  // Compact: while idle and there's a conversation; highlighted once the context passes the threshold.
+  const provider = agentProviderOf(project, a)
+  const cards = useAgentCards(project, a.id)
+  const state = agentState(live, { blocked: cards.some((c) => !!c.blocked) })
+  // For Compact… in ⋯: unavailable while the conversation is empty, recommended once its context passes the threshold.
+  const settings = useStore((s) => s.settings)
+  const usage = useLiveUsage(project, a.id)
   const threshold = compactThreshold(project.config, settings?.sessions.compactSuggestTokens ?? 0)
   const tokens = usage?.contextTokens ?? 0
-  const suggested = threshold > 0 && tokens >= threshold
   const empty = !usage || usage.userMessages === 0 || tokens === 0
-  const compacting = isCompacting(live)
-  const compactTip = compacting
-    ? tr(msg({ id: 'panes.compact.running', defaultMessage: 'Compacting the conversation…', description: 'Tooltip of the Compact button while the agent compacts its conversation.' }))
-    : idle && empty
-      ? tr(msg({ id: 'panes.compact.empty', defaultMessage: 'Nothing to compact yet: the conversation has no messages.', description: 'Tooltip of the Compact button (disabled) when the conversation has no messages.' }))
-      : !idle
-        ? live?.status === 'waiting'
-          ? tr(msg({ id: 'panes.compact.waiting', defaultMessage: 'The agent is waiting for your answer. Compact after it has finished.', description: 'Tooltip of the Compact button (disabled) while the agent waits for the user.' }))
-          : tr(msg({ id: 'panes.compact.busy', defaultMessage: 'Available once the agent has finished.', description: 'Tooltip of the Compact button (disabled) while the agent works.' }))
-        : tr(msg({ id: 'panes.compact.tip', defaultMessage: 'Summarise the conversation to shrink its context{tokens, select, none {} other { (now {tokens} tokens)}}. The full history stays in the transcript.{suggested, select, yes { Recommended: the context is over your threshold.} other {}}', description: "Tooltip of the Compact button: what it does, how big the context is now ({tokens}: \"120K\"; none: leave that branch empty) and, past the user's threshold, that it is recommended." }), { tokens: usage ? formatTokens(tokens) : 'none', suggested: suggested ? 'yes' : 'no' })
-  const pick = (x: number, y: number) => () => void picker.openAt(project, a, x, y)
-  const size = width >= LABELS_FROM ? 'labels' : width >= ICONS_FROM ? 'icons' : 'menu'
-  /**
-   * A header button: labelled or an icon with a tooltip, by the pane's width (`iconOnly`: always an icon, like the Assistant's).
-   * A count stays inside the button, which widens for it; `spin` turns the icon while its action runs.
-   */
-  const btn = (icon: string, label: string, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, tone: string, opts: { disabled?: boolean; tip?: string; iconOnly?: boolean; count?: string | null; spin?: boolean } = {}) => (
-    <Tooltip key={label} content={opts.tip ?? label}>
-      <button type="button" className={cx('btn', 'small', 'pane-btn', tone, (size === 'icons' || opts.iconOnly) && 'icon-only')} disabled={opts.disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick(e) }}>
-        <Icon name={icon} spin={opts.spin} />
-        {size === 'labels' && !opts.iconOnly && <span>{label}</span>}
-        {opts.count && <span className="btn-count">{opts.count}</span>}
+  const suggested = threshold > 0 && tokens >= threshold
+  const narrow = !!width && width < MARKS_FROM
+  const openMenu = (x: number, y: number, keyboard: boolean): void => {
+    const { items } = paneItems(project, a, left, (sub, k) => menu.openAt(x, y, sub, k), narrow)
+    menu.openAt(x, y, [...items, ...agentMenu(project, a, () => void picker.openAt(project, a, x, y), { empty, suggested })], keyboard)
+  }
+  const openBelow = (keyboard: boolean): void => {
+    const r = more.current?.getBoundingClientRect()
+    if (r) openMenu(r.left, r.bottom + 2, keyboard)
+  }
+  // The palette's Agent Menu… for this agent.
+  useStripMenu(project.path, 'agentMenu', () => openBelow(true), a.id)
+  const { alert, warn } = paneItems(project, a, left, () => {}, narrow)
+  /** Stop's place: an icon with a tooltip, in its action's colour. */
+  const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled?: boolean) => (
+    <Tooltip content={tip}>
+      <button type="button" className={cx('btn', 'small', 'pane-btn', 'icon-only', tone)} disabled={disabled} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick() }}>
+        <Icon name={icon} />
       </button>
     </Tooltip>
   )
   return (
-    <div ref={ref} className={cx('pane-header-bar', focused && 'focused')} data-buttons={size} {...agentDragProps(project, a)} onMouseDown={() => focusAgent(project.path, a.id)} onContextMenu={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))}>
+    <div
+      ref={ref}
+      className={cx('pane-header-bar', focused && 'focused')}
+      {...agentDragProps(project, a)}
+      onMouseDown={() => focusAgent(project.path, a.id)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        openMenu(e.clientX, e.clientY, false)
+      }}
+    >
+      {/* Its state mark (#973): a launch that failed is stalled; a card of its blocked on you is waiting for you. */}
       {!live && failure ? (
-        <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
-          <span className="dot error" />
+        <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's state mark (stalled): the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
+          <StateMark state="stalled" label={tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." }))} />
         </Tooltip>
       ) : (
-        <StatusDot live={live} active={project.active} />
+        <Tooltip content={tr(AGENT_STATE_LABEL[state])}>
+          <StateMark state={state} />
+        </Tooltip>
       )}
-      <Tooltip content={providerName(agentProviderOf(project, a))}>
-        <span>
-          <ProviderIcon provider={agentProviderOf(project, a)} />
-        </span>
+      {/* Its provider is in the name's tooltip (the header showed its icon before #977). */}
+      <Tooltip content={tr(msg({ id: 'panes.header.nameTip', defaultMessage: '{agent} · {provider}', description: "Tooltip of the agent's name on its pane's header: its name and its provider (\"Claude Code\")." }), { agent: a.name, provider: providerName(provider) })}>
+        <span className="agent-name">{a.name}</span>
       </Tooltip>
-      <span className="agent-name" title={a.name}>
-        {a.name}
-      </span>
-      <WorktreeMark project={project} a={a} />
       {live?.untakenLine ? (
         // A line Hive typed that its CLI didn't take (#430): the user sees to it, nothing more is typed meanwhile.
         <Tooltip content={tr(msg({ id: 'panes.header.untakenTip', defaultMessage: "Hive typed this, but its CLI hasn't taken it (it wasn't reading its input): \"{line}\". Click its terminal and press Enter. Hive types nothing more into it until its CLI takes it.", description: "Tooltip of a pane's status when a line Hive typed into the agent's CLI wasn't taken ({line}: the line)." }), { line: live.untakenLine.text })}>
@@ -1109,86 +1163,70 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         </Tooltip>
       ) : unknownStateText(live, Date.now(), tr) ? (
         // A running turn Hive has heard nothing of, with no sign of its end (#648): not idle, so nothing is typed into it.
+        // Mark idle stays beside it (and in ⋯): the agent is stuck until someone looks.
         <span className="pane-status unknown-state">
           <Tooltip content={tr(msg({ id: 'panes.header.unknownTip', defaultMessage: "Hive has heard nothing of this agent's turn for a while and sees no sign that it ended: no Stop from its CLI, nothing in its CLI's records, no idle prompt on its screen. Until it hears more, the agent counts as busy and nothing is typed into it. If its terminal shows it waiting at its prompt, mark it idle.", description: "Tooltip of a pane's status when the agent's state is unknown. Stop is the CLI's event: keep it. \"mark it idle\" refers to the Mark idle button beside it." }))}>
             <span className="faint pane-status asks">{unknownStateText(live, Date.now(), tr)}</span>
           </Tooltip>
-          <button className="btn small subtle mark-idle" aria-label={tr(MARK_IDLE)} onClick={() => void call('session:markIdle', project.path, a.id).catch((e) => notify('error', tr(msg({ id: 'panes.header.markIdleFailed', defaultMessage: 'Could not mark the agent idle', description: "An error's title: Mark idle failed." })), String((e as Error).message ?? e)))}>
-            {tr(MARK_IDLE)}
-          </button>
+          {!narrow && (
+            <button className="btn small subtle mark-idle" aria-label={tr(MARK_IDLE)} onClick={() => markIdle(project, a)}>
+              {tr(MARK_IDLE)}
+            </button>
+          )}
         </span>
       ) : live?.question ? (
         <Tooltip content={live.question.text ? tr(msg({ id: 'panes.header.asks', defaultMessage: 'Asks: {question}', description: "Tooltip of a pane's status: the agent's question to the user ({question}, the agent's own words)." }), { question: live.question.text }) : tr(msg({ id: 'panes.header.asksSomething', defaultMessage: 'Asks you something', description: "Tooltip of a pane's status: the agent has asked the user something." }))}>
           <span className="faint pane-status asks">{statusText(live)}</span>
         </Tooltip>
       ) : live?.status === 'watching' && live.watch ? (
-        // Waiting on cards (a watch): what for, until when, and Cancel (it takes no other work while it waits).
-        <span className="pane-status watching">
-          <Tooltip
-            content={tr(
-              msg({
-                id: 'panes.header.watchTip',
-                defaultMessage: '{watch}: Hive types a line into it when {kind, select, agent {{n, plural, one {it finishes} other {one of them finishes}}, waits for you or stops} lane {a review fails, a card is blocked or stalled, or a lane is due to merge or ends} other {{n, plural, one {the card changes} other {one of them changes}}}}, or at {limit} if nothing does. Nothing runs meanwhile, and it takes no other work.',
-                description: "Tooltip of a watching agent's status: what it waits for ({watch}: \"Waiting for #12 → Review\"), what wakes it (an agent watch: the agents finishing; a lane watch: lane events; a card watch: its cards changing; {n} is how many agents or cards), and when it is woken anyway ({limit}: a time)."
-              }),
-              { watch: watchText(live.watch, tr, (l) => fmt.list(l, 'unit')), kind: live.watch.agents ? 'agent' : live.watch.lanes ? 'lane' : 'card', n: live.watch.agents ? live.watch.agents.length : live.watch.cards.length, limit: formatWhen(live.watch.limitAt) }
-            )}
-          >
-            <span className="watch-label">
-              <Icon name="eye" /> {watchText(live.watch, tr, (l) => fmt.list(l, 'unit'))}
-            </span>
-          </Tooltip>
-          <button
-            className="btn small subtle watch-cancel"
-            aria-label={tr(msg({ id: 'panes.header.cancelWatch', defaultMessage: '{kind, select, agent {Cancel the agent watch} lane {Cancel the lane watch} other {Cancel the card watch}}', description: "Accessible name of the Cancel button beside a watching agent's status: ends its agent, lane or card watch." }), { kind: live.watch.agents ? 'agent' : live.watch.lanes ? 'lane' : 'card' })}
-            onClick={() => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', tr(CANCEL_WATCH_FAILED), String((e as Error).message ?? e)))}
-          >
-            {tr(msg({ id: 'panes.header.cancel', defaultMessage: 'Cancel', description: "Button beside a watching agent's status: ends its watch. Keep it short." }))}
-          </button>
-        </span>
+        // Waiting on cards (a watch): what for and until when; Cancel is in ⋯ (it takes no other work while it waits).
+        <Tooltip
+          content={tr(
+            msg({
+              id: 'panes.header.watchTip',
+              defaultMessage: '{watch}: Hive types a line into it when {kind, select, agent {{n, plural, one {it finishes} other {one of them finishes}}, waits for you or stops} lane {a review fails, a card is blocked or stalled, or a lane is due to merge or ends} other {{n, plural, one {the card changes} other {one of them changes}}}}, or at {limit} if nothing does. Nothing runs meanwhile, and it takes no other work.',
+              description: "Tooltip of a watching agent's status: what it waits for ({watch}: \"Waiting for #12 → Review\"), what wakes it (an agent watch: the agents finishing; a lane watch: lane events; a card watch: its cards changing; {n} is how many agents or cards), and when it is woken anyway ({limit}: a time)."
+            }),
+            { watch: watchText(live.watch, tr, (l) => fmt.list(l, 'unit')), kind: live.watch.agents ? 'agent' : live.watch.lanes ? 'lane' : 'card', n: live.watch.agents ? live.watch.agents.length : live.watch.cards.length, limit: formatWhen(live.watch.limitAt) }
+          )}
+        >
+          <span className="faint pane-status watching">
+            <Icon name="eye" /> {watchText(live.watch, tr, (l) => fmt.list(l, 'unit'))}
+          </span>
+        </Tooltip>
       ) : (
         <SignInTip live={live}>
           <span className={cx('faint', 'pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." })) : tr(msg({ id: 'panes.header.notRunning', defaultMessage: 'Not running', description: "A pane's status: the agent's session isn't running." }))}</span>
         </SignInTip>
       )}
+      {/* Short of room they give way with the status (app.css); under MARKS_FROM the safeguard's note is in ⋯ too. */}
       <ReviewMark live={live} />
       <SafeguardMark live={live} />
-      <CardChip project={project} a={a} short />
-      <Locks a={a} />
-      <Leftovers project={project} a={a} />
-      <AgentInbox project={project} a={a} live={live} />
       <div className="grow" />
-      {size !== 'menu' &&
-        (live ? (
-          <>
-            {btn(compacting ? 'loading' : 'fold', tr(COMPACT), () => set({ compactFor: { project: project.path, agentId: a.id } }), cx('subtle', suggested && idle && 'suggest'), { disabled: !idle || empty, tip: compactTip, iconOnly: true, spin: compacting })}
-            {btn('stop-circle', tr(STOP), () => void actions.stopSession(project.path, a.id), 'act-stop', { tip: tr(msg({ id: 'panes.header.stopTip', defaultMessage: 'Stop this agent (the conversation is kept; resume it any time)', description: "Tooltip of a pane's Stop button." })), iconOnly: true })}
-          </>
-        ) : (
-          <>
-            {btn('debug-continue', tr(RESUME), () => void actions.resumeLast(project.path, a.id), 'act-resume', { disabled: !a.resume, tip: resumeTip(project, a) })}
-            {btn('history', tr(RESUME_SESSION), (e) => picker.openBelow(e.currentTarget, project, a), 'act-resume')}
-            {btn('add', tr(NEW_SESSION), () => void actions.newSession(project.path, a.id), cx('act-start', 'solid'))}
-          </>
-        ))}
-      {a.worktree &&
-        size !== 'menu' &&
-        btn('git-merge', tr(MERGE), () => set({ mergeFor: { project: project.path, agentId: a.id } }), cx('subtle', unmerged?.badge && 'suggest'), {
-          // Its icon and count only, like Compact and Stop: the tooltip says what it merges.
-          iconOnly: true,
-          count: unmerged?.badge,
-          // Not while it is in the middle of a task; the count still shows what is waiting to be merged.
-          disabled: !!mergeBlocked(a.name, live?.status, tr),
-          tip: [
-            mergeBlocked(a.name, live?.status, tr),
-            unmerged
-              ? tr(msg({ id: 'panes.header.mergeTip', defaultMessage: 'Merge {branch}: {work}', description: "Tooltip of a worktree pane's Merge button: its branch and what is left to merge ({work}: \"2 commits not merged into main\")." }), { branch: a.worktree.branch, work: unmerged.text })
-              : tr(msg({ id: 'panes.header.mergeInto', defaultMessage: 'Merge {branch} into the project folder', description: "Tooltip of a worktree pane's Merge button before Hive knows what is left to merge." }), { branch: a.worktree.branch })
-          ]
-            .filter(Boolean)
-            .join(' ')
-        })}
-      <IconButton icon="ellipsis" title={tr(msg({ id: 'panes.header.more', defaultMessage: 'More', description: "Tooltip of the ⋯ button on a pane's header: the agent's menu." }))} onClick={(e) => menu.open(e, agentMenu(project, a, pick(e.clientX, e.clientY), size !== 'menu'))} />
+      {/* Narrowest, the card goes first: Stop and ⋯ stay. */}
+      {(!width || width >= CARD_FROM) && <CardChip project={project} a={a} short />}
+      {live
+        ? btn('stop-circle', tr(STOP), () => void actions.stopSession(project.path, a.id), 'act-stop', tr(msg({ id: 'panes.header.stopTip', defaultMessage: 'Stop this agent (the conversation is kept; resume it any time)', description: "Tooltip of a pane's Stop button." })))
+        : a.resume
+          ? btn('debug-continue', tr(RESUME), () => void actions.resumeLast(project.path, a.id), 'act-resume', resumeTip(project, a))
+          : btn('add', tr(NEW_SESSION), () => void actions.newSession(project.path, a.id), 'act-start', tr(NEW_SESSION))}
+      <Tooltip content={alert.length ? <span style={{ whiteSpace: 'pre-line' }}>{[tr(MORE), ...alert].join('\n')}</span> : tr(MORE)}>
+        <button
+          ref={more}
+          type="button"
+          className="icon-btn pane-more"
+          aria-label={tr(MORE)}
+          aria-description={alert.length ? fmt.list(alert, 'unit') : undefined}
+          aria-haspopup="menu"
+          onClick={(e) => {
+            e.stopPropagation()
+            openBelow(e.detail === 0)
+          }}
+        >
+          <Icon name="ellipsis" />
+          {alert.length > 0 && <span className={cx('pane-more-badge', warn && 'warn')} />}
+        </button>
+      </Tooltip>
       {menu.element}
       {picker.element}
     </div>
