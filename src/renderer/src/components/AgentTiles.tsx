@@ -11,7 +11,7 @@ import type { AgentInfo, ProjectInfo, ProgressRun } from '@shared/types'
 import { formatSize } from '@shared/units'
 import { agentProviderOf, closeTile, openTile, projectKey, showTilePage, tileAgents, tileFocusOf, tilePage, useLanguage, useStore } from '../store'
 import * as actions from '../actions'
-import { commandKeybinding, isAppShortcut } from '../commands'
+import { commandKeybinding, keyIsBound } from '../commands'
 import { deferredFocus } from '../deferredFocus'
 import { useLiveUsage, useNow } from '../usage'
 import { cx, formatKeybinding, formatTokens } from '../util'
@@ -139,8 +139,8 @@ function TileGrid({ project }: { project: ProjectInfo }) {
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     const els = [...(grid.current?.querySelectorAll<HTMLElement>('.agent-tile') ?? [])]
     const at = els.indexOf(document.activeElement as HTMLElement)
-    // A key bound to a command is the command's (the user may bind an arrow), which the window runs.
-    if (at < 0 || isAppShortcut(e.nativeEvent)) return
+    // A key the window's shortcuts take is theirs (the user may bind an arrow, or end a chord with one), which it runs.
+    if (at < 0 || keyIsBound(e.nativeEvent)) return
     // As many columns as tiles in the first row.
     const cols = Math.max(1, els.filter((el) => el.offsetTop === els[0].offsetTop).length)
     const to = { ArrowRight: at + 1, ArrowLeft: at - 1, ArrowDown: at + cols, ArrowUp: at - cols, Home: 0, End: els.length - 1 }[e.key]

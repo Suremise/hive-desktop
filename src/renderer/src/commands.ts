@@ -646,6 +646,20 @@ export function matchKeybinding(e: KeyboardEvent): Command | null {
 }
 
 /**
+ * Whether the window's shortcuts take this key (without resolving it, so a chord isn't started or used up): a chord's next
+ * key while one is pending, a whole binding, or a chord's first key. A view's own key handling (the tile grid's arrows)
+ * steps aside for it.
+ */
+export function keyIsBound(e: KeyboardEvent): boolean {
+  if (e.type !== 'keydown') return false
+  const key = eventToKey(e)
+  if (!key) return false
+  if (chordPrefix) return true
+  const norm = key.toUpperCase()
+  return bound().some((b) => b.key === norm || b.key.startsWith(norm + ' '))
+}
+
+/**
  * Shortcuts an agent's terminal UI uses itself (Claude Code: Ctrl+B background task, Ctrl+K kill line…)
  * stay with the terminal. Each provider lists its own; outside a terminal, all of them count.
  */

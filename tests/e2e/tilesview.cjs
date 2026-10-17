@@ -241,6 +241,20 @@ const check = (name, ok, extra = '') => {
     await page.keyboard.press('ArrowLeft')
     const back = ['C', 'A', ...NAMES.slice(3), 'B']
     check("Move Agent Left on ←, on A's tile: A moves back (not the keyboard to the tile beside it)", !!(await lib.until(async () => saved() === order(back) && (await tileNames()).join() === order(back.slice(0, 12)) && (await focusedTile()) === 'A', HUNG_MS)), `${saved()} / ${await focusedTile()}`)
+    // A chord ending in an arrow: Move Agent Right on Ctrl+K ←, on A's tile, moves A (the arrow is the chord's, not the grid's).
+    // ← alone is bound to nothing again (Move Agent Left back on its default).
+    await inv('settings:update', { keybindings: { 'agent.moveRight': 'Mod+K ArrowLeft', 'agent.moveLeft': 'Mod+Alt+Shift+ArrowLeft' } })
+    await lib.until(async () => {
+      const kb = (await inv('settings:get')).keybindings
+      return kb['agent.moveRight'] === 'Mod+K ArrowLeft' && kb['agent.moveLeft'] === 'Mod+Alt+Shift+ArrowLeft'
+    }, HUNG_MS)
+    await tile('A').focus()
+    await page.keyboard.press('Control+K')
+    await page.keyboard.press('ArrowLeft')
+    check("Move Agent Right on Ctrl+K ←, on A's tile: A a place right, the keyboard on it", !!(await lib.until(async () => saved() === order(f6) && (await tileNames()).join() === order(f6.slice(0, 12)) && (await focusedTile()) === 'A', HUNG_MS)), `${saved()} / ${await focusedTile()}`)
+    // An arrow bound to nothing still moves between tiles, and moves no agent.
+    await page.keyboard.press('ArrowRight')
+    check('an unbound → still moves the keyboard to the next tile (E), the order unchanged', !!(await lib.until(async () => (await focusedTile()) === 'E', HUNG_MS)) && saved() === order(f6), `${await focusedTile()} / ${saved()}`)
   } finally {
     await inv('session:stop', alpha).catch(() => undefined)
     await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)
