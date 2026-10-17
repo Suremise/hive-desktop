@@ -5,7 +5,7 @@ import { join } from 'path'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { msg, tr } from '../shared/i18n'
 import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, resumeFailedLine, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
-import type { AgentProcess } from '../shared/agentProcesses'
+import { progressRunsIn, type AgentProcess } from '../shared/agentProcesses'
 import type { ToastAction } from '../shared/types'
 import { endProcessesExactly, runningProcesses, stillRunningOf } from './agentProcesses'
 import { assistantHome } from './assistantControl'
@@ -67,6 +67,8 @@ async function startupDone(): Promise<void> {
 let toResume: RunningAgent[] = []
 /** What the agents had started that still ran as the notice was given, for its Stop Them (#987); those that end go. */
 let leftRunning: AgentProcess[] = []
+/** All the marker kept of what they had started, for the hive-progress runs among them (#1008). */
+let leftKept: AgentProcess[] = []
 let startedAt = ''
 let ended = false
 let timer: NodeJS.Timeout | null = null
@@ -267,6 +269,7 @@ export async function tellUnexpectedClose(): Promise<void> {
   // What the agents had started that still runs as the same processes (#987): listed, never stopped unasked.
   const kept = c.processes.flatMap((l) => l.processes)
   leftRunning = (await stillRunningOf(kept).catch(() => null)) ?? []
+  leftKept = kept
   if (kept.length) log.info(`Of ${kept.length} process(es) the agents had started, ${leftRunning.length} still run${leftRunning.length ? `: ${userText(leftRunning.map((p) => p.label).join('; '))}` : ''}`) // i18n-ignore: a line of hive.log
   told = true
   const actions: ToastAction[] = []
@@ -275,7 +278,7 @@ export async function tellUnexpectedClose(): Promise<void> {
   actions.push({ label: tr(msg({ id: 'main.unexpectedClose.overview', defaultMessage: 'Show Overview', description: "A button in the notice that Hive closed unexpectedly: shows the Workspace Overview, with every project's agents." })), command: 'view.overview' })
   // It stays up for two minutes (a notice with buttons goes after 15 s), and in the Notifications panel after.
   const title = tr(msg({ id: 'main.unexpectedClose.title', defaultMessage: 'Hive closed unexpectedly', description: "The notice's title at start when the last run of Hive ended without quitting (killed, a crash, the power)." }))
-  emit({ type: 'toast', toast: { id: randomUUID(), level: 'warning', title, message: unexpectedCloseText({ ...c, dump: !!c.dump, stillRunning: leftRunning }, r), actions, timestamp: new Date().toISOString(), timeoutMs: 120_000 } })
+  emit({ type: 'toast', toast: { id: randomUUID(), level: 'warning', title, message: unexpectedCloseText({ ...c, dump: !!c.dump, stillRunning: leftRunning, kept }, r), actions, timestamp: new Date().toISOString(), timeoutMs: 120_000 } })
   await tellAssistants(c, r, leftRunning.length)
 }
 
@@ -287,7 +290,8 @@ export async function tellUnexpectedClose(): Promise<void> {
 export async function stopLeftAfterClose(): Promise<number> {
   const list = leftRunning
   if (!list.length) return 0
-  await endProcessesExactly(list)
+  // A hive-progress run goes whole (#1008): its own process and all it started that runs now, listed or not.
+  await endProcessesExactly(list, progressRunsIn(list, leftKept).runs.map((g) => g.top))
   // Those still running as the same processes after it: Windows didn't let Hive end them (or it can't tell).
   const still = (await stillRunningOf(list).catch(() => null)) ?? list
   leftRunning = still

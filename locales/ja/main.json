@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "何も再開されていません。",
   "main.unexpectedClose.notStopped": "{n, plural, other {#個のプロセスがまだ実行中です。Windowsが終了を許可しませんでした。}}通知の「終了する」で再試行できます。",
   "main.unexpectedClose.overview": "概要を表示",
+  "main.unexpectedClose.progressRun": "{title}（{n, plural, other {#個のプロセス}}）",
   "main.unexpectedClose.resumeAll": "すべて再開",
   "main.unexpectedClose.resumeFailedTitle": "一部のエージェントを再開できませんでした",
   "main.unexpectedClose.resumed": "{n, plural, =0 {再開されたものはありません。} other {「設定」→「セッション」の設定どおり、#個を再開しました。}}",

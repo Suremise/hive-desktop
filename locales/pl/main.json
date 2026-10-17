@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "Niczego nie wznowiono.",
   "main.unexpectedClose.notStopped": "{n, plural, one {# proces nadal działa: Windows nie pozwolił go zakończyć.} few {# procesy nadal działają: Windows nie pozwolił ich zakończyć.} many {# procesów nadal działa: Windows nie pozwolił ich zakończyć.} other {# procesu nadal działa: Windows nie pozwolił ich zakończyć.}} „Zakończ je” w powiadomieniu próbuje ponownie.",
   "main.unexpectedClose.overview": "Pokaż przegląd",
+  "main.unexpectedClose.progressRun": "{title} ({n, plural, one {# proces} few {# procesy} many {# procesów} other {# procesu}})",
   "main.unexpectedClose.resumeAll": "Wznów wszystkich",
   "main.unexpectedClose.resumeFailedTitle": "Nie udało się wznowić niektórych agentów",
   "main.unexpectedClose.resumed": "{n, plural, =0 {Nie wznowiono żadnego.} one {Wznowiono jednego, zgodnie z Ustawienia → Sesje.} few {Wznowiono #, zgodnie z Ustawienia → Sesje.} many {Wznowiono #, zgodnie z Ustawienia → Sesje.} other {Wznowiono #, zgodnie z Ustawienia → Sesje.}}",

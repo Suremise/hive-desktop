@@ -15,6 +15,12 @@ late; and every folder `tempDir()` makes is removed when its test file ends (`te
 test or its hooks, or the run warns that it was left behind. `npm run test:clean` and the e2e and scenario runners sweep what is older than a day (e2e/README.md,
 Housekeeping). Off Windows, with no `LOCALAPPDATA`, they are in the temp folder.
 
+A test run outlives the session that started it when Hive closes or the agent restarts (#1008). A heavy run's runner
+says as it starts when one of this worktree's runs was left over that way (`Still running in this worktree, left over
+from a session that ended: …`), and a waiting run names it in its wait line. For a run that isn't heavy, look for a
+`node` whose command line has this worktree's path (`Get-CimInstance Win32_Process`), and stop it by its process id,
+never by name.
+
 ## Tests wait for conditions, never for time
 
 Every test, unit or end-to-end, new or changed, follows these rules. Each one was a flaky test in 0.6.0, failing on a

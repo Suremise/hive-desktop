@@ -192,6 +192,15 @@ repeats. The merge-ready skill claims the merge slot before its checks, so its r
 `%LOCALAPPDATA%\hive-test\heavy-slots` (`slot-<k>.json` held, `wait-<pid>.json` waiting, each with its runner's
 process id, and `first` for a pre-merge run, under the same claims lock as lanes); a crashed or killed run's slot, or
 place in the queue, expires at once (its process is gone).
+**A run left over** (#1008): a run started in an agent's session that ended since (Hive closed under it, the agent
+stopped or restarted) keeps going, and keeps its slot, while its process lives. Its slot records the agent's launch
+(`owner`: `HIVE_PROJECT`, `HIVE_AGENT`, `HIVE_RUN_ID`, `HIVE_WORKSPACE`), and a waiting run asks Hive's Agent API whether
+that launch still runs (`GET /v1/projects/{name}/agents/{agent}/launches/{run}`, at its first look and every 30 s): the
+wait line, and the Progress panel, then name it `held by e2e: 196 suites in <worktree>, left over from a session that
+ended (process 39788, 41 min)`. A run starting in the same worktree says so too (`Still running in this worktree, left
+over from a session that ended: …`), so a resumed agent knows its earlier run still goes. Nothing is stopped on its own:
+its results may still be wanted. Stop it by its process id (never by name), or with **Stop Them** in Hive's notice after
+an unexpected close, which ends the whole run.
 `npm run e2e:concurrency -- --heavy` checks it: three heavy runs from three worktrees with two slots (in a pool of their
 own, `HIVE_TEST_HEAVY_DIR`), one waiting visibly, `--no-wait`, a killed run's slot, a pre-merge run taking the slot
 before two that asked earlier (the stand-in Agent API says its agent holds the merge slot), and a killed pre-merge run's

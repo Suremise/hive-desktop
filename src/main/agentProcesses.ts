@@ -7,7 +7,7 @@ import { readJson, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { POWERSHELL } from './launchGate'
 import { hiveError } from './hiveError'
-import { processLabel, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
+import { processLabel, progressRunTitle, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
 import { englishText, shownText, withValues, type TextPart } from '../shared/advanced'
 import { msg, tr } from '../shared/i18n'
 import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, type LaunchProcesses } from '../shared/unexpectedClose'
@@ -294,6 +294,49 @@ public static class HiveJobs {
     }
     return "{\"ended\":" + ended + ",\"failed\":" + failed + "}";
   }
+  /**
+   * Ends processes by id and start time ("pid:created,…") with all they started that runs now (#1008: a test run's
+   * whole tree), each only while it is still that process (EndExact). Below each, by parent id from a snapshot, a child
+   * counts only if it started after its parent, so a parent id a later process took is never followed; nor is one
+   * whose id names another process by now. JSON {"ended":n,"failed":n}.
+   */
+  public static string EndTree(string list) {
+    var children = new Dictionary<int, List<int>>();
+    // TH32CS_SNAPPROCESS
+    IntPtr snap = CreateToolhelp32Snapshot(2, 0);
+    if (snap != IntPtr.Zero && snap != new IntPtr(-1)) {
+      try {
+        var e = new ProcessEntry(); e.size = (uint)Marshal.SizeOf(typeof(ProcessEntry));
+        for (bool more = Process32FirstW(snap, ref e); more; more = Process32NextW(snap, ref e)) {
+          if (e.pid == 0) continue;
+          List<int> c;
+          if (!children.TryGetValue((int)e.parent, out c)) children[(int)e.parent] = c = new List<int>();
+          c.Add((int)e.pid);
+        }
+      } finally { CloseHandle(snap); }
+    }
+    var all = new List<KeyValuePair<int, long>>();
+    var seen = new HashSet<int>();
+    var queue = new Queue<KeyValuePair<int, long>>();
+    foreach (var r in Pairs(list)) {
+      long now = CreatedOf(r.Key);
+      // Gone, its id held by no one: what it started may still run. Its id another process's now: not followed.
+      if ((now == r.Value || now == 0) && seen.Add(r.Key)) queue.Enqueue(r);
+    }
+    while (queue.Count > 0) {
+      var p = queue.Dequeue();
+      all.Add(p);
+      List<int> c;
+      if (!children.TryGetValue(p.Key, out c)) continue;
+      foreach (int k in c) {
+        long kc = CreatedOf(k);
+        if (kc != 0 && kc >= p.Value && seen.Add(k)) queue.Enqueue(new KeyValuePair<int, long>(k, kc));
+      }
+    }
+    var b = new StringBuilder();
+    foreach (var p in all) b.Append(b.Length > 0 ? "," : "").Append(p.Key).Append(':').Append(p.Value);
+    return EndExact(b.ToString());
+  }
   /** Exits gathered for the next Settle: each pid with the entry held for it as its exit was read (null: none). */
   static List<KeyValuePair<int, Held>> exits = new List<KeyValuePair<int, Held>>();
   /** When the gathered exits are settled (on clock), ${EXIT_BATCH_MS} ms after the first of them. */
@@ -460,9 +503,9 @@ public static class HiveJobs {
       var where = new StringBuilder();
       for (int i = 0; i < all.Length && i < max; i++) where.Append(i > 0 ? " OR " : "").Append("ProcessId=").Append(all[i]);
       bool first = true;
-      using (var q = new ManagementObjectSearcher("SELECT ProcessId, Name, CommandLine FROM Win32_Process WHERE " + where))
+      using (var q = new ManagementObjectSearcher("SELECT ProcessId, ParentProcessId, Name, CommandLine FROM Win32_Process WHERE " + where))
         foreach (ManagementObject p in q.Get()) {
-          b.Append(first ? "" : ",").Append("{\"pid\":").Append(Convert.ToInt32(p["ProcessId"])).Append(",\"name\":").Append(Q((string)p["Name"])).Append(",\"cmd\":").Append(Q((string)p["CommandLine"])).Append(",\"created\":\"").Append(CreatedOf(Convert.ToInt32(p["ProcessId"]))).Append("\"}");
+          b.Append(first ? "" : ",").Append("{\"pid\":").Append(Convert.ToInt32(p["ProcessId"])).Append(",\"parent\":").Append(Convert.ToInt32(p["ParentProcessId"])).Append(",\"name\":").Append(Q((string)p["Name"])).Append(",\"cmd\":").Append(Q((string)p["CommandLine"])).Append(",\"created\":\"").Append(CreatedOf(Convert.ToInt32(p["ProcessId"]))).Append("\"}");
           first = false;
         }
     }
@@ -494,6 +537,7 @@ public static class HiveJobs {
         case "forget": Forget(a[2]); r = "true"; break;
         case "identify": r = Identify(a[2]); break;
         case "endexact": r = EndExact(a[2]); break;
+        case "endtree": r = EndTree(a[2]); break;
         case "memory": r = Memory(a[2]); break;
         default: r = Q("unknown command"); break;
       }
@@ -522,7 +566,7 @@ interface JobList {
   total: number
   /** How many of its processes the host adopted after they escaped the job (Sweep, #543). */
   adopted?: number
-  processes: { pid: number; name: string; cmd: string; created?: string }[]
+  processes: { pid: number; parent?: number; name: string; cmd: string; created?: string }[]
 }
 
 /** The one PowerShell holding the jobs, started on first use; null once it couldn't start (nothing is tracked then). */
@@ -639,7 +683,7 @@ class JobHost {
    * a reply that doesn't come within waitMs() means it is stuck: it is closed, its jobs lost (jobsLost), and the next
    * request starts a new one. So nothing (a launch, End, quitting) waits on it for longer.
    */
-  async request(command: 'add' | 'list' | 'kill' | 'forget' | 'identify' | 'endexact' | 'memory', job: string, pid?: number): Promise<unknown> {
+  async request(command: 'add' | 'list' | 'kill' | 'forget' | 'identify' | 'endexact' | 'endtree' | 'memory', job: string, pid?: number): Promise<unknown> {
     // A job's id, or (identify, endexact) a list of processes by id and start time: "pid:created,…", or (memory) of jobs: "job,job,…".
     if (this.failed || !/^[\w:,-]+$/.test(job)) return null
     if (!(await this.start()) || !this.proc) return null
@@ -812,7 +856,10 @@ async function listJob(runId: string): Promise<{ processes: AgentProcess[]; more
   const processes = r.processes
     // A console window's host belongs to a process of the job and ends with it: not one to list.
     .filter((p) => !/^(conhost|openconsole)\.exe$/i.test(p.name))
-    .map((p) => ({ pid: p.pid, name: p.name, label: processLabel(p.name, p.cmd), ...(p.created && p.created !== '0' ? { created: p.created } : {}) }))
+    .map((p) => {
+      const run = progressRunTitle(p.cmd ?? '')
+      return { pid: p.pid, name: p.name, label: processLabel(p.name, p.cmd), ...(p.created && p.created !== '0' ? { created: p.created } : {}), ...(p.parent ? { parent: p.parent } : {}), ...(run ? { run } : {}) }
+    })
     .sort((a, b) => a.pid - b.pid)
     .slice(0, MAX_LISTED)
   const hosts = r.processes.length - r.processes.filter((p) => !/^(conhost|openconsole)\.exe$/i.test(p.name)).length
@@ -1147,9 +1194,16 @@ export async function stillRunningOf(processes: readonly AgentProcess[]): Promis
   return (await stillRunning(mine))?.processes ?? null
 }
 
-/** Ends these processes, each only while it is still the same process (id and start time, #987): whether none still runs. */
-export async function endProcessesExactly(processes: readonly AgentProcess[]): Promise<boolean> {
-  return (await trackingReady()) && !killFailsForTests() && (await endExactly([...processes]))
+/**
+ * Ends these processes, each only while it is still the same process (id and start time, #987): whether none still
+ * runs. trees: processes ended with all they started that runs now (#1008: a hive-progress run's process, so its whole
+ * test run goes, what it started since Hive listed it too), each checked as these are.
+ */
+export async function endProcessesExactly(processes: readonly AgentProcess[], trees: readonly AgentProcess[] = []): Promise<boolean> {
+  if (!(await trackingReady()) || killFailsForTests()) return false
+  const list = identities([...trees])
+  const tree = !list || ((await host.request('endtree', list)) as { failed?: number } | null)?.failed === 0
+  return (await endExactly([...processes])) && tree
 }
 
 async function restore(): Promise<AgentLeftovers[]> {

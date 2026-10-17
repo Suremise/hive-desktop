@@ -24,7 +24,7 @@ import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuil
 // @ts-expect-error: plain .mjs modules without types
 import { LANES, LANE_PORTS, claimHeld, claimLane, describeHolder, laneHolders, lanePorts, laneWaitLine, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, needsSlot, preMerge, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
+import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, launchEnded, leftOverCheck, leftOverLine, needsSlot, preMerge, runOwner, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale, removeWorktree } from './e2e/tempWorktrees.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -1948,7 +1948,9 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
   const alive = (pid: number) => live.has(pid)
   let clock = 1_000_000
   const now = () => clock
-  const ask = (dir2: string, owner: number, more: object = {}) => trySlot(dir2, { slots: 2, owner, alive, now, what: `run ${owner}`, root: `C:/wt${owner}`, ...more })
+  // Never the shell's agent session (its launch is asked about through the Agent API, #1008): these say what they test.
+  const offline = { session: null, leftOver: async <T,>(h: T): Promise<T> => h, say: () => {} }
+  const ask = (dir2: string, owner: number, more: object = {}) => trySlot(dir2, { slots: 2, owner, alive, now, what: `run ${owner}`, root: `C:/wt${owner}`, ...offline, ...more })
 
   it("how many at once (#589): the machine's config.json, HIVE_TEST_HEAVY_SLOTS over it, else 2, saying why in one line", () => {
     const folder = tempDir('hive-slots-config-')
@@ -2020,6 +2022,60 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     expect(readFileSync(join(__dirname, '..', 'vitest.config.ts'), 'utf8')).toMatch(/globalSetup: \[[^\]]*'tests\/unitSlot\.ts'/)
   })
 
+  it("a holder left over by a session that ended is named so in the wait line, and nothing is stopped (#1008)", async () => {
+    // The claim records the agent's launch the run was started in, from its shell's variables.
+    const session = { HIVE_PROJECT: 'hive', HIVE_AGENT: 'HB2', HIVE_RUN_ID: 'run-old', HIVE_WORKSPACE: 'D:/ws' }
+    expect(runOwner(session)).toEqual({ project: 'hive', agent: 'HB2', run: 'run-old', workspace: 'D:/ws' })
+    expect([runOwner({}), runOwner({ HIVE_PROJECT: 'hive', HIVE_AGENT: 'HB2' })]).toEqual([undefined, undefined])
+    const dir2 = newPool()
+    expect(await ask(dir2, 101, { what: 'e2e: 196 suites', root: 'D:/wt/hb2', session: runOwner(session) })).toEqual({ slot: 0 })
+    const claim = JSON.parse(readFileSync(join(dir2, 'slot-0.json'), 'utf8'))
+    expect(claim.owner).toEqual({ project: 'hive', agent: 'HB2', run: 'run-old', workspace: 'D:/ws' })
+    expect(await ask(dir2, 102)).toEqual({ slot: 1 })
+    // Hive answers for the launch, asked with the waiting run's own session and in the holder's workspace.
+    const asked: { url: string; workspace: string | null }[] = []
+    const api = (running: boolean | 'down') => async (url: string, init: { headers: Record<string, string> }) => {
+      asked.push({ url, workspace: init.headers['X-Hive-Workspace'] ?? null })
+      if (running === 'down') throw new Error('ECONNREFUSED')
+      return { ok: true, json: async () => ({ running }) }
+    }
+    const env = { HIVE_API_URL: 'http://127.0.0.1:47821/', HIVE_API_TOKEN: 't', HIVE_PROJECT: 'web', HIVE_AGENT: 'W1', HIVE_RUN_ID: 'run-new' }
+    expect(await launchEnded(claim.owner, env, { fetch: api(false) })).toBe(true)
+    expect(asked[0]).toEqual({ url: 'http://127.0.0.1:47821/v1/projects/hive/agents/HB2/launches/run-old', workspace: 'D%3A%2Fws' })
+    expect(await launchEnded(claim.owner, env, { fetch: api(true) })).toBe(false)
+    // It can't say: Hive not answering, no API here, or a claim with no owner (a run started outside an agent).
+    expect(await launchEnded(claim.owner, env, { fetch: api('down') })).toBeNull()
+    expect(await launchEnded(claim.owner, {}, { fetch: api(false) })).toBeNull()
+    expect(await launchEnded(undefined, env, { fetch: api(false) })).toBeNull()
+    // Asked again only after askMs; the answer is kept meanwhile.
+    let calls = 0
+    let ended = true
+    const check = leftOverCheck({ env, askMs: 30_000, now, ended: async () => (calls++, ended) })
+    const held = [claim, JSON.parse(readFileSync(join(dir2, 'slot-1.json'), 'utf8'))]
+    expect((await check(held)).map((c: { leftOver?: boolean }) => !!c.leftOver)).toEqual([true, false])
+    ended = false
+    clock += 10_000
+    expect((await check(held))[0].leftOver).toBe(true)
+    clock += 30_000
+    expect((await check(held))[0].leftOver).toBeUndefined()
+    expect(calls).toBe(2)
+    // The wait line names it as left over; the slot stays its own, and its process isn't touched.
+    clock += 41 * 60_000
+    const looks: { holders: { pid: number; leftOver?: boolean }[] }[] = []
+    const said: string[] = []
+    const r = await waitForSlot(dir2, { slots: 2, owner: 103, alive, now, wait: false, root: 'D:/wt/hb2', session: null, leftOver: leftOverCheck({ env, now, ended: async (o: { run: string }) => o.run === 'run-old' }), say: (l: string) => said.push(l) })
+    looks.push(r.refused)
+    const line = waitLine(r.refused, 2)
+    expect(line).toContain('held by e2e: 196 suites in D:/wt/hb2, left over from a session that ended (process 101, ')
+    expect(line).toMatch(/; run 102 in C:\/wt102 \(process 102, /)
+    expect(looks[0].holders.find((c) => c.pid === 102)?.leftOver).toBeUndefined()
+    expect(existsSync(join(dir2, 'slot-0.json')) && live.has(101)).toBe(true)
+    // A run in the same worktree says so as it starts (the agent, resumed, may want its results); another worktree's doesn't.
+    expect(said).toEqual(['Still running in this worktree, left over from a session that ended: e2e: 196 suites in D:/wt/hb2 (process 101, 42 min). Its results may still be wanted; to stop it, stop its process by id (never by name).'])
+    expect(leftOverLine([{ ...claim, leftOver: true }], 'D:/wt/other', clock)).toBe('')
+    expect(leftOverLine([claim], 'D:/wt/hb2', clock)).toBe('')
+  })
+
   it('two take the slots; the others wait in the order they asked, and the first to ask gets the next free one', async () => {
     const dir2 = newPool()
     expect(await ask(dir2, 101)).toEqual({ slot: 0 })
@@ -2058,7 +2114,7 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
     const dir2 = newPool()
     await ask(dir2, 101)
     await ask(dir2, 102)
-    const r = await waitForSlot(dir2, { slots: 2, owner: 103, alive, now, wait: false })
+    const r = await waitForSlot(dir2, { slots: 2, owner: 103, alive, now, ...offline, wait: false })
     expect(r.refused?.holders.map((c: { pid: number }) => c.pid).sort()).toEqual([101, 102])
     expect(readdirSync(dir2).some((f) => f.startsWith('wait-'))).toBe(false)
     expect(describeClaim({ pid: 101, at: clock - 3 * 60_000, what: 'e2e: 68 suites', root: 'D:/wt' }, clock)).toBe('e2e: 68 suites in D:/wt (process 101, 3 min)')
@@ -2066,9 +2122,9 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
 
   it('waiting: says so at each look, and takes the slot once one is let go', async () => {
     const dir2 = newPool()
-    const first = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
+    const first = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now, ...offline })
     const seen: number[] = []
-    const second = waitForSlot(dir2, { slots: 1, owner: 102, alive, now, pollMs: 30, onWait: (r: { holders: { pid: number }[] }) => seen.push(r.holders[0].pid) })
+    const second = waitForSlot(dir2, { slots: 1, owner: 102, alive, now, ...offline, pollMs: 30, onWait: (r: { holders: { pid: number }[] }) => seen.push(r.holders[0].pid) })
     // At least two looks while the slot is held, however slow the machine is.
     await vi.waitFor(() => expect(seen.length).toBeGreaterThan(1), { timeout: 10000 })
     expect(new Set(seen)).toEqual(new Set([101]))
@@ -2181,12 +2237,12 @@ describe('heavy runs: at most a few at once on the machine, the rest queue in or
 
   it('waiting: a run that becomes pre-merge while it waits moves to the front at its next look', async () => {
     const dir2 = newPool()
-    const holding = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now })
-    expect(await trySlot(dir2, { slots: 1, owner: 103, alive, now })).toMatchObject({ ahead: 0 })
+    const holding = await waitForSlot(dir2, { slots: 1, owner: 101, alive, now, ...offline })
+    expect(await trySlot(dir2, { slots: 1, owner: 103, alive, now, ...offline })).toMatchObject({ ahead: 0 })
     clock += 10
     const looks: { ahead: number; first: boolean }[] = []
     let goesFirst = false
-    const merging = waitForSlot(dir2, { slots: 1, owner: 105, alive, now, pollMs: 20, first: async () => goesFirst, onWait: (r: { ahead: number; first: boolean }) => looks.push(r) })
+    const merging = waitForSlot(dir2, { slots: 1, owner: 105, alive, now, ...offline, pollMs: 20, first: async () => goesFirst, onWait: (r: { ahead: number; first: boolean }) => looks.push(r) })
     await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 1, first: false }), { timeout: HUNG_MS })
     goesFirst = true
     await vi.waitFor(() => expect(looks.at(-1)).toMatchObject({ ahead: 0, first: true }), { timeout: HUNG_MS })
