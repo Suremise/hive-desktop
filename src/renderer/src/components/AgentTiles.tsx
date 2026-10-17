@@ -2,21 +2,22 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import type { AgentState } from '@shared/agentState'
 import { agentDoingCards, agentReviewCards } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
-import { compactThreshold, transcriptWarnLimit } from '@shared/defaults'
+import { compactThreshold, pageEndIndex, transcriptWarnLimit } from '@shared/defaults'
 import { fractionDone, runStatusLine } from '@shared/progress'
 import { providerName } from '@shared/providers'
-import { isUrgent, tilePageCount, tilesOnPage, urgentByPage } from '@shared/tiles'
+import { isUrgent, TILES_PER_PAGE, tilePageCount, tilePageOf, tilesOnPage, urgentByPage } from '@shared/tiles'
 import { fmt, msg, tr } from '@shared/i18n'
 import type { AgentInfo, ProjectInfo, ProgressRun } from '@shared/types'
 import { formatSize } from '@shared/units'
 import { agentProviderOf, closeTile, openTile, projectKey, showTilePage, tileAgents, tileFocusOf, tilePage, useLanguage, useStore } from '../store'
-import { commandKeybinding } from '../commands'
+import * as actions from '../actions'
+import { commandKeybinding, matchKeybinding } from '../commands'
 import { deferredFocus } from '../deferredFocus'
 import { useLiveUsage, useNow } from '../usage'
 import { cx, formatKeybinding, formatTokens } from '../util'
-import { AddAgentButton, FAILED_TO_START } from './AgentPanes'
+import { AddAgentButton, agentDragProps, dropAgent, FAILED_TO_START, moveItems, PAGE_HOVER_MS, SWAP_WITH, swapDrop, useAgentDrag } from './AgentPanes'
 import { StateMark } from './StateMark'
-import { Icon, statusText, Tooltip } from './ui'
+import { Icon, statusText, Tooltip, useContextMenu } from './ui'
 
 /**
  * The Session tab's Tiles view (#976; #975's toggle switches to it): a tile per agent, 12 to a page, in the order Settings
@@ -25,6 +26,8 @@ import { Icon, statusText, Tooltip } from './ui'
  * asked anything, and no terminal is drawn for it. Clicking one (or Enter) opens its focus view: the agent's live pane
  * large, the other agents in a strip beside it; Esc (outside the terminal), Back to Tiles or the Tiles toggle go back.
  * ProjectView places the pane (the agents' area beside the strip); the toolbar above shows the pages (TilePager).
+ * In the panes' order, a tile is dragged like a pane header (#993): onto another tile the two swap, onto a page button it
+ * goes to that page's end; its menu and Move Agent Left/Right move it from the keyboard. By urgency, the order is Hive's.
  */
 export function AgentTiles({ project }: { project: ProjectInfo }) {
   useLanguage()
@@ -38,6 +41,27 @@ function useTiles(project: ProjectInfo): ReturnType<typeof tileAgents> {
   const startFailures = useStore((s) => s.startFailures)
   const settings = useStore((s) => s.settings)
   return useMemo(() => tileAgents(project, { tasks, startFailures, settings }), [project, tasks, startFailures, settings])
+}
+
+/** Whether the user orders the tiles (Tile order "Same as panes", #993): By urgency, the order is computed. */
+function useMovable(project: ProjectInfo): boolean {
+  const order = useStore((s) => s.settings?.sessions.tileOrder ?? 'panes')
+  return order === 'panes' && project.agents.length > 1
+}
+
+/**
+ * A tile moved from the keyboard (#993): it takes the keyboard back whenever it is drawn again (it may have left its page,
+ * and the workspace's own refreshes can redraw it), until the user presses something else.
+ */
+let refocusTile: { id: string; may: () => boolean } | null = null
+
+/** Moves a tile one place (its menu, Move Agent Left/Right): the grid shows the page it lands on, the keyboard staying on it. */
+function moveTile(project: ProjectInfo, id: string, delta: -1 | 1): void {
+  const to = project.agents.findIndex((a) => a.id === id) + delta
+  if (to < 0 || to >= project.agents.length) return
+  refocusTile = { id, may: deferredFocus(() => document.querySelector(tileSelector(id))) }
+  actions.nudgeAgent(delta, project.path, id)
+  showTilePage(project, tilePageOf(to))
 }
 
 const tileSelector = (id: string): string => `.agent-tile[data-agent="${CSS.escape(id)}"]`
@@ -86,6 +110,8 @@ function TileGrid({ project }: { project: ProjectInfo }) {
   const shown = tilesOnPage(tiles, page)
   const pages = tilePageCount(tiles.length)
   const grid = useRef<HTMLDivElement>(null)
+  const movable = useMovable(project)
+  const menu = useContextMenu()
   // The tile that holds the grid's one tab stop: the last one the keyboard was on, while it is on this page.
   const [current, setCurrent] = useState<string | null>(null)
   const stop = shown.some((t) => t.a.id === current) ? current : (shown[0]?.a.id ?? null)
@@ -103,6 +129,15 @@ function TileGrid({ project }: { project: ProjectInfo }) {
     const els = [...(grid.current?.querySelectorAll<HTMLElement>('.agent-tile') ?? [])]
     const at = els.indexOf(document.activeElement as HTMLElement)
     if (at < 0) return
+    // Move Agent Left/Right moves the tile the keyboard is on, not the agent focused before (#993).
+    const cmd = movable && (e.ctrlKey || e.altKey || e.metaKey) ? matchKeybinding(e.nativeEvent)?.id : undefined
+    if (cmd === 'agent.moveLeft' || cmd === 'agent.moveRight') {
+      e.preventDefault()
+      e.stopPropagation()
+      const id = els[at].dataset.agent
+      if (id) moveTile(project, id, cmd === 'agent.moveLeft' ? -1 : 1)
+      return
+    }
     // As many columns as tiles in the first row.
     const cols = Math.max(1, els.filter((el) => el.offsetTop === els[0].offsetTop).length)
     const to = { ArrowRight: at + 1, ArrowLeft: at - 1, ArrowDown: at + cols, ArrowUp: at - cols, Home: 0, End: els.length - 1 }[e.key]
@@ -120,15 +155,28 @@ function TileGrid({ project }: { project: ProjectInfo }) {
         onKeyDown={onKeyDown}
       >
         {shown.map(({ a, state }) => (
-          <Tile key={a.id} project={project} a={a} state={state} tabStop={a.id === stop} onFocus={() => setCurrent(a.id)} />
+          <Tile
+            key={a.id}
+            project={project}
+            a={a}
+            state={state}
+            tabStop={a.id === stop}
+            movable={movable}
+            onFocus={() => setCurrent(a.id)}
+            onMenu={(x, y, keyboard) => menu.openAt(x, y, moveItems(project, a, (delta) => moveTile(project, a.id, delta)).filter((m) => !('separator' in m)), keyboard)}
+          />
         ))}
       </div>
+      {menu.element}
     </div>
   )
 }
 
-/** One agent's tile: a button that opens its focus view. */
-function Tile({ project, a, state, tabStop, onFocus }: { project: ProjectInfo; a: AgentInfo; state: AgentState; tabStop: boolean; onFocus: () => void }) {
+/**
+ * One agent's tile: a button that opens its focus view. `movable`: another agent dragged onto it swaps with it, and its
+ * menu (`onMenu`) moves it (#993).
+ */
+function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { project: ProjectInfo; a: AgentInfo; state: AgentState; tabStop: boolean; movable: boolean; onFocus: () => void; onMenu: (x: number, y: number, keyboard: boolean) => void }) {
   const tasks = useStore((s) => s.tasks)
   const runs = useStore((s) => s.progressRuns)
   const settings = useStore((s) => s.settings)
@@ -148,15 +196,55 @@ function Tile({ project, a, state, tabStop, onFocus }: { project: ProjectInfo; a
   const ctxOver = !!live && threshold > 0 && (usage?.contextTokens ?? 0) >= threshold
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const longTranscript = live?.transcriptBytes !== undefined && sizeLimit > 0 && live.transcriptBytes >= sizeLimit * 1024 * 1024
+  const dragging = useAgentDrag(project)
+  const [over, setOver] = useState(false)
+  useEffect(() => setOver(false), [dragging])
+  const ref = useRef<HTMLButtonElement>(null)
+  // Moved from the keyboard: the keyboard back on it, unless the user chose another place since.
+  useEffect(() => {
+    if (refocusTile?.id !== a.id) return
+    if (!refocusTile.may()) refocusTile = null
+    else if (document.activeElement !== ref.current) ref.current?.focus()
+  })
   return (
     <button
+      ref={ref}
       type="button"
-      className={cx('agent-tile', state, urgent && 'urgent', !!flash && flash.key === projectKey(project.path, a.id) && 'flash')}
+      className={cx('agent-tile', state, urgent && 'urgent', !!flash && flash.key === projectKey(project.path, a.id) && 'flash', dragging === a.id && 'dragging')}
       data-agent={a.id}
       tabIndex={tabStop ? 0 : -1}
       onFocus={onFocus}
       onClick={() => openTile(project, a.id)}
+      {...(movable ? agentDragProps(project, a) : {})}
+      onContextMenu={(e) => {
+        if (!movable) return
+        e.preventDefault()
+        // From the keyboard (the menu key, Shift+F10): below the tile's name, on its first entry.
+        const keyboard = e.button !== 2
+        const r = e.currentTarget.getBoundingClientRect()
+        onMenu(keyboard ? r.left + 8 : e.clientX, keyboard ? r.top + 24 : e.clientY, keyboard)
+      }}
     >
+      {/* While another agent is dragged (#993): dropped here, the two swap. */}
+      {movable && dragging && dragging !== a.id && (
+        <span
+          className={cx('pane-drop', 'tile-drop', over && 'over')}
+          onDragOver={(e) => {
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setOver(true)
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            swapDrop(project, a.id)
+          }}
+        >
+          <span>
+            <Icon name="arrow-swap" /> {tr(SWAP_WITH, { agent: a.name })}
+          </span>
+        </span>
+      )}
       <span className="tile-head">
         <StateMark state={state} />
         <span className="tile-name">{a.name}</span>
@@ -261,6 +349,16 @@ export function TilePager({ project }: { project: ProjectInfo }) {
   const page = useStore((s) => tilePage(project, s))
   const focus = useStore((s) => tileFocusOf(project, s))
   const pages = tilePageCount(tiles.length)
+  const movable = useMovable(project)
+  const dragging = useAgentDrag(project)
+  const [dropPage, setDropPage] = useState<number | null>(null)
+  // A dragged tile held over another page's button: that page shows after a moment, to drop on one of its tiles.
+  const hover = useRef<{ page: number; timer: ReturnType<typeof setTimeout> } | null>(null)
+  useEffect(() => {
+    setDropPage(null)
+    if (hover.current) clearTimeout(hover.current.timer)
+    hover.current = null
+  }, [dragging])
   if (pages < 2) return null
   const urgent = urgentByPage(tiles.map((t) => t.state))
   const pageKb = commandKeybinding('agent.nextPage')
@@ -268,6 +366,9 @@ export function TilePager({ project }: { project: ProjectInfo }) {
     <div className="segmented page-switch tile-pages">
       {Array.from({ length: pages }, (_, i) => {
         const counted = i !== page && urgent[i] > 0
+        // A tile dropped here goes to this page's last place (#993): not a target where it already is.
+        const end = pageEndIndex(project.agents.length, i, TILES_PER_PAGE)
+        const moves = movable && !!dragging && end !== project.agents.findIndex((a) => a.id === dragging)
         return (
           <Tooltip
             key={i}
@@ -282,12 +383,36 @@ export function TilePager({ project }: { project: ProjectInfo }) {
           >
             <button
               type="button"
-              className={cx(page === i && !focus && 'active')}
+              className={cx(page === i && !focus && 'active', moves && dropPage === i && 'drop-target')}
               // Its count of urgent tiles, said as well as shown (a screen reader hears the name, not the badge).
               aria-label={tr(msg({ id: 'panes.tiles.pageButton', defaultMessage: 'Tile page {page, number}{urgent, plural, =0 {} one {, # agent waiting for you or stalled} other {, # agents waiting for you or stalled}}', description: 'Accessible name of a page button of the Tiles view (the session toolbar): which page, and while another page is shown how many of its agents are waiting for the user or stalled ({urgent}; 0: nothing after the page).' }), { page: i + 1, urgent: counted ? urgent[i] : 0 })}
               aria-current={(page === i && !focus) || undefined}
               onClick={() => {
                 closeTile(project)
+                showTilePage(project, i)
+              }}
+              onDragOver={(e) => {
+                if (!movable || !dragging) return
+                if (moves) e.preventDefault()
+                setDropPage(moves ? i : null)
+                if (i !== page && hover.current?.page !== i) {
+                  if (hover.current) clearTimeout(hover.current.timer)
+                  hover.current = { page: i, timer: setTimeout(() => showTilePage(project, i), PAGE_HOVER_MS) }
+                }
+              }}
+              onDragLeave={() => {
+                setDropPage(null)
+                if (hover.current?.page === i) {
+                  clearTimeout(hover.current.timer)
+                  hover.current = null
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (hover.current) clearTimeout(hover.current.timer)
+                hover.current = null
+                if (!moves) return
+                dropAgent(project, end)
                 showTilePage(project, i)
               }}
             >

@@ -129,7 +129,7 @@
   },
   "panes.drop.swap": {
     "defaultMessage": "Swap with {agent}",
-    "description": "Shown over another agent's pane while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)."
+    "description": "Shown over another agent's pane (or its tile in the Tiles view) while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)."
   },
   "panes.failed.dismiss": {
     "defaultMessage": "Dismiss (the terminal keeps the output)",

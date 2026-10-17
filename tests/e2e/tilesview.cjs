@@ -5,8 +5,10 @@
 // of the latest reply. The keyboard: one tab stop in the grid, arrows between tiles, Enter opens the focus view (the agent's
 // live pane beside a strip of the others); Esc in the terminal stays the CLI's, Esc outside it (the strip), Ctrl+Alt+Esc,
 // the strip's Tiles button and the Tiles toggle go back, the keyboard on the agent's tile. Paging with the page buttons and
-// Ctrl+Alt+PageDown; the chip's list opens an agent's focus view; Panes leaves it. Throwaway profile, workspace and
-// CLAUDE_CONFIG_DIR; a quiet test copy.
+// Ctrl+Alt+PageDown; the chip's list opens an agent's focus view; Panes leaves it. Reordering (#993), in the panes'
+// order: a tile dragged onto another swaps them, onto a page button goes to that page's end, and Move Agent Left/Right
+// (the keys, the tile's menu) move the tile the keyboard is on; the order is saved and the panes show it; By urgency, no
+// tile drags. Throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -145,7 +147,77 @@ const check = (name, ok, extra = '') => {
     check('By urgency: M, B, then the others in their order', !!(await lib.until(async () => (await tileNames()).join() === byUrgency.slice(0, 12).join(), HUNG_MS)), (await tileNames()).join())
     check('…nothing urgent on page 2 to count', (await pageButtons()) === '1* 2', await pageButtons())
     await page.screenshot({ path: path.join(lib.WORK, 'tilesview-urgency.png') })
+    check('…no tile drags (the order is computed)', (await page.locator('.agent-tile[draggable="true"]').count()) === 0)
     await inv('settings:update', { sessions: { tileOrder: 'panes' } })
+
+    // --- Reordering (#993), Same as panes: tiles drag like pane headers, and the panes follow.
+    const saved = () => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8')).agents.map((a) => a.name).join()
+      } catch {
+        return '' // being written
+      }
+    }
+    await page.locator('.session-toolbar .tile-pages button').nth(0).click()
+    check('Same as panes again: the tiles drag', !!(await lib.until(async () => (await tileNames()).join() === NAMES.slice(0, 12).join() && (await page.locator('.agent-tile[draggable="true"]').count()) === 12, HUNG_MS)), (await tileNames()).join())
+    const at = async (loc) => {
+      const b = await loc.boundingBox()
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
+    }
+    // A native drag with the mouse, as swap.cjs drags: press, nudge until the page's dragstart, over each stop in turn
+    // (until it shows the drag over it: a tile its drop target, a page button its mark), release, then wait for its end.
+    const dragState = () => page.evaluate(() => window.__tileDrag)
+    const drag = async (from, stops, shot) => {
+      await page.evaluate(() => {
+        window.__tileDrag = 'none'
+        document.addEventListener('dragstart', () => (window.__tileDrag = 'started'), { once: true })
+        document.addEventListener('dragend', () => (window.__tileDrag = 'ended'), { once: true })
+      })
+      const a = await at(from)
+      await page.mouse.move(a.x, a.y)
+      await page.mouse.down()
+      let dx = 0
+      if (!(await lib.until(async () => (await dragState()) !== 'none' || void (await page.mouse.move(a.x + 8 + (dx = 1 - dx), a.y, { steps: 2 })), HUNG_MS))) throw new Error('the drag never started (no dragstart)')
+      for (const loc of stops) {
+        const b = await at(loc)
+        await page.mouse.move(b.x, b.y, { steps: 8 })
+        if ((await loc.locator('.tile-drop').count()) > 0) {
+          if (!(await lib.until(async () => (await loc.locator('.tile-drop.over').count()) > 0 || void (await page.mouse.move(b.x + (dx = 1 - dx), b.y, { steps: 2 })), HUNG_MS))) throw new Error('the tile never showed the drag over it')
+        } else if (!(await lib.until(async () => (await loc.evaluate((el) => el.classList.contains('drop-target'))) || void (await page.mouse.move(b.x + (dx = 1 - dx), b.y, { steps: 2 })), HUNG_MS))) throw new Error('the page button never showed the drag over it')
+      }
+      if (shot) await page.screenshot({ path: path.join(lib.WORK, shot) })
+      await page.mouse.up()
+      // The source can leave the screen (moved to another page): then the drop targets going is the end.
+      await lib.until(async () => (await dragState()) === 'ended' || (await page.locator('.tile-drop').count()) === 0, HUNG_MS)
+    }
+    const order = (names) => names.join()
+    await drag(tile('A'), [tile('C')], 'tilesview-drag.png')
+    const swapped = ['C', 'B', 'A', ...NAMES.slice(3)]
+    check('A dropped on C: they swap, saved in project.json', !!(await lib.until(async () => saved() === order(swapped) && (await tileNames()).join() === order(swapped.slice(0, 12)), HUNG_MS)), `${saved()} / ${(await tileNames()).join()}`)
+    check('…the drag has ended: no drop targets left', !!(await lib.until(async () => (await page.locator('.tile-drop, .tile-pages button.drop-target').count()) === 0, HUNG_MS)))
+    // Page 2's button: B goes to the end, the grid showing it there.
+    await drag(tile('B'), [page.locator('.session-toolbar .tile-pages button').nth(1)])
+    const toEnd = ['C', 'A', ...NAMES.slice(3), 'B']
+    check("B dropped on page 2's button: last, page 2 shown", !!(await lib.until(async () => saved() === order(toEnd) && (await tileNames()).join() === 'B' && (await pageButtons()).endsWith(' 2*'), HUNG_MS)), `${saved()} / ${(await tileNames()).join()} / ${await pageButtons()}`)
+    // The keyboard: Move Agent Left on B's tile takes it to page 1, the keyboard staying on it.
+    await tile('B').focus()
+    await page.keyboard.press('Control+Alt+Shift+ArrowLeft')
+    const left = ['C', 'A', ...NAMES.slice(3, 12), 'B', 'M']
+    check('Move Agent Left (Ctrl+Alt+Shift+←) on B: a place left, onto page 1, the keyboard on it', !!(await lib.until(async () => saved() === order(left) && (await tileNames()).join() === order(left.slice(0, 12)) && (await focusedTile()) === 'B', HUNG_MS)), `${saved()} / ${(await tileNames()).join()} / ${await focusedTile()}`)
+    // The panes show the same order (three columns: B's page, as B is focused).
+    await inv('project:updateConfig', alpha, { layout: 'columns3' })
+    await inv('workspace:refresh')
+    await page.locator('.view-switch [data-view="panes"]').click()
+    const paneNames = () => page.locator('.agent-pane .pane-header-bar .agent-name').allInnerTexts().catch(() => [])
+    check('Panes: the same order (K, L, B on its page)', !!(await lib.until(async () => (await paneNames()).join() === 'K,L,B' && (await page.locator('.agents-area.shown:not(.tile-focus)').count()) === 1, HUNG_MS)), (await paneNames()).join())
+    // Back in Tiles, B's menu (from the keyboard) moves it back.
+    await page.locator('.view-switch [data-view="tiles"]').click()
+    await lib.until(async () => (await tile('B').count()) === 1, HUNG_MS)
+    await tile('B').focus()
+    await page.keyboard.press('Shift+F10')
+    await lib.until(async () => (await lib.menuEntry(page, 'Move Right').count()) === 1, HUNG_MS)
+    await lib.menuEntry(page, 'Move Right').click()
+    check("the tile's menu, Move Right: B a place right, page 2 shown", !!(await lib.until(async () => saved() === order(toEnd) && (await tileNames()).join() === 'B', HUNG_MS)), `${saved()} / ${(await tileNames()).join()}`)
   } finally {
     await inv('session:stop', alpha).catch(() => undefined)
     await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)
