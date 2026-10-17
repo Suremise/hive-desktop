@@ -40,7 +40,6 @@
   "session.handOver.noTools": "Handing over needs Hive's tools in sessions: turn on \"Provide Hive tools to sessions\" in Settings → Agent API.",
   "session.handOver.none": "There is no handover for {project} yet. Hand over with a new handover instead.",
   "session.handOver.noneWritten": "{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.",
-  "session.handOver.notReady": "{agent} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.",
   "session.handOver.notRunning": "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.",
   "session.handOver.other": "{agent} continues from it when it's done.",
   "session.handOver.self": "It continues from it in a new conversation when it's done.",

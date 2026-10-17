@@ -163,10 +163,6 @@
     "defaultMessage": "{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.",
     "description": "Hand Over to… failed: the agent finished its turn without writing a handover. {agent} is its name."
   },
-  "session.handOver.notReady": {
-    "defaultMessage": "{agent} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.",
-    "description": "Hand Over to… failed: the agent taking over didn't start in time. {agent} is its name."
-  },
   "session.handOver.notRunning": {
     "defaultMessage": "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.",
     "description": "Hand Over to… with a new handover is refused: the agent handing over isn't running. {agent} is its name."

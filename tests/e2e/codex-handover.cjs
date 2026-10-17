@@ -25,9 +25,11 @@ const check = (name, ok, extra = '') => {
   const hdir = path.join(ws, '.hive', 'shared', 'handovers')
   fs.rmSync(hdir, { recursive: true, force: true })
   fs.mkdirSync(hdir, { recursive: true })
+  // The goal is this task's alone: "and do nothing else" was taken to cover Hive's later request to write a handover,
+  // which Codex then refused (#782, run-20261017-011613).
   fs.writeFileSync(
     path.join(hdir, '2026-09-30-demo-test.md'),
-    '---\nproject: demo\n---\n# Handover: demo test\n\nGoal: reply with the single word PINEAPPLE and do nothing else. No files to change.\n'
+    '---\nproject: demo\n---\n# Handover: demo test\n\nGoal: reply with the single word PINEAPPLE. No files to change.\n'
   )
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47893), CODEX_HOME: lib.CODEX_HOME, PATH: lib.pathWithoutStoreAliases() })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], env })
@@ -39,6 +41,15 @@ const check = (name, ok, extra = '') => {
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(500)
   const agents = () => inv('workspace:get').then((w) => w.projects.find((p) => p.name === 'demo').agents)
+  // An agent's turn has run (#782): the line Hive gave it (its inbox's doorbell) is in its transcript, it answered after
+  // it, and the turn is over. Ready alone isn't: a CLI that never took the line is ready too.
+  const turnRan = async (id) => {
+    const l = (await agents()).find((a) => a.id === id).live
+    if (!l?.sessionId || !['ready', 'finished'].includes(l.status)) return null
+    const items = (await inv('transcript:read', proj, l.sessionId).catch(() => null))?.items ?? []
+    const given = items.findIndex((x) => x.kind === 'user' && /New in your inbox/.test(x.text))
+    return given >= 0 && items.slice(given + 1).some((x) => x.kind === 'assistant') ? l : null
+  }
   const claude = await lib.addAgent(inv, proj)
   const small = { provider: 'codex', model: 'gpt-6-luna', effort: 'low' }
   const cx = await lib.addAgent(inv, proj, { name: 'Codex', ...small })
@@ -61,17 +72,12 @@ const check = (name, ok, extra = '') => {
   // 1. Claude Code isn't running: Codex starts and reads the latest handover.
   const t0 = Date.now()
   await inv('session:handOver', proj, claude.id, cx.id, { handover: false })
-  const codexLive = (await agents()).find((a) => a.id === cx.id).live
+  // Started with the handover as its launch's task (#782): the call returns as it launches, before the workspace says so.
+  const codexLive = await lib.until(async () => (await agents()).find((a) => a.id === cx.id).live, 30000)
   check('codex started and got the prompt', !!codexLive, `${Math.round((Date.now() - t0) / 1000)}s`)
   // Wait for Codex to finish its turn: the CLI's part (a usage limit or the network there is the environment's).
   await lib.cliStep('codex’s first turn', { session: lib.ptyKey(proj, cx.id) }, async () => {
-    let finished = false
-    for (let i = 0; i < 120 && !finished; i++) {
-      const l = (await agents()).find((a) => a.id === cx.id).live
-      finished = !!(l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t0 > 15000)
-      if (!finished) await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
-    }
-    check('codex finished its turn', finished)
+    check('codex finished its turn', !!(await lib.until(() => turnRan(cx.id), 120000, 1000)))
   })
   const l1 = (await agents()).find((a) => a.id === cx.id).live
   const sessions = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
@@ -96,11 +102,9 @@ const check = (name, ok, extra = '') => {
   check('its header names the author and its CLI', header.includes(`- **Author:** ${cx.name} (Codex)\n`), header.slice(0, 300))
   check('and the session it was written in', header.includes(`- **Session:** ${l1.sessionId}`))
   check('and the date, with UTC', /^- \*\*Date:\*\* \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\)$/m.test(header))
-  for (let i = 0; i < 60; i++) {
-    const l = (await agents()).find((a) => a.id === cx2.id).live
-    if (l && l.sessionId && (l.status === 'finished' || l.status === 'ready') && Date.now() - t1 > 20000) break
-    await sleep(1000) // The poll interval of the loop around it, which waits for a condition (not a fixed wait).
-  }
+  await lib.cliStep('codex 2’s turn', { session: lib.ptyKey(proj, cx2.id) }, async () => {
+    check('codex 2 finished its turn', !!(await lib.until(() => turnRan(cx2.id), 120000, 1000)))
+  })
   const l2 = (await agents()).find((a) => a.id === cx2.id).live
   const s2 = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
   const rec2 = (s2.sessions ?? s2).find?.((s) => s.id === l2?.sessionId)

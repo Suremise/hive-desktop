@@ -40,7 +40,6 @@
   "session.handOver.noTools": "Passar o trabalho exige as ferramentas do Hive nas sessões: ative “Fornecer ferramentas do Hive às sessões” em Configurações → Agent API.",
   "session.handOver.none": "Ainda não há passagem de trabalho para o projeto {project}. Crie uma nova passagem em vez disso.",
   "session.handOver.noneWritten": "O agente {agent} terminou sem escrever uma passagem de trabalho. Peça que escreva uma e depois passe o trabalho de novo, sem uma nova passagem.",
-  "session.handOver.notReady": "O agente {agent} não ficou pronto. Responda a qualquer pergunta no terminal dele e depois passe o trabalho de novo, sem uma nova passagem.",
   "session.handOver.notRunning": "O agente {agent} não está em execução. Retome-o para escrever uma passagem de trabalho, ou passe o trabalho com a passagem mais recente.",
   "session.handOver.other": "O agente {agent} continua a partir dela quando ela estiver pronta.",
   "session.handOver.self": "O agente continua a partir dela em uma nova conversa quando ela estiver pronta.",

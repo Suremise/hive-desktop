@@ -259,6 +259,11 @@ interface LiveSession {
   initialPrompt?: string
   /** This launch was given its first task on its command line: until its CLI takes it, it is pending (#712). */
   launchTask?: true
+  /**
+   * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
+   * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
+   */
+  handedOverFrom?: string
   /** Throws if whoever asked for this launch may no longer have it (the Assistant's authority), checked just before spawning. */
   startAllowed?: () => void
   /** The CLI asked something before it started (e.g. whether to trust the folder): shown as waiting for the user. */
@@ -639,6 +644,8 @@ class SessionManager {
   deliveries: {
     give: (host: string, nd: NewDelivery, hooks?: DeliveryHooks) => Promise<unknown>
     now: (host: string, nd: NewDelivery, holds?: () => boolean) => Promise<unknown>
+    /** A delivery its agent's launch carries, as the launch's task (launchWith): `start` launches it with the line. */
+    launch: (host: string, nd: NewDelivery, start: (line: string) => Promise<{ runId: string }>) => Promise<unknown>
     cancel: (host: string, source: string, ref: string | null, why: string) => Promise<number>
   } | null = null
   private delivery(): NonNullable<SessionManager['deliveries']> {
@@ -1030,7 +1037,7 @@ class SessionManager {
     return null
   }
 
-  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void }): Promise<LiveSessionState> {
+  async start(projectPath: string, opts: { resumeId?: string; name?: string; agentId?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void; handedOverFrom?: string }): Promise<LiveSessionState> {
     this.assertStartsAllowed(projectPath)
     projectPath = workspace.assertSessionHost(projectPath)
     if (opts.resumeId !== undefined) assertSessionId(opts.resumeId)
@@ -1102,7 +1109,7 @@ class SessionManager {
     if (this.starting.get(id)?.cancelled) throw hiveError(M.stoppedBeforeStart)
   }
 
-  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void }): Promise<LiveSessionState> {
+  private async startReserved(projectPath: string, agentId: string, id: string, opts: { resumeId?: string; name?: string; skipSetup?: boolean; permissionMode?: PermissionMode; prompt?: string; allowed?: () => void; handedOverFrom?: string }): Promise<LiveSessionState> {
     const { agent, cfg, count } = await this.agentDef(projectPath, agentId)
     this.assertStarting(id)
     if (this.live.has(id))
@@ -1182,7 +1189,7 @@ class SessionManager {
       launchSignature: '',
       unseen: false
     }
-    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, ...(opts.prompt?.trim() ? { launchTask: true as const } : {}), startAllowed: opts.allowed, resumed: !!opts.resumeId })
+    this.live.set(id, { state, adapter, transcriptMtime: '', defaultModel: false, modeTail: '', recognition: new ScreenRecognition(adapter), launchMode: null, configuredMode: null, modeOverride: opts.permissionMode, name: sessionName, transcriptPath: existing?.transcriptPath, initialPrompt: opts.prompt?.trim() || undefined, ...(opts.prompt?.trim() ? { launchTask: true as const } : {}), ...(opts.handedOverFrom ? { handedOverFrom: opts.handedOverFrom } : {}), startAllowed: opts.allowed, resumed: !!opts.resumeId })
     this.runs.set(runId, id)
 
     const setup = cfg.worktreeSetup.trim()
@@ -1521,8 +1528,11 @@ class SessionManager {
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
       ...(state.cwd.toLowerCase() !== projectPath.toLowerCase() ? { cwd: state.cwd } : {}),
-      ...(agent.worktree ? { branch: agent.worktree.branch } : {})
+      ...(agent.worktree ? { branch: agent.worktree.branch } : {}),
+      ...(l.handedOverFrom ? { handedOverFrom: l.handedOverFrom } : {})
     }, { createdAt: state.sessionCreatedAt })
+    // The conversation it was meant for has it: one the CLI moves to later (/clear, /new) wasn't handed over.
+    l.handedOverFrom = undefined
     state.sessionCreatedAt = rec.createdAt
     if (!this.owns(l)) return
     // The agent's session to resume (and no other agent's any more), decided under the config's lock as it is written: a
@@ -2261,21 +2271,33 @@ class SessionManager {
     }
     // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below.
     if (self && this.live.has(liveId(projectPath, fromAgentId)) && !(await this.endConversation(projectPath, fromAgentId))) throw hiveError(msg({ id: 'session.handOver.didntStop', defaultMessage: '{agent} didn\'t stop. Stop it, then start it and ask it to read the handover "{handover}".', description: "Handing over to the same agent failed: it didn't stop to start a new conversation. {agent} is its name, {handover} the handover's path in the shared notes." }), { agent: from.name, handover })
-    // The target: started fresh when idle, or given the message in its running session.
-    let target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
+    // The target: given the message in its running session, or started with it as its launch's task (#782), as a task
+    // start is. Typed into a CLI that had only just looked ready, it could be lost under load (Codex's screen looks ready
+    // before it takes input), and the next hand-over from it was refused.
+    const target = this.live.get(liveId(projectPath, toAgentId))?.state ?? null
     if (target && target.status !== 'ready' && target.status !== 'finished') throw hiveError(M.handOverBusy, { agent: to.name }, { kind: 'conflict' })
-    if (!target) {
-      await this.start(projectPath, { agentId: toAgentId })
-      // Minutes, not seconds: the CLI may first ask something (e.g. whether to trust the folder).
-      target = await this.waitStatus(projectPath, toAgentId, (s) => !s || s.status === 'ready', 5 * 60_000).catch(() => null)
-      if (!target) throw hiveError(msg({ id: 'session.handOver.notReady', defaultMessage: "{agent} didn't become ready. Answer any question in its terminal, then hand over again without a new handover.", description: "Hand Over to… failed: the agent taking over didn't start in time. {agent} is its name." }), { agent: to.name })
-      await new Promise((r) => setTimeout(r, 1500))
+    // i18n-ignore: given to the agent (agent-facing text stays English)
+    const nd: NewDelivery = { agentId: toAgentId, agentName: to.name, kind: 'handover', from: HIVE_SENDER, body: `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.` }
+    // The sessions are linked with the launch's conversation as it is recorded (#782: Codex names it only with its first
+    // prompt, which a question at start can hold off for minutes), never by a wait here that could give up first.
+    if (target) {
+      await this.delivery().now(projectPath, { ...nd, need: 'free' })
+      if (fromSession) await this.linkHandover(projectPath, toAgentId, target.runId, fromSession)
+    } else await this.delivery().launch(projectPath, nd, (line) => this.start(projectPath, { agentId: toAgentId, prompt: line, ...(fromSession ? { handedOverFrom: fromSession } : {}) }))
+  }
+
+  /**
+   * Links the conversation a running agent was handed over into (its launch `runId`'s) with the one it came from: at once
+   * when its id is known, else as it is recorded (recordSession). Another launch of the agent by now is another's.
+   */
+  private async linkHandover(projectPath: string, agentId: string, runId: string, fromSession: string): Promise<void> {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || l.state.runId !== runId) return
+    if (!l.state.sessionId) {
+      l.handedOverFrom = fromSession
+      return
     }
-    // i18n-ignore: typed to the agent (agent-facing text stays English)
-    await this.delivery().now(projectPath, { agentId: toAgentId, agentName: to.name, kind: 'handover', from: HIVE_SENDER, body: `Read the handover "${handover}" with the hive_read_shared_note tool and continue the work from it. It was written by ${self ? 'you, in your previous conversation' : from.name}.`, need: 'free' })
-    // Link the sessions once the target's id is known (Codex reports it with the first prompt).
-    const linked = await this.waitStatus(projectPath, toAgentId, (s) => !s || !!s.sessionId, 60_000).catch(() => null)
-    if (linked?.sessionId && fromSession) await workspace.upsertSession(projectPath, { id: linked.sessionId, handedOverFrom: fromSession }).catch(() => undefined)
+    await workspace.upsertSession(projectPath, { id: l.state.sessionId, handedOverFrom: fromSession }).catch((e) => log.warn(`${userText(this.label(l.state))}: could not link the handed-over session`, e))
   }
 
   /**

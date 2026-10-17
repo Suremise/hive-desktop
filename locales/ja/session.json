@@ -40,7 +40,6 @@
   "session.handOver.noTools": "引き継ぐには、セッションでHiveのツールが必要です。「設定」→「Agent API」で「セッションにHiveのツールを提供」をオンにしてください。",
   "session.handOver.none": "{project}にはまだ引き継ぎメモがありません。代わりに新しい引き継ぎメモを書いて引き継いでください。",
   "session.handOver.noneWritten": "{agent}は引き継ぎメモを書かずに終了しました。書くよう指示してから、新しい引き継ぎメモなしでもう一度引き継いでください。",
-  "session.handOver.notReady": "{agent}の準備が整いませんでした。ターミナルの質問に回答してから、新しい引き継ぎメモなしでもう一度引き継いでください。",
   "session.handOver.notRunning": "{agent}は実行されていません。再開して引き継ぎメモを書かせるか、最新の引き継ぎメモで引き継いでください。",
   "session.handOver.other": "書き終わると、{agent}がそこから作業を続けます。",
   "session.handOver.self": "書き終わると、新しい会話でそこから作業を続けます。",

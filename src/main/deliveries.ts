@@ -1356,6 +1356,7 @@ sessions.deliveries = {
     return r
   },
   now: (host, nd, holds) => deliverNow(host, nd, holds),
+  launch: (host, nd, start) => launchWith(host, nd, start),
   cancel: cancelFromSource
 }
 
