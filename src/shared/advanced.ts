@@ -465,6 +465,17 @@ const SOURCES: readonly AdvancedSource[] = [
     samples: [{ from: `${FIX}/advanced/trust-codex-0.162.1.txt`, version: '0.162.1', text: 'Trust this folder? Codex can read, edit, and run files here' }] // i18n-ignore: a CLI's recorded text (#367)
   },
   {
+    id: 'codex.fullAccess.warning',
+    group: 'codex',
+    title: msg({ id: 'settings.advanced.codex.fullAccess.warning.title', defaultMessage: 'Full Access warning', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it." }),
+    desc: msg({ id: 'settings.advanced.codex.fullAccess.warning.desc', defaultMessage: "Codex's own warning after Full Access is picked in its /permissions menu, which you answer in its terminal. While it is on screen, Hive's switch to Full Access waits for your answer; if it doesn't match, Hive may say Codex didn't confirm the switch while the warning is still waiting.", description: 'What the advanced setting "Full Access warning" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access and /permissions are Codex\'s: keep them.' }),
+    kind: 'pattern',
+    default: 'Enable full access\\?', // i18n-ignore: a CLI's recorded text (#367)
+    flags: 'i',
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/fullaccess-codex-0.162.1.txt`, version: '0.162.1', text: 'Enable full access?' }] // i18n-ignore: a CLI's recorded text (#367)
+  },
+  {
     id: 'codex.ready.placeholder',
     group: 'codex',
     title: msg({ id: 'settings.advanced.codex.ready.placeholder.title', defaultMessage: 'Composer placeholder', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),

@@ -25,6 +25,8 @@ interface HiveMessageValues {
   'settings.advanced.claude-code.turnScreen.done.title': undefined
   'settings.advanced.claudeFooter.desc': { mode: string | number; footer: string | number }
   'settings.advanced.claudeFooter.title': { mode: string | number }
+  'settings.advanced.codex.fullAccess.warning.desc': undefined
+  'settings.advanced.codex.fullAccess.warning.title': undefined
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.title': undefined
   'settings.advanced.codex.hooks.timeoutSeconds.desc': { most: number }

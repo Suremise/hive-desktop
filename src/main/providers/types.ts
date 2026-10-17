@@ -369,6 +369,11 @@ export interface ProviderAdapter {
   modeMenuKeys?(target: PermissionMode): KeySteps
   /** The mode the CLI says it switched to, from its terminal output after a menu switch (null: not said yet). */
   modeFromOutput?(tail: string): PermissionMode | null
+  /**
+   * Whether the CLI's screen shows its own question about the mode just picked (Codex's warning before Full Access,
+   * #1014): the user answers it in the terminal, and a menu switch waits for that answer.
+   */
+  modeConfirmScreen?(screen: string): boolean
   /** Whether the CLI's screen shows it busy holding what was typed (as CommandSpec.busyScreen): a menu switch waits while it does. */
   busyScreen?(screen: string): boolean
   /** For providers with a Plan toggle: the key that turns it on or off. */

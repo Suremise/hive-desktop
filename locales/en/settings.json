@@ -95,6 +95,14 @@
     "defaultMessage": "Footer: {mode}",
     "description": "An advanced setting's title (Settings → Advanced, under Claude Code): the footer Claude Code shows in a permission mode. {mode} is the mode's name."
   },
+  "settings.advanced.codex.fullAccess.warning.desc": {
+    "defaultMessage": "Codex's own warning after Full Access is picked in its /permissions menu, which you answer in its terminal. While it is on screen, Hive's switch to Full Access waits for your answer; if it doesn't match, Hive may say Codex didn't confirm the switch while the warning is still waiting.",
+    "description": "What the advanced setting \"Full Access warning\" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access and /permissions are Codex's: keep them."
+  },
+  "settings.advanced.codex.fullAccess.warning.title": {
+    "defaultMessage": "Full Access warning",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it."
+  },
   "settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc": {
     "defaultMessage": "How long Codex waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
     "description": "What the advanced setting \"Hooks: before a tool, timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."

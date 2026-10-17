@@ -48,9 +48,9 @@ async function switchLive(project: ProjectInfo, a: AgentInfo, mode: PermissionMo
   const live = a.live!
   const p = live.provider
   const desc = providerDescriptor(p)
-  const danger = !!modeOption(p, mode)?.danger
   if (!(await confirmDangerousMode(p, mode, a.name))) return
-  if (desc.capabilities.liveModeSwitch !== 'none' && desc.canSwitchLive(mode, live.permissionMode, null) && !danger) {
+  // Live whenever the provider can (#1014: Codex's Full Access too, after the confirmation); a restart only when it can't.
+  if (desc.capabilities.liveModeSwitch !== 'none' && desc.canSwitchLive(mode, live.permissionMode, null)) {
     const r = await actions.attempt(tr(msg({ id: 'agents.permission.switchFailed', defaultMessage: 'Could not switch the permission mode', description: "An error's title: switching a running agent's permission mode failed." })), () => call('session:setMode', project.path, a.id, mode))
     if (!r || r.ok) return
     if (!r.restart) return notify('warning', tr(msg({ id: 'agents.permission.notSwitched', defaultMessage: 'Permission mode not switched', description: "A notification's title: Hive couldn't switch a running agent's permission mode (the message says why)." })), r.message)
@@ -92,7 +92,7 @@ function menuItems(project: ProjectInfo, a: AgentInfo, settings: AppSettings): M
       { header: true, label: many ? tr(msg({ id: 'agents.permission.menuAgent', defaultMessage: 'Permission mode — {agent}', description: "The permission mode menu's heading, for one of several agents ({agent}: its name)." }), { agent: a.name }) : tr(msg({ id: 'agents.permission.menu', defaultMessage: 'Permission mode', description: "The permission mode menu's heading." })) },
       ...(asking ? [{ label: tr(msg({ id: 'agents.permission.answerFirst', defaultMessage: 'The agent is asking you something: answer it first', description: 'In the permission mode menu, while the agent waits for an answer: its mode can be switched once it is answered.' })), icon: 'warning', disabled: true }] : []),
       ...modes.map((m): MenuEntry => {
-        const liveOk = desc.capabilities.liveModeSwitch !== 'none' && desc.canSwitchLive(m.value, cur, null) && !m.danger
+        const liveOk = desc.capabilities.liveModeSwitch !== 'none' && desc.canSwitchLive(m.value, cur, null)
         return {
           label: shownText(m.label, m.text?.label, tr),
           icon: m.value === cur ? 'check' : 'blank',

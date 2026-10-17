@@ -746,6 +746,11 @@ export class CodexAdapter implements ProviderAdapter {
     return CODEX_PERMISSION_MODES.find((x) => x.label.toLowerCase() === said || (said === 'full access' && x.value === 'full-access') || (said === 'read only' && x.value === 'read-only'))?.value ?? null
   }
 
+  /** Codex's warning before Full Access ("Enable full access?"), unless its config hides it: the user answers it. */
+  modeConfirmScreen(screen: string): boolean {
+    return advanced.pattern('codex.fullAccess.warning').test(screen)
+  }
+
   canSwitchLive(): boolean {
     return true
   }

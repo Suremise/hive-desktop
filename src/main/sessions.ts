@@ -181,6 +181,10 @@ const STOPS_KEPT = 64
 const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
+/** How long a menu switch waits for the user to answer the CLI's own question about the mode (#1014). */
+const MODE_ANSWER_MS = 10 * 60_000
+/** With no transcript to read the switch back from, how long the CLI has after the pick to ask its own question. */
+const MODE_ASK_GRACE_MS = 1500
 
 /** After a kill, how long a CLI's console takes to be gone (its processes listed and ended, then its exit). */
 const KILL_EXIT_MS = 1000
@@ -1925,25 +1929,46 @@ class SessionManager {
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)
       if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
-      if (!src || !l.adapter.transcriptDetails) {
-        // Nothing to read yet (no message sent): shown as asked; the first turn's settings correct it.
+      const details = !!src && !!l.adapter.transcriptDetails
+      // The CLI's own question about the mode picked (Codex's warning before Full Access, #1014): the user answers it in
+      // the terminal, so the switch waits for the answer, however long (up to MODE_ANSWER_MS), and the 12 seconds the
+      // CLI has to confirm start once it is answered. What the CLI printed before the answer doesn't count: the user
+      // may still cancel.
+      let asked = false
+      const askedAt = Date.now()
+      for (let t = Date.now(); same(); ) {
+        if (details) {
+          const hooks = l.hooksSeen ?? 0
+          const s = await stat(src!).catch(() => null)
+          if (s) await this.readDetails(l, src!, s.size, hooks)
+          if (st.permissionMode === mode) break
+        }
+        if (l.adapter.modeConfirmScreen?.(l.screen?.text() ?? '')) {
+          if (!asked) log.info(`${userText(this.label(st))}: ${name} asks to confirm ${mode} in its terminal`)
+          asked = true
+          if (Date.now() - askedAt >= MODE_ANSWER_MS) break
+          l.switchTail = ''
+          t = Date.now()
+        } else {
+          if (Date.now() - t >= 12_000) break
+          // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
+          const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
+          if (said) {
+            st.permissionMode = said
+            if (said === mode) break
+          }
+          // Nothing to read (no message sent yet) and nothing asked once the CLI has had a moment to ask: shown as picked;
+          // the first turn's settings correct it.
+          if (!details && !asked && Date.now() - t >= MODE_ASK_GRACE_MS) break
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+      if (!details && !asked && same() && st.permissionMode !== mode) {
+        l.switchTail = undefined
         st.modeSwitching = undefined
         st.permissionMode = mode
         this.emitState(st)
         return { ok: true }
-      }
-      for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
-        const hooks = l.hooksSeen ?? 0
-        const s = await stat(src).catch(() => null)
-        if (s) await this.readDetails(l, src, s.size, hooks)
-        if (st.permissionMode === mode) break
-        // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
-        const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
-        if (said) {
-          st.permissionMode = said
-          if (said === mode) break
-        }
-        await new Promise((r) => setTimeout(r, 400))
       }
       if (!same()) {
         st.permissionMode = before

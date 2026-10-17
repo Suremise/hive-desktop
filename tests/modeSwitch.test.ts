@@ -24,6 +24,7 @@ const base = tempDir('hive-modeswitch-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
 const { codex } = await import('../src/main/providers/codex/adapter')
+const { config } = await import('../src/main/config')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'switching')
@@ -70,7 +71,10 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
     pty.typed.length = 0
     pty.onWrite = () => undefined
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    config.settings.providers.codex.enableDangerousMode = false
+  })
 
   it('switches when Codex is free: Ctrl+U, /permissions, Enter, then the preset picked from its menu', async () => {
     const a = agent(IDLE)
@@ -125,6 +129,58 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
     expect(r.message).toMatch(/is asking you something/)
     expect(a.typed()).toEqual(['\x15', '/permissions'])
     expect(a.state.permissionMode).toBe('read-only')
+  })
+
+  // Full Access live (#1014): Codex asks its own question after the pick (0.162.1's warning), which the user answers in
+  // its terminal; the switch waits for the answer, however long, and Codex's line said before it doesn't count.
+  const WARNING = readFileSync(join(__dirname, 'fixtures', 'advanced', 'fullaccess-codex-0.162.1.txt'), 'utf8').replace(/\r\n/g, '\n')
+  const SAID = '• Permission selection requested: Full Access\n'
+  /** An agent switched to Full Access (turned on in Settings), the warning shown once the preset is picked from the menu. */
+  function warned() {
+    config.settings.providers.codex.enableDangerousMode = true
+    const a = agent(IDLE)
+    pty.onWrite = (d) => {
+      if (d === '\r') a.view.text = MENU
+      else if (/^\d$/.test(d)) a.view.text = WARNING
+    }
+    return a
+  }
+
+  it("Full Access with Codex's warning: waits for the answer however long it takes, then switches", async () => {
+    vi.useFakeTimers()
+    const a = warned()
+    const result = a.switchTo('full-access')
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(a.typed()).toEqual(['\x15', '/permissions', '\r', '3'])
+    expect(a.state.modeSwitching).toBe('full-access')
+    expect(a.state.permissionMode).toBe('read-only')
+    // Said while the warning is still up: not the answer.
+    ;(a.live as { switchTail?: string }).switchTail = SAID
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(a.state.permissionMode).toBe('read-only')
+    // Answered: the warning goes, and Codex says the switch.
+    a.view.text = IDLE
+    await vi.advanceTimersByTimeAsync(500)
+    ;(a.live as { switchTail?: string }).switchTail = SAID
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(await result).toEqual({ ok: true })
+    expect(a.state.permissionMode).toBe('full-access')
+    expect(a.state.modeSwitching).toBeUndefined()
+  })
+
+  it("Full Access with Codex's warning cancelled: not switched, its mode as it was", async () => {
+    vi.useFakeTimers()
+    const a = warned()
+    const result = a.switchTo('full-access')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(a.state.modeSwitching).toBe('full-access')
+    a.view.text = IDLE
+    await vi.advanceTimersByTimeAsync(13_000)
+    const r = await result
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/didn't confirm switching to Full access/i)
+    expect(a.state.permissionMode).toBe('read-only')
+    expect(a.state.modeSwitching).toBeUndefined()
   })
 
   it('busy for longer than 30 seconds: stops, types nothing, not switched', async () => {
