@@ -85,7 +85,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     usageCacheSize: 5000,
     followTranscripts: false,
     overviewRefresh: 'live',
-    recordPerformance: true
+    recordPerformance: true,
+    resumeAfterUnexpectedClose: false
   },
   agentApi: {
     enabled: true,

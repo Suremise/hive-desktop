@@ -213,6 +213,8 @@ export interface AppSettings {
     overviewRefresh: 'live' | 'minute' | 'manual'
     /** Hive counts what its Agent API, tools, guidance and skill service cost (aggregates only), per workspace. */
     recordPerformance: boolean
+    /** After Hive closed unexpectedly (#984), resume the agents that were running at the next start: off, only the notice. */
+    resumeAfterUnexpectedClose: boolean
   }
   agentApi: {
     enabled: boolean

@@ -22,6 +22,7 @@ import { latestRecording, readRecordingText } from './consoleRecorder'
 import { advanced } from './advanced'
 import { gpuDiagnostics, gpuThisRun } from './gpu'
 import { crashDumpLines, crashDumps, crashDumpsDir } from './exitLog'
+import { lastRunDiagnostics } from './lastRun'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -140,7 +141,9 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     // Crashes Hive kept a dump of (#985): named, never attached.
     '### Crash dumps',
     '',
-    ...crashDumpLines(crashDumps(), join(crashDumpsDir(), 'reports'))
+    ...crashDumpLines(crashDumps(), join(crashDumpsDir(), 'reports')),
+    // The last run (#984): whether it quit, or ended without quitting.
+    lastRunDiagnostics()
   ].join('\n')
 
   // The log goes back further than what is open now: earlier workspaces and their projects are taken out too.

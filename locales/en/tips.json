@@ -1063,6 +1063,14 @@
     "defaultMessage": "Try it",
     "description": "Button on a tip: runs the command it is about."
   },
+  "tips.unexpectedClose.text": {
+    "defaultMessage": "If Hive was ended without quitting (a crash, or something closed it), the next start says when it was last seen and which agents were running, with Resume All. Settings → Sessions → Resume agents after an unexpected close resumes them by itself.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.unexpectedClose.title": {
+    "defaultMessage": "Know when Hive closed unexpectedly",
+    "description": "A tip's title."
+  },
   "tips.unmerged.text": {
     "defaultMessage": "The agent's tab shows how many commits aren't merged yet, Merge… in its ⋯ menu says what is left, and Git → Changes shows everything the agent changed since it branched.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

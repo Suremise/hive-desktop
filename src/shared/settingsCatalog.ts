@@ -307,6 +307,7 @@ const APP_ROWS: Row[] = [
   },
   { section: 'sessions', key: 'resetPerformance', title: msg({ id: 'settings.sessions.resetPerformance.title', defaultMessage: 'Reset performance metrics', description: "A setting's title (Settings → Sessions)." }), desc: msg({ id: 'settings.sessions.resetPerformance.desc', defaultMessage: "Clear this workspace's recorded performance metrics.", description: 'What the setting "Reset performance metrics" does, under its title (Settings → Sessions).' }), tip: msg({ id: 'settings.sessions.resetPerformance.tip', defaultMessage: 'Starts the history again from now. Session usage and transcripts are not affected.', description: 'The info tip of the setting "Reset performance metrics" (Settings → Sessions): more on what it does and when it applies.' }), type: 'custom' },
   { section: 'sessions', key: 'confirmStop', title: msg({ id: 'settings.sessions.confirmStop.title', defaultMessage: 'Confirm before stopping', description: "A setting's title (Settings → Sessions)." }), desc: msg({ id: 'settings.sessions.confirmStop.desc', defaultMessage: 'Ask before stopping a running session.', description: 'What the setting "Confirm before stopping" does, under its title (Settings → Sessions).' }), tip: msg({ id: 'settings.sessions.confirmStop.tip', defaultMessage: 'Stopped sessions can always be resumed.', description: 'The info tip of the setting "Confirm before stopping" (Settings → Sessions): more on what it does and when it applies.' }), type: 'boolean' },
+  { section: 'sessions', key: 'resumeAfterUnexpectedClose', title: msg({ id: 'settings.sessions.resumeAfterUnexpectedClose.title', defaultMessage: 'Resume agents after an unexpected close', description: "A setting's title (Settings → Sessions)." }), desc: msg({ id: 'settings.sessions.resumeAfterUnexpectedClose.desc', defaultMessage: 'When Hive closed without quitting (a crash, or it was ended), resume the agents that were running when it starts again.', description: 'What the setting "Resume agents after an unexpected close" does, under its title (Settings → Sessions).' }), tip: msg({ id: 'settings.sessions.resumeAfterUnexpectedClose.tip', defaultMessage: 'Off: Hive only tells you, with Resume All for you to choose. Either way the notice says when Hive was last seen and which agents were running.', description: 'The info tip of the setting "Resume agents after an unexpected close" (Settings → Sessions): more on what it does and when it applies.' }), type: 'boolean' },
   // Workspace
   {
     section: 'workspace',
@@ -838,6 +839,7 @@ const HELPS: Record<string, string> = {
   'sessions.compactSuggestTokens': 'Agents work with big contexts for long stretches, so every message costs more: a lower threshold suggests compacting sooner.', // i18n-ignore: the Assistant's tools (English)
   'sessions.transcriptWarnMB': "Agents' transcripts grow to tens of MB and typing or the CLI slows down: a lower value flags them sooner, for a handover to a new conversation.", // i18n-ignore: the Assistant's tools (English)
   'sessions.confirmStop': 'Agents get stopped by mistake.', // i18n-ignore: the Assistant's tools (English)
+  'sessions.resumeAfterUnexpectedClose': "Hive closed unexpectedly and the user wants the agents that were running to carry on by themselves at the next start.", // i18n-ignore: the Assistant's tools (English)
   'sessions.followTranscripts': 'The user reads running sessions in the Sessions tab and wants new messages to appear as they come.', // i18n-ignore: the Assistant's tools (English)
   'assistant.compactSuggestTokens': "The Assistant's own conversation gets long and slow: a lower threshold suggests compacting it sooner.", // i18n-ignore: the Assistant's tools (English)
   'assistant.panelSide': 'Windows notifications or other apps cover the right of the screen.', // i18n-ignore: the Assistant's tools (English)
@@ -885,6 +887,7 @@ const DOCS_BY_ID: Record<string, string> = {
   'sessions.transcriptWarnMB': 'Long conversations', // i18n-ignore: a heading of the user guide, which stays English (D2)
   'sessions.backupTranscripts': 'Archiving and backups', // i18n-ignore: a heading of the user guide, which stays English (D2)
   'sessions.recordPerformance': 'Performance metrics', // i18n-ignore: a heading of the user guide, which stays English (D2)
+  'sessions.resumeAfterUnexpectedClose': 'When Hive closed unexpectedly', // i18n-ignore: a heading of the user guide, which stays English (D2)
   'agents.backgroundTaskMinutes': 'Sessions', // i18n-ignore: a heading of the user guide, which stays English (D2)
   'agents.leftoverProcesses': 'Processes agents leave running' // i18n-ignore: a heading of the user guide, which stays English (D2)
 }

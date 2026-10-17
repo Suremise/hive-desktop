@@ -2839,6 +2839,18 @@
     "defaultMessage": "Reset performance metrics",
     "description": "A setting's title (Settings → Sessions)."
   },
+  "settings.sessions.resumeAfterUnexpectedClose.desc": {
+    "defaultMessage": "When Hive closed without quitting (a crash, or it was ended), resume the agents that were running when it starts again.",
+    "description": "What the setting \"Resume agents after an unexpected close\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.resumeAfterUnexpectedClose.tip": {
+    "defaultMessage": "Off: Hive only tells you, with Resume All for you to choose. Either way the notice says when Hive was last seen and which agents were running.",
+    "description": "The info tip of the setting \"Resume agents after an unexpected close\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.resumeAfterUnexpectedClose.title": {
+    "defaultMessage": "Resume agents after an unexpected close",
+    "description": "A setting's title (Settings → Sessions)."
+  },
   "settings.sessions.transcriptWarnMB.desc": {
     "defaultMessage": "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once.",
     "description": "What the setting \"Warn when a transcript is over\" does, under its title (Settings → Sessions)."

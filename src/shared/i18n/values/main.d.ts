@@ -162,6 +162,19 @@ interface HiveMessageValues {
   'main.tray.statusOfMany': { n: number; status: string | number }
   'main.tray.toReview': undefined
   'main.tray.willQuit': undefined
+  'main.unexpectedClose.agents': { n: number; projects: string | number }
+  'main.unexpectedClose.dump': undefined
+  'main.unexpectedClose.failed': { n: number; agents: string | number }
+  'main.unexpectedClose.merge': { agent: string | number; branch: string | number; folder: string | number }
+  'main.unexpectedClose.mergeCards': { agent: string | number; branch: string | number; cards: string | number; folder: string | number }
+  'main.unexpectedClose.notResumed': undefined
+  'main.unexpectedClose.overview': undefined
+  'main.unexpectedClose.resumeAll': undefined
+  'main.unexpectedClose.resumeFailedTitle': undefined
+  'main.unexpectedClose.resumed': { n: number }
+  'main.unexpectedClose.resumedTitle': { n: number }
+  'main.unexpectedClose.title': undefined
+  'main.unexpectedClose.when': { date: string | number; time: string | number }
   'main.unused.branchKept': { branch: string | number; why: string | number }
   'main.unused.cantCheck': { why: string | number }
   'main.unused.changed': { changed: string | number }

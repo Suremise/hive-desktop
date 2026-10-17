@@ -267,6 +267,8 @@ interface HiveMessageValues {
   'tips.ui.tip': undefined
   'tips.ui.title': undefined
   'tips.ui.tryIt': undefined
+  'tips.unexpectedClose.text': undefined
+  'tips.unexpectedClose.title': undefined
   'tips.unmerged.text': undefined
   'tips.unmerged.title': undefined
   'tips.unusedWorktrees.text': undefined

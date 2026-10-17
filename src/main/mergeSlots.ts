@@ -512,6 +512,8 @@ export interface SlotRecord {
   cards: number[]
   since: number
   until: number
+  /** The folder its agent worked in (#984): where a merge Hive closed under was, its worktree or the main checkout. */
+  cwd?: string
 }
 
 /** The holds in a record file's text; anything malformed is left out (it is only read to warn the user). */
@@ -531,7 +533,7 @@ export function parseSlotRecords(text: string): SlotRecord[] {
     const r = h as Record<string, unknown>
     if (!str(r.projectPath, 1000) || !str(r.branch, 200) || !str(r.agentId) || !str(r.agentName) || !str(r.runId)) continue
     const cards = Array.isArray(r.cards) ? r.cards.filter((n): n is number => Number.isInteger(n) && (n as number) > 0).slice(0, MAX_CARDS) : []
-    out.push({ projectPath: r.projectPath, ...(str(r.projectId, 64) ? { projectId: r.projectId } : {}), branch: r.branch, agentId: r.agentId, agentName: r.agentName, runId: r.runId, cards, since: Number(r.since) || 0, until: Number(r.until) || 0 })
+    out.push({ projectPath: r.projectPath, ...(str(r.projectId, 64) ? { projectId: r.projectId } : {}), branch: r.branch, agentId: r.agentId, agentName: r.agentName, runId: r.runId, cards, since: Number(r.since) || 0, until: Number(r.until) || 0, ...(str(r.cwd, 1000) ? { cwd: r.cwd } : {}) })
   }
   return out
 }
