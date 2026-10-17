@@ -5098,8 +5098,11 @@ body.pane-resizing .monaco-editor {
 .pane-header-bar > .tip-wrap:has(> .agent-name) {
   min-width: 24px;
 }
-/* The status gives way entirely before the name does (its shrink far outweighs the name's). */
+/* The status gives way entirely before the name does (its shrink far outweighs the name's), and the review and
+   safeguard shields with it. */
 .pane-header-bar > .tip-wrap:has(> .pane-status),
+.pane-header-bar > .tip-wrap:has(> .review-mark),
+.pane-header-bar > .tip-wrap:has(> .safeguard-mark),
 .pane-header-bar > .pane-status {
   min-width: 0;
   overflow: hidden;

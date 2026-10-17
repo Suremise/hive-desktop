@@ -1081,7 +1081,7 @@ const MARK_IDLE = msg({ id: 'panes.header.markIdle', defaultMessage: 'Mark idle'
 
 /** The header's width from which its card shows (tests/e2e/paneheader.cjs measures every width). */
 const CARD_FROM = 200
-/** From which its inline marks show: Mark idle beside an unknown state, the review and safeguard shields (else in ⋯). */
+/** From which Mark idle shows beside an unknown state (else only in ⋯), and below which ⋯ has the safeguard's note too. */
 const MARKS_FROM = 300
 
 const MORE = msg({ id: 'panes.header.more', defaultMessage: 'More', description: "Tooltip of the ⋯ button on a pane's header: the agent's menu." })
@@ -1199,8 +1199,9 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
           <span className={cx('faint', 'pane-status', !live && failure && 'failed', live?.status === 'signin' && 'signin')}>{live ? statusText(live) : failure ? tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." })) : tr(msg({ id: 'panes.header.notRunning', defaultMessage: 'Not running', description: "A pane's status: the agent's session isn't running." }))}</span>
         </SignInTip>
       )}
-      {!narrow && <ReviewMark live={live} />}
-      {!narrow && <SafeguardMark live={live} />}
+      {/* Short of room they give way with the status (app.css); under MARKS_FROM the safeguard's note is in ⋯ too. */}
+      <ReviewMark live={live} />
+      <SafeguardMark live={live} />
       <div className="grow" />
       {/* Narrowest, the card goes first: Stop and ⋯ stay. */}
       {(!width || width >= CARD_FROM) && <CardChip project={project} a={a} short />}

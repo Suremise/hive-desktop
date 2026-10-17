@@ -232,7 +232,7 @@ function commits(wt, n) {
       }
       // The agent's details end before the first control.
       const first = controls[0]?.getBoundingClientRect()
-      for (const d of h.querySelectorAll('.agent-name, .pane-status, .card-chip')) {
+      for (const d of h.querySelectorAll('.agent-name, .pane-status, .card-chip, :scope > .tip-wrap:has(> .review-mark), :scope > .tip-wrap:has(> .safeguard-mark)')) {
         const r = d.getBoundingClientRect()
         if (first && r.width > 0 && r.right > first.left + 0.5) bad.push(`${d.className} runs under the controls`)
       }
@@ -350,12 +350,13 @@ function commits(wt, n) {
   }
   await atWidths('', 'paneheader')
 
-  // An unknown state (#648), sent to the window as Hive sends a status: at every width Stop and ⋯ stay whole; Mark idle
-  // is beside the status from 300 px, and below only in ⋯, whose dot then says so.
+  // An unknown state (#648), with both shields (an automatic review, #606's safeguard switch), sent to the window as
+  // Hive sends a status: at every width Stop and ⋯ stay whole and the shields give way with the status; Mark idle is
+  // beside the status from 300 px, and below only in ⋯ (with the safeguard's note), whose dot then says so.
   const sendStatus = (state) => app.evaluate(({ BrowserWindow }, ev) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', ev), { type: 'session-status', state })
   const known = await live(long.id)
-  await sendStatus({ ...known, status: 'working', turn: { ...known.turn, state: 'unknown', silentSince: new Date(Date.now() - 6 * 60000).toISOString() } })
-  check('an unknown state shows in the header', !!(await until(async () => (await header(long).locator('.unknown-state').count()) === 1, HUNG_MS)))
+  await sendStatus({ ...known, status: 'working', turn: { ...known.turn, state: 'unknown', silentSince: new Date(Date.now() - 6 * 60000).toISOString() }, review: 'a long command under review', safeguard: { at: new Date().toISOString(), model: 'claude-fake', tools: [], stops: 1, switched: { from: 'claude-fake', to: 'claude-other', at: new Date().toISOString() } } })
+  check('an unknown state shows in the header, with both shields', !!(await until(async () => (await header(long).locator('.unknown-state').count()) === 1 && (await header(long).locator('.review-mark, .safeguard-mark').count()) === 2, HUNG_MS)))
   for (const w of WIDTHS) {
     check(`unknown state: header sized to ${w}px`, await widthTo(w))
     await fits(`unknown state at ${w}px`)
@@ -372,7 +373,7 @@ function commits(wt, n) {
     await theme('dark')
   }
   await header(long).getByRole('button', { name: 'More', exact: true }).click()
-  check('…and ⋯ offers Mark idle', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: 'Mark idle' }).count()) === 1, HUNG_MS)))
+  check('…and ⋯ offers Mark idle and says what the safeguard did', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: 'Mark idle' }).count()) === 1 && (await page.locator('.menu .menu-item', { hasText: 'claude-other' }).count()) === 1, HUNG_MS)), JSON.stringify(await menuItems()))
   await closeMenu()
   // Back to what Hive knows of it.
   await sendStatus(await live(long.id))
