@@ -164,7 +164,7 @@
   "panes.template.layout": "{layout, select, auto {自動レイアウト} single {1つずつ} columns2 {2列} columns3 {3列} grid {2×2グリッド} grid6 {3×2グリッド} other {{layout}}}",
   "panes.template.listFailed": "テンプレートの一覧を取得できませんでした",
   "panes.template.noneSaved": "保存されたテンプレートはまだありません",
-  "panes.template.noneYet": "テンプレートはまだありません：先に「テンプレート ▾」→「テンプレートを保存…」で保存してください",
+  "panes.template.noneYet": "テンプレートはまだありません：先に「+ 追加 ▾」→「テンプレート」→「テンプレートを保存…」で保存してください",
   "panes.template.ownWorktree": "専用のワークツリー",
   "panes.template.save": "テンプレートを保存…",
   "panes.template.scopeHeading": "{scope, select, workspace {ワークスペースのテンプレート} other {このプロジェクトのテンプレート}}",

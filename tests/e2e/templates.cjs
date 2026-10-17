@@ -93,6 +93,13 @@ const check = (name, ok, extra = '') => {
   await lib.addAgent(inv, alpha, { name: 'Reviewer' })
   await inv('project:updateConfig', alpha, { layout: 'columns3' })
   await inv('workspace:refresh')
+  // With no template yet, Add Agent from Template says how to save one, by the route the toolbar has (#986).
+  await lib.addMenuRun(page, 'Add Agent from Template')
+  const noneYet = 'No templates yet: + Add ▾ → Templates → Save Template… first'
+  check('Add Agent from Template with none yet points at + Add ▾ → Templates → Save Template…', !!(await lib.until(async () => (await menuItems()).includes(noneYet), HUNG_MS)) && (await item(noneYet).getAttribute('aria-disabled')) === 'true', JSON.stringify(await menuItems()))
+  // Escape closes the submenu, then + Add ▾'s own.
+  await lib.until(async () => (await page.locator('.menu').count()) === 0 || void (await page.keyboard.press('Escape')), HUNG_MS)
+  // …and following it works: + Add ▾ → Templates → Save Template…
   await saveTemplate()
   await shown(dialog, 'dialog')
   await dialog.locator('input.input').fill('Pair')

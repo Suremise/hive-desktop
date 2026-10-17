@@ -641,7 +641,7 @@
   },
   "panes.template.detail": {
     "defaultMessage": "{n, plural, one {# agent} other {# agents}} · {layout}",
-    "description": "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")."
+    "description": "A template's detail in + Add ▾ → Templates: how many agents it has and its layout ({layout}: \"two columns\")."
   },
   "panes.template.heading": {
     "defaultMessage": "{template} · {scope, select, workspace {workspace} other {this project}}",
@@ -649,19 +649,19 @@
   },
   "panes.template.layout": {
     "defaultMessage": "{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}",
-    "description": "A template's layout, after how many agents it has (Template ▾ menu): its pane layout, lower case."
+    "description": "A template's layout, after how many agents it has (+ Add ▾ → Templates): its pane layout, lower case."
   },
   "panes.template.listFailed": {
     "defaultMessage": "Could not list the templates",
-    "description": "An error's title: Hive couldn't read the templates (Template ▾, Add Agent from Template)."
+    "description": "An error's title: Hive couldn't read the templates (+ Add ▾ → Templates, Add Agent from Template)."
   },
   "panes.template.noneSaved": {
     "defaultMessage": "No templates saved yet",
-    "description": "Template ▾ with no template saved."
+    "description": "+ Add ▾ → Templates with no template saved."
   },
   "panes.template.noneYet": {
-    "defaultMessage": "No templates yet: Template ▾ → Save Template… first",
-    "description": "Add Agent from Template with no template: how to save one first. \"Template ▾\" and \"Save Template…\" are the button and its menu item: use their translations."
+    "defaultMessage": "No templates yet: + Add ▾ → Templates → Save Template… first",
+    "description": "Add Agent from Template with no template: how to save one first. \"+ Add ▾\" is the session toolbar's button, \"Templates\" its menu item and \"Save Template…\" the item of that menu: use their translations."
   },
   "panes.template.ownWorktree": {
     "defaultMessage": "own worktree",
@@ -669,11 +669,11 @@
   },
   "panes.template.save": {
     "defaultMessage": "Save Template…",
-    "description": "Menu item (Template ▾): saves this project's agents and layout as a template."
+    "description": "Menu item (+ Add ▾ → Templates): saves this project's agents and layout as a template."
   },
   "panes.template.scopeHeading": {
     "defaultMessage": "{scope, select, workspace {Workspace templates} other {This project's templates}}",
-    "description": "A heading in Template ▾ above the templates kept in the workspace, or in this project."
+    "description": "A heading in + Add ▾ → Templates above the templates kept in the workspace, or in this project."
   },
   "panes.terminal.exited": {
     "defaultMessage": "process exited with code {code}",
