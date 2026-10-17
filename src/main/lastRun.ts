@@ -290,12 +290,13 @@ export async function tellUnexpectedClose(): Promise<void> {
 export async function stopLeftAfterClose(): Promise<number> {
   const list = leftRunning
   if (!list.length) return 0
-  const { stopped, still } = await stopStillRunning(list, leftKept, { endTrees: endTreesExactly, endExact: endProcessesExactly, stillRunning: stillRunningOf })
+  const { stopped, still, unverified } = await stopStillRunning(list, leftKept, { endTrees: endTreesExactly, endExact: endProcessesExactly, stillRunning: stillRunningOf })
   leftRunning = still
   if (stopped) log.info(`Stopped ${stopped} process(es) the agents had started before Hive closed unexpectedly`)
-  if (still.length) {
-    log.warn(`Couldn't stop ${still.length} process(es) the agents had started before Hive closed unexpectedly`)
-    throw hiveError(msg({ id: 'main.unexpectedClose.notStopped', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.", description: "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run; Stop Them is the notice's button." }), { n: still.length })
+  // A test run's child Hive could neither end nor check still runs too: never a success (#1008).
+  if (still.length || unverified) {
+    log.warn(`Couldn't stop ${still.length + unverified} process(es) the agents had started before Hive closed unexpectedly${unverified ? ` (${unverified} Windows wouldn't let Hive check)` : ''}`)
+    throw hiveError(msg({ id: 'main.unexpectedClose.notStopped', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.", description: "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run; Stop Them is the notice's button." }), { n: still.length + unverified })
   }
   toast('success', tr(msg({ id: 'main.unexpectedClose.stopped', defaultMessage: '{n, plural, one {Stopped one process} other {Stopped # processes}}', description: "A notice's title: the processes the agents had started before Hive closed unexpectedly were ended ({n} of them)." }), { n: stopped }))
   return stopped

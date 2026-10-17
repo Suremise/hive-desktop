@@ -139,7 +139,7 @@ describe('a hive-progress run left running is one item, named by its title (#100
     const asked: { trees: number[]; exact: number[]; still: number[] } = { trees: [], exact: [], still: [] }
     const alive = new Set([99])
     const ops = {
-      endTrees: async (roots: readonly AgentProcess[]) => ((asked.trees = ids(roots)), [late]),
+      endTrees: async (roots: readonly AgentProcess[]) => ((asked.trees = ids(roots)), { failed: [late], unverified: 0 }),
       endExact: async (ps: readonly AgentProcess[]) => (asked.exact = ids(ps)),
       stillRunning: async (ps: readonly AgentProcess[]) => ((asked.still = ids(ps)), ps.filter((x) => alive.has(x.pid)))
     }
@@ -149,15 +149,22 @@ describe('a hive-progress run left running is one item, named by its title (#100
     expect(asked.exact).toEqual([12, 13, 20])
     expect(asked.still).toEqual([12, 13, 20, 99])
     // Every process listed was stopped, but the late child still runs: not a success, and kept for Stop Them's next try.
-    expect(r).toEqual({ stopped: 3, still: [late] })
+    expect(r).toEqual({ stopped: 3, still: [late], unverified: 0 })
     // The host can't say: the run's processes count as still running.
     const unsure = await stopStillRunning(running, tree, { ...ops, endTrees: async () => null, stillRunning: async () => null })
     expect(ids(unsure.still)).toEqual([12, 13, 20, 10])
     expect(unsure.stopped).toBe(0)
     // No run among them: no tree is asked for.
     asked.trees = []
-    expect(await stopStillRunning([tree[4]], tree, { ...ops, stillRunning: async () => [] })).toEqual({ stopped: 1, still: [] })
+    expect(await stopStillRunning([tree[4]], tree, { ...ops, stillRunning: async () => [] })).toEqual({ stopped: 1, still: [], unverified: 0 })
     expect(asked.trees).toEqual([])
+  })
+
+  it("Stop Them is no success while a run's child it could neither end nor check still runs", async () => {
+    // Everything listed ends; the run's new child (not in the marker) runs, and Windows lets Hive neither end nor read it.
+    const running = tree.filter((x) => [12, 13].includes(x.pid))
+    const r = await stopStillRunning(running, tree, { endTrees: async () => ({ failed: [], unverified: 1 }), endExact: async () => undefined, stillRunning: async () => [] })
+    expect(r).toEqual({ stopped: 2, still: [], unverified: 1 })
   })
 
   it("the marker keeps each process's parent and run title; bad ones are left out", () => {
