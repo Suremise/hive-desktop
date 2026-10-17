@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_STATE_LABEL, AGENT_STATES, agentState, boardExtras, mostUrgent, projectAgentStates, stateCounts, stateSummary, type AgentState } from '../src/shared/agentState'
+import { AGENT_STATE_LABEL, AGENT_STATES, agentState, boardExtras, mostUrgent, projectAgentStates, projectStateSummary, stateCounts, stateSummary, type AgentState } from '../src/shared/agentState'
 import { tr } from '../src/shared/i18n'
 import type { AgentInfo, LiveSessionState, SessionStatus, TaskCard } from '../src/shared/types'
 
@@ -91,5 +91,16 @@ describe('agent state marks (#973)', () => {
     expect(stateSummary(['idle', 'idle'])).toBe('2 idle')
     expect(stateSummary(['stalled', 'working'])).toBe('1 stalled · 1 working')
     expect(stateSummary([])).toBe('')
+  })
+
+  it("the project header's line counts the stopped apart, so idle and working are what Stop counts (#1035)", () => {
+    const agents = [agent('a1', live('working')), agent('a2', live('finished')), agent('a3', null), agent('a4', null), agent('a5', live('ready'))]
+    // a3 stopped with a card stalled in Doing: stalled, not stopped.
+    const states = projectAgentStates({ name: 'alpha', agents }, [card('a3', 'doing')])
+    expect(projectStateSummary(agents, states)).toBe('1 stalled · 1 working · 2 idle · 1 stopped')
+    expect(stateSummary(states, true)).toBe('1 stalled · 1 working · 3 idle')
+    const none = [agent('a1', null), agent('a2', null)]
+    expect(projectStateSummary(none, projectAgentStates({ name: 'alpha', agents: none }, []))).toBe('2 stopped')
+    expect(projectStateSummary([], [])).toBe('')
   })
 })

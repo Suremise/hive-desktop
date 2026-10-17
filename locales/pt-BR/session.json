@@ -151,6 +151,7 @@
   "session.start.worktreeMissing": "A pasta do worktree do agente {agent} não existe: {folder}. Inicie o agente {agent} pelo painel dele para recriar o worktree no branch dele (Reparar… se o espaço de trabalho foi movido) ou remova o agente.",
   "session.state.countIdle": "{n, plural, one {# ocioso} other {# ociosos}}",
   "session.state.countStalled": "{n, plural, one {# travado} other {# travados}}",
+  "session.state.countStopped": "{n, plural, one {# parado} other {# parados}}",
   "session.state.countWaiting": "{n, plural, other {# aguardando}}",
   "session.state.countWorking": "{n, plural, other {# trabalhando}}",
   "session.state.idle": "Ocioso",

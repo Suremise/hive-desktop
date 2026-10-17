@@ -153,6 +153,7 @@ interface HiveMessageValues {
   'session.start.worktreeMissing': { agent: string | number; folder: string | number }
   'session.state.countIdle': { n: number }
   'session.state.countStalled': { n: number }
+  'session.state.countStopped': { n: number }
   'session.state.countWaiting': { n: number }
   'session.state.countWorking': { n: number }
   'session.state.idle': undefined
