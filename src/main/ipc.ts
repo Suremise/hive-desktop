@@ -38,6 +38,7 @@ import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
+import { sweepWorkspaceLeftovers } from './leftovers'
 import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
@@ -287,6 +288,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       .then(() => stampWatchProjects(ws).catch((e) => log.warn("giving the card watches their projects' ids", e)))
       .then(() => tasks.archiveOldDone(ws))
       .catch((e) => log.warn('archiving old Done cards', e))
+    // What failed or interrupted saves and the project-id migration left in the .hive folders (#1016).
+    void sweepWorkspaceLeftovers(ws).catch((e) => log.warn('removing leftover temp and backup files', e))
     // Moved since it was last opened (#146)? In the background: the window opens meanwhile, and a banner follows.
     void checkMoved(contextWorkspace()!).catch((e) => log.warn('checking whether the workspace moved', e))
     // A merge slot an agent held when Hive closed: its merge may be half done (#350).
