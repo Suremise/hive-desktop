@@ -90,6 +90,12 @@ describe('what cards cite (they keep it)', () => {
     expect(citedBy('e2e/lanes/0/board', [card(9, 'lanes\\0 has it: e2e\\lanes\\0\\board\\board.png')])).toBe(9)
   })
 
+  it("…nor the unit tests' temp folder: naming hive-test\\tmp keeps nothing in it (#992's own text did)", () => {
+    const tmp = [card(992, 'make the root a folder in the test area (for example `%LOCALAPPDATA%\\hive-test\\tmp\\<run or worker>`)')]
+    for (const rel of ['tmp/hive-git-x1y2z3', 'tmp/bfWnGRfHtqeLL_lF45dTU', 'tmp/config.json']) expect(citedBy(rel, tmp), rel).toBe(null)
+    expect(citedBy('tmp/hive-git-x1y2z3', [card(10, 'the repo it left: hive-test\\tmp\\hive-git-x1y2z3')])).toBe(10)
+  })
+
   it('…but a path through a folder keeps only what it names, and a name only with its boundary', () => {
     // lanes\0\board\board.png keeps the board suite's folder, not the rest of lane 0.
     expect(citedBy('e2e/lanes/0/about', [card(9, 'lanes\\0\\board\\board.png')])).toBe(null)
@@ -166,6 +172,8 @@ describe('the clean-up (clean.mjs)', () => {
       'checks.txt': 10,
       'scratch/claudio-2026-10-01/': 10,
       'scratch/claudio-2026-10-06/': 0,
+      'tmp/hive-git-old-x/repo/a.txt': 2,
+      'tmp/hive-git-new-y/repo/a.txt': 0,
       'progress-timings.json': 30,
       'config.json': 30,
       'heavy-slots/': 30,
@@ -195,7 +203,7 @@ describe('the clean-up (clean.mjs)', () => {
     const m = machine()
     const r = await run(m)
     const gone = r.removed.map((x: { rel: string }) => x.rel).sort()
-    expect(gone).toEqual(['charts-132', 'checks.txt', 'e2e/lanes/0/about', 'e2e/lanes/0/about-7', 'e2e/lanes/0/board', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/board.png', 'e2e/lanes/3/about', 'e2e/lanes/3/board-profile', 'e2e/review12-probe', 'e2e/review14-done', 'scenarios/lanes/0/new-scenario-3', 'scenarios/lanes/0/old-scenario', 'scratch/claudio-2026-10-01'])
+    expect(gone).toEqual(['charts-132', 'checks.txt', 'e2e/lanes/0/about', 'e2e/lanes/0/about-7', 'e2e/lanes/0/board', 'e2e/lanes/0/board-profile', 'e2e/lanes/0/board.png', 'e2e/lanes/3/about', 'e2e/lanes/3/board-profile', 'e2e/review12-probe', 'e2e/review14-done', 'scenarios/lanes/0/new-scenario-3', 'scenarios/lanes/0/old-scenario', 'scratch/claudio-2026-10-01', 'tmp/hive-git-old-x'])
     // Never the test homes' sign-ins, scenario results, logs, the claims, the timings and the machine's test settings.
     for (const p of ['codex/auth.json', 'codex/packages', 'claude/.credentials.json', 'scenarios/results/run1/results.json', 'e2e/logs/run-20260101-000000/board.log', 'progress-timings.json', 'config.json', 'heavy-slots', 'build-locks'])
       expect(there(m.root, p), p).toBe(true)
@@ -216,7 +224,7 @@ describe('the clean-up (clean.mjs)', () => {
     expect(r.items.find((i: { rel: string }) => i.rel === 'e2e/lanes/3/plan').why).toBe('cited by #304')
     expect(there(m.root, 'scenarios/lanes/2/kept-scenario/ws')).toBe(true)
     // New things stay.
-    for (const p of ['short tmp', 'e2e/board-profile', 'scratch/claudio-2026-10-06']) expect(there(m.root, p), p).toBe(true)
+    for (const p of ['short tmp', 'e2e/board-profile', 'scratch/claudio-2026-10-06', 'tmp/hive-git-new-y']) expect(there(m.root, p), p).toBe(true)
     expect(r.freed).toBeGreaterThan(0)
     // The lane it cleaned is free again; the runner's claim is untouched.
     expect(readdirSync(m.lanesDir).sort()).toEqual(['lane-1.json'])
@@ -226,7 +234,7 @@ describe('the clean-up (clean.mjs)', () => {
     const m = machine()
     const dry = await run(m, { dryRun: true })
     expect(dry.removed).toEqual([])
-    expect(dry.items.filter((i: { remove: boolean }) => i.remove).length).toBe(14)
+    expect(dry.items.filter((i: { remove: boolean }) => i.remove).length).toBe(15)
     expect(there(m.root, 'charts-132')).toBe(true)
   })
 
@@ -251,6 +259,7 @@ describe('the clean-up (clean.mjs)', () => {
     expect(there(m.root, 'config.json')).toBe(true)
     expect(there(m.root, 'charts-132')).toBe(false)
     expect(there(m.root, 'short tmp')).toBe(false)
+    expect(readdirSync(join(m.root, 'tmp'))).toEqual([])
   })
 
   it("never follows a link out (a worktree's node_modules junction)", async () => {
@@ -287,6 +296,10 @@ describe('the clean-up (clean.mjs)', () => {
     expect(why('scenarios/lanes/0/new-scenario-3')).toBe('a copy an earlier run left')
     expect(why('charts-132')).toMatch(/days old/)
     expect(why('short tmp')).toBe('newer than 3 days')
+    // The unit tests' temp folders (tests/tempDir.ts, #992) go after a day; the folder itself stays.
+    expect(why('tmp/hive-git-old-x')).toMatch(/^2\.\d days old$/)
+    expect(why('tmp/hive-git-new-y')).toBe('newer than 1 day')
+    expect(why('tmp')).toBe(undefined)
     expect(why('codex')).toBe(undefined)
   })
 })

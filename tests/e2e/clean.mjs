@@ -16,6 +16,8 @@
 // - In the e2e work folder: anything but `lanes` and `logs` older than the age (suites run on their own, probes).
 // - Anything else in hive-test older than the age (one-off folders and files: reviewers' and builders' probes).
 //   `scratch\<agent>-<date>` is the place for probes that must be under hive-test: its folders go by the same age.
+// - In `tmp` (the unit tests' temp folders: tests/tempDir.ts, #992): anything older than a day (TMP_DAYS; --days less
+//   than that goes by --days). Each test removes its own; this is for what a stopped run left.
 // - In the Codex test home (#404, codexPlan), under its lease (codexHomeLock.mjs; nothing while a run holds it): rollouts
 //   older than the age, package copies Codex no longer runs, and unfinished downloads in its cache older than the age.
 // What stays, always:
@@ -44,6 +46,8 @@ const { claimedByRuns, evidenceFor, linkOnPath, safeList, sizeOf, removeTree } =
 
 /** Leftovers older than this many days go (--days). */
 export const PRUNE_DAYS = 3
+/** The unit tests' temp folders (`tmp`, tests/tempDir.ts) go after a day: no run lasts that long (#992). */
+export const TMP_DAYS = 1
 const DAY = 24 * 60 * 60_000
 
 /** What stays in hive-test whatever its age, and why (the names of its own folders and files). */
@@ -110,11 +114,11 @@ export function lastChanged(p) {
  */
 export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => false, ev, suites = SUITES.map((s) => s.name), claimed = claimedByRuns([join(root, 'e2e', 'logs')]) }) {
   const out = []
-  const maxAge = days * DAY
   const suiteNames = new Set(suites)
   /** A suite's folder: its name, or `<name>-2`… when an earlier one was kept (evidence.cjs freshFolder). */
   const suiteFolder = (name) => suiteNames.has(name.replace(/-\d+$/, '')) || suiteNames.has(name)
-  const look = (path, { legacy = false, leftover = null, area }) => {
+  const look = (path, { legacy = false, leftover = null, area, maxDays = days }) => {
+    const maxAge = maxDays * DAY
     const rel = relative(root, path).split(sep).join('/')
     let age
     try {
@@ -130,7 +134,7 @@ export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => f
     else if (leftover) out.push({ ...item, remove: true, why: leftover })
     else if (area === 'lane' && leftover === false) out.push({ ...item, remove: false, why: 'its failed run keeps it (it goes with the run’s logs)' })
     else if (age >= maxAge) out.push({ ...item, remove: true, why: `${(age / DAY).toFixed(1)} days old` })
-    else out.push({ ...item, remove: false, why: `newer than ${days} days` })
+    else out.push({ ...item, remove: false, why: `newer than ${maxDays} day${maxDays === 1 ? '' : 's'}` })
   }
   // An e2e lane holds the folders of suites running now (only in a lane a runner holds) and of failed suites, which
   // their run's logs claim (evidence.cjs recordKept) until KEEP_RUNS prunes them. Anything else in an idle lane is left
@@ -155,7 +159,8 @@ export function plan({ root, days = PRUNE_DAYS, now = Date.now(), held = () => f
   }
   for (const name of safeList(e2e)) if (name !== 'lanes' && name !== 'logs') look(join(e2e, name), { area: 'e2e' })
   for (const name of safeList(join(root, 'scratch'))) look(join(root, 'scratch', name), { area: 'scratch' })
-  for (const name of safeList(root)) if (!(name in KEPT) && name !== 'e2e' && name !== 'scratch') look(join(root, name), { area: 'other' })
+  for (const name of safeList(join(root, 'tmp'))) look(join(root, 'tmp', name), { area: 'tmp', maxDays: Math.min(days, TMP_DAYS) })
+  for (const name of safeList(root)) if (!(name in KEPT) && !['e2e', 'scratch', 'tmp'].includes(name)) look(join(root, name), { area: 'other' })
   out.push(...codexPlan({ root, days, now, ev }))
   return out
 }
@@ -401,7 +406,8 @@ export function areaSizes(root = runContext.TEST_ROOT) {
   rows.push(['e2e (suites run on their own, probes)', safeList(e2e).filter((n) => n !== 'lanes' && n !== 'logs').reduce((t, n) => t + sizeOf(join(e2e, n)), 0)])
   for (const name of Object.keys(KEPT)) add(name, join(root, name))
   add('scratch', join(root, 'scratch'))
-  rows.push(['other (one-off)', safeList(root).filter((n) => !(n in KEPT) && n !== 'e2e' && n !== 'scratch').reduce((t, n) => t + sizeOf(join(root, n)), 0)])
+  add('tmp (unit tests)', join(root, 'tmp'))
+  rows.push(['other (one-off)', safeList(root).filter((n) => !(n in KEPT) && !['e2e', 'scratch', 'tmp'].includes(n)).reduce((t, n) => t + sizeOf(join(root, n)), 0)])
   return rows
 }
 
@@ -421,7 +427,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log(`hive-test: ${runContext.TEST_ROOT}`)
   if (!ev.ok) console.log(`Nothing is removed: ${ev.why}.`)
   const r = await clean({ days, dryRun, ev })
-  for (const i of r.items.filter((x) => !x.remove && x.why !== `newer than ${days} days`)) console.log(`  kept: ${i.rel} (${i.why})`)
+  for (const i of r.items.filter((x) => !x.remove && !x.why.startsWith('newer than '))) console.log(`  kept: ${i.rel} (${i.why})`)
   if (dryRun) {
     const goes = r.items.filter((i) => i.remove)
     for (const i of goes) console.log(`  would remove: ${i.rel} (${i.why})`)

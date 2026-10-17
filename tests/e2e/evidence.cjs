@@ -10,7 +10,7 @@
 //   suite folder `lanes\0\board` (but not the rest of lane 0);
 // - a folder as a whole keeps everything in it: `hive-test\evidence` (ending there) keeps what is in it, and
 //   `lanes\0\board\` keeps that suite's folder. Only folders that hold evidence count, not the areas themselves
-//   (`hive-test`, `e2e`, `e2e\lanes`, a lane `e2e\lanes\0`, `scratch`…), which cards name when they talk about the
+//   (`hive-test`, `e2e`, `e2e\lanes`, a lane `e2e\lanes\0`, `scratch`, the unit tests' `tmp`…), which cards name when they talk about the
 //   tests: a lane is where runs keep their suites' folders, not evidence, and a card naming one kept every folder every
 //   later run made in it (#285).
 // A name alone isn't a citation: a card listing leftovers to remove names them (`charts-132`), and a folder named like
@@ -23,7 +23,7 @@ const { execFileSync } = require('child_process')
 const runContext = require('./runContext.cjs')
 
 /** Areas: folders that hold evidence rather than being it (relative to hive-test). Naming one keeps nothing. */
-const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch', 'codex', 'codex/sessions', 'codex/packages', 'codex/cache'])
+const AREAS = new Set(['', 'e2e', 'e2e/lanes', 'e2e/logs', 'e2e/logs/nested', 'scenarios', 'scenarios/lanes', 'scenarios/results', 'scenarios/baselines', 'scratch', 'tmp', 'codex', 'codex/sessions', 'codex/packages', 'codex/cache'])
 /**
  * Whether rel (relative to hive-test, with `/`) is an area: one of AREAS, a lane (`e2e/lanes/0`, `scenarios/lanes/3`), or
  * in the Codex test home a year or month of rollouts, a package or its releases, or a cache (#404: cards name the home

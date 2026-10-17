@@ -315,6 +315,14 @@ const COMMAND_DEFS: CommandDef[] = [
     run: () => void actions.attempt(tr(msg({ id: 'shell.error.resumeAfterClose', defaultMessage: 'Could not resume the agents', description: "An error's title: resuming the agents that were running when Hive closed unexpectedly failed." })), () => call('app:resumeAfterClose'))
   },
   {
+    id: 'session.stopLeftAfterClose',
+    name: msg({ id: 'shell.command.session.stopLeftAfterClose', defaultMessage: 'Stop What the Agents Started Before Hive Closed', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: ends the processes the agents had started that still run after Hive closed unexpectedly. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
+    // Only from the notice that Hive closed unexpectedly (#987), which lists them.
+    internal: true,
+    run: () => void actions.attempt(tr(msg({ id: 'shell.error.stopLeftAfterClose', defaultMessage: 'Could not stop the processes', description: "An error's title: ending the processes the agents had started before Hive closed unexpectedly failed." })), () => call('app:stopLeftAfterClose'))
+  },
+  {
     id: 'session.applyPermissionModes',
     name: msg({ id: 'shell.command.session.applyPermissionModes', defaultMessage: 'Switch Running Agents to Their Permission Mode Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }),
     category: 'session',

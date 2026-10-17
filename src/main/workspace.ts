@@ -100,6 +100,13 @@ export class WorkspaceService {
    */
   private rootsAt = new Map<string, number>()
   private rootTickets = 0
+  /**
+   * Each project's latest project.json write (lower-cased project → its ticket), and the ticket each ProjectInfo was read
+   * at (#999): a refresh that read a project before a later write found the config from before, e.g. an agent order two
+   * moves back.
+   */
+  private savedAt = new Map<string, number>()
+  private readAt = new WeakMap<ProjectInfo, number>()
   /** The projects the last refresh reported (lower-cased) and its listing's ticket: one missing was gone by then (#784). */
   private listedAt: { ticket: number; known: Set<string> } | null = null
   /**
@@ -280,6 +287,7 @@ export class WorkspaceService {
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
     this.rootsAt.clear()
+    this.savedAt.clear()
     this.listedAt = null
     this.unusedRoots.clear()
     this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
@@ -791,6 +799,7 @@ export class WorkspaceService {
       return updated
     })
     this.registerRoots(projectPath, next, gen, ticket)
+    if (gen === this.generation) this.savedAt.set(projectPath.toLowerCase(), Math.max(ticket, this.savedAt.get(projectPath.toLowerCase()) ?? 0))
     this.scheduleRefresh()
     return next
   }
@@ -863,7 +872,7 @@ export class WorkspaceService {
     const cfg = await this.projectConfig(projectPath)
     this.registerRoots(projectPath, cfg, gen, ticket)
     const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
-    return {
+    const info: ProjectInfo = {
       name: basename(projectPath),
       path: projectPath,
       active: active.has(basename(projectPath)),
@@ -878,6 +887,13 @@ export class WorkspaceService {
       // Ensured at each refresh, so a repository made later (git init) gets it too (#345).
       ...(this.isAssistantHome(projectPath) ? {} : { hiveVcs: await hiveVcs(projectPath).catch(() => undefined) })
     }
+    this.readAt.set(info, ticket)
+    return info
+  }
+
+  /** Whether project.json was written after this read of it began (#999). */
+  private readBeforeSave(info: ProjectInfo): boolean {
+    return (this.savedAt.get(info.path.toLowerCase()) ?? 0) > (this.readAt.get(info) ?? 0)
   }
 
   /** Refreshes begun, and the latest one whose reading was reported (#731). */
@@ -904,6 +920,10 @@ export class WorkspaceService {
     // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
     // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).
     if (seq < this.refreshReported && this.cached) return this.cached
+    // A project's config was written after this refresh read it (#999: quick moves of agents, each awaiting a refresh
+    // slowed by its running agents' settings): it found the config from before, and would report an agent order the
+    // window has moved on from. The refresh the write scheduled reads it afresh.
+    if (this.cached && [...projects, ...(assistant ? [assistant] : [])].some((p) => this.readBeforeSave(p))) return this.cached
     this.refreshReported = seq
     // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace, nor do those a read begun
     // before the listing puts back (#784, registerRoots); a project read since (made again meanwhile) keeps what that
@@ -913,6 +933,7 @@ export class WorkspaceService {
     this.listedAt = { ticket: listed, known: assistant ? new Set([...known, this.assistantHome.toLowerCase()]) : known }
     for (const [k, v] of this.roots) if (!known.has(v.toLowerCase()) && (this.rootsAt.get(v.toLowerCase()) ?? 0) < listed) this.roots.delete(k)
     for (const [project, at] of this.rootsAt) if (!known.has(project) && at < listed) this.rootsAt.delete(project)
+    for (const [project, at] of this.savedAt) if (!this.listedAt.known.has(project) && at < listed) this.savedAt.delete(project)
     this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] }, moved: this.moved }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
     this.flagDuplicateNames(projects)
