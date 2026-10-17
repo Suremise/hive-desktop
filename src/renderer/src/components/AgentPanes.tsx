@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CardChip, useAgentCards, useAgentReviews } from './CardChip'
+import { StateMark } from './StateMark'
+import { AGENT_STATE_LABEL, agentState } from '@shared/agentState'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
 import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, dropIndex, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
@@ -28,7 +30,7 @@ import { contextLines, projectProviderConfig, providerDescriptor, providerName, 
 import { safeguardText } from '@shared/safeguards'
 import { unpricedModel, unpricedText } from '@shared/prices'
 import { unknownStateText } from '@shared/runtime'
-import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, StatusDot, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
+import { Icon, IconButton, ReviewMark, SafeguardMark, signInNote, statusText, Tooltip, useContextMenu, useFolds, useScrollEdges, ScrollMore, type MenuEntry } from './ui'
 
 /** Height of an agent pane's header (who it is, its controls) and footer (its session's details). */
 export const PANE_HEADER = 26
@@ -1086,6 +1088,8 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const live = a.live
   const failure = useStartFailure(project, a)
   const provider = agentProviderOf(project, a)
+  const cards = useAgentCards(project, a.id)
+  const state = agentState(live, { blocked: cards.some((c) => !!c.blocked) })
   // For Compact… in ⋯: unavailable while the conversation is empty, recommended once its context passes the threshold.
   const settings = useStore((s) => s.settings)
   const usage = useLiveUsage(project, a.id)
@@ -1123,12 +1127,15 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
         openMenu(e.clientX, e.clientY, false)
       }}
     >
+      {/* Its state mark (#973): a launch that failed is stalled; a card of its blocked on you is waiting for you. */}
       {!live && failure ? (
-        <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
-          <span className="dot error" />
+        <Tooltip content={tr(msg({ id: 'panes.header.failedTip', defaultMessage: 'Failed to start: {why}', description: "Tooltip of a pane's state mark (stalled): the agent's last launch failed ({why}: the error)." }), { why: failure.reason })}>
+          <StateMark state="stalled" label={tr(msg({ id: 'panes.header.failed', defaultMessage: 'Failed to start', description: "A pane's status: the agent's last launch failed." }))} />
         </Tooltip>
       ) : (
-        <StatusDot live={live} active={project.active} />
+        <Tooltip content={tr(AGENT_STATE_LABEL[state])}>
+          <StateMark state={state} />
+        </Tooltip>
       )}
       {/* Its provider is in the name's tooltip (the header showed its icon before #977). */}
       <Tooltip content={tr(msg({ id: 'panes.header.nameTip', defaultMessage: '{agent} · {provider}', description: "Tooltip of the agent's name on its pane's header: its name and its provider (\"Claude Code\")." }), { agent: a.name, provider: providerName(provider) })}>

@@ -181,7 +181,7 @@
   },
   "panes.header.failedTip": {
     "defaultMessage": "Failed to start: {why}",
-    "description": "Tooltip of a pane's error dot: the agent's last launch failed ({why}: the error)."
+    "description": "Tooltip of a pane's state mark (stalled): the agent's last launch failed ({why}: the error)."
   },
   "panes.header.markIdle": {
     "defaultMessage": "Mark idle",

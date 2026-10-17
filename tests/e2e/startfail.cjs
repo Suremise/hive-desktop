@@ -62,7 +62,7 @@ const check = (name, ok, extra = '') => {
   check("it gives the CLI's error", /Couldn't start: error: option '--model <model>' argument 'fail-start' is invalid\./.test(said), said)
   check('with a hint for the fix', /choose another in Agent Settings/.test(said), said)
   check('with Retry and Agent Settings…', (await bar.getByRole('button', { name: 'Retry' }).count()) === 1 && (await bar.getByRole('button', { name: 'Agent Settings…' }).count()) === 1)
-  check('the header says Failed to start, in red', /Failed to start/.test(await text(header.locator('.pane-status.failed'))) && (await header.locator('.dot.error').count()) === 1)
+  check('the header says Failed to start, in red', /Failed to start/.test(await text(header.locator('.pane-status.failed'))) && (await header.locator('.state-mark.stalled').count()) === 1)
   check('the tab is red', (await tab.locator('.dot.error').count()) === 1)
   check('no toast while its pane is on screen', (await page.locator('.toast', { hasText: "couldn't start" }).count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-1-bar.png') })

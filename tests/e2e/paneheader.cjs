@@ -108,6 +108,14 @@ function commits(wt, n) {
     const has = await h.evaluate((el) => ({ provider: !!el.querySelector('.provider-icon, [class*="provider-"]'), branch: !!el.querySelector('.agent-branch'), compact: !!el.querySelector('[aria-label="Compact"]'), merge: !!el.querySelector('[aria-label="Merge…"]'), more: !!el.querySelector('.pane-more') }))
     check(`${a.name}: the header has ⋯, and no provider icon, worktree mark, Compact or Merge…`, has.more && !has.provider && !has.branch && !has.compact && !has.merge, JSON.stringify(has))
   }
+  // Its state mark (#973) comes first: both agents are idle (a ring), named by their state for screen readers.
+  for (const a of [long, other]) {
+    const mark = await header(a).evaluate((el) => {
+      const m = el.querySelector('.state-mark')
+      return m ? { first: el.firstElementChild?.contains(m), idle: m.classList.contains('idle'), name: m.getAttribute('aria-label') } : null
+    })
+    check(`${a.name}: the header starts with its state mark, a ring while idle`, !!mark && mark.first && mark.idle && mark.name === 'Idle', JSON.stringify(mark))
+  }
   await header(long).locator('.agent-name').hover()
   check("the name's tooltip says the agent and its provider", !!(await until(async () => (await tips()).some((t) => t === `${long.name} · Claude Code`))), JSON.stringify(await tips()))
   await away()
@@ -239,6 +247,8 @@ function commits(wt, n) {
       return { x: Math.min(...r.map((b) => b.left)), y: Math.min(...r.map((b) => b.top)), width: Math.max(...r.map((b) => b.right)) - Math.min(...r.map((b) => b.left)), height: 30 }
     })
     for (const k of Object.keys(box)) box[k] *= zoom
+    // Nothing focused (a focus ring on ⋯ isn't what the picture is of).
+    await page.evaluate(() => document.activeElement?.blur())
     // The mouse stays where the last click was, and resizing moves controls under it: their tooltip would cover the
     // headers. Into the panes below them, and wait for it to go.
     await page.mouse.move(box.x + 20 * zoom, box.y + 200 * zoom)
