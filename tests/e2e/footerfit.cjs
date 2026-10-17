@@ -183,12 +183,26 @@ function problems(states, { hasTasks, hasSize }) {
   check("the Claude Code agent's footer has every item", !!ready, await cf.innerText().catch(() => ''))
   check("the Codex agent's footer says Approve for me", /Approve for me/.test(await footerOf('Checker').innerText().catch(() => '')), await footerOf('Checker').innerText().catch(() => ''))
   // One agent at a time, so each footer has the pane's whole width to give up, at 125% too.
+  // The switch is asynchronous (it saves the project's layout, then the workspace refreshes): a sweep started before it
+  // has applied would measure a two-column pane's footer as the widest. Ready once the project says single and the
+  // window shows one pane, as wide as the agents' area.
   await page.locator('.layout-switch button[aria-label="One at a time"]').click()
-  /** Shows the agent (one at a time); each sweep then waits for the footer to have measured each width it sets. */
+  const oneAtATime = async () => {
+    const p = (await inv('workspace:get'))?.projects?.find((x) => x.path.toLowerCase() === alpha.toLowerCase())
+    if (p?.config?.layout !== 'single') return false
+    return page.evaluate(() => {
+      const headers = [...document.querySelectorAll('.agent-pane .pane-header-bar')].filter((h) => h.getBoundingClientRect().width > 0)
+      const area = document.querySelector('.agents-area')?.getBoundingClientRect().width ?? 0
+      return headers.length === 1 && area > 0 && headers[0].getBoundingClientRect().width >= area - 2
+    })
+  }
+  check('one at a time: the project and the window have switched', !!(await until(oneAtATime, HUNG_MS)))
+  /** Shows the agent (one at a time), alone and at the pane's whole width; each sweep then waits for the footer to have measured each width it sets. */
   const show = async (name, tag) => {
     await page.locator('.agent-tab', { hasText: name }).click()
-    const shown = await until(async () => (await footerOf(name).count()) === 1 && ((await footerOf(name).boundingBox())?.width ?? 0) > 0, 5000)
+    const shown = await until(async () => (await footerOf(name).count()) === 1 && (await oneAtATime()), HUNG_MS)
     if (!shown) await page.screenshot({ path: path.join(lib.WORK, `footerfit-show-${tag}.png`) })
+    check(`${name} is shown alone, at the pane's whole width (${tag})`, !!shown)
   }
   // The window's zoom is in its device pixel ratio once it has applied (the ratio at 100% is the screen's own).
   const ratio = () => page.evaluate(() => window.devicePixelRatio)
