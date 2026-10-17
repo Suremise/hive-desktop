@@ -1,5 +1,10 @@
 # Release Notes
 
+## Unreleased
+
+- **A calmer project header and tabs.** The project header is one quiet row: the project's name, its agents' states in one line (*1 waiting · 2 working*), the **Active** switch, **Resume** and **Stop**, and an **Agents ▾** menu for **Start New**, **Archive and Start New** and **Remove All…**, which were three buttons. The project tabs are shorter and tighter, and **Project Settings** has left them: it opens from the header's **⋯**, **Project → Go to Project Settings** or **Alt+0**.
+- **Agent states you can tell apart without colour.** Hive sums up each agent as waiting for you, stalled, working or idle, each drawn with its own shape (a diamond, a square, a pulsing dot, a ring) as well as its own colour; the project header's state line uses them first.
+
 ## 0.8.1 — 17 October 2026
 
 - **Disable hardware acceleration.** For a graphics driver that leaves Hive's window blank, flickering or crashing, **Settings → Advanced → Disable hardware acceleration** has Hive draw without the graphics card, and its terminals without WebGL; **Restart Hive** applies it. To start once without the graphics card (a window that doesn't draw at all), run Hive with `--disable-gpu`. Copy Diagnostics says which is on (#676).

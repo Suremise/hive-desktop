@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_STATE_LABEL, AGENT_STATES, agentState, mostUrgent, stateCounts, type AgentState } from '../src/shared/agentState'
+import { AGENT_STATE_LABEL, AGENT_STATES, agentState, boardExtras, mostUrgent, projectAgentStates, stateCounts, stateSummary, type AgentState } from '../src/shared/agentState'
 import { tr } from '../src/shared/i18n'
-import type { LiveSessionState, SessionStatus } from '../src/shared/types'
+import type { AgentInfo, LiveSessionState, SessionStatus, TaskCard } from '../src/shared/types'
 
 const live = (status: SessionStatus, extra: Partial<LiveSessionState> = {}): LiveSessionState =>
   ({ provider: 'claude-code', runId: 'r', projectPath: '', agentId: '', cwd: '', sessionId: '', status, unseen: false, startedAt: '', launchSignature: '', ...extra }) as LiveSessionState
@@ -58,5 +58,30 @@ describe('agent state marks (#973)', () => {
 
   it('one label per state', () => {
     expect(AGENT_STATES.map((s) => tr(AGENT_STATE_LABEL[s]))).toEqual(['Waiting for you', 'Stalled', 'Working', 'Idle'])
+  })
+
+  const card = (agent: string | null, column: TaskCard['column'], extra: Partial<TaskCard> = {}) => ({ project: 'Alpha', agent, column, blocked: null, archived: false, ...extra })
+  const agent = (id: string, l: LiveSessionState | null) => ({ id, name: id, live: l }) as AgentInfo
+
+  it("the board's facts of an agent: a card blocked on you in Doing or Review; a Doing card while it isn't running", () => {
+    expect(boardExtras('alpha', agent('a1', live('working')), [card('a1', 'review', { blocked: 'Which name?' })])).toEqual({ blocked: true, stalled: false })
+    expect(boardExtras('alpha', agent('a1', null), [card('a1', 'doing')])).toEqual({ blocked: false, stalled: true })
+    expect(boardExtras('alpha', agent('a1', live('ready')), [card('a1', 'doing')])).toEqual({ blocked: false, stalled: false })
+    // Not its card, another project's, archived, or in a column nobody works in.
+    const none = [card('a2', 'doing', { blocked: 'x' }), card('a1', 'doing', { project: 'beta', blocked: 'x' }), card('a1', 'doing', { archived: true, blocked: 'x' }), card('a1', 'todo', { blocked: 'x' }), card('a1', 'passed', { blocked: 'x' })]
+    expect(boardExtras('alpha', agent('a1', null), none)).toEqual({ blocked: false, stalled: false })
+  })
+
+  it("a project's agents' states, in its order, with the board's facts", () => {
+    const p = { name: 'alpha', agents: [agent('a1', live('working')), agent('a2', null), agent('a3', live('finished'))] }
+    expect(projectAgentStates(p, [card('a2', 'doing'), card('a3', 'review', { blocked: 'Which?' })])).toEqual(['working', 'stalled', 'waiting'])
+  })
+
+  it('the summary line: most urgent first, idle only when all are idle (or asked for)', () => {
+    expect(stateSummary(['idle', 'working', 'waiting', 'working', 'idle'])).toBe('1 waiting · 2 working')
+    expect(stateSummary(['idle', 'working', 'waiting', 'working', 'idle'], true)).toBe('1 waiting · 2 working · 2 idle')
+    expect(stateSummary(['idle', 'idle'])).toBe('2 idle')
+    expect(stateSummary(['stalled', 'working'])).toBe('1 stalled · 1 working')
+    expect(stateSummary([])).toBe('')
   })
 })

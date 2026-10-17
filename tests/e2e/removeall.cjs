@@ -1,5 +1,5 @@
-// Remove All (#291): the project header's "Remove All (n)" (and the Session menu's and the palette's "Remove All Agents
-// (n)…") removes every agent after one question with Remove's colour (#344), listing them (the working one flagged, worktrees
+// Remove All (#291): the project header's Agents ▾ "Remove All (n)…" (#974; and the Session menu's and the palette's
+// "Remove All Agents (n)…") removes every agent after one question with Remove's colour (#344), listing them (the working one flagged, worktrees
 // marked: merged and clean, or always kept and why). Running agents are stopped first; cards are asked about once for
 // all of them; each tab shows the spinner while it goes; sessions stay. Worktrees and branches are kept by default; the
 // opt-in box deletes only merged, clean ones (unmerged work is kept even ticked); a failure is reported with the rest
@@ -97,33 +97,22 @@ const check = (name, ok, extra = '') => {
   const cardW = await inv('tasks:create', { title: 'Worker card', project: 'alpha', agent: a.worker.id, column: 'doing' })
   const cardU = await inv('tasks:create', { title: 'Unmerged card', project: 'alpha', agent: a.unmerged.id })
   const header = page.locator('.project-header .actions')
-  const removeButton = header.getByRole('button', { name: 'Remove All (4)', exact: true })
-  check('the header shows Remove All (4), after the other batch actions', !!(await until(async () => (await removeButton.count()) === 1, HUNG_MS)) && (await header.locator('button').allInnerTexts()).map((t) => t.trim()).filter(Boolean).at(-1) === 'Remove All (4)', JSON.stringify(await header.locator('button').allInnerTexts()))
+  // Agents ▾ (#974): Remove All last, after a line, in Remove's colour.
+  const agentsButton = page.locator('.project-header .agents-menu')
+  check('the header has Agents ▾', !!(await until(async () => (await agentsButton.count()) === 1, HUNG_MS)))
+  const listed = await lib.agentsMenu(page)
+  check('Agents ▾ ends with Remove All (4)…', listed.at(-1) === 'Remove All (4)…', JSON.stringify(listed))
+  const removeItem = page.locator('.menu .menu-item').last()
+  check("…after a line, in Remove's colour (#344)", (await page.locator('.menu > *').evaluateAll((els) => els.at(-2)?.classList.contains('menu-sep'))) && /act-remove/.test((await removeItem.getAttribute('class')) ?? ''), (await removeItem.getAttribute('class')) ?? '')
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(300)
-    await page.locator('.project-header').screenshot({ path: path.join(lib.WORK, `removeall-header-${theme}.png`) })
+    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+    await page.screenshot({ path: path.join(lib.WORK, `removeall-header-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
-  // Narrow: an icon with its count; tighter, at the top of ⋯ (the rarest action goes first).
-  const headerWidth = () => page.locator('.project-header').evaluate((el) => Math.round(el.getBoundingClientRect().width))
-  // Each state below is waited for as the window settles into it (#670), never read once after a fixed pause.
-  const iconOnly = async () => (await removeButton.count()) === 1 && (await removeButton.innerText().catch(() => '')).trim() === '4'
-  await lib.fitWindow(app, page, { width: 1200, height: 900 })
-  check('narrow: an icon keeping its count', !!(await until(iconOnly, HUNG_MS)), `${await headerWidth()} px: ${await removeButton.innerText().catch(() => '')}`)
-  await lib.fitWindow(app, page, { width: 900, height: 900 })
-  const moreButton = page.locator('.project-header').getByRole('button', { name: 'More actions' })
-  await until(async () => (await removeButton.count()) === 0 && (await moreButton.count()) === 1, HUNG_MS)
-  await moreButton.click()
-  const menuItems = async (sel = '.menu .menu-item') => (await page.locator(sel).allInnerTexts()).map((t) => t.trim())
-  const more = (await until(async () => {
-    const m = await menuItems()
-    return m.length ? m : null
-  }, HUNG_MS)) ?? []
   await page.keyboard.press('Escape')
-  check('tight: in ⋯ instead, first, with its count', (await removeButton.count()) === 0 && more[0] === 'Remove All (4)…', `${await headerWidth()} px: ${JSON.stringify(more)}`)
-  await lib.fitWindow(app, page, { width: 1500, height: 900 })
-  await until(async () => (await removeButton.count()) === 1 && (await removeButton.innerText().catch(() => '')).trim() === 'Remove All (4)', HUNG_MS)
+  await until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
+  const menuItems = async (sel = '.menu .menu-item') => (await page.locator(sel).allInnerTexts()).map((t) => t.trim())
 
   await page.locator('.menubar .menubar-item', { hasText: 'Session' }).click()
   let session = []
@@ -141,7 +130,7 @@ const check = (name, ok, extra = '') => {
   check('so does the palette', found.some((t) => t.includes('Remove All Agents (4)…')), JSON.stringify(found))
 
   const dialog = page.locator('.dialog', { hasText: 'Remove all 4 agents?' })
-  await removeButton.click()
+  await lib.agentsMenuRun(page, 'Remove All (4)…')
   await shown(dialog, 'the question')
   const text = await dialog.innerText()
   check('one question lists all four, flagging the working one', /Worker — Working.*\(will be interrupted\)/.test(text) && /Idle — Not running · Removed/.test(text) && /Merged — Not running · worktree hive\/removeall-ws\/alpha\/merged: merged and clean · Removed/.test(text) && /Unmerged — Not running · worktree hive\/removeall-ws\/alpha\/unmerged: always kept \(1 commit not merged into (main|master)\) · Removed/.test(text), text)
@@ -167,7 +156,7 @@ const check = (name, ok, extra = '') => {
   check('Cancel changes nothing', JSON.stringify(await agentsOf(alpha)) === JSON.stringify(['Worker', 'Idle', 'Merged', 'Unmerged']) && (await live(alpha, a.worker.id))?.status === 'working')
   const workerSession = (await live(alpha, a.worker.id)).sessionId
 
-  await removeButton.click()
+  await lib.agentsMenuRun(page, 'Remove All (4)…')
   await shown(dialog, 'the question again')
   await dialog.getByRole('button', { name: 'Remove 4 agents' }).click()
   const cards = page.locator('.dialog', { hasText: 'The 4 agents have 2 open cards' })
@@ -184,7 +173,7 @@ const check = (name, ok, extra = '') => {
   check('by default every worktree and branch is kept', fs.existsSync(a.merged.worktree.path) && fs.existsSync(a.unmerged.worktree.path) && ['hive/removeall-ws/alpha/merged', 'hive/removeall-ws/alpha/unmerged'].every((b) => branches(alpha).includes(b)), JSON.stringify(branches(alpha)))
   const after = (await inv('tasks:list')).filter((c) => [cardW.number, cardU.number].includes(c.number))
   check('the cards were moved back (nobody has them; Doing to Todo)', after.length === 2 && after.every((c) => !c.agent) && after.find((c) => c.number === cardW.number)?.column === 'todo', JSON.stringify(after.map((c) => [c.number, c.agent, c.column])))
-  check('the button goes with the agents', (await removeButton.count()) === 0 && (await header.getByRole('button', { name: /^Remove/ }).count()) === 0)
+  check('Agents ▾ goes with the agents', (await agentsButton.count()) === 0 && (await header.getByRole('button', { name: /^Remove/ }).count()) === 0)
   check('no failure notice', (await page.locator('.toast.error').count()) === 0)
 
   // --- beta: the box ticked: the merged, clean worktree is deleted with its branch, the unmerged one kept; the first
@@ -194,7 +183,7 @@ const check = (name, ok, extra = '') => {
     process.env.HIVE_TEST_FAIL_IPC = 'agents:remove*1'
   })
   const betaDialog = page.locator('.dialog', { hasText: 'Remove all 4 agents?' })
-  await header.getByRole('button', { name: 'Remove All (4)', exact: true }).click()
+  await lib.agentsMenuRun(page, 'Remove All (4)…')
   await shown(betaDialog, "beta's question")
   await betaDialog.locator('.dialog-check input').check()
   await betaDialog.getByRole('button', { name: 'Remove 4 agents' }).click()
@@ -204,7 +193,9 @@ const check = (name, ok, extra = '') => {
   const notice = page.locator('.toast', { hasText: '1 of 4 agents could not be removed' })
   check('one notice says which could not be removed, why, and what happened to the worktrees', !!(await until(async () => (await notice.count()) === 1, HUNG_MS)) && /Worker:/.test(await notice.innerText()) && /Worktrees deleted: hive\/removeall-ws\/beta\/merged/.test(await notice.innerText()) && /Worktrees kept: hive\/removeall-ws\/beta\/unmerged \(1 commit not merged into (main|master)\)/.test(await notice.innerText()), await notice.innerText().catch(() => ''))
   await page.screenshot({ path: path.join(lib.WORK, 'removeall-result.png') })
-  check('with one agent left the button is Remove Agent', (await header.getByRole('button', { name: 'Remove Agent', exact: true }).count()) === 1)
+  const oneLeft = await lib.agentsMenu(page)
+  check('with one agent left, Agents ▾ has Remove Agent…', oneLeft.at(-1) === 'Remove Agent…', JSON.stringify(oneLeft))
+  await page.keyboard.press('Escape')
   check('the stopped agent that failed was stopped', !(await live(beta, b.worker.id)))
 
   await app.evaluate(() => {

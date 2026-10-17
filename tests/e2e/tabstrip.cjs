@@ -1,4 +1,4 @@
-// A project's tab strip at every width: all thirteen tabs labelled while they fit; icons with the active tab's label when
+// A project's tab strip at every width: all twelve tabs labelled while they fit (Settings opens from the header's ⋯, #974); icons with the active tab's label when
 // they don't (switching back only with a little room to spare, so it doesn't flicker); icons only, scrolling with the
 // active tab in view, when even that doesn't fit. No tab is ever cut off unless the strip scrolls, at the window's
 // minimum width too; icon-only tabs keep their name (tooltip and accessible label) and order, and dragging files over
@@ -18,7 +18,7 @@ const ws = path.join(lib.WORK, 'tabstrip-ws')
 const claudeHome = path.join(lib.WORK, 'tabstrip-claude-home')
 const alpha = path.join(ws, 'alpha')
 const beta = path.join(ws, 'beta')
-const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP', 'Settings']
+const LABELS = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git', 'Memory', 'Skills', 'Templates', 'MCP']
 const SPARE = 12
 let failed = 0
 const inv2 = (page, ch, ...a) => page.evaluate(([c, args]) => window.hive.invoke(c, ...args), [ch, a])
@@ -41,7 +41,7 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const HEIGHT = 800
-  let viewport = 1700 // wide enough for every label (13 tabs need about 1206 px of strip, and 12 more to go back to them)
+  let viewport = 1700 // wide enough for every label (the 12 tabs need about 1000 px of strip, and 12 more to go back to them)
   const { app, page, inv } = await lib.launch({ userData, env: { HIVE_API_PORT: lib.port(47914), CLAUDE_CONFIG_DIR: claudeHome }, viewport: { width: viewport, height: HEIGHT } })
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.openWorkspace(inv, page, ws)
@@ -139,9 +139,9 @@ const check = (name, ok, extra = '') => {
   const { iconsNeed } = await inspect()
   await widthTo(iconsNeed + 20)
   await expectFit(`${iconsNeed + 20}px: room for the icons but not Performance's label`, 'all-icons')
-  await page.locator('.tabs .tab', { hasText: 'Settings' }).click()
+  await page.locator('.tabs .tab', { hasText: 'MCP' }).click()
   await widthTo(Math.round(iconsNeed * 0.6))
-  const narrow = await expectFit('too narrow even for the icons, Settings active', 'all-icons')
+  const narrow = await expectFit('too narrow even for the icons, MCP (the last tab) active', 'all-icons')
   check('the strip scrolls', narrow.scrolls)
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().evaluate((t) => t.click())
   await expectFit('Session active (clicked off screen)', 'all-icons')
@@ -153,7 +153,16 @@ const check = (name, ok, extra = '') => {
   await page.setViewportSize({ width: viewport, height: HEIGHT })
   await expectFit('1700 px again', 'labels')
 
-  // --- The window at its minimum width, sidebar shown: all thirteen tabs on screen, with no scrolling.
+  // --- Project Settings (#974): not a tab; opened from the header's ⋯, it shows with no tab chosen, and a tab leaves it.
+  check('no Settings tab in the strip', (await page.locator('.tabs .tab', { hasText: /^\s*Settings\s*$/ }).count()) === 0)
+  await lib.openProjectSettings(page)
+  check("Project Settings opens from ⋯, with no tab chosen", (await page.locator('.tabs .tab.active').count()) === 0)
+  await page.locator('.tabs .tab', { hasText: 'Overview' }).click()
+  check('a tab leaves it', !!(await lib.until(async () => (await page.locator('.tabs .tab.active', { hasText: 'Overview' }).count()) === 1 && (await page.locator('.tab-body .settings-top').count()) === 0, HUNG_MS)))
+  await page.locator('.tabs .tab', { hasText: 'Session' }).first().click()
+  await expectFit('back on Session', 'labels')
+
+  // --- The window at its minimum width, sidebar shown: all twelve tabs on screen, with no scrolling.
   const [minW] = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMinimumSize())
   check('the window has a minimum width', minW > 0, String(minW))
   viewport = minW

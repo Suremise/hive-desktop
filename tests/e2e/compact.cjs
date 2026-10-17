@@ -58,7 +58,7 @@ const check = (n, ok) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}`)
   check('refused compaction clears "Compacting" within seconds', !s2.includes('Compacting'))
   await page.screenshot({ path: path.join(shots, '3-after.png') })
   // Settings rows.
-  await page.locator('.tab', { hasText: 'Settings' }).click(); await sleep(600)
+  await lib.openProjectSettings(page)
   await page.locator('.settings-nav .row', { hasText: 'Sessions' }).click()
   check('project threshold row', !!(await lib.until(async () => (await page.getByText('Suggest compacting above').count()) >= 1, HUNG_MS)))
   await page.screenshot({ path: path.join(shots, '5-project-settings.png') })
