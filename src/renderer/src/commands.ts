@@ -12,7 +12,7 @@ import * as actions from './actions'
 import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
-import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
 export type CommandCategory = 'view' | 'file' | 'project' | 'session' | 'help' | 'preferences' | 'assistant' | 'developer' | 'tasks' | 'notes' | 'mcp'
@@ -317,6 +317,19 @@ const COMMAND_DEFS: CommandDef[] = [
       const p = path ? get().workspace?.projects.find((x) => x.path === path) : selected()
       const id = agentId ?? (p ? focusedAgentId(p) : null)
       if (p && id && p.agents.some((a) => a.id === id)) set({ agentSettingsFor: { project: p.path, agentId: id } })
+    }
+  },
+  {
+    id: 'agent.menu',
+    name: msg({ id: 'shell.command.agent.menu', defaultMessage: 'Agent Menu…', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: opens the focused agent's ⋯ menu on its pane (everything its pane header doesn't show). The … says it opens a menu first: keep it." }),
+    category: 'session',
+    when: () => !!selected()?.agents.length,
+    run: () => {
+      const p = selected()
+      const id = p ? focusedAgentId(p) : null
+      if (!p || !id) return
+      revealAgent(p, id)
+      requestStripMenu(p.path, 'agentMenu', id)
     }
   },
   {

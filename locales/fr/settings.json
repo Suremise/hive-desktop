@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Détection automatique",
   "settings.sessions.cacheTtl.tip": "Détection automatique : Hive déduit le type de cache de la transcription (5 minutes ou 1 heure).",
   "settings.sessions.cacheTtl.title": "Durée du cache des prompts",
-  "settings.sessions.compactSuggestTokens.desc": "Taille du contexte, en jetons, à partir de laquelle le bouton Compacter et le compteur de contexte de la barre d’état passent en orange. Jamais : le bouton ne passe jamais en orange.",
+  "settings.sessions.compactSuggestTokens.desc": "Taille du contexte, en jetons, à partir de laquelle le contexte dans le pied du volet d’un agent passe en orange. Jamais : cela n’arrive jamais.",
   "settings.sessions.compactSuggestTokens.off": "Jamais",
   "settings.sessions.compactSuggestTokens.tip": "Compacter résume la conversation pour que chaque message suivant coûte moins cher ; l’historique complet reste dans la transcription. Chaque projet peut définir sa propre valeur dans Paramètres du projet, et l’Assistant a la sienne (Paramètres → Assistant). Compacter est toujours possible une fois que l’agent a terminé.",
   "settings.sessions.compactSuggestTokens.title": "Suggérer de compacter dès",

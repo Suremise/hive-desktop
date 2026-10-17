@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Automatisch erkennen",
   "settings.sessions.cacheTtl.tip": "„Automatisch“ erkennt die Art des Caches am Transkript (5 Minuten oder 1 Stunde).",
   "settings.sessions.cacheTtl.title": "Lebensdauer des Prompt-Caches",
-  "settings.sessions.compactSuggestTokens.desc": "Kontextgröße in Tokens, ab der die Schaltfläche „Komprimieren“ und die Kontextanzeige in der Statusleiste orange werden. Nie: Die Schaltfläche wird nie orange.",
+  "settings.sessions.compactSuggestTokens.desc": "Kontextgröße in Tokens, ab der der Kontext in der Fußzeile eines Agentenbereichs orange wird. Nie: Das passiert nie.",
   "settings.sessions.compactSuggestTokens.off": "Nie",
   "settings.sessions.compactSuggestTokens.tip": "Komprimieren fasst die Unterhaltung zusammen, sodass jede spätere Nachricht günstiger ist; der ganze Verlauf bleibt im Transkript. Projekte können in den Projekteinstellungen einen eigenen Wert festlegen, und der Assistent hat einen eigenen (Einstellungen → Assistent). Komprimieren ist immer möglich, sobald der Agent fertig ist.",
   "settings.sessions.compactSuggestTokens.title": "Komprimieren vorschlagen ab",

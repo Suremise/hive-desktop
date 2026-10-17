@@ -118,7 +118,9 @@ const check = (name, ok, extra = '') => {
   check('a saved bare "--" stops the launch, saying why', started.includes(refused) && started.includes('Fix it in Project Settings or Settings → Claude Code.'), started)
   check('and the CLI never started', !(await live()))
   // Started from the window, the refusal shows as a notification.
-  await header.getByRole('button', { name: 'New Session' }).click()
+  // New Session from its ⋯ (#977: the header shows Resume in Stop's place while it has a session to resume).
+  await header.getByRole('button', { name: 'More', exact: true }).click()
+  await page.locator('.menu .menu-item', { hasText: 'New Session' }).click()
   const notice = page.locator('.toast', { hasText: refused })
   check('the window shows why', !!(await until(async () => (await notice.count()) === 1, HUNG_MS)), JSON.stringify(await page.locator('.toast').allInnerTexts()))
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-4-dashes.png') })

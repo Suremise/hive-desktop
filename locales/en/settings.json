@@ -2752,7 +2752,7 @@
     "description": "A setting's title (Settings → Sessions)."
   },
   "settings.sessions.compactSuggestTokens.desc": {
-    "defaultMessage": "Context size, in tokens, at which the Compact button and the context count in the status bar turn orange. Never: the button never turns orange.",
+    "defaultMessage": "Context size, in tokens, at which the context in an agent's pane footer turns orange. Never: it never does.",
     "description": "What the setting \"Suggest compacting above\" does, under its title (Settings → Sessions)."
   },
   "settings.sessions.compactSuggestTokens.off": {

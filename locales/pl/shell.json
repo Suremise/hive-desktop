@@ -29,6 +29,7 @@
   "shell.command.agent.add": "Dodaj agenta",
   "shell.command.agent.addWith": "Dodaj agenta…",
   "shell.command.agent.focusN": "Przejdź do agenta {n}",
+  "shell.command.agent.menu": "Menu agenta…",
   "shell.command.agent.moveLeft": "Przesuń agenta w lewo",
   "shell.command.agent.moveRight": "Przesuń agenta w prawo",
   "shell.command.agent.next": "Przejdź do następnego agenta",

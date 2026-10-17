@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "自动检测",
   "settings.sessions.cacheTtl.tip": "“自动检测”会从会话记录中识别缓存类型（5 分钟或 1 小时）。",
   "settings.sessions.cacheTtl.title": "提示词缓存时长",
-  "settings.sessions.compactSuggestTokens.desc": "上下文达到多少 Token 时，“压缩”按钮和状态栏中的上下文计数变为橙色。选择“从不”则按钮永远不会变色。",
+  "settings.sessions.compactSuggestTokens.desc": "上下文达到多少 Token 时，智能体窗格页脚中的上下文变为橙色。选择“从不”则永远不会变色。",
   "settings.sessions.compactSuggestTokens.off": "从不",
   "settings.sessions.compactSuggestTokens.tip": "压缩会总结对话，使之后的每条消息更便宜；完整历史保留在会话记录中。项目可以在“项目设置”中设置自己的值，助手也有自己的值（“设置”→“助手”）。智能体结束后随时都可以压缩。",
   "settings.sessions.compactSuggestTokens.title": "建议压缩阈值",

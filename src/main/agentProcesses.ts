@@ -891,7 +891,7 @@ export async function settleLeftovers(projectPath: string, agentId: string, how:
   emit({ type: 'agent-leftovers', leftovers: leftoversOf(mine[0].projectPath, agentId) })
   if (failed) {
     log.warn(`could not end ${failed} process(es) ${userText(name)} left running`)
-    throw hiveError(msg({ id: 'session.leftovers.notEnded', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the agent's pane header, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the agent's pane header, to try again or keep.}}", description: "Ending the processes an agent left running failed. {n} is how many are still running; the pane header lists them with End and Keep." }), { n: failed })
+    throw hiveError(msg({ id: 'session.leftovers.notEnded', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it. It stays listed in the ⋯ menu on the agent's pane, to try again or keep.} other {# processes are still running: Windows didn't let Hive end them. They stay listed in the ⋯ menu on the agent's pane, to try again or keep.}}", description: "Ending the processes an agent left running failed. {n} is how many are still running; the ⋯ menu on the agent's pane lists them with End and Keep." }), { n: failed })
   }
   return done
 }
@@ -1102,7 +1102,7 @@ function boundedSaved(saved: Partial<SavedLeftovers> | null): SavedLaunch[] {
 
 /**
  * What agents left running before Hive last closed (#614): the kept launches' processes still running as the same ones,
- * each launch listed again on its own (the agent's pane header, `session:leftovers`) within the usual bounds, and
+ * each launch listed again on its own (the agent's pane's ⋯, `session:leftovers`) within the usual bounds, and
  * returned (per agent) for Hive to offer as when an agent stops. Without the host, nothing is restored and the list
  * stays kept for the next start.
  */

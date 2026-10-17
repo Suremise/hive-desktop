@@ -1,5 +1,6 @@
-// A worktree agent's unmerged work on its Merge… button and agent tab: none at first, the count once a turn
-// ends with a commit on its branch, gone after the merge, and • for uncommitted files alone. The agent runs the
+// A worktree agent's unmerged work on its agent tab and as the detail of Merge… in its pane's ⋯ (#977: a header button
+// before): none at first, the count once a turn ends with a commit on its branch, gone after the merge, and • for
+// uncommitted files alone. The agent runs the
 // fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -85,16 +86,30 @@ const git = (cwd, ...a) => lib.git(cwd, a)
     check(`${text}: the agent takes it and finishes`, !!finished, `${!taken ? 'not taken' : !ended ? 'no Done' : 'not finished'}: ${await state()}`)
     if (taken > 1) console.log(`  (${text} was taken on attempt ${taken})`)
   }
-  const merge = page.locator('.pane-header-bar').getByRole('button', { name: 'Merge…' })
   // Read in one step, '' when it's gone: a badge going away between a count() and an innerText() left innerText()
   // waiting for it, and the suite threw (#554).
-  const count = async () => (await merge.locator('.btn-count').allInnerTexts()).join('')
   const tabBadge = async () => (await page.locator('.agent-tab .agent-unmerged').allInnerTexts()).join('')
-  const highlighted = async () => /\bsuggest\b/.test((await merge.getAttribute('class')) ?? '')
+  const count = tabBadge
+  const openMenu = async () => {
+    await page.locator('.pane-header-bar').getByRole('button', { name: 'More', exact: true }).click()
+    const item = page.locator('.menu .menu-item', { hasText: 'Merge…' })
+    await until(() => item.isVisible(), HUNG_MS)
+    return item
+  }
+  /** Merge… in the agent's ⋯: its detail (what is left to merge, or why it is disabled) and whether it is disabled. */
+  const mergeItem = async () => {
+    const item = await openMenu()
+    const r = await item.evaluate((el) => ({ detail: el.querySelector('.menu-detail')?.textContent ?? '', disabled: el.classList.contains('disabled') }))
+    await page.keyboard.press('Escape')
+    await until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
+    return r
+  }
+  /** Merge… says there is work to merge. */
+  const highlighted = async () => /not merged|uncommitted/.test((await mergeItem()).detail)
 
   await turn()
   await lib.sleep(2500) // A fixed wait on purpose: this checks that no count appears after a turn that changed nothing.
-  check('nothing to merge: Merge… is plain', (await count()) === '' && !(await highlighted()) && (await tabBadge()) === '', `${await count()} ${await tabBadge()}`)
+  check('nothing to merge: Merge… says nothing', (await count()) === '' && !(await highlighted()) && (await tabBadge()) === '', `${await count()} ${await tabBadge()}`)
 
   // The agent commits on its branch during a turn: the count shows once the turn ends.
   fs.writeFileSync(path.join(wt, 'b.ts'), 'export const b = 2\n')
@@ -102,13 +117,12 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   git(wt, 'commit', '-q', '-m', 'b')
   await turn()
   check('a commit shows on Merge… once the turn ends', !!(await until(async () => (await count()) === '1', 8000)), `${await count()}; ${await state()}`)
-  check('Merge… is highlighted', await highlighted())
+  check('Merge… says it', await highlighted())
   check('and the tab shows ↑1', (await tabBadge()) === '1' && (await page.locator('.agent-tab .agent-unmerged .codicon-arrow-up').count()) === 1, await tabBadge())
-  await merge.hover()
-  const tip = page.locator('.tip').filter({ hasText: 'not merged' })
-  check('its tooltip says what is unmerged', !!(await until(async () => (await tip.count()) > 0, HUNG_MS)))
+  await openMenu()
+  check('Merge… in its ⋯ says what is unmerged', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: '1 commit not merged into' }).count()) > 0, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'unmerged-1-commit.png') })
-  await page.mouse.move(5, 400)
+  await page.keyboard.press('Escape')
 
   // Merged: the count goes.
   const r = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Merge Two', cleanup: false })
@@ -136,7 +150,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   check('new work after a squash merge shows again', !!(await until(async () => (await count()) !== '' && (await highlighted()), 8000)), `${await count()}; ${await state()}`)
 
   // The Merge dialog: Merge and keeping the worktree are the defaults; Squash offers to move the branch.
-  await merge.click()
+  await (await openMenu()).click()
   const dialog = page.locator('[role=dialog]', { hasText: "Merge Two's work" })
   await until(async () => (await dialog.locator('input[type=radio]').count()) === 2, 5000)
   const choice = (name) => dialog.locator('label.choice', { hasText: name }).locator('input[type=radio]')
@@ -165,15 +179,17 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   fs.writeFileSync(path.join(wt, 'f.ts'), 'export const f = 6\n')
   const working = await lib.sendPrompt(inv, key, 'work 6', { submitted: async () => (await live(two.id))?.status === 'working', waitMs: HUNG_MS })
   check('the agent is working', working > 0, await state())
-  check('Merge… is disabled while it works', !!(await until(() => merge.isDisabled(), HUNG_MS)))
-  await merge.hover({ force: true })
-  check('its tooltip says why', !!(await until(async () => (await page.locator('.tip').filter({ hasText: 'Two is working. Merge once it has finished.' }).count()) > 0, HUNG_MS)))
-  await page.mouse.move(5, 400)
+  const off = await until(async () => {
+    const m = await mergeItem()
+    return m.disabled && m
+  }, HUNG_MS)
+  check('Merge… is disabled while it works', !!off)
+  check('…and says why', off?.detail === 'Two is working. Merge once it has finished.', JSON.stringify(off))
   const busy = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Mid-task', cleanup: false }).then(() => 'merged', (e) => String(e.message ?? e))
   check('a merge while it works is refused', busy.includes('Two is working'), busy)
   check('and nothing was committed', git(wt, 'status', '--porcelain').includes('f.ts'))
   await until(async () => (await live(two.id))?.status === 'finished', 15000)
-  check('Merge… is enabled again once it has finished', !!(await until(async () => !(await merge.isDisabled()), 5000)))
+  check('Merge… is enabled again once it has finished', !!(await until(async () => !(await mergeItem()).disabled, 5000)))
 
   await inv('session:stop', alpha, two.id).catch(() => undefined)
   await app.close()

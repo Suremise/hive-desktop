@@ -21,10 +21,9 @@ interface HiveMessageValues {
   'panes.body.skipSetup': undefined
   'panes.body.worktree': { branch: string | number }
   'panes.compact.busy': undefined
-  'panes.compact.button': undefined
   'panes.compact.empty': undefined
   'panes.compact.running': undefined
-  'panes.compact.tip': { tokens: string; suggested: string }
+  'panes.compact.suggested': undefined
   'panes.compact.waiting': undefined
   'panes.drop.move': undefined
   'panes.drop.swap': { agent: string | number }
@@ -46,15 +45,12 @@ interface HiveMessageValues {
   'panes.footer.transcriptTip': { size: string | number; limit: string; advice: string }
   'panes.header.asks': { question: string | number }
   'panes.header.asksSomething': undefined
-  'panes.header.cancel': undefined
-  'panes.header.cancelWatch': { kind: string }
   'panes.header.failed': undefined
   'panes.header.failedTip': { why: string | number }
   'panes.header.markIdle': undefined
   'panes.header.markIdleFailed': undefined
-  'panes.header.mergeInto': { branch: string | number }
-  'panes.header.mergeTip': { branch: string | number; work: string | number }
   'panes.header.more': undefined
+  'panes.header.nameTip': { agent: string | number; provider: string | number }
   'panes.header.notRunning': undefined
   'panes.header.stopTip': undefined
   'panes.header.unknownTip': undefined
@@ -68,10 +64,9 @@ interface HiveMessageValues {
   'panes.leftovers.endFailed': undefined
   'panes.leftovers.keep': undefined
   'panes.leftovers.keepFailed': undefined
-  'panes.leftovers.label': { processes: string | number }
   'panes.leftovers.tip': { n: number }
-  'panes.leftovers.tipClick': { n: number }
   'panes.list.more': { n: number }
+  'panes.locks.item': { n: number }
   'panes.locks.title': undefined
   'panes.locks.titleShared': undefined
   'panes.menu.archiveStartNew': undefined
@@ -85,7 +80,6 @@ interface HiveMessageValues {
   'panes.menu.reviewChanges': undefined
   'panes.messages.cancel': { n: number }
   'panes.messages.cancelFailed': undefined
-  'panes.messages.clickCancel': { n: number }
   'panes.messages.line': { id: string | number; from: string | number; state: string; text: string | number }
   'panes.messages.overdue': { n: number }
   'panes.messages.overdueTip': { n: number }

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **A quieter pane header.** Each agent's pane header now shows only its state, its name, its status and its card, with **Stop** (or **Resume** while it isn't running) and **⋯**. Everything else is in **⋯**, also a right-click on the header: Compact…, Hand Over to…, Review Changes and Merge… (with what is left to merge), the agent's settings and Remove. Processes it left running, unread messages and the files it is editing are at the top of that menu, with a dot on ⋯ when something needs a look. **Session → Agent Menu…** opens it from the keyboard. Hover the agent's name for its provider.
+
 ## 0.8.1 — 17 October 2026
 
 - **Disable hardware acceleration.** For a graphics driver that leaves Hive's window blank, flickering or crashing, **Settings → Advanced → Disable hardware acceleration** has Hive draw without the graphics card, and its terminals without WebGL; **Restart Hive** applies it. To start once without the graphics card (a window that doesn't draw at all), run Hive with `--disable-gpu`. Copy Diagnostics says which is on (#676).

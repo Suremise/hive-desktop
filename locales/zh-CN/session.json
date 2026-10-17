@@ -56,7 +56,7 @@
   "session.leftovers.end": "结束进程",
   "session.leftovers.keep": "保持运行",
   "session.leftovers.more": "{n, plural, other {另外 # 个进程}}",
-  "session.leftovers.notEnded": "{n, plural, =1 {# 个进程仍在运行：Windows 不允许 Hive 结束它。它仍列在智能体窗格的标题栏中，可重试或保留。} other {# 个进程仍在运行：Windows 不允许 Hive 结束它们。它们仍列在智能体窗格的标题栏中，可重试或保留。}}",
+  "session.leftovers.notEnded": "{n, plural, =1 {# 个进程仍在运行：Windows 不允许 Hive 结束它。它仍列在智能体窗格的 ⋯ 菜单中，可重试或保留。} other {# 个进程仍在运行：Windows 不允许 Hive 结束它们。它们仍列在智能体窗格的 ⋯ 菜单中，可重试或保留。}}",
   "session.leftovers.notEndedBody": "{processes}。{n, plural, =1 {该进程由智能体启动，可能占用项目的文件夹或端口。Hive 无法自行结束它。} other {这些进程由智能体启动，可能占用项目的文件夹或端口。Hive 无法自行结束它们。}}",
   "session.leftovers.times": "{n, number} × {label}",
   "session.leftovers.title": "{agent} 留下 {processes}仍在运行",

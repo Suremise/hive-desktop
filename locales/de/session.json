@@ -56,7 +56,7 @@
   "session.leftovers.end": "Beenden",
   "session.leftovers.keep": "Weiterlaufen lassen",
   "session.leftovers.more": "{n, plural, one {# weiterer Prozess} other {# weitere Prozesse}}",
-  "session.leftovers.notEnded": "{n, plural, one {# Prozess läuft noch: Windows hat Hive ihn nicht beenden lassen. Er bleibt in der Kopfzeile des Agentenbereichs aufgeführt, wo du es erneut versuchen oder ihn behalten kannst.} other {# Prozesse laufen noch: Windows hat Hive sie nicht beenden lassen. Sie bleiben in der Kopfzeile des Agentenbereichs aufgeführt, wo du es erneut versuchen oder sie behalten kannst.}}",
+  "session.leftovers.notEnded": "{n, plural, one {# Prozess läuft noch: Windows hat Hive ihn nicht beenden lassen. Er bleibt im ⋯-Menü des Agentenbereichs aufgeführt, wo du es erneut versuchen oder ihn behalten kannst.} other {# Prozesse laufen noch: Windows hat Hive sie nicht beenden lassen. Sie bleiben im ⋯-Menü des Agentenbereichs aufgeführt, wo du es erneut versuchen oder sie behalten kannst.}}",
   "session.leftovers.notEndedBody": "{processes}. {n, plural, one {Er wurde vom Agenten gestartet und belegt womöglich den Projektordner oder Ports. Hive konnte ihn nicht selbst beenden.} other {Sie wurden vom Agenten gestartet und belegen womöglich den Projektordner oder Ports. Hive konnte sie nicht selbst beenden.}}",
   "session.leftovers.times": "{n, number} × {label}",
   "session.leftovers.title": "{agent} hat {processes} laufen lassen",

@@ -1,7 +1,7 @@
 // Processes left running when it stops (#507). The fake Claude Code's "linger N" leaves N detached, hidden
 // node processes behind, each started through one that has exited (as a preview server started through a shell is).
-// Ask (the default): stopping the agent lists them (session:leftovers), its pane header shows "N left running" and a
-// notification offers to end them; the header's End ends exactly those, Keep Running stops listing them and leaves
+// Ask (the default): stopping the agent lists them (session:leftovers), its pane's ⋯ (#977) has an amber badge and an
+// entry "N left running", and a notification offers to end them; End in that entry's menu ends exactly those, Keep Running stops listing them and leaves
 // them running. End them (the setting): ended as the agent stops, nothing listed. Quitting with some listed asks
 // (the native dialog, stubbed) and ends them. A process started in the project folder by someone else is never ended.
 // Fake Claude Code; dev build, throwaway profile and workspace, quiet.
@@ -107,11 +107,18 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
     }, 15000)
     check('Hive lists the two it left, by pid, as node processes', !!found && two.every((p) => found.processes.some((x) => x.pid === p)) && found.processes.every((x) => x.label.startsWith('node ')), JSON.stringify(found))
     check("the stranger's process isn't listed", !!found && !found.processes.some((x) => x.pid === stranger.pid))
-    const chip = page.locator('.agent-leftovers')
-    check('the pane header shows "2 left running"', await chip.first().waitFor({ timeout: 10000 }).then(() => chip.first().textContent()).then((t) => /2 left running/.test(t ?? ''), () => false))
+    // Its pane's ⋯ (#977): an amber badge, "2 left running" in its name's description, and an entry whose menu ends them.
+    const more = page.locator('.pane-header-bar .pane-more').first()
+    const said = async () => (await more.getAttribute('aria-description').catch(() => null)) ?? ''
+    const chip = page.locator('.pane-header-bar .pane-more-badge.warn')
+    const openLeftovers = async (n) => {
+      await more.click()
+      await page.locator('.menu .menu-item', { hasText: `${n} left running` }).click()
+    }
+    check("the pane's ⋯ shows \"2 left running\", with an amber badge", !!(await lib.until(async () => /2 left running/.test(await said()) && (await chip.count()) === 1, 10000)), await said())
     check('a notification offers to end them', !!(await offered))
     await page.screenshot({ path: path.join(shots, 'leftovers-header.png') })
-    await chip.first().click()
+    await openLeftovers(2)
     await page.getByText('End All 2', { exact: true }).click()
     check('End ends both', await lib.until(() => two.every((p) => !alive(p)), 10000))
     check('and they are no longer listed or shown', (await lib.until(async () => !(await listed()) && (await chip.count()) === 0, 10000)) === true)
@@ -130,15 +137,15 @@ const lingering = () => (fs.existsSync(lingerFile) ? fs.readFileSync(lingerFile,
     check('with End them set, they are ended as the agent stops', await lib.until(() => auto.every((p) => !alive(p)), 15000), JSON.stringify(auto))
     check('and nothing is listed', !(await listed()))
 
-    // End them, but Windows refuses (HIVE_TEST_JOB_KILL_FAILS): still listed and offered, and End from the header works.
+    // End them, but Windows refuses (HIVE_TEST_JOB_KILL_FAILS): still listed and offered, and End from the ⋯ works.
     await app.evaluate(() => (process.env.HIVE_TEST_JOB_KILL_FAILS = '1'))
     const refused = await leaveRunning(1)
     const offer = page.locator('.toast', { hasText: "couldn't end it by itself" })
     check("a refused End leaves it listed, offered, and says Hive couldn't end it", (await lib.until(async () => (await listed())?.processes.length === 1, 15000)) && (await offer.first().waitFor({ timeout: 10000 }).then(() => true, () => false)) && refused.every(alive))
     await app.evaluate(() => delete process.env.HIVE_TEST_JOB_KILL_FAILS)
-    await chip.first().click()
+    await openLeftovers(1)
     await page.getByText('End It', { exact: true }).click()
-    check('trying again from the header ends it', (await lib.until(() => refused.every((p) => !alive(p)), 10000)) && (await lib.until(async () => !(await listed()), 10000)))
+    check('trying again from the ⋯ ends it', (await lib.until(() => refused.every((p) => !alive(p)), 10000)) && (await lib.until(async () => !(await listed()), 10000)))
 
     // Quitting with some listed asks, and ends them on End Them.
     await inv('settings:update', { agents: { leftoverProcesses: 'ask' } })

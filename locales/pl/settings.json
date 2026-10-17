@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Wykryj automatycznie",
   "settings.sessions.cacheTtl.tip": "Automatyczne wykrywanie rozpoznaje typ cache z transkrypcji (5 minut lub 1 godzina).",
   "settings.sessions.cacheTtl.title": "Czas życia cache promptów",
-  "settings.sessions.compactSuggestTokens.desc": "Rozmiar kontekstu w tokenach, przy którym przycisk Kompaktuj i licznik kontekstu na pasku stanu zmieniają kolor na pomarańczowy. Nigdy: przycisk nigdy nie zmienia koloru.",
+  "settings.sessions.compactSuggestTokens.desc": "Rozmiar kontekstu w tokenach, przy którym kontekst w stopce panelu agenta zmienia kolor na pomarańczowy. Nigdy: to się nie zdarza.",
   "settings.sessions.compactSuggestTokens.off": "Nigdy",
   "settings.sessions.compactSuggestTokens.tip": "Kompaktowanie streszcza rozmowę, dzięki czemu każda kolejna wiadomość jest tańsza; pełna historia zostaje w transkrypcji. Projekty mogą ustawić własną wartość w Ustawieniach projektu, a Asystent ma własną (Ustawienia → Asystent). Kompaktuj jest zawsze dostępne, gdy agent skończy pracę.",
   "settings.sessions.compactSuggestTokens.title": "Sugeruj kompaktowanie powyżej",

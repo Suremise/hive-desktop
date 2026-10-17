@@ -56,7 +56,7 @@
   "session.leftovers.end": "終了する",
   "session.leftovers.keep": "実行したままにする",
   "session.leftovers.more": "ほか{n, plural, other {#個のプロセス}}",
-  "session.leftovers.notEnded": "{n, plural, other {#個のプロセスがまだ実行中です。Windowsが終了を許可しませんでした。エージェントのペインのヘッダーに表示されたままなので、再試行するか、そのままにできます。}}",
+  "session.leftovers.notEnded": "{n, plural, other {#個のプロセスがまだ実行中です。Windowsが終了を許可しませんでした。エージェントのペインの⋯メニューに表示されたままなので、再試行するか、そのままにできます。}}",
   "session.leftovers.notEndedBody": "{processes}。{n, plural, other {エージェントが起動したもので、プロジェクトのフォルダーやポートを使用している可能性があります。Hiveでは終了できませんでした。}}",
   "session.leftovers.times": "{label}（{n, number}個）",
   "session.leftovers.title": "{agent}が{processes}を実行したまま残しました",

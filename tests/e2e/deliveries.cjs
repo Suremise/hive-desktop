@@ -117,8 +117,8 @@ async function start() {
     return { text: r.content[0].text, isError: !!r.isError }
   }
   const delivery = (id) => JSON.parse(tool('hive_agent_activity', { project: 'alpha', agent: 'Builder', detail: true }).text).inbox?.deliveries?.find((d) => d.id === id) ?? null
-  const pane = () => page.locator('.pane-header-bar', { hasText: 'Builder' }).locator('.agent-messages')
-  const paneText = async () => ((await pane().count()) ? await pane().innerText().catch(() => '') : '')
+  // What its pane's ⋯ says needs a look (#977: its name's description, as its badge's hover lists it).
+  const paneText = async () => (await page.locator('.pane-header-bar', { hasText: 'Builder' }).locator('.pane-more').getAttribute('aria-description').catch(() => null)) ?? ''
 
   // --- 1. Queued for a working agent: saved, shown in its pane, in its activity.
   await say(builder.id, 'waitfile deliveries-go1 then hive hive_inbox {} holduntil deliveries-go2')

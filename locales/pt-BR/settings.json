@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Detectar automaticamente",
   "settings.sessions.cacheTtl.tip": "Automático detecta o tipo de cache pela transcrição (5 minutos ou 1 hora).",
   "settings.sessions.cacheTtl.title": "Duração do cache de prompt",
-  "settings.sessions.compactSuggestTokens.desc": "Tamanho do contexto, em tokens, a partir do qual o botão Compactar e a contagem de contexto na barra de status ficam laranja. Nunca: o botão nunca fica laranja.",
+  "settings.sessions.compactSuggestTokens.desc": "Tamanho do contexto, em tokens, a partir do qual o contexto no rodapé do painel de um agente fica laranja. Nunca: isso nunca acontece.",
   "settings.sessions.compactSuggestTokens.off": "Nunca",
   "settings.sessions.compactSuggestTokens.tip": "Compactar resume a conversa para que cada mensagem seguinte saia mais barata; o histórico completo fica na transcrição. Os projetos podem definir o próprio valor em Configurações do projeto, e o Assistente tem o dele (Configurações → Assistente). Compactar está sempre disponível depois que o agente termina.",
   "settings.sessions.compactSuggestTokens.title": "Sugerir compactação acima de",

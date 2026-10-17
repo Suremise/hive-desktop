@@ -56,7 +56,7 @@
   "session.leftovers.end": "Encerrar",
   "session.leftovers.keep": "Manter em execução",
   "session.leftovers.more": "{n, plural, one {mais # processo} other {mais # processos}}",
-  "session.leftovers.notEnded": "{n, plural, one {# processo ainda está em execução: o Windows não deixou o Hive encerrá-lo. Ele continua listado no cabeçalho do painel do agente, para tentar de novo ou manter.} other {# processos ainda estão em execução: o Windows não deixou o Hive encerrá-los. Eles continuam listados no cabeçalho do painel do agente, para tentar de novo ou manter.}}",
+  "session.leftovers.notEnded": "{n, plural, one {# processo ainda está em execução: o Windows não deixou o Hive encerrá-lo. Ele continua listado no menu ⋯ do painel do agente, para tentar de novo ou manter.} other {# processos ainda estão em execução: o Windows não deixou o Hive encerrá-los. Eles continuam listados no menu ⋯ do painel do agente, para tentar de novo ou manter.}}",
   "session.leftovers.notEndedBody": "{processes}. {n, plural, one {Ele foi iniciado pelo agente e pode estar bloqueando a pasta ou as portas do projeto. O Hive não conseguiu encerrá-lo sozinho.} other {Eles foram iniciados pelo agente e podem estar bloqueando a pasta ou as portas do projeto. O Hive não conseguiu encerrá-los sozinho.}}",
   "session.leftovers.times": "{n, number} × {label}",
   "session.leftovers.title": "{agent} deixou {processes} em execução",

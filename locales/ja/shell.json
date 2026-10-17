@@ -29,6 +29,7 @@
   "shell.command.agent.add": "エージェントを追加",
   "shell.command.agent.addWith": "エージェントを追加…",
   "shell.command.agent.focusN": "エージェント{n}にフォーカス",
+  "shell.command.agent.menu": "エージェントメニュー…",
   "shell.command.agent.moveLeft": "エージェントを左へ移動",
   "shell.command.agent.moveRight": "エージェントを右へ移動",
   "shell.command.agent.next": "次のエージェントにフォーカス",

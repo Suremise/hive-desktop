@@ -213,7 +213,7 @@ export interface HiveRequests {
   'metrics:reset': () => void
   /** Saves a report as a JSON file (a save dialog): the path, or null if cancelled. `sanitize` replaces project names. */
   'metrics:export': (q: MetricsQuery, sanitize: boolean) => string | null
-  /** Ends an agent's card watch (#128: the Cancel in its header). Whether it had one. */
+  /** Ends an agent's card watch (#128: Cancel Card Watch in its pane's ⋯). Whether it had one. */
   'watch:cancel': (projectPath: string, agentId: string) => boolean
   /** Cancels the messages waiting to be offered to an agent (#530, #647): how many there were. */
   'session:cancelMessages': (projectPath: string, agentId: string) => number

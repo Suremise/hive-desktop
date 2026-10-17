@@ -687,7 +687,7 @@
   "settings.sessions.cacheTtl.option.auto": "Detectar automáticamente",
   "settings.sessions.cacheTtl.tip": "Detectar automáticamente toma el tipo de caché de la transcripción (5 minutos o 1 hora).",
   "settings.sessions.cacheTtl.title": "Duración de la caché de prompts",
-  "settings.sessions.compactSuggestTokens.desc": "Tamaño del contexto, en tokens, a partir del cual el botón Compactar y el recuento de contexto de la barra de estado se ponen naranjas. Nunca: el botón no se pone nunca naranja.",
+  "settings.sessions.compactSuggestTokens.desc": "Tamaño del contexto, en tokens, a partir del cual el contexto del pie del panel de un agente se pone naranja. Nunca: no ocurre nunca.",
   "settings.sessions.compactSuggestTokens.off": "Nunca",
   "settings.sessions.compactSuggestTokens.tip": "Compactar resume la conversación para que cada mensaje posterior cueste menos; el historial completo se queda en la transcripción. Cada proyecto puede definir su propio valor en Configuración del proyecto, y el Asistente tiene el suyo (Configuración → Asistente). Siempre puedes compactar cuando el agente ha terminado.",
   "settings.sessions.compactSuggestTokens.title": "Sugerir compactar por encima de",
