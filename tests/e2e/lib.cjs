@@ -991,4 +991,48 @@ async function openProjectSettings(page, ms = 10000) {
   if (!(await until(async () => (await page.locator('.tab-body .settings-top').count()) > 0, ms))) throw new Error("Project Settings didn't open")
 }
 
-module.exports = { agentsMenu, agentsMenuRun, openProjectSettings, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
+/** A menu entry by its label exactly (its first line, not its detail). */
+const menuEntry = (page, label) =>
+  page.locator('.menu .menu-item').filter({ has: page.locator(`.menu-label, :scope > span:not(.menu-key)`, { hasText: new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`) }) }).first()
+
+/**
+ * Goes to an agent the way the window offers since the agent strip went (#975): the session toolbar's summary chip lists
+ * the project's agents; choosing one focuses it (and shows its page). Waits until its pane is the focused one.
+ */
+async function showAgent(page, name, ms = 10000) {
+  await page.locator('.session-toolbar .summary-chip').click()
+  if (!(await until(async () => (await menuEntry(page, name).count()) === 1, ms))) throw new Error(`the summary chip doesn't list ${name}: ${JSON.stringify(await page.locator('.menu .menu-item').allInnerTexts())}`)
+  await menuEntry(page, name).click()
+  // Its pane shown and focused (a pane alone, as with One at a time, isn't marked focused: it is the only one).
+  const focused = async () => (await paneHeader(page, name).count()) === 1 && ((await paneHeader(page, name).evaluate((el) => el.classList.contains('focused')).catch(() => false)) || (await page.locator('.pane-header-bar').count()) === 1)
+  if (!(await until(focused, ms))) throw new Error(`${name}'s pane isn't focused`)
+}
+
+/** How many agents the session toolbar's summary chip counts (#975): its counts added up ("1 waiting · 2 idle" is 3). */
+async function agentCount(page) {
+  const text = await page.locator('.session-toolbar .summary-chip-text').innerText().catch(() => '')
+  return (text.match(/\d+/g) ?? []).reduce((n, x) => n + Number(x), 0)
+}
+
+/** An agent's pane header (its pane must be on screen: showAgent first). */
+const paneHeader = (page, name) => page.locator('.pane-header-bar').filter({ has: page.locator('.agent-name', { hasText: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) }).first()
+
+/** Opens an agent's menu (right-click on its pane's header, as on its tab before #975), showing it first; returns the entries. */
+async function agentMenu(page, name, ms = 10000) {
+  await showAgent(page, name, ms)
+  await paneHeader(page, name).click({ button: 'right', position: { x: 40, y: 8 } })
+  await until(async () => (await page.locator('.menu .menu-item').count()) > 0, ms)
+  return (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
+}
+
+/** Runs the session toolbar's + Add ▾ entry with this label (#975); `then`: an entry of the menu it opens (Templates ▸ → Save Template…). */
+async function addMenuRun(page, label, then, ms = 10000) {
+  await page.locator('.session-toolbar .add-menu').click()
+  if (!(await until(async () => (await menuEntry(page, label).count()) === 1, ms))) throw new Error(`+ Add ▾ has no "${label}": ${JSON.stringify(await page.locator('.menu .menu-item').allInnerTexts())}`)
+  await menuEntry(page, label).click()
+  if (!then) return
+  if (!(await until(async () => (await menuEntry(page, then).count()) === 1, ms))) throw new Error(`"${label}" has no "${then}": ${JSON.stringify(await page.locator('.menu .menu-item').allInnerTexts())}`)
+  await menuEntry(page, then).click()
+}
+
+module.exports = { addMenuRun, agentCount, agentMenu, agentsMenu, agentsMenuRun, menuEntry, openProjectSettings, paneHeader, showAgent, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }

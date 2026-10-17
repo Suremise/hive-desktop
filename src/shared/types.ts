@@ -94,6 +94,9 @@ export type MergeStyle = 'squash' | 'merge'
 export type SessionLayout = 'single' | 'columns2' | 'columns3' | 'grid' | 'grid6'
 /** A project's layout as saved: 'auto' is the one that shows its agents, up to the 3×2 grid (until one is chosen by hand). */
 export type PageLayout = SessionLayout | 'auto'
+
+/** How the Session tab shows a project's agents (#975): their terminals in panes, or a tile each (#976). */
+export type SessionView = 'panes' | 'tiles'
 /** 'window': quitting was asked, but only the window showing the question closes (Close this window only). */
 export type QuitChoice = 'now' | 'wait' | 'cancel' | 'window'
 /** What the quit dialog is for: quitting, closing a window, closing its workspace, or switching the window to another workspace. */
@@ -211,6 +214,8 @@ export interface AppSettings {
     followTranscripts: boolean
     /** How the Overview and the session lists update: as sessions change (at most every 15 s), every minute, or on Refresh. */
     overviewRefresh: 'live' | 'minute' | 'manual'
+    /** The Session tab's view for a project that hasn't chosen one with its Panes | Tiles toggle (#975). */
+    defaultView: SessionView
     /** Hive counts what its Agent API, tools, guidance and skill service cost (aggregates only), per workspace. */
     recordPerformance: boolean
     /** After Hive closed unexpectedly (#984), resume the agents that were running at the next start: off, only the notice. */
@@ -820,6 +825,8 @@ export interface ProjectConfig {
   agents: AgentDef[]
   /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
   layout: PageLayout
+  /** The Session tab's view, once chosen with its Panes | Tiles toggle (#975); absent, Settings → Sessions → Default session view. */
+  sessionView?: SessionView
   /** Where the project folder was last opened (#146), as workspace.json's lastPath. */
   lastPath?: string
   /**

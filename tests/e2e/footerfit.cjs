@@ -199,7 +199,7 @@ function problems(states, { hasTasks, hasSize }) {
   check('one at a time: the project and the window have switched', !!(await until(oneAtATime, HUNG_MS)))
   /** Shows the agent (one at a time), alone and at the pane's whole width; each sweep then waits for the footer to have measured each width it sets. */
   const show = async (name, tag) => {
-    await page.locator('.agent-tab', { hasText: name }).click()
+    await lib.showAgent(page, name)
     const shown = await until(async () => (await footerOf(name).count()) === 1 && (await oneAtATime()), HUNG_MS)
     if (!shown) await page.screenshot({ path: path.join(lib.WORK, `footerfit-show-${tag}.png`) })
     check(`${name} is shown alone, at the pane's whole width (${tag})`, !!shown)
@@ -236,7 +236,7 @@ function problems(states, { hasTasks, hasSize }) {
     const cxBad = problems(cx, { hasTasks: cx.some((s) => s.tasks), hasSize: cx.some((s) => s.size) })
     check(`${z}: Codex footer: in order, nothing overlapping, its icon and caret always shown`, !cxBad.length, cxBad.slice(0, 6).join('; '))
     // A level flipping back and forth on a rounding edge would loop until React gives up (the window's error view).
-    check(`${z}: the window survives every width (no render loop)`, (await page.locator('.error-boundary').count()) === 0 && (await page.locator('.agent-tab').count()) === 2)
+    check(`${z}: the window survives every width (no render loop)`, (await page.locator('.error-boundary').count()) === 0 && (await lib.agentCount(page)) === 2)
     check(`${z}: …"Approve for me" in full when there is room, shortened when not`, cx[0].label === 'full' && cx.some((s) => s.label === 'cut' && s.chipIcons), JSON.stringify(cx.find((s) => s.label === 'cut')))
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1))

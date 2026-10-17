@@ -1,4 +1,4 @@
-// A worktree agent's unmerged work on its agent tab and as the detail of Merge… in its pane's ⋯ (#977: a header button
+// A worktree agent's unmerged work in its name's hover and as the detail of Merge… in its pane's ⋯ (#977: a header button
 // before): none at first, the count once a turn ends with a commit on its branch, gone after the merge, and • for
 // uncommitted files alone. The agent runs the
 // fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
@@ -86,10 +86,12 @@ const git = (cwd, ...a) => lib.git(cwd, a)
     check(`${text}: the agent takes it and finishes`, !!finished, `${!taken ? 'not taken' : !ended ? 'no Done' : 'not finished'}: ${await state()}`)
     if (taken > 1) console.log(`  (${text} was taken on attempt ${taken})`)
   }
-  // Read in one step, '' when it's gone: a badge going away between a count() and an innerText() left innerText()
-  // waiting for it, and the suite threw (#554).
-  const tabBadge = async () => (await page.locator('.agent-tab .agent-unmerged').allInnerTexts()).join('')
-  const count = tabBadge
+  // What Merge… in its ⋯ says is left to merge (#975: the agent strip's tab had it as a badge): its commits ("1"), • for
+  // uncommitted files alone, '' for nothing. Read from the menu's detail in one step, the menu closed after.
+  const count = async () => {
+    const { detail } = await mergeItem()
+    return /(\d+) commits? not merged/.exec(detail)?.[1] ?? (/uncommitted/.test(detail) ? '•' : '')
+  }
   const openMenu = async () => {
     await page.locator('.pane-header-bar').getByRole('button', { name: 'More', exact: true }).click()
     const item = page.locator('.menu .menu-item', { hasText: 'Merge…' })
@@ -109,7 +111,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
 
   await turn()
   await lib.sleep(2500) // A fixed wait on purpose: this checks that no count appears after a turn that changed nothing.
-  check('nothing to merge: Merge… says nothing', (await count()) === '' && !(await highlighted()) && (await tabBadge()) === '', `${await count()} ${await tabBadge()}`)
+  check('nothing to merge: Merge… says nothing', (await count()) === '' && !(await highlighted()), `${await count()}`)
 
   // The agent commits on its branch during a turn: the count shows once the turn ends.
   fs.writeFileSync(path.join(wt, 'b.ts'), 'export const b = 2\n')
@@ -118,7 +120,10 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   await turn()
   check('a commit shows on Merge… once the turn ends', !!(await until(async () => (await count()) === '1', 8000)), `${await count()}; ${await state()}`)
   check('Merge… says it', await highlighted())
-  check('and the tab shows ↑1', (await tabBadge()) === '1' && (await page.locator('.agent-tab .agent-unmerged .codicon-arrow-up').count()) === 1, await tabBadge())
+  // Its name's hover says it too (#975: everything the strip's tab said).
+  const nameTip = await lib.hoverTip(page, lib.paneHeader(page, 'Two').locator('.agent-name'), (t) => /To merge:/.test(t))
+  check("and its name's hover says what is left to merge", /To merge: 1 commit not merged into/.test(nameTip), nameTip)
+  await page.mouse.move(5, 5)
   await openMenu()
   check('Merge… in its ⋯ says what is unmerged', !!(await until(async () => (await page.locator('.menu .menu-item', { hasText: '1 commit not merged into' }).count()) > 0, HUNG_MS)))
   await page.screenshot({ path: path.join(lib.WORK, 'unmerged-1-commit.png') })
@@ -127,12 +132,12 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   // Merged: the count goes.
   const r = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Merge Two', cleanup: false })
   check('the merge succeeds', r.ok, JSON.stringify(r))
-  check('after the merge Merge… is plain again', !!(await until(async () => (await count()) === '' && (await tabBadge()) === '', 8000)), `${await count()} ${await tabBadge()}`)
+  check('after the merge Merge… is plain again', !!(await until(async () => (await count()) === '', 8000)), `${await count()}`)
 
   // Uncommitted files alone: a dot.
   fs.writeFileSync(path.join(wt, 'c.ts'), 'export const c = 3\n')
   await turn()
-  check('uncommitted files alone show •', !!(await until(async () => (await count()) === '•' && (await tabBadge()) === '•', 8000)), `${await count()} ${await tabBadge()}`)
+  check('uncommitted files alone show •', !!(await until(async () => (await count()) === '•', 8000)), `${await count()}`)
   const st = (await inv('agents:branchStatuses')).find((b) => b.agentId === two.id)?.status
   check('the window was told the counts', st?.ahead === 0 && st?.dirty === 1, JSON.stringify(st))
   await page.screenshot({ path: path.join(lib.WORK, 'unmerged-2-dirty.png') })
@@ -141,7 +146,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   const sq = await inv('agents:merge', alpha, two.id, { squash: true, message: 'Squash Two', cleanup: false })
   check('the squash merge succeeds', sq.ok, JSON.stringify(sq))
   check('git still counts the commit as not merged', git(alpha, 'rev-list', '--count', `master..${two.worktree.branch}`).trim() !== '0')
-  check('but after a squash merge Merge… is plain again', !!(await until(async () => (await count()) === '' && (await tabBadge()) === '', 8000)), `${await count()} ${await tabBadge()}`)
+  check('but after a squash merge Merge… is plain again', !!(await until(async () => (await count()) === '', 8000)), `${await count()}`)
   // New work on top of it counts again.
   fs.writeFileSync(path.join(wt, 'd.ts'), 'export const d = 4\n')
   git(wt, 'add', '-A')
@@ -173,7 +178,7 @@ const git = (cwd, ...a) => lib.git(cwd, a)
   check('the next task counts only its own commit', !!(await until(async () => (await count()) === '1', 8000)), `${await count()}; ${await state()}`)
   const next = await inv('agents:merge', alpha, two.id, { squash: false, message: 'Merge Two again', cleanup: false })
   check('and merges cleanly', next.ok && fs.existsSync(path.join(alpha, 'e.ts')), JSON.stringify(next))
-  check('the worktree and agent are still there', fs.existsSync(wt) && (await page.locator('.agent-tab', { hasText: 'Two' }).count()) === 1)
+  check('the worktree and agent are still there', fs.existsSync(wt) && (await lib.paneHeader(page, 'Two').count()) === 1)
 
   // Not while the agent is in the middle of a task: Merge… is disabled (its count still shows), and Hive refuses.
   fs.writeFileSync(path.join(wt, 'f.ts'), 'export const f = 6\n')

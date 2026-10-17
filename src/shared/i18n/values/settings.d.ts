@@ -696,6 +696,11 @@ interface HiveMessageValues {
   'settings.sessions.confirmStop.desc': undefined
   'settings.sessions.confirmStop.tip': undefined
   'settings.sessions.confirmStop.title': undefined
+  'settings.sessions.defaultView.desc': undefined
+  'settings.sessions.defaultView.option.panes': undefined
+  'settings.sessions.defaultView.option.tiles': undefined
+  'settings.sessions.defaultView.tip': undefined
+  'settings.sessions.defaultView.title': undefined
   'settings.sessions.followTranscripts.desc': undefined
   'settings.sessions.followTranscripts.tip': undefined
   'settings.sessions.followTranscripts.title': undefined

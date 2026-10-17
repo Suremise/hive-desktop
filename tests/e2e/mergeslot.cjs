@@ -170,7 +170,7 @@ const check = (name, ok, extra = '') => {
   fs.writeFileSync(path.join(wes.worktree.path, 'b.txt'), 'b' + String.fromCharCode(10))
   await idle(alpha, bob.id)
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().click()
-  await page.locator('.agent-tab', { hasText: 'Wes' }).click({ button: 'right' })
+  await lib.agentMenu(page, 'Wes')
   await page.locator('.menu-item', { hasText: 'Merge…' }).click()
   const dialog = page.locator('.dialog', { hasText: "Merge Wes's work" })
   const merge = dialog.locator('.btn.primary', { hasText: 'Merge' })

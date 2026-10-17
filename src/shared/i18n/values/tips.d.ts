@@ -228,6 +228,8 @@ interface HiveMessageValues {
   'tips.sessionCleanup.title': undefined
   'tips.sessionSizes.text': undefined
   'tips.sessionSizes.title': undefined
+  'tips.sessionToolbar.text': undefined
+  'tips.sessionToolbar.title': undefined
   'tips.sessionTree.text': undefined
   'tips.sessionTree.title': undefined
   'tips.shareTemplates.text': undefined

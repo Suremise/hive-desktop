@@ -167,6 +167,7 @@
   "actions.session.listFailed": "Não foi possível listar as sessões",
   "actions.session.resumeFailed": "Não foi possível retomar a sessão",
   "actions.session.startFailed": "Não foi possível iniciar a sessão",
+  "actions.sessionView.failed": "Não foi possível trocar a visualização",
   "actions.startAll.archiveMessage": "{n, plural, one {A sessão do agente {agent} é arquivada no projeto {project}, e ele começa uma nova:} other {As sessões destes # agentes são arquivadas no projeto {project}, e cada um começa uma nova:}}",
   "actions.startAll.failed": "{all, select, yes {{tried, plural, one {Não foi possível iniciar o agente} other {Não foi possível iniciar os agentes}}} other {{failed} de {tried} agentes não puderam iniciar}}",
   "actions.startAll.noAgents": "Nenhum agente",

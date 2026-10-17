@@ -7,8 +7,8 @@ import type { AgentInfo, LiveSessionState, ProjectInfo, TaskCard } from './types
  * as its colour (StateMark), so they read apart without colour. Projected from what Hive already knows (the status
  * word, a question, a stall, a card blocked on the user); it detects nothing of its own.
  * - waiting: waiting for you (a permission prompt, a question, a sign-in, a card blocked on you): a diamond;
- * - stalled: nothing will move it on (its CLI failed, its turn has been silent with its state unknown, or it left the
- *   cards it loops on unwatched): a square;
+ * - stalled: nothing will move it on (its CLI failed, or failed to start, its turn has been silent with its state
+ *   unknown, or it left the cards it loops on unwatched): a square;
  * - working: a turn, its start, a compaction or background tasks running: a pulsing dot;
  * - idle: ready, finished, watching cards, stopped or no session: a ring.
  */
@@ -23,6 +23,8 @@ export interface AgentStateExtras {
   blocked?: boolean
   /** A card it holds or reviews is stalled (the board's stalledReason). */
   stalled?: boolean
+  /** Its last launch failed to start and it hasn't started since (the window's start failures, #975). */
+  failedToStart?: boolean
 }
 
 type StateFields = Pick<LiveSessionState, 'status' | 'question' | 'turn' | 'notWatching'>
@@ -30,7 +32,7 @@ type StateFields = Pick<LiveSessionState, 'status' | 'question' | 'turn' | 'notW
 /** The state an agent's mark shows; no session at all is idle. */
 export function agentState(live: StateFields | null | undefined, extras: AgentStateExtras = {}): AgentState {
   if (asksYou(live) || extras.blocked) return 'waiting'
-  if (extras.stalled) return 'stalled'
+  if (extras.stalled || (extras.failedToStart && !live)) return 'stalled'
   if (!live) return 'idle'
   if (live.status === 'error' || live.turn?.state === 'unknown' || (live.notWatching?.length ?? 0) > 0) return 'stalled'
   if (live.status === 'working' || live.status === 'starting' || live.status === 'background') return 'working'
@@ -47,9 +49,12 @@ export function boardExtras(projectName: string, agent: Pick<AgentInfo, 'id' | '
   return { blocked: mine.some((c) => !!c.blocked), stalled: !agent.live && mine.some((c) => c.column === 'doing') }
 }
 
-/** Each of a project's agents' states, in the project's order, with what the board says of them. */
-export function projectAgentStates(project: Pick<ProjectInfo, 'name' | 'agents'>, cards: readonly Pick<TaskCard, 'project' | 'agent' | 'column' | 'blocked' | 'archived'>[]): AgentState[] {
-  return project.agents.map((a) => agentState(a.live, boardExtras(project.name, a, cards)))
+/**
+ * Each of a project's agents' states, in the project's order, with what the board says of them and, where the caller
+ * knows (the window does), whether its last launch failed to start.
+ */
+export function projectAgentStates(project: Pick<ProjectInfo, 'name' | 'agents'>, cards: readonly Pick<TaskCard, 'project' | 'agent' | 'column' | 'blocked' | 'archived'>[], failedToStart: (agentId: string) => boolean = () => false): AgentState[] {
+  return project.agents.map((a) => agentState(a.live, { ...boardExtras(project.name, a, cards), failedToStart: failedToStart(a.id) }))
 }
 
 /** Each state's name, one for every place a mark is shown (its accessible name, a legend, a summary's tooltip). */

@@ -16,7 +16,7 @@
     "description": "A tip's title."
   },
   "tips.agentLayouts.text": {
-    "defaultMessage": "Each agent has its own pane: choose a layout at the right of the agent row, and drag tabs or panes to rearrange them. File locks stop two agents editing the same file.",
+    "defaultMessage": "Each agent has its own pane: choose a layout at the right of the session toolbar, and drag a pane by its header to rearrange them. File locks stop two agents editing the same file.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.agentLayouts.title": {
@@ -868,7 +868,7 @@
     "description": "A tip's title."
   },
   "tips.saveTemplate.text": {
-    "defaultMessage": "Set agents up once and reuse them: Template ▾ → Save Template… on the agent strip keeps their settings, roles and layout, and the same menu loads them into any project.",
+    "defaultMessage": "Set agents up once and reuse them: + Add ▾ → Templates → Save Template… in the session toolbar keeps their settings, roles and layout, and the same menu loads them into any project.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.saveTemplate.title": {
@@ -905,6 +905,14 @@
   },
   "tips.sessionSizes.title": {
     "defaultMessage": "Spot the conversations that grew too long",
+    "description": "A tip's title."
+  },
+  "tips.sessionToolbar.text": {
+    "defaultMessage": "The chip above the panes counts your agents by state; its ▾ lists them, most urgent first: choose one to go to it. Panes | Tiles beside it switches between the agents' terminals and a small tile each.",
+    "description": "A tip. Panes and Tiles: the toggle's words, as Hive shows them."
+  },
+  "tips.sessionToolbar.title": {
+    "defaultMessage": "Jump to any agent, or see them all as tiles",
     "description": "A tip's title."
   },
   "tips.sessionTree.text": {

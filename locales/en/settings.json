@@ -2779,6 +2779,26 @@
     "defaultMessage": "Confirm before stopping",
     "description": "A setting's title (Settings → Sessions)."
   },
+  "settings.sessions.defaultView.desc": {
+    "defaultMessage": "How the Session tab shows a project's agents until you choose with its Panes | Tiles toggle.",
+    "description": "What the setting \"Default session view\" does, under its title (Settings → Sessions). Panes and Tiles are the toggle's choices: use their translations."
+  },
+  "settings.sessions.defaultView.option.panes": {
+    "defaultMessage": "Panes",
+    "description": "A choice of the setting \"Default session view\" (Settings → Sessions): the agents' terminals in panes. Use the Panes | Tiles toggle's word."
+  },
+  "settings.sessions.defaultView.option.tiles": {
+    "defaultMessage": "Tiles",
+    "description": "A choice of the setting \"Default session view\" (Settings → Sessions): a small tile per agent. Use the Panes | Tiles toggle's word."
+  },
+  "settings.sessions.defaultView.tip": {
+    "defaultMessage": "Panes shows each agent's terminal; Tiles shows each agent as a small tile, so a whole team fits on one screen. A project remembers its own choice once you use its toggle, so changing this only affects projects that haven't chosen yet.",
+    "description": "The info tip of the setting \"Default session view\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.defaultView.title": {
+    "defaultMessage": "Default session view",
+    "description": "A setting's title (Settings → Sessions)."
+  },
   "settings.sessions.followTranscripts.desc": {
     "defaultMessage": "The Sessions tab shows new messages of a running session as they arrive.",
     "description": "What the setting \"Follow running sessions in the transcript viewer\" does, under its title (Settings → Sessions)."

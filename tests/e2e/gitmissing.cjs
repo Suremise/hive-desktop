@@ -78,8 +78,7 @@ function pathWithoutGit() {
   const info = await inv('agents:gitInfo', repo)
   check('gitInfo: git missing, not "not a repository"', info.isRepo === false && info.gitProblem === MISSING, JSON.stringify(info))
   await page.getByText('repo', { exact: true }).first().click()
-  await page.locator('.agent-add.split-caret').click()
-  await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
+  await lib.addMenuRun(page, 'Configure Agent and Add…')
   const add = page.locator('.dialog', { hasText: 'Add an agent' })
   await lib.until(async () => (await add.count()) === 1, 5000)
   const worktree = add.locator('.choice', { hasText: 'New worktree' })
@@ -106,7 +105,7 @@ function pathWithoutGit() {
 
   // --- The Merge dialog: the error, no merge.
   await page.locator('.tabs .tab', { hasText: /^\s*Session\s*$/ }).click()
-  await page.locator('.agent-tab', { hasText: 'Treeling' }).click({ button: 'right' })
+  await lib.agentMenu(page, 'Treeling')
   await page.locator('.menu-item', { hasText: 'Merge…' }).click()
   const merge = page.locator('.dialog', { hasText: 'Merge' })
   const mergeErr = merge.locator('.banner.warn', { hasText: MISSING })

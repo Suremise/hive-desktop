@@ -3,8 +3,7 @@
 // ("Stop (2)", #275, also in the Session menu and the palette), the same agents its question lists, following agents as
 // they start and stop; the state line ("1 waiting · 2 working", #974); folding at narrow widths (icons, then Agents ▾'s
 // actions in ⋯); Explorer, Terminal and Project Settings in the ⋯ menu; the Session menu and the palette have both new
-// actions; the Project menu lists every tab and Project Settings; thin dividers between agent tabs (none beside the
-// focused one, the page-start marker kept). Three agents run the fake Claude Code (fake-claude/): one working, one idle,
+// actions; the Project menu lists every tab and Project Settings; the session toolbar's summary chip counts the agents. Three agents run the fake Claude Code (fake-claude/): one working, one idle,
 // one stopped. Start New (All) asks once (the working one flagged), Cancel changes nothing, and then every agent has a
 // new session with the old ones kept; Archive and Start New (All) archives each agent's session and starts fresh ones.
 // Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
@@ -140,10 +139,11 @@ const check = (name, ok, extra = '') => {
   // Narrower: the actions turn to icons (named for screen readers and in their tooltips) and the title gives way; at the
   // narrowest window Hive supports (900 px, sidebar and rails open), every action is inside the header, on screen and
   // the thing under its own centre, in both themes. With the Assistant's panel open too, Agents ▾'s actions go into ⋯.
-  // Every action read in one evaluation, so a refold between reads (the Assistant opening) can't leave a stale control.
+  // Every action found and read in one evaluation in the page, so a refold (the Assistant opening) can't leave a stale or
+  // detached control between the two (a locator's evaluateAll queries first, then evaluates).
   const actionsAt = () =>
-    header.locator('button, label').evaluateAll((els) =>
-      els
+    page.evaluate(() =>
+      [...document.querySelectorAll('.project-header .actions button, .project-header .actions label')]
         .filter((el) => !(el.tagName === 'BUTTON' && el.closest('label')))
         .map((el) => {
           const r = el.getBoundingClientRect()
@@ -230,24 +230,13 @@ const check = (name, ok, extra = '') => {
   const found = await palette()
   check('the palette has both, with their counts', found.some((t) => t.includes('Start New (3)…')) && found.some((t) => t.includes('Archive and Start New (3)…')), JSON.stringify(found))
 
-  // --- Dividers between agent tabs: none beside the focused one (Worker, first), one between Idle and Stopped.
-  await page.locator('.agent-tab', { hasText: 'Worker' }).click()
-  await lib.sleep(300)
-  const divider = (name) => page.locator('.agent-tab', { hasText: name }).evaluate((el) => {
-    const b = getComputedStyle(el, '::before')
-    return b.content !== 'none' && b.display !== 'none' && b.borderLeftWidth === '1px'
-  })
-  check('a divider between Idle and Stopped', await divider('Stopped'))
-  check('none beside the focused tab (Worker | Idle)', !(await divider('Idle')))
-  check('none before the first tab', !(await divider('Worker')))
-  await page.locator('.agent-tab', { hasText: 'Idle' }).hover()
-  await lib.sleep(200)
-  const hoverBg = await page.locator('.agent-tab', { hasText: 'Idle' }).evaluate((el) => getComputedStyle(el).backgroundColor)
-  check('hover still highlights the tab', hoverBg !== 'rgba(0, 0, 0, 0)', hoverBg)
+  // --- The session toolbar beside them (#975: the agent strip went): its summary chip counts every agent, idle ones too.
+  const chipText = () => page.locator('.session-toolbar .summary-chip-text').innerText().catch(() => '')
+  check("the summary chip: 1 working · 2 idle", !!(await until(async () => (await chipText()) === '1 working · 2 idle', HUNG_MS)), await chipText())
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(300)
-    await page.locator('.agent-strip, .agent-tabs').first().screenshot({ path: path.join(lib.WORK, `startall-tabs-${theme}.png`) })
+    await until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+    await page.locator('.session-toolbar').screenshot({ path: path.join(lib.WORK, `startall-toolbar-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
   await page.mouse.move(0, 0)
@@ -270,15 +259,15 @@ const check = (name, ok, extra = '') => {
   }
   // --- Stop (2): the running agents as a table, Agent · State · Card, its card named; Cancel changes nothing.
   const card = (await inv('tasks:create', { title: 'Batch tables', project: 'alpha', column: 'doing', agent: w.id })).number
-  // Once the window's board has it: the Worker's tab shows the card.
-  await until(async () => (await page.locator(`.agent-tab[data-agent="${w.id}"]`).innerText().catch(() => '')).includes(`#${card}`), HUNG_MS)
+  // Once the window's board has it: the Worker's pane header shows the card.
+  await until(async () => (await lib.paneHeader(page, 'Worker').innerText().catch(() => '')).includes(`#${card}`), HUNG_MS)
   // Idle reviews another card (started with its own token, as its CLI would): its row says "reviewing #n …".
   const reviewed = (await inv('tasks:create', { title: 'Review table', project: 'alpha', column: 'review', agent: s.id })).number
   const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   const idleToken = launches().filter((l) => l.sessionId === before.i).at(-1)?.env?.HIVE_API_TOKEN
   const startReview = await fetch(`http://127.0.0.1:${PORT}/v1/tasks/${reviewed}`, { method: 'PATCH', headers: { Authorization: `Bearer ${idleToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ review: 'start' }) })
   check('Idle starts reviewing a card', !!idleToken && startReview.status === 200, `${!!idleToken} ${startReview.status}`)
-  await until(async () => (await page.locator(`.agent-tab[data-agent="${i.id}"]`).innerText().catch(() => '')).includes(`#${reviewed}`), HUNG_MS)
+  await until(async () => (await lib.paneHeader(page, 'Idle').innerText().catch(() => '')).includes(`#${reviewed}`), HUNG_MS)
   // What a screen reader gets: the accessibility tree's text (the table is hidden from it, so a cell is never said twice).
   const cdp = await page.context().newCDPSession(page)
   const axTexts = async () => (await cdp.send('Accessibility.getFullAXTree')).nodes.filter((n) => !n.ignored).map((n) => n.name?.value ?? '')

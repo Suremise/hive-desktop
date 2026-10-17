@@ -1,9 +1,9 @@
-// Agent templates (#126, #286): Template ▾ → Save Template… on the agent strip (a name; the workspace scope ticked;
-// replacing asks), loading into another project from Template ▾ (the warning lists who goes and who comes; refused while
-// an agent runs, while a worktree agent has uncommitted work, and while a provider the template needs is off), the layout
-// and roles recreated, the removed worktree kept, Add Agent ▾ → Add Agent from Template (a taken name numbered), with the
-// mouse, the keyboard and the palette, and the strip's controls at narrow widths in both themes, every one reachable,
-// in the order Template ▾, pages, layouts (#292), with one page and with two. #702: agent names unique across the
+// Agent templates (#126, #286, #975): + Add ▾ → Templates ▸ → Save Template… in the session toolbar (a name; the workspace
+// scope ticked; replacing asks), loading into another project from Templates ▸ (the warning lists who goes and who comes;
+// refused while an agent runs, while a worktree agent has uncommitted work, and while a provider the template needs is
+// off), the layout and roles recreated, the removed worktree kept, + Add ▾ → Add Agent from Template (a taken name
+// numbered), with the mouse, the keyboard and the palette, and the toolbar's controls at narrow widths in both themes,
+// every one reachable, in the order Panes | Tiles, the summary chip, pages, layouts, + Add ▾ (#292), with one page and two. #702: agent names unique across the
 // workspace: Add Agent refuses another project's agent's name, offering one, and shows what hive/ in a branch means; a
 // template's load shows each name in the template beside a box for the agent's new name: a name another project's
 // agent has (or one used twice) is marked and Load template greyed out until it is changed; nothing is filled in. Agents run the fake Claude Code (fake-claude/). Dev build, throwaway profile,
@@ -54,7 +54,7 @@ const check = (name, ok, extra = '') => {
   await lib.waitForProvider(inv)
   const live = async (p, id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === id)
   const projectCfg = (p) => JSON.parse(fs.readFileSync(path.join(p, '.hive', 'project.json'), 'utf8'))
-  const strip = page.locator('.agent-strip')
+  const strip = page.locator('.session-toolbar')
   const dialog = page.locator('.dialog').last()
   const menuItems = async () => (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.split('\n')[0].trim())
   // A menu item by its label exactly (its detail line aside).
@@ -63,10 +63,10 @@ const check = (name, ok, extra = '') => {
   const menuOpen = async () => {
     if (!(await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS))) throw new Error(`the menu didn't open; the window: ${await page.locator('.project-header h1').innerText().catch(() => '?')}`)
   }
-  // Template ▾: Save Template…, a separator, then the templates to load.
+  // + Add ▾ → Templates ▸ (#975): Save Template…, a separator, then the templates to load.
   const templateMenu = async () => {
-    await strip.getByRole('button', { name: 'Template', exact: true }).click()
-    await menuOpen()
+    await lib.addMenuRun(page, 'Templates')
+    if (!(await lib.until(async () => (await menuItems()).includes('Save Template…'), HUNG_MS))) throw new Error(`Templates ▸ didn't open: ${JSON.stringify(await menuItems())}`)
   }
   const saveTemplate = async () => {
     await templateMenu()
@@ -125,7 +125,7 @@ const check = (name, ok, extra = '') => {
   await inv('workspace:refresh')
   const loadMenu = templateMenu
   await loadMenu()
-  check('Template ▾ lists the workspace template', (await menuItems()).includes('pair'), JSON.stringify(await menuItems()))
+  check('Templates ▸ lists the workspace template', (await menuItems()).includes('pair'), JSON.stringify(await menuItems()))
   const shape = await page.evaluate(() => [...document.querySelector('.menu').children].slice(0, 3).map((el) => el.className.split(' ')[0] + ':' + el.textContent.trim()))
   check('…after Save Template… and a separator', shape[0] === 'menu-item:Save Template…' && shape[1] === 'menu-sep:' && shape[2] === 'menu-header:Workspace templates', JSON.stringify(shape))
   await item('pair').click()
@@ -185,7 +185,7 @@ const check = (name, ok, extra = '') => {
   const b = projectCfg(beta)
   check('…recreating them exactly: role, model, the layout', b.agents[0].role === 'builder' && b.agents[0].model === 'opus' && b.layout === 'columns3', JSON.stringify(b))
   check("the removed worktree agent's worktree stays", fs.existsSync(tree.worktree.path))
-  await lib.until(async () => (await page.locator('.agent-tab').allInnerTexts()).join('|').includes('Reviewer'), 5000)
+  await lib.until(async () => (await lib.agentCount(page)) === 2, 5000)
 
   // #268: the warning says where each new worktree goes in this project (its branch and folder), marks the agents a new
   // one of the same name replaces, gives each new agent's settings, and the setup command its worktree runs. Cancelled.
@@ -244,11 +244,11 @@ const check = (name, ok, extra = '') => {
   await twelveWarn.getByRole('button', { name: 'Cancel' }).click()
   fs.rmSync(path.join(ws, '.hive', 'templates', 'twelve.json'))
 
-  // --- Add Agent ▾ → Add Agent from Template: one agent, the others left alone; Builder's name is taken, so "Builder 2".
-  const caret = strip.locator('.agent-add.split-caret')
-  await caret.click()
+  // --- + Add ▾ → Add Agent from Template (#975): one agent, the others left alone; Builder's name is taken, so "Builder 2".
+  const addButton = strip.locator('.add-menu')
+  await addButton.click()
   await menuOpen()
-  check('Add Agent ▾ offers Configure Agent and Add… and Add Agent from Template', JSON.stringify(await menuItems()) === '["Configure Agent and Add…","Add Agent from Template"]', JSON.stringify(await menuItems()))
+  check('+ Add ▾ offers Configure Agent and Add…, Add Agent, Add Agent from Template and Templates', JSON.stringify(await menuItems()) === '["Configure Agent and Add…","Add Agent","Add Agent from Template","Templates"]', JSON.stringify(await menuItems()))
   await page.screenshot({ path: path.join(lib.WORK, 'templates-4-add-menu.png') })
   await item('Add Agent from Template').click()
   await lib.until(async () => (await menuItems()).includes('Builder'), 5000)
@@ -256,11 +256,11 @@ const check = (name, ok, extra = '') => {
   await item('Builder').click()
   check('Add Agent from Template adds one, numbering a taken name', !!(await lib.until(async () => JSON.stringify(projectCfg(beta).agents.map((a) => a.name)) === '["Builder","Reviewer","Builder 2"]', 8000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   check('…with its role', projectCfg(beta).agents[2].role === 'builder')
-  await lib.until(async () => (await page.locator('.agent-tab').count()) === 3, 5000)
-  // The main part is Configure Agent and Add…: the dialog, nothing added until it's confirmed.
-  await strip.locator('.agent-add:not(.split-caret)').click()
+  await lib.until(async () => (await lib.agentCount(page)) === 3, 5000)
+  // Configure Agent and Add…: the dialog, nothing added until it's confirmed.
+  await lib.addMenuRun(page, 'Configure Agent and Add…')
   const addDialog = page.locator('.dialog', { hasText: 'Add an agent' })
-  check("Add Agent's main click opens the Add Agent dialog", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
+  check('Configure Agent and Add… opens the Add Agent dialog', !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
   await lib.sleep(500)
   check('…without adding an agent', projectCfg(beta).agents.length === 3, JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
   // #702: another project's agent's name is refused, saying whose, with a free one to use.
@@ -279,14 +279,15 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Escape')
   await lib.until(async () => (await addDialog.count()) === 0, HUNG_MS)
 
-  // The keyboard: Enter on ▾ opens the menu on its first entry, ↓ moves, → opens Add Agent from Template, Enter adds.
+  // The keyboard: Enter on + Add ▾ opens the menu on its first entry, ↓ moves, → opens Add Agent from Template, Enter adds.
   const active = () => page.locator('.menu .menu-item.active').innerText().then((t) => t.split('\n')[0].trim(), () => '')
-  await caret.focus()
+  await addButton.focus()
   await page.keyboard.press('Enter')
   await menuOpen()
-  check('Enter on Add Agent ▾ opens its menu on Configure Agent and Add…', (await active()) === 'Configure Agent and Add…', await active())
+  check('Enter on + Add ▾ opens its menu on Configure Agent and Add…', (await active()) === 'Configure Agent and Add…', await active())
   await page.keyboard.press('ArrowDown')
-  check('↓ moves to Add Agent from Template', (await active()) === 'Add Agent from Template', await active())
+  await page.keyboard.press('ArrowDown')
+  check('↓ ↓ moves to Add Agent from Template', (await active()) === 'Add Agent from Template', await active())
   await page.keyboard.press('ArrowRight')
   await lib.until(async () => (await menuItems()).includes('Reviewer'), 5000)
   const first = (await page.locator('.menu .menu-item:not(.disabled)').first().innerText()).split('\n')[0].trim()
@@ -295,9 +296,9 @@ const check = (name, ok, extra = '') => {
   check('→ opens the template agents, ↓ reaches Reviewer', (await active()) === 'Reviewer', await active())
   await page.keyboard.press('Enter')
   check('Enter adds it', !!(await lib.until(async () => projectCfg(beta).agents.map((a) => a.name).includes('Reviewer 2'), 8000)), JSON.stringify(projectCfg(beta).agents.map((a) => a.name)))
-  await lib.until(async () => (await page.locator('.agent-tab').count()) === 4, 5000)
+  await lib.until(async () => (await lib.agentCount(page)) === 4, 5000)
 
-  // The palette: Load Template… and Add Agent from Template… open the strip's menus, on their first entry.
+  // The palette: Load Template… and Add Agent from Template… open + Add ▾'s menus, on their first entry.
   const palette = async (label) => {
     await page.evaluate(() => document.activeElement?.blur())
     await page.keyboard.press('Control+Shift+P')
@@ -307,44 +308,43 @@ const check = (name, ok, extra = '') => {
     await menuOpen()
   }
   await palette('Load Template…')
-  check('the palette\'s Load Template… opens Template ▾ on Save Template…', (await active()) === 'Save Template…' && (await menuItems()).includes('pair'), `${await active()} ${JSON.stringify(await menuItems())}`)
+  check('the palette\'s Load Template… opens Templates ▸ on Save Template…', (await active()) === 'Save Template…' && (await menuItems()).includes('pair'), `${await active()} ${JSON.stringify(await menuItems())}`)
   await page.keyboard.press('Escape')
   await palette('Add Agent from Template…')
   check('the palette\'s Add Agent from Template… lists the template agents', (await menuItems()).includes('Builder') && (await active()) !== '', `${await active()} ${JSON.stringify(await menuItems())}`)
   await page.keyboard.press('Escape')
 
-  // --- Narrow: Template ▾ labelled, then its icon; Add Agent, Template ▾ and the layouts inside the strip and clickable, in both themes.
+  // --- Narrow (#975): Panes | Tiles, the summary chip, the pages, the layouts and + Add ▾ inside the toolbar and
+  // clickable, in both themes, in that order, none overlapping the next (#292).
+  const PARTS = ['.view-switch', '.summary-chip', '.page-switch', '.layout-switch', '.add-menu']
   const reachable = async () =>
     page.evaluate(() => {
-      const s = document.querySelector('.agent-strip').getBoundingClientRect()
-      const els = [...document.querySelectorAll('.agent-strip .split-btn button, .template-controls button, .page-switch button, .layout-switch button')]
+      const s = document.querySelector('.session-toolbar').getBoundingClientRect()
+      const els = [...document.querySelectorAll('.view-switch button, .session-toolbar .summary-chip, .page-switch button, .layout-switch button, .session-toolbar .add-menu')]
       return els.length > 0 && els.every((el) => {
         const r = el.getBoundingClientRect()
         const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
         return r.left >= s.left - 0.5 && r.right <= s.right + 0.5 && r.right <= window.innerWidth && !!t && (t === el || el.contains(t))
       })
     })
-  const labelled = () => strip.getByRole('button', { name: 'Template', exact: true }).innerText().then((t) => t.includes('Template'))
-  // Left to right, none overlapping the next: Add Agent, Template ▾, the pages (when there are two or more), the layouts (#292).
   const order = () =>
-    page.evaluate(() => {
-      const els = ['.agent-strip .split-btn', '.agent-strip .template-controls', '.agent-strip .page-switch', '.agent-strip .layout-switch'].map((s) => document.querySelector(s)).filter(Boolean)
-      const boxes = els.map((el) => el.getBoundingClientRect())
-      return { names: els.map((el) => el.className.split(' ').find((c) => c !== 'segmented')), inOrder: boxes.every((box, i) => i === 0 || boxes[i - 1].right <= box.left + 0.5) }
-    })
-  for (const [width, mode] of [[1700, 'labelled'], [1200, 'labelled'], [900, 'icon']]) {
+    page.evaluate((parts) => {
+      const els = parts.map((p) => [p, document.querySelector(`.session-toolbar ${p}`)]).filter(([, el]) => el)
+      const boxes = els.map(([, el]) => el.getBoundingClientRect())
+      return { names: els.map(([p]) => p.slice(1)), inOrder: boxes.every((box, i) => i === 0 || boxes[i - 1].right <= box.left + 0.5) }
+    }, PARTS)
+  for (const width of [1700, 1200, 900]) {
     for (const theme of ['dark', 'light']) {
       await inv('settings:update', { appearance: { theme } })
       await lib.fitWindow(app, page, { width, height: 900 })
-      await lib.sleep(500)
-      check(`${theme}, ${width} px (${mode}): the strip's controls are inside it and clickable`, await reachable())
-      check(`…Template ▾ ${mode}`, (await labelled()) === (mode === 'labelled'))
+      const ok = await lib.until(async () => (await reachable()) && (await order()).inOrder, HUNG_MS)
+      check(`${theme}, ${width} px: the toolbar's controls are inside it and clickable`, !!ok && (await reachable()))
       const o = await order()
-      check('…in the order Add Agent, Template ▾, pages, layouts, none overlapping', o.inOrder && JSON.stringify(o.names) === '["split-btn","template-controls","page-switch","layout-switch"]', JSON.stringify(o))
-      await page.screenshot({ path: path.join(lib.WORK, `templates-strip-${width}-${theme}.png`) })
+      check('…in the order Panes | Tiles, summary chip, pages, layouts, + Add ▾, none overlapping', o.inOrder && JSON.stringify(o.names) === '["view-switch","summary-chip","page-switch","layout-switch","add-menu"]', JSON.stringify(o))
+      await page.screenshot({ path: path.join(lib.WORK, `templates-toolbar-${width}-${theme}.png`), clip: { x: 0, y: 0, width, height: 160 } })
     }
   }
-  // One page (the grid of six shows all four): no page buttons, Template ▾ beside the layouts.
+  // One page (the grid of six shows all four): no page buttons.
   await inv('project:updateConfig', beta, { layout: 'grid6' })
   await inv('workspace:refresh')
   await lib.until(async () => (await strip.locator('.page-switch').count()) === 0, 5000)
@@ -352,18 +352,18 @@ const check = (name, ok, extra = '') => {
     for (const theme of ['dark', 'light']) {
       await inv('settings:update', { appearance: { theme } })
       await lib.fitWindow(app, page, { width, height: 900 })
-      await lib.sleep(500)
+      const ok = await lib.until(async () => (await reachable()) && (await order()).inOrder, HUNG_MS)
       const o = await order()
-      check(`${theme}, ${width} px, one page: Add Agent, Template ▾, layouts, none overlapping, all clickable`, o.inOrder && JSON.stringify(o.names) === '["split-btn","template-controls","layout-switch"]' && (await reachable()), JSON.stringify(o))
-      await page.screenshot({ path: path.join(lib.WORK, `templates-strip-1page-${width}-${theme}.png`) })
+      check(`${theme}, ${width} px, one page: Panes | Tiles, summary chip, layouts, + Add ▾, none overlapping, all clickable`, !!ok && o.inOrder && JSON.stringify(o.names) === '["view-switch","summary-chip","layout-switch","add-menu"]', JSON.stringify(o))
+      await page.screenshot({ path: path.join(lib.WORK, `templates-toolbar-1page-${width}-${theme}.png`), clip: { x: 0, y: 0, width, height: 160 } })
     }
   }
   await inv('project:updateConfig', beta, { layout: 'columns3' })
   await inv('workspace:refresh')
   await lib.until(async () => (await strip.locator('.page-switch').count()) === 1, 5000)
   await templateMenu()
-  check('at 900 px Template ▾ still has Save Template… and the templates', (await menuItems())[0] === 'Save Template…' && (await menuItems()).includes('pair'), JSON.stringify(await menuItems()))
-  await page.screenshot({ path: path.join(lib.WORK, 'templates-strip-900-menu.png') })
+  check('at 900 px Templates ▸ still has Save Template… and the templates', (await menuItems())[0] === 'Save Template…' && (await menuItems()).includes('pair'), JSON.stringify(await menuItems()))
+  await page.screenshot({ path: path.join(lib.WORK, 'templates-toolbar-900-menu.png') })
   await page.keyboard.press('Escape')
   await inv('settings:update', { appearance: { theme: 'dark' } })
 

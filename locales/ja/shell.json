@@ -111,6 +111,7 @@
   "shell.command.session.startNewAllLive": "{several, select, yes {新規開始（{n}）…} other {新規開始…}}",
   "shell.command.session.stop": "セッションを停止",
   "shell.command.session.stopBackgroundAndResume": "バックグラウンドのセッションを停止して再開",
+  "shell.command.session.toggleView": "ペインとタイルを切り替え",
   "shell.command.settings.advanced": "詳細設定",
   "shell.command.settings.keybindings": "キーボードショートカットをカスタマイズ",
   "shell.command.settings.notifications": "通知の設定",

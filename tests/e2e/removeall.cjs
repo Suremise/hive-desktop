@@ -163,10 +163,10 @@ const check = (name, ok, extra = '') => {
   check('their cards are asked about once, together', !!(await until(async () => (await cards.count()) === 1, HUNG_MS)), await page.locator('.dialog').allInnerTexts().then((t) => t.join(' | ')))
   await cards.getByRole('button', { name: 'Move them back' }).click()
   const spinning = await until(async () => {
-    const n = await page.locator('.agent-tab .codicon-loading').count()
+    const n = await page.locator('.pane-header-bar .codicon-loading').count()
     return n >= 2 ? n : 0
   }, HUNG_MS)
-  check('the tabs show the removing spinner', !!spinning, String(spinning))
+  check('the pane headers show the removing spinner (#975: the strip tabs did)', !!spinning, String(spinning))
   check('every agent goes', !!(await until(async () => (await agentsOf(alpha)).length === 0, 30000)), JSON.stringify(await agentsOf(alpha)))
   check('the working one was stopped first', !(await live(alpha, a.worker.id)))
   check('its session stays in the Sessions tab', (await inv('session:list', alpha)).some((s) => s.id === workerSession))

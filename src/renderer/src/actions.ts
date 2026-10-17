@@ -10,7 +10,7 @@ import { serverOnIn } from '@shared/agentMcp'
 import { shownText } from '@shared/advanced'
 import { fmt, tr } from '@shared/i18n'
 import { msg } from '@shared/i18n/msg'
-import type { McpServerInfo, McpTurnOn, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, ToastAction } from '@shared/types'
+import type { McpServerInfo, McpTurnOn, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, SessionView, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
@@ -1267,6 +1267,13 @@ export async function setLayout(path: string, layout: SessionLayout): Promise<vo
   const p = project(path)
   if (!p) return
   await attempt(tr(msg({ id: 'actions.layout.failed', defaultMessage: 'Could not change layout', description: "An error's title: changing the project's layout failed." })), () => call('project:updateConfig', path, { layout: chosenLayout(p.config, layout) }))
+  await refreshWorkspace()
+}
+
+/** The Session tab's view for a project (#975): Panes or Tiles, remembered in its project.json. */
+export async function setSessionView(path: string, view: SessionView): Promise<void> {
+  if (!project(path)) return
+  await attempt(tr(msg({ id: 'actions.sessionView.failed', defaultMessage: 'Could not change the view', description: "An error's title: switching a project's Session tab between Panes and Tiles failed." })), () => call('project:updateConfig', path, { sessionView: view }))
   await refreshWorkspace()
 }
 

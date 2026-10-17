@@ -85,8 +85,9 @@ const until = async (fn, ms = 10000) => {
     return i && !i.checking && i.loggedIn === false ? i : null
   }, 15000)
   check('Agent Setup shows Claude Code signed out', !!info && (info.readiness ?? []).some((r) => r.id === 'signed-out'), JSON.stringify(info?.readiness))
-  const dots = await until(async () => ((await page.locator('.dot.signin').count()) >= 3 ? true : null), 5000)
-  check('the strip and panes show the needs-sign-in dot', !!dots, String(await page.locator('.dot.signin').count()))
+  // Each pane's mark: waiting for you, a diamond (#973; the agent strip's sign-in dots went with it, #975).
+  const marks = await until(async () => ((await page.locator('.pane-header-bar .state-mark.waiting').count()) >= 3 ? true : null), 5000)
+  check('the panes mark the three as waiting for you', !!marks, String(await page.locator('.pane-header-bar .state-mark.waiting').count()))
   check('the pane header says Needs sign-in', (await page.locator('.pane-status.signin', { hasText: 'Needs sign-in' }).count()) >= 1)
   check('Resume (n) counts the three', (await page.getByRole('button', { name: 'Resume All Agents (3)' }).count()) === 1)
   await page.screenshot({ path: path.join(shots, 'signin-1-needs-sign-in.png') })

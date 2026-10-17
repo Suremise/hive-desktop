@@ -48,7 +48,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   // --- Agent 1 alone (added: projects start with none): the strip shows, with Add Agent
   const a1 = await lib.addAgent(inv, proj)
   await project(); await sleep(500)
-  check('strip shows Agent 1', await page.locator('.agent-tab', { hasText: 'Agent 1' }).count() === 1)
+  check('its pane shows Agent 1', await page.locator('.pane-header-bar .agent-name', { hasText: /^Agent 1$/ }).count() === 1)
   await shot(page, '1-single')
 
   // --- Add Agent 2 in the project folder and Agent 3 in a new worktree

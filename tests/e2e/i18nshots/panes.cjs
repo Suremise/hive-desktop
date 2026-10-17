@@ -1,4 +1,4 @@
-// Screenshot cases for the `panes` area (#799): the agents' panes with their strip and footers (running, finished,
+// Screenshot cases for the `panes` area (#799): the agents' panes with their toolbar and footers (running, finished,
 // stopped, watching), a terminal whose process exited, and a project's agents table, reached for the i18nshots route
 // (#756's design, section 4) with locale-independent means only: IPC, the Agent API, command ids and structural hooks
 // (data-agent, classes), never English text. See tests/e2e/i18nshots.cjs for the case format and ctx.
@@ -29,7 +29,7 @@ async function panes(ctx) {
   await ctx.command('project.tab.session')
   const prompts = lib.fakePrompts(inv, lib.ptyKey(project, one.id), async () => (await liveOf(ctx, [one]))[0], { home: ctx.claudeHome })
   if (!(await prompts.over(await prompts.type('hello')))) throw new Error("One's turn did not end")
-  await shown(ctx, page.locator('.agent-strip'), "the agents' strip")
+  await shown(ctx, page.locator('.session-toolbar'), 'the session toolbar')
   await shown(ctx, page.locator('.pane-footer-bar'), "the panes' footers")
   return null
 }
