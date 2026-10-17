@@ -139,10 +139,11 @@ const check = (name, ok, extra = '') => {
   // Narrower: the actions turn to icons (named for screen readers and in their tooltips) and the title gives way; at the
   // narrowest window Hive supports (900 px, sidebar and rails open), every action is inside the header, on screen and
   // the thing under its own centre, in both themes. With the Assistant's panel open too, Agents ▾'s actions go into ⋯.
-  // Every action read in one evaluation, so a refold between reads (the Assistant opening) can't leave a stale control.
+  // Every action found and read in one evaluation in the page, so a refold (the Assistant opening) can't leave a stale or
+  // detached control between the two (a locator's evaluateAll queries first, then evaluates).
   const actionsAt = () =>
-    header.locator('button, label').evaluateAll((els) =>
-      els
+    page.evaluate(() =>
+      [...document.querySelectorAll('.project-header .actions button, .project-header .actions label')]
         .filter((el) => !(el.tagName === 'BUTTON' && el.closest('label')))
         .map((el) => {
           const r = el.getBoundingClientRect()
