@@ -177,7 +177,7 @@
   "panes.tiles.empty": "Nie ma jeszcze agentów. Każdy dodany agent dostanie tu swój kafelek.",
   "panes.tiles.label": "{pages, plural, one {Agenci projektu} few {Agenci projektu, strona {page, number} z {pages, number}} many {Agenci projektu, strona {page, number} z {pages, number}} other {Agenci projektu, strona {page, number} z {pages, number}}}",
   "panes.tiles.notRunning": "Nie działa",
-  "panes.tiles.pageButton": "Strona kafelków {page, number}",
+  "panes.tiles.pageButton": "Strona kafelków {page, number}{urgent, plural, =0 {} one {, # agent czeka na Ciebie lub utknął} few {, # agentów czeka na Ciebie lub utknęło} many {, # agentów czeka na Ciebie lub utknęło} other {, # agenta czeka na Ciebie lub utknęło}}",
   "panes.tiles.pageTip": "Strona kafelków {page, number}{urgent, plural, =0 {} one {: # agent czeka na Ciebie lub utknął} few {: # agentów czeka na Ciebie lub utknęło} many {: # agentów czeka na Ciebie lub utknęło} other {: # agenta czeka na Ciebie lub utknęło}}{key, select, none {} other { ({key}: następna strona)}}",
   "panes.tiles.reviewing": "Sprawdza {card}",
   "panes.tiles.stripLabel": "Agenci projektu",

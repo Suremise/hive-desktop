@@ -177,7 +177,7 @@
   "panes.tiles.empty": "Ainda não há agentes. Cada agente que você adicionar ganha um bloco aqui.",
   "panes.tiles.label": "{pages, plural, one {Os agentes do projeto} other {Os agentes do projeto, página {page, number} de {pages, number}}}",
   "panes.tiles.notRunning": "Parado",
-  "panes.tiles.pageButton": "Página de blocos {page, number}",
+  "panes.tiles.pageButton": "Página de blocos {page, number}{urgent, plural, =0 {} one {, # agente aguardando você ou travado} other {, # agentes aguardando você ou travados}}",
   "panes.tiles.pageTip": "Página {page, number} dos blocos{urgent, plural, =0 {} one {: # agente aguardando você ou travado} other {: # agentes aguardando você ou travados}}{key, select, none {} other { ({key} para a próxima página)}}",
   "panes.tiles.reviewing": "Revisando {card}",
   "panes.tiles.stripLabel": "Os agentes do projeto",

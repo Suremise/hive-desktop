@@ -68,6 +68,10 @@ const check = (name, ok, extra = '') => {
     check("C's tile: Not running", (await tile('C').locator('.tile-status').innerText()) === 'Not running')
     const pageButtons = () => page.locator('.session-toolbar .tile-pages button').evaluateAll((els) => els.map((b) => `${b.childNodes[0].textContent}${b.classList.contains('active') ? '*' : ''}${b.querySelector('.tile-page-count') ? `(${b.querySelector('.tile-page-count').textContent})` : ''}`).join(' '))
     check('two tile pages; page 2 counts M, waiting there', !!(await lib.until(async () => (await pageButtons()) === '1* 2(1)', HUNG_MS)), await pageButtons())
+    // The count is said as well as shown: page 2's accessible name, while page 1 is chosen (the badge itself is hidden).
+    const pageNames = () => page.locator('.session-toolbar .tile-pages button').evaluateAll((els) => els.map((b) => `${b.getAttribute('aria-label')}${b.getAttribute('aria-current') ? ' (current)' : ''}`).join(' | '))
+    check("…page 2's accessible name says so", (await pageNames()) === 'Tile page 1 (current) | Tile page 2, 1 agent waiting for you or stalled', await pageNames())
+    check("…in the accessibility tree too", !!(await page.getByRole('button', { name: 'Tile page 2, 1 agent waiting for you or stalled', exact: true }).count()))
     await page.screenshot({ path: path.join(lib.WORK, 'tilesview-grid.png') })
 
     // --- Page 2: M, highlighted where it is.

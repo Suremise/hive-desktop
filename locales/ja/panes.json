@@ -177,7 +177,7 @@
   "panes.tiles.empty": "エージェントはまだいません。追加したエージェントごとに、ここにタイルが表示されます。",
   "panes.tiles.label": "{pages, plural, other {プロジェクトのエージェント（{page, number}/{pages, number}ページ）}}",
   "panes.tiles.notRunning": "停止中",
-  "panes.tiles.pageButton": "タイルのページ{page, number}",
+  "panes.tiles.pageButton": "タイルのページ{page, number}{urgent, plural, =0 {} other {、回答待ちまたは停滞中のエージェント#件}}",
   "panes.tiles.pageTip": "タイルのページ{page, number}{urgent, plural, =0 {} other {：回答待ちまたは停滞中のエージェント#件}}{key, select, none {} other {（{key}で次のページ）}}",
   "panes.tiles.reviewing": "{card}をレビュー中",
   "panes.tiles.stripLabel": "プロジェクトのエージェント",

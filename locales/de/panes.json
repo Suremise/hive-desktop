@@ -177,7 +177,7 @@
   "panes.tiles.empty": "Noch keine Agenten. Jeder Agent, den du hinzufügst, bekommt hier eine Kachel.",
   "panes.tiles.label": "{pages, plural, one {Die Agenten des Projekts} other {Die Agenten des Projekts, Seite {page, number} von {pages, number}}}",
   "panes.tiles.notRunning": "Läuft nicht",
-  "panes.tiles.pageButton": "Kachelseite {page, number}",
+  "panes.tiles.pageButton": "Kachelseite {page, number}{urgent, plural, =0 {} one {, # Agent wartet auf dich oder ist festgefahren} other {, # Agenten warten auf dich oder sind festgefahren}}",
   "panes.tiles.pageTip": "Seite {page, number} der Kacheln{urgent, plural, =0 {} one {: # Agent wartet auf dich oder ist festgefahren} other {: # Agenten warten auf dich oder sind festgefahren}}{key, select, none {} other { ({key} für die nächste Seite)}}",
   "panes.tiles.reviewing": "Prüft {card}",
   "panes.tiles.stripLabel": "Die Agenten des Projekts",

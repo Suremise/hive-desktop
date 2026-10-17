@@ -294,7 +294,7 @@ const prose = (seed, n) => {
   // A line a setting (about 85 characters with its title): 6,200 since #418 added Tell the Assistant when I reply to an agent;
   // 7,000 since #450 added GitHub Copilot, a third provider with its own settings (about 730 characters); 7,200 since #412
   // added the workspace's Card loop rounds and wait (about 100 characters); 7,400 since #636 added Let agents read the
-  // developer console (about 70 characters); 7,500 since #767 added Language (about 30 characters); 7,600 since #975 and #976
+  // developer console (about 70 characters); 7,500 since #767 added Language (about 30 characters); 7,600 since #975 and #976
   // added Default session view and Tile order (about 40 characters each).
   const settingsList = measure('hive_list_settings', tool('hive_list_settings', {}, 'assistant'), 7600)
   check('settings: a line each, id = value, read-only ones marked', /^sessions\.compactSuggestTokens = 200000 · Suggest compacting above$/m.test(settingsList) && /^agentApi\.port = \d+ \[read-only\] · /m.test(settingsList) && /^advanced\.showDeveloperFeatures = off · /m.test(settingsList) && !/^advanced\.(logs|data|reset) /m.test(settingsList), settingsList.slice(0, 300))

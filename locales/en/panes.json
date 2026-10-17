@@ -712,8 +712,8 @@
     "description": "An agent's status on its tile (the Tiles view) and in the focus view's strip: its session isn't running."
   },
   "panes.tiles.pageButton": {
-    "defaultMessage": "Tile page {page, number}",
-    "description": "Accessible name of a page button of the Tiles view (the session toolbar)."
+    "defaultMessage": "Tile page {page, number}{urgent, plural, =0 {} one {, # agent waiting for you or stalled} other {, # agents waiting for you or stalled}}",
+    "description": "Accessible name of a page button of the Tiles view (the session toolbar): which page, and while another page is shown how many of its agents are waiting for the user or stalled ({urgent}; 0: nothing after the page)."
   },
   "panes.tiles.pageTip": {
     "defaultMessage": "Page {page, number} of the tiles{urgent, plural, =0 {} one {: # agent waiting for you or stalled} other {: # agents waiting for you or stalled}}{key, select, none {} other { ({key} for the next page)}}",

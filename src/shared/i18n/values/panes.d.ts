@@ -179,7 +179,7 @@ interface HiveMessageValues {
   'panes.tiles.empty': undefined
   'panes.tiles.label': { pages: number; page: number }
   'panes.tiles.notRunning': undefined
-  'panes.tiles.pageButton': { page: number }
+  'panes.tiles.pageButton': { page: number; urgent: number }
   'panes.tiles.pageTip': { page: number; urgent: number; key: string }
   'panes.tiles.reviewing': { card: string | number }
   'panes.tiles.stripLabel': undefined

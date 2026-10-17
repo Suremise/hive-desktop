@@ -283,7 +283,8 @@ export function TilePager({ project }: { project: ProjectInfo }) {
             <button
               type="button"
               className={cx(page === i && !focus && 'active')}
-              aria-label={tr(msg({ id: 'panes.tiles.pageButton', defaultMessage: 'Tile page {page, number}', description: 'Accessible name of a page button of the Tiles view (the session toolbar).' }), { page: i + 1 })}
+              // Its count of urgent tiles, said as well as shown (a screen reader hears the name, not the badge).
+              aria-label={tr(msg({ id: 'panes.tiles.pageButton', defaultMessage: 'Tile page {page, number}{urgent, plural, =0 {} one {, # agent waiting for you or stalled} other {, # agents waiting for you or stalled}}', description: 'Accessible name of a page button of the Tiles view (the session toolbar): which page, and while another page is shown how many of its agents are waiting for the user or stalled ({urgent}; 0: nothing after the page).' }), { page: i + 1, urgent: counted ? urgent[i] : 0 })}
               aria-current={(page === i && !focus) || undefined}
               onClick={() => {
                 closeTile(project)
@@ -291,7 +292,11 @@ export function TilePager({ project }: { project: ProjectInfo }) {
               }}
             >
               {i + 1}
-              {counted && <span className="tile-page-count">{fmt.number(urgent[i])}</span>}
+              {counted && (
+                <span className="tile-page-count" aria-hidden="true">
+                  {fmt.number(urgent[i])}
+                </span>
+              )}
             </button>
           </Tooltip>
         )

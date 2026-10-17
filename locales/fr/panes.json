@@ -177,7 +177,7 @@
   "panes.tiles.empty": "Pas encore d’agents. Chaque agent que tu ajoutes aura sa tuile ici.",
   "panes.tiles.label": "{pages, plural, one {Les agents du projet} many {Les agents du projet, page {page, number} sur {pages, number}} other {Les agents du projet, page {page, number} sur {pages, number}}}",
   "panes.tiles.notRunning": "Arrêté",
-  "panes.tiles.pageButton": "Page de tuiles {page, number}",
+  "panes.tiles.pageButton": "Page de tuiles {page, number}{urgent, plural, =0 {} one {, # agent attend ta réponse ou est à l’arrêt} many {, # agents attendent ta réponse ou sont à l’arrêt} other {, # agents attendent ta réponse ou sont à l’arrêt}}",
   "panes.tiles.pageTip": "Page {page, number} des tuiles{urgent, plural, =0 {} one { : # agent attend ta réponse ou est à l’arrêt} many { : # agents attendent ta réponse ou sont à l’arrêt} other { : # agents attendent ta réponse ou sont à l’arrêt}}{key, select, none {} other { ({key} pour la page suivante)}}",
   "panes.tiles.reviewing": "Relit {card}",
   "panes.tiles.stripLabel": "Les agents du projet",
