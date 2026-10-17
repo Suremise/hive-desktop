@@ -843,6 +843,14 @@
     "defaultMessage": "Tabs that make room",
     "description": "A tip's title."
   },
+  "tips.projectTabsKeys.text": {
+    "defaultMessage": "Alt+1 to Alt+8 open a project's tabs in the order they show, Session to Git. Memory, Skills, Templates and MCP are in More ▾ at the end, and in the menu bar's Project menu.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. More ▾ is the button's name with its arrow."
+  },
+  "tips.projectTabsKeys.title": {
+    "defaultMessage": "Alt and a number for each tab",
+    "description": "A tip's title."
+  },
   "tips.quitWhenDone.text": {
     "defaultMessage": "Quitting while an agent works offers Quit when agents finish: Hive hides and quits by itself once they're done. Conversations are always kept.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

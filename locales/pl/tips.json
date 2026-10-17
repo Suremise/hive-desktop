@@ -208,6 +208,8 @@
   "tips.projectCards.title": "Karty projektu w skrócie",
   "tips.projectTabs.text": "Gdy brakuje miejsca, zakładki projektu zmniejszają się do ikon, a bieżąca zakładka zachowuje nazwę, dopóki się mieści. Najedź na zakładkę, żeby zobaczyć jej nazwę i skrót.",
   "tips.projectTabs.title": "Zakładki, które robią miejsce",
+  "tips.projectTabsKeys.text": "Alt+1 do Alt+8 otwierają zakładki projektu w kolejności, w jakiej są widoczne, od Sesji do Git. Pamięć, Umiejętności, Szablony i MCP są w Więcej ▾ na końcu oraz w menu Projekt na pasku menu.",
+  "tips.projectTabsKeys.title": "Alt i cyfra dla każdej zakładki",
   "tips.quitWhenDone.text": "Gdy zamykasz Hive w trakcie pracy agenta, pojawia się opcja Zakończ, gdy agenci skończą: Hive chowa się i sam kończy działanie, gdy agenci skończą. Rozmowy są zawsze zachowywane.",
   "tips.quitWhenDone.title": "Zakończ, gdy agenci skończą",
   "tips.recentWorkspaces.text": "Usuń obszar roboczy z Plik → Otwórz ostatnie lub ze strony powitalnej jego ✕ albo kliknij go prawym przyciskiem. Wyczyść ostatnio otwierane zapomina wszystkie; foldery, których już nie ma, są oznaczone jako nieznalezione.",

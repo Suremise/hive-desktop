@@ -168,7 +168,7 @@ const check = (name, ok, extra = '') => {
   // --- alpha's Templates tab: its own and the workspace's, with their scopes; Load goes into alpha.
   await page.locator('.activitybar [aria-label="Projects"]').click()
   await page.locator('.project-row', { hasText: 'alpha' }).first().click()
-  await page.locator('.tabs .tab').filter({ has: page.locator('.tab-label', { hasText: /^Templates$/ }) }).click()
+  await lib.openMoreTab(page, 'Templates')
   const tab = page.locator('.split-list').filter({ has: page.locator('.pane-header', { hasText: 'Templates' }) })
   await tab.waitFor({ timeout: 5000 })
   // Each row's name and the badge saying where it is kept.

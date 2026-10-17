@@ -65,6 +65,8 @@
   "panes.header.untakenTip": "Hiveが入力しましたが、CLIが受け付けていません（入力を読み取っていませんでした）：「{line}」。ターミナルをクリックしてEnterを押してください。CLIが受け付けるまで、Hiveはこれ以上何も入力しません。",
   "panes.header.watchTip": "{watch}：{kind, select, agent {{n, plural, other {エージェントが完了したとき}}、回答を待っているとき、停止したとき} lane {レビューが不合格になったとき、カードがブロック中または停滞になったとき、レーンのマージ時期が来たとき、レーンが終わったとき} other {{n, plural, other {カードが変わったとき}}}}、または何も起きなければ{limit}に、Hiveが1行入力して起こします。その間は何も実行されず、ほかの作業も受けません。",
   "panes.layout.name": "{layout, select, single {1つずつ} columns2 {2列} columns3 {3列} grid {2×2グリッド} other {3×2グリッド}}",
+  "panes.layout.narrowed": "{layout}：各ペインにターミナルが収まる幅になるまで{shown}で表示",
+  "panes.layout.shownName": "{layout, select, single {1つずつ} columns2 {2列} columns3 {3列} grid {2×2グリッド} other {3×2グリッド}}",
   "panes.layout.wide": "{layout}（幅の広いウィンドウか、サイドバーを隠したとき（Ctrl+B）に最適です）",
   "panes.leftovers.count": "{n, plural, other {#個が実行中}}",
   "panes.leftovers.end": "{n, plural, other {終了（#個）}}",

@@ -311,5 +311,7 @@
   "project.tab.skills": "Umiejętności",
   "project.tab.tasks": "Zadania",
   "project.tab.templates": "Szablony",
+  "project.tabs.more": "Więcej",
+  "project.tabs.moreTip": "{tabs} projektu",
   "project.tabs.tip": "{tab} ({key})"
 }
