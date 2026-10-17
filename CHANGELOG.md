@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Dismiss a "has finished" row in the Assistant panel without going there.** Pointing at (or tabbing to) a row in the panel's Workspace section now says what a click does (*Click to open HR3 and dismiss*), and a finished agent's row has a small **×** on its right that removes it without opening the agent. It comes back only when that agent finishes again.
 - **Backing up a transcript no longer gets in the agent's way.** Hive's first copy of a session's transcript could stop its coding agent writing to it at that moment (Windows reported the file busy): Hive now reads the transcript in a way that lets the agent keep writing. It was seen once in Hive's tests, where it ended an agent's session at its first prompt (#1041).
 - **The window title no longer runs into the menu.** In a narrow window in a language with long menu names (German's "Hilfe" ran into the project's name), the title now moves aside and is shortened with "…", or hides when there is no room.
 - **A slightly tighter project header.** **Resume** and **Stop** are quiet buttons like **Agents ▾** beside them, their colour on the icon (Stop turns red as you point at it), with short labels, **Resume (2)** and **Stop (10)**, whose tooltips say them in full. The agents' state line counts the idle and stopped ones too (*3 working · 7 idle · 2 stopped*), so Stop's and Resume's numbers make sense beside it, and the header is a few pixels shorter, closer to the tabs.

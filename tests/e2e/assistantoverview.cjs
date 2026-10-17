@@ -3,8 +3,9 @@
 // running" and "no agents" for the rest. Each line stays one line inside the panel at its narrowest and widest, on the
 // right and on the left (#158), in both themes and at 125% zoom, a long project name cut with "…". A mark's tooltip
 // names the agent, its status and its provider; the section's toggle shows names beside the marks (remembered across a
-// reload); clicking a mark focuses that agent, switching project. Dev build, throwaway profile and workspace, the fake
-// Claude Code (two agents started); quiet.
+// reload); clicking a mark focuses that agent, switching project. A "has finished" row says what a click does and has
+// a × that dismisses it without going there, until the agent finishes again (#1047). Dev build, throwaway profile and
+// workspace, the fake Claude Code (two agents started); quiet.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -171,6 +172,63 @@ const check = (name, ok, extra = '') => {
     check('a project’s name opens it', !!(await lib.until(async () => (await page.locator('.pane-header-bar .agent-name', { hasText: 'Resting' }).count()) === 1, HUNG_MS)))
     await row('alpha').locator(`.assistant-agent[data-agent="${a.Parked.id}"]`).click()
     check('…clicking Parked’s mark opens alpha with Parked focused', !!(await lib.until(async () => (await page.locator('.pane-header-bar.focused .agent-name', { hasText: 'Parked' }).count()) === 1, HUNG_MS)), await page.locator('.pane-header-bar.focused').innerText().catch(() => 'none focused'))
+
+    // A finish while you look elsewhere is a "has finished" row (#1047): its tooltip, on hover and focus and for screen
+    // readers, says a click opens the agent and dismisses it; its quiet × (on hover and focus, always in the tab order)
+    // dismisses it without going there, until that agent finishes again.
+    const finished = page.locator(`.assistant-attention[data-agent="${a.Coder.id}"]`)
+    const openRow = finished.locator('.assistant-attention-open')
+    const x = finished.locator('.assistant-attention-dismiss')
+    const finishUnseen = async () => {
+      await row('beta').locator('.assistant-project-name').click()
+      await lib.until(async () => (await page.locator('.pane-header-bar .agent-name', { hasText: 'Resting' }).count()) === 1, HUNG_MS)
+      await lib.until(async () => (await live(a.Coder.id))?.status === 'ready', HUNG_MS)
+      await lib.sendPrompt(inv, lib.ptyKey(alpha, a.Coder.id), 'hello', { submitted: async () => (await live(a.Coder.id))?.status !== 'ready' })
+      return !!(await lib.until(async () => (await openRow.count()) === 1 && (await live(a.Coder.id))?.unseen === true, HUNG_MS))
+    }
+    check('Coder finishes while beta is shown: “alpha · Coder has finished”', (await finishUnseen()) && (await openRow.innerText()).trim() === 'alpha · Coder has finished', await openRow.innerText().catch(() => 'no row'))
+    const hint = 'Click to open Coder and dismiss'
+    const rowTip = await lib.hoverTip(page, openRow, (t) => t === hint, HUNG_MS)
+    check('hovering the row: “Click to open Coder and dismiss”', rowTip === hint, rowTip)
+    const opacity = () => x.evaluate((el) => getComputedStyle(el).opacity)
+    check('…and its × shows on hover', !!(await lib.until(async () => (await opacity()) === '1', HUNG_MS)), await opacity())
+    check('…named “Dismiss: Coder has finished”', (await x.getAttribute('aria-label')) === 'Dismiss: Coder has finished', await x.getAttribute('aria-label'))
+    const edges = await finished.evaluate((r) => ({ row: Math.round(r.getBoundingClientRect().right), x: Math.round(r.querySelector('.assistant-attention-dismiss').getBoundingClientRect().right) }))
+    check('…on the right of the row', edges.row - edges.x <= 6, JSON.stringify(edges))
+    for (const theme of ['light', 'dark']) {
+      await inv('settings:update', { appearance: { theme } })
+      await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+      await page.locator('.assistant-overview').screenshot({ path: path.join(lib.WORK, `assistantoverview-finished-hover-${theme}.png`) })
+    }
+    await page.mouse.move(700, 600)
+    check('…and hides when the pointer leaves', !!(await lib.until(async () => (await opacity()) === '0', HUNG_MS)), await opacity())
+    // From the keyboard: Tab onto the row shows its tooltip; Tab again reaches the ×, which shows while focused.
+    await page.locator('.assistant-names').focus()
+    await page.keyboard.press('Tab')
+    check('Tab reaches the row', !!(await lib.until(async () => openRow.evaluate((el) => el === document.activeElement), HUNG_MS)))
+    const rowFocusTip = await lib.until(async () => (await page.locator('.tip:visible').allInnerTexts()).includes(hint), HUNG_MS)
+    check('…focused, it shows the same tooltip', !!rowFocusTip, await page.locator('.tip:visible').allInnerTexts().then((t) => t.join(' | ')))
+    const rowCdp = await page.context().newCDPSession(page)
+    const focused = (await rowCdp.send('Runtime.evaluate', { expression: 'document.activeElement' })).result
+    const rowAx = (await rowCdp.send('Accessibility.getPartialAXTree', { objectId: focused.objectId, fetchRelatives: false })).nodes[0]
+    const desc = rowAx?.description?.value ?? ''
+    check('…and a screen reader gets it as the row’s description', rowAx?.role?.value === 'button' && desc === hint, JSON.stringify({ role: rowAx?.role?.value, desc }))
+    await rowCdp.detach()
+    await page.keyboard.press('Tab')
+    check('Tab again reaches its ×, shown while focused', !!(await lib.until(async () => (await x.evaluate((el) => el === document.activeElement)) && (await opacity()) === '1', HUNG_MS)), await opacity())
+    for (const theme of ['light', 'dark']) {
+      await inv('settings:update', { appearance: { theme } })
+      await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+      await page.locator('.assistant-overview').screenshot({ path: path.join(lib.WORK, `assistantoverview-finished-focus-${theme}.png`) })
+    }
+    await page.keyboard.press('Enter')
+    check('the × dismisses the row', !!(await lib.until(async () => (await finished.count()) === 0, HUNG_MS)))
+    check('…without going to Coder: beta is still shown', (await page.locator('.pane-header-bar .agent-name', { hasText: 'Resting' }).count()) === 1 && (await page.locator('.pane-header-bar .agent-name', { hasText: 'Coder' }).count()) === 0)
+    check('…and it stays gone (Coder is seen)', (await live(a.Coder.id))?.unseen !== true && (await finished.count()) === 0)
+    check('Coder finishes again: the row is back', await finishUnseen())
+    await openRow.click()
+    check('clicking the row opens alpha with Coder focused', !!(await lib.until(async () => (await page.locator('.pane-header-bar.focused .agent-name', { hasText: 'Coder' }).count()) === 1, HUNG_MS)), await page.locator('.pane-header-bar.focused').innerText().catch(() => 'none focused'))
+    check('…and dismisses it', !!(await lib.until(async () => (await finished.count()) === 0, HUNG_MS)))
   } finally {
     await app.close()
   }
