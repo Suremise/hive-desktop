@@ -15,7 +15,7 @@ import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useDateStyle, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -222,36 +222,17 @@ async function renameSession(project: ProjectInfo, sessionId: string, current: s
 }
 
 /**
- * The session an agent is running, in its footer: its icon, with its name and when it started on hover. Click to
- * read it in the Sessions tab; right-click to rename it.
+ * The session an agent is running, in its menu (#978: an icon in its footer before): Open in Sessions Tab, with the
+ * session's name and when it started as its detail, and Rename Session….
  */
-function SessionName({ project, a, usage }: { project: ProjectInfo; a: AgentInfo; usage: SessionUsage | null | undefined }) {
-  const menu = useContextMenu()
-  const live = a.live
-  if (!live || live.settingUp || !live.sessionId) return null
+function sessionItems(project: ProjectInfo, live: LiveSessionState | null | undefined, usage: SessionUsage | null | undefined): MenuEntry[] {
+  if (!live || live.settingUp || !live.sessionId) return []
   const label = liveSessionLabel(project, live, usage)
-  const tip = tr(msg({ id: 'panes.session.tip', defaultMessage: '{session}\nRunning since {since}\nSession {id}\nClick to read it in the Sessions tab; right-click to rename it.', description: "Hover of the session icon in an agent's footer, four lines: the session's name, when it started ({since}: a date and time), its id, and what clicking does. Keep the line breaks." }), { session: label, since: formatDateTime(live.startedAt), id: live.sessionId })
-  const open = (): void => openInSessionsTab(project.path, live.sessionId)
-  return (
-    <>
-      <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-        <span
-          className="pane-foot-item session-tag"
-          aria-label={tr(msg({ id: 'panes.session.name', defaultMessage: 'Session: {session}', description: "Accessible name of the session icon in an agent's footer ({session}: the session's name)." }), { session: label })}
-          onClick={open}
-          onContextMenu={(e) =>
-            menu.open(e, [
-              { label: tr(msg({ id: 'panes.session.rename', defaultMessage: 'Rename…', description: "Menu item on the session icon in an agent's footer: renames the session." })), icon: 'tag', onClick: () => void renameSession(project, live.sessionId, label) },
-              { label: tr(msg({ id: 'panes.session.openInTab', defaultMessage: 'Open in Sessions Tab', description: "Menu item on the session icon in an agent's footer: reads the session in the Sessions tab." })), icon: 'history', onClick: open }
-            ])
-          }
-        >
-          <Icon name="comment-discussion" />
-        </span>
-      </Tooltip>
-      {menu.element}
-    </>
-  )
+  const id = live.sessionId
+  return [
+    { label: tr(msg({ id: 'panes.session.openInTab', defaultMessage: 'Open in Sessions Tab', description: "Menu item (an agent's menu): reads its running session in the Sessions tab; the session's name and start are its detail." })), icon: 'comment-discussion', detail: tr(msg({ id: 'panes.session.detail', defaultMessage: '{session} · since {since}', description: "The detail of Open in Sessions Tab in an agent's menu: the running session's name and when it started ({since}: a date and time)." }), { session: label, since: formatDateTime(live.startedAt) }), onClick: () => openInSessionsTab(project.path, id) },
+    { label: tr(msg({ id: 'panes.session.renameItem', defaultMessage: 'Rename Session…', description: "Menu item (an agent's menu): renames its running session." })), icon: 'tag', onClick: () => void renameSession(project, id, label) }
+  ]
 }
 
 // Dragging an agent (its strip tab or pane header) changes the project's order, which the panes follow (#135): dropped
@@ -402,7 +383,7 @@ function compactDetail(live: LiveSessionState, usage?: { empty: boolean; suggest
  * An agent's menu: its pane's ⋯ (after the pane's own items), its tab's and its pane header's right-click. `usage`: what
  * the pane knows of its conversation, for Compact… (unavailable while it is empty, recommended past the threshold).
  */
-function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?: { empty: boolean; suggested: boolean }): MenuEntry[] {
+function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?: { empty: boolean; suggested: boolean; session?: SessionUsage | null }): MenuEntry[] {
   const worktree = !!a.worktree
   const archiveItem = { label: tr(msg({ id: 'panes.menu.archiveStartNew', defaultMessage: 'Archive and Start New…', description: "Menu item (an agent's menu): archives the agent's conversation and starts a new one." })), icon: 'archive', action: 'archive-start' as const, onClick: () => void actions.archiveCurrent(project.path, a.id) }
   // What is left to merge, under Merge… (its count was the header's Merge button's before #977).
@@ -423,6 +404,7 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?:
     ...(a.live?.status === 'watching'
       ? [{ label: tr(msg({ id: 'panes.menu.cancelWatch', defaultMessage: 'Cancel Card Watch', description: "Menu item (a watching agent's menu): ends its watch, so nothing wakes it." })), icon: 'eye-closed', onClick: () => void call('watch:cancel', project.path, a.id).catch((e) => notify('error', tr(CANCEL_WATCH_FAILED), String((e as Error).message ?? e))) }]
       : []),
+    ...sessionItems(project, a.live, usage?.session),
     { label: tr(msg({ id: 'panes.menu.handOver', defaultMessage: 'Hand Over to…', description: "Menu item (an agent's menu): hands its work over to another agent or a new conversation." })), icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
     ...moveItems(project, a),
     { separator: true },
@@ -1114,7 +1096,7 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
   const narrow = !!width && width < MARKS_FROM
   const openMenu = (x: number, y: number, keyboard: boolean): void => {
     const { items } = paneItems(project, a, left, (sub, k) => menu.openAt(x, y, sub, k), narrow)
-    menu.openAt(x, y, [...items, ...agentMenu(project, a, () => void picker.openAt(project, a, x, y), { empty, suggested })], keyboard)
+    menu.openAt(x, y, [...items, ...agentMenu(project, a, () => void picker.openAt(project, a, x, y), { empty, suggested, session: usage })], keyboard)
   }
   const openBelow = (keyboard: boolean): void => {
     const r = more.current?.getBoundingClientRect()
@@ -1236,17 +1218,17 @@ function PaneHeader({ project, a, focused }: { project: ProjectInfo; a: AgentInf
 /** What a click on the footer's cost does, as its tooltip says. */
 const COST_CLICK = msg({ id: 'panes.footer.costClick', defaultMessage: "Click to see this session's details in the Overview", description: "The last line of the hover of a pane footer's cost: what clicking does (the project's Overview tab)." })
 
-/** The footer's context in tokens when its window's size isn't known: "120K ctx". */
-const CTX = msg({ id: 'panes.footer.ctx', defaultMessage: '{tokens} ctx', description: "A pane footer's context used, in tokens (\"120K ctx\"; – before it is read). ctx is short for context: keep it short." })
+/** The footer's context: "ctx 42%", or its tokens while the context window's size isn't known ("ctx 120K", "ctx –"). */
+const CTX = msg({ id: 'panes.footer.ctxValue', defaultMessage: 'ctx {value}', description: "A pane footer's context used: the percentage of the context window (\"42%\"), or its tokens while the window isn't known (\"120K\"; – before it is read). ctx is short for context: keep it short." })
 
-/** Between an item's icon and its text (.fit-text's margin in app.css). */
+/** Between a warning's icon and its text (.fit-text's margin in app.css). */
 const FIT_TEXT_GAP = 4
 
 /**
- * How many of the footer's items show just their icon to make room: 0 none, 1 the transcript size, 2 and the
- * context's tokens (its percentage stays), 3 and the whole context (the session's is always just its icon). Worked
- * out from what every item would take in full, so a level never flips back and forth. Past 3 the permission mode's
- * label shortens, then the model's, and only then is the cost cut off at the right (CSS).
+ * How many of the footer's warnings show just their icon to make room (#978): 0 none, 1 the background tasks', 2 and
+ * the transcript's (`data-give` on their texts). Worked out from what every item would take in full, so a level never
+ * flips back and forth. Past that the permission mode's label shortens, then the model's, and only then is the line cut
+ * off at the right (CSS).
  */
 function useFooterFit(): [React.RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null)
@@ -1258,22 +1240,18 @@ function useFooterFit(): [React.RefObject<HTMLDivElement | null>, number] {
     const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
     const gap = parseFloat(cs.columnGap) || 0
     const kids = [...el.children] as HTMLElement[]
-    // The row as it is: every item (the spacer takes no room of its own) and the gaps between them...
+    // The row as it is: every item and the gaps between them...
     let row = gap * Math.max(0, kids.length - 1)
-    for (const k of kids) if (!k.classList.contains('grow')) row += k.offsetWidth
+    for (const k of kids) row += k.offsetWidth
     // ...with any text the layout has cut short in full (the model, the mode's label).
     for (const c of el.querySelectorAll<HTMLElement>('.fit-clip')) row += Math.max(0, c.scrollWidth - c.clientWidth)
-    // The texts that give way, in full whatever is shown now.
-    const size = el.querySelector<HTMLElement>('.size-text')
-    const ctx = el.querySelector<HTMLElement>('.ctx-text')
-    const tokens = el.querySelector<HTMLElement>('.ctx-tokens')
-    const sizeW = size ? size.scrollWidth + FIT_TEXT_GAP : 0
-    const tokensW = tokens?.scrollWidth ?? 0
-    const pctW = ctx ? ctx.scrollWidth - (tokens?.offsetWidth ?? 0) + FIT_TEXT_GAP : 0
-    const shown = (l: number): number => (l >= 1 ? 0 : sizeW) + (l >= 3 ? 0 : pctW + (l >= 2 ? 0 : tokensW))
+    // The texts that give way, in full whatever is shown now, by the order they give way in.
+    const texts = [...el.querySelectorAll<HTMLElement>('.fit-text')].map((t) => ({ give: Number(t.dataset.give), w: t.scrollWidth + FIT_TEXT_GAP }))
+    const most = Math.max(0, ...texts.map((t) => t.give))
+    const shown = (l: number): number => texts.reduce((sum, t) => sum + (t.give > l ? t.w : 0), 0)
     const base = row - shown(level)
     let next = 0
-    while (next < 3 && base + shown(next) > avail + 0.5) next++
+    while (next < most && base + shown(next) > avail + 0.5) next++
     // Back to more text only with room to spare: widths read at different levels round differently (at 125%, say),
     // and without this a footer on the edge would flip between two levels.
     while (next < level && base + shown(next) > avail - 2) next++
@@ -1301,9 +1279,12 @@ function useFooterFit(): [React.RefObject<HTMLDivElement | null>, number] {
 }
 
 /**
- * The agent's session details: model and effort, permission mode, the session's name, context used and cost. Clicking the model
- * opens the agent's settings (or `onSettings`), the context its session in the project's Overview (or `onContext`), the
- * transcript size Hand Over to… (or `onTranscript`, with `transcriptAdvice` in its tooltip).
+ * The agent's session details in one quiet line (#978): model · effort, the permission mode, the context used and the
+ * cost; the context's tokens, the transcript's size and the session's cost detail on hover. Warnings only when they
+ * matter, in the warning colour: the context past the Compact threshold, the transcript past its warn size, background
+ * tasks running. Clicking the model opens the agent's settings (or `onSettings`), the context its session in the
+ * project's Overview (or `onContext`), the transcript warning Hand Over to… (or `onTranscript`, with `transcriptAdvice`
+ * in its tooltip).
  */
 export function PaneFooter({
   project,
@@ -1312,8 +1293,7 @@ export function PaneFooter({
   onContext,
   onTranscript,
   transcriptAdvice,
-  settingsName,
-  showSession = true
+  settingsName
 }: {
   project: ProjectInfo
   a: AgentInfo
@@ -1322,8 +1302,6 @@ export function PaneFooter({
   onTranscript?: () => void
   transcriptAdvice?: string
   settingsName?: string
-  /** The running session's name, right-aligned before the context (agents; the Assistant shows its own). */
-  showSession?: boolean
 }) {
   useLanguage()
   const settings = useStore((s) => s.settings)
@@ -1349,13 +1327,32 @@ export function PaneFooter({
   const bytes = live?.transcriptBytes
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
+  const tasks = live?.backgroundTasks ?? 0
   // The first time either turns amber: the tip about what to do.
   useEffect(() => void (long && offerTip('transcript-long')), [long])
   useEffect(() => void (over && offerTip('compact-suggested')), [over])
-  useDateStyle() // the session's tooltip says when it started
   // The cost opens the session's details in the Overview (an agent's: the Assistant's footer has nowhere to go).
   const costClick = onContext ? undefined : (): void => showInOverview(project.path, a.id, 'session')
   const [footerRef, fit] = useFooterFit()
+  const transcriptTip = (size: number): string =>
+    tr(
+      msg({
+        id: 'panes.footer.transcriptTip',
+        defaultMessage: "Transcript: {size}{limit, select, none {} other { (flagged over {limit} MB: Settings → Sessions)}}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.{advice, select, none {} other { {advice}}}",
+        description: "Hover of a pane footer's transcript warning, and a line of its context's hover ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
+      }),
+      {
+        size: formatSize(size),
+        limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
+        advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
+      }
+    )
+  // A dot between items, for the eye only.
+  const sep = (key: string) => (
+    <span key={key} className="foot-sep" aria-hidden="true">
+      ·
+    </span>
+  )
   return (
     <div ref={footerRef} className="pane-footer-bar" data-fit={fit} onMouseDown={() => focusAgent(project.path, a.id)}>
       <Tooltip
@@ -1373,88 +1370,94 @@ export function PaneFooter({
           {effort && <span className="faint"> · {effort}</span>}
         </span>
       </Tooltip>
+      {sep('s1')}
       <ModeBadge project={project} a={a} variant="pane" />
-      <div className="grow" />
-      {showSession && <SessionName project={project} a={a} usage={usage} />}
       {usage ? (
-        <Tooltip
-          content={
-            // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
-            <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
-              {[
-                ...contextLines(usage, live?.autoCompact, tr),
-                tr(msg({ id: 'panes.footer.compactions', defaultMessage: '{n, plural, one {# compaction so far} other {# compactions so far}}{over, select, yes { — consider compacting} other {}}', description: "A line of the hover of a pane footer's context: how many times the conversation was compacted, and (over the user's threshold) a suggestion to compact." }), { n: usage.compactions.length, over: over ? 'yes' : 'no' }),
-                ...(usage.stale ? [tr(msg({ id: 'panes.footer.stale', defaultMessage: 'Couldn’t read it again just now: this may be behind.', description: "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old." }))] : []),
-                ...(onContext ? [] : ['', tr(msg({ id: 'panes.footer.compactionHistory', defaultMessage: 'Click to view compaction history', description: "The last line of the hover of a pane footer's context: clicking shows the session's compactions in the Overview." }))])
-              ].join('\n')}
+        <>
+          {sep('s2')}
+          <Tooltip
+            content={
+              // A click opens the session in the Overview, with its compaction history (the Assistant's footer opens nothing).
+              <span className="ctx-tip" style={{ whiteSpace: 'pre-line' }}>
+                {[
+                  ...contextLines(usage, live?.autoCompact, tr),
+                  tr(msg({ id: 'panes.footer.compactions', defaultMessage: '{n, plural, one {# compaction so far} other {# compactions so far}}{over, select, yes { — consider compacting} other {}}', description: "A line of the hover of a pane footer's context: how many times the conversation was compacted, and (over the user's threshold) a suggestion to compact." }), { n: usage.compactions.length, over: over ? 'yes' : 'no' }),
+                  ...(bytes !== undefined && !long ? [tr(msg({ id: 'panes.footer.transcriptLine', defaultMessage: 'Transcript: {size}', description: "A line of the hover of a pane footer's context: the size of the conversation's transcript ({size}: \"12 MB\")." }), { size: formatSize(bytes) })] : []),
+                  ...(usage.stale ? [tr(msg({ id: 'panes.footer.stale', defaultMessage: 'Couldn’t read it again just now: this may be behind.', description: "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old." }))] : []),
+                  ...(onContext ? [] : ['', tr(msg({ id: 'panes.footer.compactionHistory', defaultMessage: 'Click to view compaction history', description: "The last line of the hover of a pane footer's context: clicking shows the session's compactions in the Overview." }))])
+                ].join('\n')}
+              </span>
+            }
+          >
+            <span className={cx('pane-foot-item', 'foot-ctx', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
+              {over && <Icon name="warning" />}
+              <span className="ctx-text">{tr(CTX, { value: pct === null ? formatTokens(ctx) : fmt.percent(pct / 100) })}</span>
             </span>
-          }
-        >
-          <span className={cx('pane-foot-item', over && 'warn', usage.stale && 'stale')} onClick={() => (onContext ? onContext() : showInOverview(project.path, a.id))}>
-            <Icon name="dashboard" />
-            {/* Short of room the tokens give way, then the percentage (useFooterFit): the tooltip has them. */}
-            <span className="fit-text ctx-text">
-              {pct === null ? (
-                tr(CTX, { tokens: formatTokens(ctx) })
-              ) : (
-                <>
-                  <span className="ctx-tokens">{formatTokens(ctx)} · </span>
-                  {fmt.percent(pct / 100)}
-                </>
-              )}
-            </span>
-          </span>
-        </Tooltip>
+          </Tooltip>
+        </>
       ) : (
         // A new or other conversation: its own numbers aren't read yet (the previous one's never show).
         pending && (
-          <Tooltip content={tr(msg({ id: 'panes.footer.reading', defaultMessage: "Reading this conversation's usage…", description: "Hover of a pane footer's context before its numbers are read." }))}>
-            <span className="pane-foot-item faint usage-pending">
-              <Icon name="dashboard" /> {tr(CTX, { tokens: '–' })}
-            </span>
-          </Tooltip>
+          <>
+            {sep('s2')}
+            <Tooltip content={tr(msg({ id: 'panes.footer.reading', defaultMessage: "Reading this conversation's usage…", description: "Hover of a pane footer's context before its numbers are read." }))}>
+              <span className="pane-foot-item faint usage-pending">{tr(CTX, { value: '–' })}</span>
+            </Tooltip>
+          </>
         )
       )}
-      {bytes !== undefined && (
-        <Tooltip
-          content={tr(
-            msg({
-              id: 'panes.footer.transcriptTip',
-              defaultMessage: "Transcript: {size}{limit, select, none {} other { (flagged over {limit} MB: Settings → Sessions)}}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.{advice, select, none {} other { {advice}}}",
-              description: "Hover of a pane footer's transcript size ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
-            }),
-            {
-              size: formatSize(bytes),
-              limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
-              advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
-            }
-          )}
-        >
-          <span className={cx('pane-foot-item', long ? 'warn' : 'faint')} onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
-            <Icon name="file" />
-            <span className="fit-text size-text">{formatSize(bytes)}</span>
-          </span>
-        </Tooltip>
-      )}
       {cost !== null && cost > 0 && (
-        <Tooltip
-          content={
-            <span style={{ whiteSpace: 'pre-line' }}>
-              {`${estimated ? tr(msg({ id: 'panes.footer.costEstimated', defaultMessage: 'API-equivalent cost of this session, estimated by Hive from its tokens', description: "Hover of a pane footer's cost (≈): Hive estimated it from the session's tokens at API prices." })) : tr(msg({ id: 'panes.footer.costReported', defaultMessage: 'API-equivalent cost of this session, as the provider reports it', description: "Hover of a pane footer's cost: the provider reported it, at API prices." }))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}
+        <>
+          {sep('s3')}
+          <Tooltip
+            content={
+              <span style={{ whiteSpace: 'pre-line' }}>
+                {`${estimated ? tr(msg({ id: 'panes.footer.costEstimated', defaultMessage: 'API-equivalent cost of this session, estimated by Hive from its tokens', description: "Hover of a pane footer's cost (≈): Hive estimated it from the session's tokens at API prices." })) : tr(msg({ id: 'panes.footer.costReported', defaultMessage: 'API-equivalent cost of this session, as the provider reports it', description: "Hover of a pane footer's cost: the provider reported it, at API prices." }))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}
+              </span>
+            }
+          >
+            <span className="pane-foot-item foot-cost" onClick={costClick}>
+              {estimated ? '≈' : ''}
+              {moneyLabel(cost)}
             </span>
-          }
-        >
-          <span className="pane-foot-item faint foot-cost" onClick={costClick}>
-            {estimated ? '≈' : ''}{moneyLabel(cost)}
-          </span>
-        </Tooltip>
+          </Tooltip>
+        </>
       )}
       {cost === null && usage && unpricedModel(usage.provider, usage.model, settings) && (
-        <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${unpricedText(usage.model!, providerName(usage.provider))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}</span>}>
-          <span className="pane-foot-item faint foot-cost" onClick={costClick}>
-            $?
-          </span>
-        </Tooltip>
+        <>
+          {sep('s3')}
+          <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{`${unpricedText(usage.model!, providerName(usage.provider))}${costClick ? `\n\n${tr(COST_CLICK)}` : ''}`}</span>}>
+            <span className="pane-foot-item foot-cost" onClick={costClick}>
+              $?
+            </span>
+          </Tooltip>
+        </>
+      )}
+      {long && (
+        <>
+          {sep('s4')}
+          <Tooltip content={transcriptTip(bytes)}>
+            <span className="pane-foot-item warn foot-transcript" onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
+              <Icon name="warning" />
+              <span className="fit-text size-text" data-give="2">
+                {formatSize(bytes)}
+              </span>
+            </span>
+          </Tooltip>
+        </>
+      )}
+      {tasks > 0 && (
+        <>
+          {sep('s5')}
+          <Tooltip content={tr(msg({ id: 'panes.footer.tasksTip', defaultMessage: '{n, plural, one {A background task it started is still running.} other {# background tasks it started are still running.}} Its status says whether its turn waits for them.', description: "Hover of a pane footer's background-task warning: how many background tasks ({n}) the agent started are still running." }), { n: tasks })}>
+            <span className="pane-foot-item warn foot-tasks">
+              <Icon name="warning" />
+              <span className="fit-text tasks-text" data-give="1">
+                {tr(msg({ id: 'panes.footer.tasks', defaultMessage: '{n, plural, one {# background task} other {# background tasks}}', description: "A pane footer's warning: how many background tasks ({n}) the agent started are still running. Keep it short." }), { n: tasks })}
+              </span>
+            </span>
+          </Tooltip>
+        </>
       )}
     </div>
   )

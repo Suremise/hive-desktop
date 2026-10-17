@@ -36,12 +36,15 @@ interface HiveMessageValues {
   'panes.footer.costClick': undefined
   'panes.footer.costEstimated': undefined
   'panes.footer.costReported': undefined
-  'panes.footer.ctx': { tokens: string | number }
+  'panes.footer.ctxValue': { value: string | number }
   'panes.footer.handOverAdvice': undefined
   'panes.footer.modelTip': { chosenAs: string; model: string | number; provider: string | number; effort: string; live: string; reported: string; where: string | number }
   'panes.footer.reading': undefined
   'panes.footer.settingsName': undefined
   'panes.footer.stale': undefined
+  'panes.footer.tasks': { n: number }
+  'panes.footer.tasksTip': { n: number }
+  'panes.footer.transcriptLine': { size: string | number }
   'panes.footer.transcriptTip': { size: string | number; limit: string; advice: string }
   'panes.header.asks': { question: string | number }
   'panes.header.asksSomething': undefined
@@ -119,14 +122,13 @@ interface HiveMessageValues {
   'panes.safeguard.stopped': { model: string; time: string | number; stops: number }
   'panes.safeguard.switched': { to: string | number; from: string | number; time: string | number }
   'panes.safeguard.tools': { tools: string | number }
-  'panes.session.name': { session: string | number }
+  'panes.session.detail': { session: string | number; since: string | number }
   'panes.session.new': undefined
   'panes.session.openInTab': undefined
-  'panes.session.rename': undefined
   'panes.session.renameButton': undefined
   'panes.session.renameFailed': undefined
+  'panes.session.renameItem': undefined
   'panes.session.renameTitle': undefined
-  'panes.session.tip': { session: string | number; since: string | number; id: string | number }
   'panes.tab.failed': { why: string | number }
   'panes.tab.mcp': { servers: string | number }
   'panes.tab.notRunning': undefined

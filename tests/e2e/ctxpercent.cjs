@@ -60,20 +60,31 @@ const until = async (fn, ms = 10000) => {
   /** Whether the window shows that theme yet (settings reach it as an event, after settings:update returns). */
   const themeIs = (theme) => async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme
   const footer = page.locator('.pane-footer-bar').first()
-  const ctxItem = footer.locator('.pane-foot-item', { has: page.locator('.codicon-dashboard') })
+  // "ctx 42%", or its tokens while the window isn't known (#978: the tokens are in its tooltip).
+  const ctxItem = footer.locator('.foot-ctx')
   const text = () => ctxItem.innerText().catch(() => '')
+  const tip = page.locator('.tip .ctx-tip')
+  /** The context's tokens and window, as its tooltip's first line says them. */
+  const tipFigures = async () => {
+    await ctxItem.hover()
+    await until(async () => (await tip.count()) === 1, 5000)
+    const m = (await tip.innerText().catch(() => '')).match(/^Context: ([\d,]+) tokens(?: of ([\d,]+))?/)
+    await page.mouse.move(5, 5)
+    await until(async () => (await tip.count()) === 0, 5000)
+    return m ? m.slice(1).map((x) => (x ? Number(x.replace(/,/g, '')) : null)) : []
+  }
 
   await send('hello')
-  check('without a known window: tokens only', !!(await until(async () => /^\s*\d+(\.\d)?k? ctx$/.test(await text()), 8000)), await text())
+  check('without a known window: its tokens', !!(await until(async () => /^\s*ctx \d+(\.\d)?k?$/.test(await text()), 8000)), await text())
   await send('hello again window 1000')
-  check('once the CLI reports it: tokens and percentage', !!(await until(async () => /^\s*\d+ ·\s+\d+%$/.test(await text()), 8000)), await text())
-  const [tokens, pct] = (await text()).trim().match(/(\d+) ·\s+(\d+)%/)?.slice(1).map(Number) ?? []
-  check('the percentage is of that window', pct === Math.round((tokens / 1000) * 100), `${tokens} tokens, ${pct}%`)
+  check('once the CLI reports it: the percentage', !!(await until(async () => /^\s*ctx \d+%$/.test(await text()), 8000)), await text())
+  const pct = Number((await text()).match(/(\d+)%/)?.[1])
+  const [tokens, win] = await tipFigures()
+  check('the percentage is of that window, the tokens in the tooltip', win === 1000 && pct === Math.round((tokens / 1000) * 100), `${tokens} of ${win} tokens, ${pct}%`)
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-1-wide.png') })
 
   // --- Its tooltip ends with an empty line, then what a click does (#121).
   await ctxItem.hover()
-  const tip = page.locator('.tip .ctx-tip')
   await until(async () => (await tip.count()) === 1, 5000)
   const lines = (await tip.innerText().catch(() => '')).split('\n')
   check('the tooltip: the context, an empty line, then "Click to view compaction history"', /^Context: \d/.test(lines[0] ?? '') && lines.length >= 3 && lines.at(-2) === '' && lines.at(-1) === 'Click to view compaction history', JSON.stringify(lines))
@@ -90,23 +101,23 @@ const until = async (fn, ms = 10000) => {
 
   // With a real window (200K), the tooltip says where Claude Code compacts by itself (#154): about 167K.
   await send('and once more window 200000')
-  await until(async () => /^\s*\d+ ·\s+0%$/.test(await text()), 8000)
+  await until(async () => /^\s*ctx 0%$/.test(await text()), 8000)
   await ctxItem.hover()
   check('…and where Claude Code compacts by itself, for a 200K window: its default, nothing set (#242)', !!(await until(async () => (await tip.innerText().catch(() => '')).includes('Claude Code compacts by itself at about 167,000, its default for this window'), 5000)), await tip.innerText().catch(() => ''))
   check("…called an estimate, since policies Hive can't read could change it (#273)", (await tip.innerText().catch(() => '')).includes("(an estimate: managed policies Hive can't read"), await tip.innerText().catch(() => ''))
   await page.mouse.move(5, 5)
 
-  // --- A narrow footer keeps the percentage.
-  // Narrowed until the context gives up its tokens (after the transcript size: footerfit has the whole order). The
-  // tokens stay in the text for screen readers, at no width.
-  const shows = () => ctxItem.evaluate((el) => ({ tokens: el.querySelector('.ctx-tokens')?.clientWidth ?? -1, ctx: el.querySelector('.ctx-text')?.clientWidth ?? -1 }))
-  let narrow = await shows()
-  for (let w = 700; w >= 150 && !(narrow.tokens === 0 && narrow.ctx > 0); w -= 10) {
-    await footer.evaluate((el, px) => (el.style.width = `${px}px`), w)
-    await lib.sleep(60)
-    narrow = await shows()
-  }
-  check('narrow: only the percentage', narrow.tokens === 0 && narrow.ctx > 0, JSON.stringify(narrow))
+  // --- A narrow footer keeps the percentage whole (the model and the mode give way first: footerfit has the order).
+  const shows = () => ctxItem.evaluate((el) => {
+    const t = el.querySelector('.ctx-text')
+    return { width: t?.clientWidth ?? -1, full: t?.scrollWidth ?? -1 }
+  })
+  await footer.evaluate((el) => (el.style.width = '220px'))
+  const narrow = await until(async () => {
+    const r = await shows()
+    return r.width > 0 && r.width >= r.full && r
+  }, HUNG_MS)
+  check('narrow (220 px): the percentage is whole', !!narrow, JSON.stringify(await shows()))
   await page.screenshot({ path: path.join(lib.WORK, 'ctxpercent-2-narrow.png') })
   await footer.evaluate((el) => (el.style.width = ''))
 

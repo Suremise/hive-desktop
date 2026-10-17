@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **A quieter pane header.** Each agent's pane header now shows only its state, its name, its status and its card, with **Stop** (or **Resume** while it isn't running) and **⋯**. Everything else is in **⋯**, also a right-click on the header: Compact…, Hand Over to…, Review Changes and Merge… (with what is left to merge), the agent's settings and Remove. Processes it left running, unread messages and the files it is editing are at the top of that menu, with a dot on ⋯ when something needs a look. **Session → Agent Menu…** opens it from the keyboard. Hover the agent's name for its provider.
+- **A one-line pane footer.** Each agent's footer is now one quiet line: model · effort · mode · ctx 42% · cost. The context's tokens and the transcript's size are in the context's hover. Warnings show only when they matter, in amber: the context past your Compact threshold, a transcript past its warn size (click it to hand over), and background tasks still running. The running session's name, Open in Sessions Tab and Rename Session… are in the agent's ⋯.
 
 ## 0.8.1 — 17 October 2026
 
