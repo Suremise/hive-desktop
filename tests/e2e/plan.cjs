@@ -94,7 +94,7 @@ const check = (n, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'}  ${n}
   await page.locator('.activity-btn[aria-label="Projects"]').click()
   await sleep(300)
   await page.getByText('demo', { exact: true }).first().click()
-  await page.locator('.tab', { hasText: 'Settings' }).click(); await sleep(500)
+  await lib.openProjectSettings(page)
   await page.locator('.settings-nav .row', { hasText: 'Claude Code' }).click(); await sleep(300)
   const pp = page.locator('.setting', { hasText: 'Model' }).locator('.model-picker').first()
   check('project picker offers Inherit', !!(await lib.until(async () => ((await pp.locator('option').first().textContent({ timeout: 1000 }).catch(() => '')) ?? '').startsWith('Inherit'), HUNG_MS)))

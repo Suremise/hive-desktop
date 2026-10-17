@@ -62,7 +62,7 @@ const excludeOf = (p) => {
   // Dismissed in the Overview: gone there, still in Project Settings.
   await notice.locator('button[aria-label^="Don\'t show this here again"]').click()
   check('✕ dismisses it in the Overview', !!(await lib.until(async () => (await notice.count()) === 0, 5000)))
-  await page.locator('.tabs .tab', { hasText: 'Settings' }).click()
+  await lib.openProjectSettings(page)
   check('Project Settings still shows it', !!(await lib.until(async () => (await page.locator('.settings .hive-vcs-notice').count()) === 1, 5000)))
   await shot('settings')
   // Exclude refuses where no git repository holds the project.

@@ -1,6 +1,6 @@
 import { asksYou } from './inbox'
-import { msg, type Msg } from './i18n'
-import type { LiveSessionState } from './types'
+import { msg, tr, type Msg } from './i18n'
+import type { AgentInfo, LiveSessionState, ProjectInfo, TaskCard } from './types'
 
 /**
  * An agent's state as the session page marks it (#973, Hive 0.9.0): four states, each drawn with its own shape as well
@@ -37,6 +37,21 @@ export function agentState(live: StateFields | null | undefined, extras: AgentSt
   return 'idle'
 }
 
+/**
+ * What the board says of an agent: a card it has in Doing or Review blocked on the user, or one in Doing while it isn't
+ * running (the board's stalledReason for an agent still there).
+ */
+export function boardExtras(projectName: string, agent: Pick<AgentInfo, 'id' | 'live'>, cards: readonly Pick<TaskCard, 'project' | 'agent' | 'column' | 'blocked' | 'archived'>[]): AgentStateExtras {
+  const name = projectName.toLowerCase()
+  const mine = cards.filter((c) => !c.archived && c.agent === agent.id && c.project.toLowerCase() === name && (c.column === 'doing' || c.column === 'review'))
+  return { blocked: mine.some((c) => !!c.blocked), stalled: !agent.live && mine.some((c) => c.column === 'doing') }
+}
+
+/** Each of a project's agents' states, in the project's order, with what the board says of them. */
+export function projectAgentStates(project: Pick<ProjectInfo, 'name' | 'agents'>, cards: readonly Pick<TaskCard, 'project' | 'agent' | 'column' | 'blocked' | 'archived'>[]): AgentState[] {
+  return project.agents.map((a) => agentState(a.live, boardExtras(project.name, a, cards)))
+}
+
 /** Each state's name, one for every place a mark is shown (its accessible name, a legend, a summary's tooltip). */
 export const AGENT_STATE_LABEL: Record<AgentState, Msg> = {
   waiting: msg({ id: 'session.state.waiting', defaultMessage: 'Waiting for you', description: "An agent's state, shown as a diamond: it asks you something (a permission, a question, a sign-in) or a card it has is blocked on you." }),
@@ -56,4 +71,24 @@ export function stateCounts(states: Iterable<AgentState>): Record<AgentState, nu
 export function mostUrgent(states: Iterable<AgentState>): AgentState {
   const n = stateCounts(states)
   return AGENT_STATES.find((s) => n[s] > 0) ?? 'idle'
+}
+
+/** A count of agents in a state, for a summary ("2 working"). */
+const STATE_COUNT: Record<AgentState, Msg> = {
+  waiting: msg({ id: 'session.state.countWaiting', defaultMessage: '{n, plural, other {# waiting}}', description: 'How many agents wait for you, in a summary of the agents of a project ("1 waiting · 2 working"). {n} is how many.' }),
+  stalled: msg({ id: 'session.state.countStalled', defaultMessage: '{n, plural, other {# stalled}}', description: 'How many agents are stalled, in a summary of the agents of a project ("1 stalled · 2 working"). {n} is how many.' }),
+  working: msg({ id: 'session.state.countWorking', defaultMessage: '{n, plural, other {# working}}', description: 'How many agents are working, in a summary of the agents of a project ("1 waiting · 2 working"). {n} is how many.' }),
+  idle: msg({ id: 'session.state.countIdle', defaultMessage: '{n, plural, other {# idle}}', description: 'How many agents are idle, in a summary of the agents of a project ("2 working · 3 idle"). {n} is how many.' })
+}
+
+/**
+ * Agents' states in one line, most urgent first: "1 waiting · 2 working". Idle agents are left out unless `idle` is
+ * set or every agent is idle; '' for none.
+ */
+export function stateSummary(states: Iterable<AgentState>, idle = false): string {
+  const n = stateCounts(states)
+  const busy = n.waiting + n.stalled + n.working > 0
+  return AGENT_STATES.filter((s) => n[s] > 0 && (s !== 'idle' || idle || !busy))
+    .map((s) => tr(STATE_COUNT[s], { n: n[s] }))
+    .join(' · ')
 }

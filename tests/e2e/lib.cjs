@@ -965,4 +965,30 @@ async function haikuAutoCaveat(page, autoOffered, timeoutMs = 10000) {
   return [ok, JSON.stringify(await caveat())]
 }
 
-module.exports = { ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
+/**
+ * The project header's Agents ▾ menu (#974: Start New, Archive and Start New, Remove All): opens it and returns its
+ * entries' labels (the menu stays open), or [] when the header has no Agents ▾ (no agents, or cramped into ⋯).
+ */
+async function agentsMenu(page, ms = 10000) {
+  const button = page.locator('.project-header .agents-menu')
+  if (!(await button.count())) return []
+  await button.click()
+  await until(async () => (await page.locator('.menu .menu-item').count()) > 0, ms)
+  return (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
+}
+
+/** Runs the Agents ▾ entry with this label ("Start New (3)", "Remove All (4)…"); throws if it isn't there. */
+async function agentsMenuRun(page, label, ms = 10000) {
+  const items = await agentsMenu(page, ms)
+  if (!items.includes(label)) throw new Error(`Agents ▾ has no "${label}": ${JSON.stringify(items)}`)
+  await page.locator('.menu .menu-item').filter({ hasText: new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`) }).first().click()
+}
+
+/** Opens the project's settings from the header's ⋯ (#974: Settings left the tab strip), and waits for them. */
+async function openProjectSettings(page, ms = 10000) {
+  await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
+  await page.locator('.menu .menu-item', { hasText: 'Project Settings' }).click()
+  if (!(await until(async () => (await page.locator('.tab-body .settings-top').count()) > 0, ms))) throw new Error("Project Settings didn't open")
+}
+
+module.exports = { agentsMenu, agentsMenuRun, openProjectSettings, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }

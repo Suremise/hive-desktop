@@ -95,7 +95,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await sleep(300)
   console.log('rows before alpha', await page.locator('.project-row').count(), await page.evaluate(() => document.querySelector('.activity-btn.active')?.getAttribute('aria-label')))
   await page.locator('.project-row', { hasText: 'alpha' }).click(); await lib.until(async () => /alpha/.test(await page.locator('.project-header h1').innerText().catch(() => '')), HUNG_MS)
-  await page.locator('.tabs .tab', { hasText: 'Settings' }).click(); await lib.until(async () => /Settings/.test(await tab().catch(() => '')), HUNG_MS)
+  await lib.openProjectSettings(page)
   await page.locator('.settings-nav .row, .psettings-nav .row, .row', { hasText: 'Keyboard Shortcuts' }).first().click(); await lib.until(async () => (await page.locator('.kb-table').innerText().catch(() => '')).includes('Go to Files'), HUNG_MS)
   check('project editor lists only project/session commands', !(await page.locator('.kb-table').innerText()).includes('Toggle Sidebar') && (await page.locator('.kb-table').innerText()).includes('Go to Files'))
   console.log('rows after kb nav', await page.locator('.project-row').count())

@@ -2,17 +2,19 @@ import { Children, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import type { ProjectInfo } from '@shared/types'
 import { agentLaunchSettings, defaultProviderWarning, isProviderEnabled, modeOption, providerName } from '@shared/providers'
 import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
-import { archiveTarget, batchCounts } from '@shared/startAll'
-import { PROJECT_TABS, tabCommand } from '@shared/projectTabs'
+import { batchCounts } from '@shared/startAll'
+import { STRIP_TABS, tabCommand } from '@shared/projectTabs'
+import { mostUrgent, projectAgentStates, stateSummary } from '@shared/agentState'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, AgentStrip, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { Icon, IconButton, STATUS_TEXT, Switch, Tooltip, useContextMenu, useFolds } from '../components/ui'
+import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
+import { StateMark } from '../components/StateMark'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
-import { agentProviderOf, projectKey, projectState, set, setProjectTab, useFocusedAgent, useLanguage, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, set, setProjectTab, useFocusedAgent, useLanguage, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { AttachmentsTab, FilesTab } from './FilesTab'
 import { GitTab } from './GitTab'
@@ -24,8 +26,8 @@ import { ErrorBoundary } from '../components/ErrorBoundary'
 import { ProjectTasksTab } from '../components/Board'
 import { RemovedDataBanner } from '../components/ProjectRemoval'
 
-// The tabs, in order: shared with the title bar's Project menu (#216).
-const TABS = PROJECT_TABS
+// The tabs the strip shows, in order: the title bar's Project menu has them too, and Settings (#974).
+const TABS = STRIP_TABS
 
 const M = {
   tabTip: msg({ id: 'project.tabs.tip', defaultMessage: '{tab} ({key})', description: "A project tab's tooltip with its keyboard shortcut. {tab} is the tab's name, {key} the shortcut, such as Alt+4." }),
@@ -58,17 +60,12 @@ const M = {
   stopAgent: msg({ id: 'project.header.stopAgent', defaultMessage: 'Stop Agent', description: "The project header's button when one agent is running." }),
   stopMany: msg({ id: 'project.header.stopMany', defaultMessage: 'Stop ({count})', description: "The project header's button: stops every running agent. {count} is how many." }),
   stopTip: msg({ id: 'project.header.stopTip', defaultMessage: '{count, plural, one {Stop the running agent} other {Stop the # running agents}}', description: "Tooltip on the project header's Stop button." }),
-  startNew: msg({ id: 'project.header.startNew', defaultMessage: '{many, select, yes {Start New ({count})} other {Start New}}', description: "The project header's button: starts a fresh session for each agent. {count} is how many (shown with several agents)." }),
-  startNewTip: msg({ id: 'project.header.startNewTip', defaultMessage: '{many, select, yes {Start a fresh session for each of the {count} agents; running ones are stopped first} other {Start a fresh session; a running one is stopped first}}', description: 'Tooltip on Start New.' }),
-  archiveNew: msg({ id: 'project.header.archiveNew', defaultMessage: '{many, select, yes {Archive and Start New ({count})} other {Archive and Start New}}', description: "The project header's button: archives each agent's session and starts a fresh one." }),
-  archiveNewTip: msg({ id: 'project.header.archiveNewTip', defaultMessage: "{many, select, yes {{count, plural, one {Archive {agent}'s session and start a fresh one} other {Archive the sessions of the # agents that have one and start fresh ones}}} other {Archive the current session and start a fresh one}}", description: "Tooltip on Archive and Start New. {agent} is the one agent with a session to archive." }),
-  removeAll: msg({ id: 'project.header.removeAll', defaultMessage: '{many, select, yes {Remove All ({count})} other {Remove Agent}}', description: "The project header's button: removes every agent (asks first)." }),
-  removeAllMenu: msg({ id: 'project.header.removeAllMenu', defaultMessage: '{many, select, yes {Remove All ({count})…} other {Remove Agent…}}', description: "The same in the header's ⋯ menu (it asks first)." }),
-  removeAllTip: msg({ id: 'project.header.removeAllTip', defaultMessage: '{many, select, yes {Remove the {count} agents (asks first; their sessions are kept)} other {Remove {agent} (asks first; its sessions are kept)}}', description: 'Tooltip on Remove All.' }),
+  startNew: msg({ id: 'project.header.startNew', defaultMessage: '{many, select, yes {Start New ({count})} other {Start New}}', description: "The project header's Agents ▾ menu: starts a fresh session for each agent. {count} is how many (shown with several agents)." }),
+  archiveNew: msg({ id: 'project.header.archiveNew', defaultMessage: '{many, select, yes {Archive and Start New ({count})} other {Archive and Start New}}', description: "The project header's Agents ▾ menu: archives each agent's session and starts a fresh one." }),
+  removeAllMenu: msg({ id: 'project.header.removeAllMenu', defaultMessage: '{many, select, yes {Remove All ({count})…} other {Remove Agent…}}', description: "The project header's Agents ▾ menu (or its ⋯ menu when narrow): removes every agent (it asks first)." }),
   dangerousMode: msg({ id: 'project.banner.dangerousMode', defaultMessage: '{agent}: {mode}', description: 'One agent and its permission mode, in the banner about modes that run without asking.' }),
-  agentsTip: msg({ id: 'project.header.noAgents', defaultMessage: 'No agents yet', description: "Tooltip on the project's status badge when it has no agents." }),
-  noSession: msg({ id: 'project.header.noSession', defaultMessage: 'No session', description: "The project's status badge when no agent has a session." }),
-  inStatus: msg({ id: 'project.header.inStatus', defaultMessage: '· {count} of {total} agents', description: 'After the status in the project\'s badge: how many of its agents are in it ("Working · 1 of 2 agents").' }),
+  agentsMenu: msg({ id: 'project.header.agentsMenu', defaultMessage: 'Agents', description: "The project header's button that opens a menu of actions on all its agents (Start New, Archive and Start New, Remove All). Keep it short." }),
+  agentsMenuTip: msg({ id: 'project.header.agentsMenuTip', defaultMessage: "Actions on all the project's agents: start new sessions, archive and start new, or remove them", description: "Tooltip on the project header's Agents ▾ button." }),
   workingOn: msg({ id: 'project.header.workingOn', defaultMessage: 'You are working on this project', description: "Tooltip on the project header's Active switch, on." }),
   notWorkingOn: msg({ id: 'project.header.notWorkingOn', defaultMessage: 'Not working on this project', description: "Tooltip on the project header's Active switch, off." }),
   active: msg({ id: 'project.header.active', defaultMessage: 'Active', description: "Label of the project header's switch: you are working on this project." }),
@@ -87,6 +84,12 @@ const M = {
 
 const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
 
+/** Where a menu opens under a button. */
+const menuBelow = (el: Element): [number, number] => {
+  const r = el.getBoundingClientRect()
+  return [r.left, r.bottom + 2]
+}
+
 /** A tab's tooltip, with its shortcut (they can be changed, and Tasks has none by default). */
 function tabTip(id: ProjectTab, label: string): string {
   const kb = commandKeybinding(tabCommand(id))
@@ -101,27 +104,28 @@ const TAB_FIT_SPARE = 12
 
 /** The least of the project's name the header keeps beside its status before its actions fold further (#886). */
 const TITLE_MIN = 96
-/** How far the header's actions can fold: every label; batch actions as icons; Resume, Stop and Active too; batch actions in ⋯. */
+/** How far the header's actions can fold: every label; Resume shorter; Resume, Stop, Active and Agents ▾ as icons; Agents ▾'s actions in ⋯. */
 const HEADER_FOLDS = 3
 
 /**
  * The width the project header's title (its least room) and actions (all of them, on one row) need side by side, for
- * `useFolds` (#886): 0 shows every label; 1 shows the batch actions as icons; 2 Resume, Stop and Active too (the status
- * says less, and Remove All moves into ⋯); 3 moves the other batch actions into ⋯ as well.
+ * `useFolds` (#886): 0 shows every label; 1 shortens Resume's; 2 shows Resume, Stop, Active and Agents ▾ as icons; 3
+ * moves Agents ▾'s actions into ⋯.
  */
 function headerNeed(el: HTMLElement): number | null {
   const title = el.querySelector<HTMLElement>('.project-title')
   const name = title?.querySelector<HTMLElement>('h1')
+  // The state line, while the project has agents.
   const badge = title?.querySelector<HTMLElement>('.badge')
   const buttons = el.querySelector<HTMLElement>(':scope > .actions')
-  if (!title || !name || !badge || !buttons) return null
+  if (!title || !name || !buttons) return null
   const gap = (e: HTMLElement): number => parseFloat(getComputedStyle(e).columnGap) || 0
   // Each part's whole width, even while it is cut short (scrollWidth: the name and status are cut with "…").
   const items = [...buttons.children] as HTMLElement[]
   const actionsNeed = items.reduce((n, c) => n + c.scrollWidth, 0) + gap(buttons) * Math.max(0, items.length - 1)
-  const status = badge.querySelector<HTMLElement>('.badge-text')
-  const badgeNeed = badge.offsetWidth + (status ? status.scrollWidth - status.clientWidth : 0)
-  const titleNeed = Math.min(name.scrollWidth, TITLE_MIN) + gap(title) + badgeNeed
+  const status = badge?.querySelector<HTMLElement>('.badge-text')
+  const badgeNeed = badge ? badge.offsetWidth + (status ? status.scrollWidth - status.clientWidth : 0) + gap(title) : 0
+  const titleNeed = Math.min(name.scrollWidth, TITLE_MIN) + badgeNeed
   return Math.ceil(titleNeed + gap(el) + actionsNeed)
 }
 
@@ -293,15 +297,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const settings = useStore((s) => s.settings)
   const runningActions = useStore((s) => s.running)
   const menu = useContextMenu()
+  const agentsMenu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
   const terminalVisibleFor = visible && project && tab === 'session' ? project.path : null
   const panes = usePanes(project)
   const focusedAgent = useFocusedAgent(project)
-  // A narrow header shows its buttons as icons: the batch actions first; tighter, Resume, Stop and Active too (and the
-  // status says less), and Remove All, the rarest, moves into ⋯; tighter still (both panels open beside the narrowest
-  // window), the other batch actions follow it. The title gives way to the actions down to its least room (#216, #291);
-  // how far they fold is measured, so a longer language folds sooner (#886).
+  // A narrow header shortens Resume's label; tighter, Resume, Stop, Active and Agents ▾ show as icons; tighter still
+  // (both panels open beside the narrowest window), Agents ▾'s actions move into ⋯. The title gives way to the actions
+  // down to its least room (#216, #291); how far they fold is measured, so a longer language folds sooner (#886).
   const [headerWidthRef, headerWidth] = useWidth<HTMLDivElement>()
   const header = useRef<HTMLDivElement | null>(null)
   const headerRef = useCallback(
@@ -321,6 +325,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const cramped = folds >= 3
   // The status badge's table as text, for its accessible description (#529).
   const agentsDescription = useAgentsText(project)
+  const cards = useStore((s) => s.tasks)
 
   if (!workspace) return null
 
@@ -345,17 +350,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // controls are in its pane's header and footer.
   const live = focusedAgent?.live ?? null
   const many = project.agents.length > 1
-  const combined = projectState(project)
-  // How many agents are in the status the badge shows (e.g. Working · 1 of 2 agents), not just running.
-  const inStatus = combined ? project.agents.filter((a) => a.live?.status === combined.status).length : 0
+  // Its agents' states in one line, with the most urgent's mark (#974): "1 waiting · 2 working".
+  const states = projectAgentStates(project, cards)
   const running = project.agents.filter((a) => a.live)
   const resumable = agentsToResume(project.agents)
   const resuming = !!runningActions[`resumeAll:${project.path}`]
   const startingAll = !!runningActions[`startNewAll:${project.path}`]
   const archivingAll = !!runningActions[`archiveAll:${project.path}`]
   const removingAll = !!runningActions[`removeAll:${project.path}`]
-  // How many agents each batch action acts on, as its confirmation lists them (#275): shown in its label, or beside its
-  // icon when narrow.
+  // How many agents each batch action acts on, as its confirmation lists them (#275): shown in its label.
   const counts = batchCounts(project.agents)
   const resumeLabel = resumable.length === 1 ? tr(M.resumeAgent) : tr(M.resumeAll, { count: resumable.length })
   // Running agents a refused sign-in stopped are carried on, the stopped ones resumed (#309).
@@ -369,28 +372,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
         : tr(M.resumeMany, { count: resumable.length })
   const stopLabel = running.length === 1 ? tr(M.stopAgent) : tr(M.stopMany, { count: running.length })
   const yes = many ? 'yes' : 'no'
-  // The batch actions, as buttons or (cramped) as ⋯ items; with one agent, no count.
-  const startNew = counts.startNew
-    ? { label: tr(M.startNew, { many: yes, count: counts.startNew }), count: many ? counts.startNew : null, tip: tr(M.startNewTip, { many: yes, count: counts.startNew }), run: () => void actions.startNewAll(project.path) }
-    : null
-  const archiveNew = counts.archive
-    ? {
-        label: tr(M.archiveNew, { many: yes, count: counts.archive }),
-        count: many ? counts.archive : null,
-        tip: tr(M.archiveNewTip, { many: yes, count: counts.archive, agent: project.agents.find((a) => archiveTarget(a))?.name ?? '' }),
-        run: () => void actions.startNewAll(project.path, true)
-      }
-    : null
-  // Remove All (#291): every agent, after one question.
-  const removeAll = project.agents.length
-    ? {
-        label: tr(M.removeAll, { many: yes, count: project.agents.length }),
-        menuLabel: tr(M.removeAllMenu, { many: yes, count: project.agents.length }),
-        count: many ? project.agents.length : null,
-        tip: tr(M.removeAllTip, { many: yes, count: project.agents.length, agent: project.agents[0].name }),
-        run: () => void actions.removeAllAgents(project.path)
-      }
-    : null
+  // Agents ▾ (#974): every agent at once, after one confirmation (#216), Remove All last after a line (#291); with one
+  // agent, no count. In ⋯ when cramped.
+  const batch: MenuEntry[] = [
+    ...(counts.startNew ? [{ label: tr(M.startNew, { many: yes, count: counts.startNew }), icon: 'add', action: 'start' as const, disabled: startingAll, onClick: () => void actions.startNewAll(project.path) }] : []),
+    ...(counts.archive ? [{ label: tr(M.archiveNew, { many: yes, count: counts.archive }), icon: 'archive', action: 'archive-start' as const, disabled: archivingAll, onClick: () => void actions.startNewAll(project.path, true) }] : []),
+    ...(project.agents.length
+      ? [...(counts.startNew || counts.archive ? [{ separator: true as const }] : []), { label: tr(M.removeAllMenu, { many: yes, count: project.agents.length }), icon: 'trash', action: 'remove' as const, disabled: removingAll, onClick: () => void actions.removeAllAgents(project.path) }]
+      : [])
+  ]
   const dangerous = settings
     ? project.agents.flatMap((a) => {
         const l = agentLaunchSettings(a, project.config, settings)
@@ -415,19 +405,15 @@ export function ProjectView({ visible }: { visible: boolean }) {
       <div className="project-header" ref={headerRef}>
         <div className="flex project-title">
           <h1 title={project.name}>{project.name}</h1>
-          <Tooltip
-            content={project.agents.length ? <ProjectAgentsTable project={project} /> : tr(M.agentsTip)}
-            className={project.agents.length ? 'agents-tip' : undefined}
-            focus
-          >
-            <span tabIndex={0} aria-description={agentsDescription || undefined} className={cx('badge', (combined?.status === 'working' || combined?.status === 'background') && 'accent', combined?.status === 'waiting' && 'warn', combined?.status === 'signin' && 'signin', combined?.status === 'finished' && 'success')}>
-              <span className={cx('dot', combined?.status ?? 'idle')} />
-              <span className="badge-text">
-                {combined ? STATUS_TEXT[combined.status] : tr(M.noSession)}
-                {many && inStatus > 0 && !tight && <span className="faint"> {tr(M.inStatus, { count: inStatus, total: project.agents.length })}</span>}
+          {/* With no agents, nothing: the Session tab says so (#974). */}
+          {states.length > 0 && (
+            <Tooltip content={<ProjectAgentsTable project={project} />} className="agents-tip" focus>
+              <span tabIndex={0} aria-description={agentsDescription || undefined} className="badge project-state">
+                <StateMark state={mostUrgent(states)} decorative />
+                <span className="badge-text">{stateSummary(states)}</span>
               </span>
-            </span>
-          </Tooltip>
+            </Tooltip>
+          )}
         </div>
         <div className="actions">
           <Tooltip content={tr(project.active ? M.workingOn : M.notWorkingOn)}>
@@ -454,31 +440,13 @@ export function ProjectView({ visible }: { visible: boolean }) {
               </button>
             </Tooltip>
           )}
-          {/* Every agent at once, after one confirmation (#216): icons (and their counts) when narrow, in ⋯ when even those don't fit. */}
-          {startNew && !cramped && (
-            <Tooltip content={startNew.tip}>
-              <button className="btn act-start" disabled={startingAll} aria-busy={startingAll || undefined} aria-label={startNew.label} onClick={startNew.run}>
-                <Icon name={startingAll ? 'loading' : 'add'} spin={startingAll} />
-                {!narrow && ` ${startNew.label}`}
-                {narrow && startNew.count && <span className="btn-count">{startNew.count}</span>}
-              </button>
-            </Tooltip>
-          )}
-          {archiveNew && !cramped && (
-            <Tooltip content={archiveNew.tip}>
-              <button className="btn act-archive-start" disabled={archivingAll} aria-busy={archivingAll || undefined} aria-label={archiveNew.label} onClick={archiveNew.run}>
-                <Icon name={archivingAll ? 'loading' : 'archive'} spin={archivingAll} />
-                {!narrow && ` ${archiveNew.label}`}
-                {narrow && archiveNew.count && <span className="btn-count">{archiveNew.count}</span>}
-              </button>
-            </Tooltip>
-          )}
-          {removeAll && !tight && (
-            <Tooltip content={removeAll.tip}>
-              <button className="btn act-remove" disabled={removingAll} aria-busy={removingAll || undefined} aria-label={removeAll.label} onClick={removeAll.run}>
-                <Icon name={removingAll ? 'loading' : 'trash'} spin={removingAll} />
-                {!narrow && ` ${removeAll.label}`}
-                {narrow && removeAll.count && <span className="btn-count">{removeAll.count}</span>}
+          {/* Every agent at once, after one confirmation (#216): in Agents ▾ (#974), in ⋯ when even its icon doesn't fit. */}
+          {batch.length > 0 && !cramped && (
+            <Tooltip content={tr(M.agentsMenuTip)}>
+              <button className="btn agents-menu" aria-haspopup="menu" aria-expanded={agentsMenu.shown} aria-label={tight ? tr(M.agentsMenu) : undefined} onClick={(e) => agentsMenu.openAt(...menuBelow(e.currentTarget), batch, e.detail === 0)}>
+                <Icon name="organization" />
+                {!tight && ` ${tr(M.agentsMenu)}`}
+                <Icon name="chevron-down" />
               </button>
             </Tooltip>
           )}
@@ -488,10 +456,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
             action="project-menu"
             onClick={(e) =>
               menu.open(e, [
-                ...(cramped && startNew ? [{ label: startNew.label, icon: 'add', action: 'start' as const, disabled: startingAll, onClick: startNew.run }] : []),
-                ...(cramped && archiveNew ? [{ label: archiveNew.label, icon: 'archive', action: 'archive-start' as const, disabled: archivingAll, onClick: archiveNew.run }] : []),
-                ...(tight && removeAll ? [{ label: removeAll.menuLabel, icon: 'trash', action: 'remove' as const, disabled: removingAll, onClick: removeAll.run }] : []),
-                ...((cramped && startNew) || (tight && removeAll) ? [{ separator: true as const }] : []),
+                ...(cramped && batch.length ? [...batch, { separator: true as const }] : []),
                 { label: tr(M.explorer), icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
                 { label: tr(M.terminal), icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },
                 { separator: true },
@@ -555,6 +520,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </ErrorBoundary>
       </div>
       {menu.element}
+      {agentsMenu.element}
     </div>
   )
 }

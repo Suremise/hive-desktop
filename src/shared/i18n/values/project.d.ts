@@ -150,18 +150,14 @@ interface HiveMessageValues {
   'project.empty.resumeLast': undefined
   'project.empty.startOrResume': { provider: string | number }
   'project.header.active': undefined
+  'project.header.agentsMenu': undefined
+  'project.header.agentsMenuTip': undefined
   'project.header.archiveNew': { many: string; count: string | number }
-  'project.header.archiveNewTip': { many: string; count: number; agent: string | number }
   'project.header.carryOnManyTip': { stopped: number; stalled: number }
   'project.header.carryOnTip': { agent: string | number }
-  'project.header.inStatus': { count: string | number; total: string | number }
   'project.header.more': undefined
-  'project.header.noAgents': undefined
-  'project.header.noSession': undefined
   'project.header.notWorkingOn': undefined
-  'project.header.removeAll': { many: string; count: string | number }
   'project.header.removeAllMenu': { many: string; count: string | number }
-  'project.header.removeAllTip': { many: string; count: string | number; agent: string | number }
   'project.header.resumeAgent': undefined
   'project.header.resumeAll': { count: string | number }
   'project.header.resumeManyTip': { count: string | number }
@@ -169,7 +165,6 @@ interface HiveMessageValues {
   'project.header.resumeShort': { count: string | number }
   'project.header.resuming': undefined
   'project.header.startNew': { many: string; count: string | number }
-  'project.header.startNewTip': { many: string; count: string | number }
   'project.header.stopAgent': undefined
   'project.header.stopMany': { count: string | number }
   'project.header.stopTip': { count: number }

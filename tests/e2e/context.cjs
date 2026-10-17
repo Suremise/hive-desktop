@@ -130,7 +130,7 @@ const shot = (page, name) => page.screenshot({ path: path.join(lib.WORK, `contex
   await until(async () => !(await live(small.id)), HUNG_MS)
 
   // Project settings show the project's choice; Agent Settings shows the agent's.
-  await page.locator('.tab', { hasText: 'Settings' }).first().click()
+  await lib.openProjectSettings(page)
   await lib.sleep(600)
   await page.locator('.settings-nav .row', { hasText: 'Claude Code' }).click()
   await lib.sleep(500)

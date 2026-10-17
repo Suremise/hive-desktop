@@ -39,6 +39,14 @@
     "defaultMessage": "A model per agent",
     "description": "A tip's title."
   },
+  "tips.agentStates.text": {
+    "defaultMessage": "Each agent has one of four states, told apart by shape as well as colour: a diamond waits for you, a square is stalled, a pulsing dot is working and a ring is idle. The project header counts them: \"1 waiting · 2 working\".",
+    "description": "A tip. The four shapes are the marks Hive draws for an agent's state; keep the example's wording as the header's state line translates it."
+  },
+  "tips.agentStates.title": {
+    "defaultMessage": "Read your agents at a glance",
+    "description": "A tip's title."
+  },
   "tips.alwaysOnTop.text": {
     "defaultMessage": "The pin in the title bar (or Ctrl+Alt+O) keeps the window above your other apps, so a test run or an emulator can work underneath. Each window has its own, remembered for its workspace.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
@@ -956,7 +964,7 @@
     "description": "A tip's title."
   },
   "tips.startNewAll.text": {
-    "defaultMessage": "Start New in the project header gives every agent a new session after one question; Archive and Start New archives their old ones first. Their conversations stay in the Sessions tab.",
+    "defaultMessage": "Start New in the project header's Agents menu gives every agent a new session after one question; Archive and Start New archives their old ones first. Their conversations stay in the Sessions tab.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.startNewAll.title": {

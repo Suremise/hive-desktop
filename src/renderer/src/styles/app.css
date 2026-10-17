@@ -385,6 +385,10 @@ kbd {
   padding: 4px;
   -webkit-app-region: no-drag;
 }
+/* It holds the focus while open (#974); the chosen entry shows where it is. */
+.menu:focus {
+  outline: none;
+}
 .menu-item {
   display: flex;
   align-items: center;
@@ -1387,7 +1391,7 @@ textarea.input {
   left: 0;
   display: flex;
   width: max-content;
-  height: 35px;
+  height: 30px;
   visibility: hidden;
   pointer-events: none;
 }
@@ -1399,7 +1403,8 @@ textarea.input {
   align-items: stretch;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border-subtle);
-  height: 35px;
+  /* Compact (#974): shorter and tighter than the panes' headers below them. */
+  height: 30px;
   flex-shrink: 0;
   overflow-x: auto;
 }
@@ -1410,11 +1415,11 @@ textarea.input {
 .tab-m {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
+  gap: 5px;
+  padding: 0 10px;
+  font-size: 12px;
   color: var(--fg-muted);
   cursor: pointer;
-  border-right: 1px solid var(--border-subtle);
   white-space: nowrap;
   position: relative;
 }
@@ -1422,26 +1427,26 @@ textarea.input {
   color: var(--fg-strong);
 }
 .tab.active {
-  background: var(--bg);
   color: var(--fg-strong);
 }
+/* The chosen tab is underlined in the accent (#974). */
 .tab.active::after {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
+  left: 4px;
+  right: 4px;
+  bottom: 0;
   height: 2px;
   background: var(--accent);
 }
 .tab .codicon,
 .tab-m .codicon {
-  font-size: 14px;
+  font-size: 13px;
 }
 /* Short of room: icons only, a little narrower, the label kept for screen readers (and the tooltip). */
 .tab.icon-only,
 .tab-m.icon-only {
-  padding: 0 10px;
+  padding: 0 8px;
 }
 .tab.icon-only .tab-label {
   position: absolute;
@@ -1457,10 +1462,11 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  /* Compact (#974): one quiet row. */
+  padding: 5px 12px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  min-height: 52px;
+  min-height: 40px;
 }
 .project-header h1 {
   font-size: 16px;
@@ -1489,6 +1495,21 @@ textarea.input {
 }
 .project-header .project-title .badge {
   min-width: 0;
+}
+/* Its agents' states in one line (#974): the most urgent's mark, then the counts, quiet beside the name. */
+.project-header .project-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  padding: 0 2px;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.project-header .agents-menu .codicon-chevron-down {
+  font-size: 12px;
+  margin-left: 2px;
 }
 .project-header .project-title .badge-text {
   min-width: 0;

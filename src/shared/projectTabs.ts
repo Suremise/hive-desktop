@@ -26,6 +26,12 @@ export const PROJECT_TABS = [
 export type ProjectTab = (typeof PROJECT_TABS)[number]['id']
 
 /**
+ * The tabs the strip shows (#974): all but Settings, which opens from the project header's ⋯, the title bar's Project
+ * menu and its command (Alt+0), and shows with no tab of the strip chosen.
+ */
+export const STRIP_TABS = PROJECT_TABS.filter((t) => t.id !== 'settings')
+
+/**
  * What a new instructions file (CLAUDE.md, AGENTS.md…) starts with when Memory creates it: its agents read it, so it is
  * English whatever the window's language, under a heading of the project's own name.
  */
