@@ -25,6 +25,7 @@ const dataListeners = new Map<string, Set<Listener>>()
 const exitListeners = new Map<string, Set<(code: number) => void>>()
 let wired = false
 const terminals = new Map<string, Terminal>()
+const fits = new Map<string, FitAddon>()
 
 /**
  * WebGL contexts held by terminals. Chromium allows about 16 per window and silently drops the
@@ -86,6 +87,19 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
   const buf = term.buffer.active
   return Array.from({ length: term.rows }, (_, row) => buf.getLine(buf.viewportY + row)?.translateToString(false) ?? '')
 }
+
+/**
+ * Whether every terminal on screen is fitted to its pane: its size is the one a fit would give it now (one too small to
+ * fit counts as fitted). A pane that just changed size is fitted a moment later (FIT_SETTLE_MS), and xterm re-wraps its
+ * lines then (#896): tests that photograph terminals wait for this first.
+ */
+;(window as unknown as { __hiveTerminalsFitted?: () => boolean }).__hiveTerminalsFitted = () =>
+  [...terminals.entries()].every(([key, term]) => {
+    const host = term.element?.closest<HTMLElement>('.terminal-host')
+    if (!host || host.classList.contains('hidden') || host.offsetWidth === 0 || host.offsetHeight === 0) return true
+    const dims = fits.get(key)?.proposeDimensions()
+    return !dims || !(dims.cols >= MIN_COLS) || !(dims.rows >= MIN_ROWS) || (dims.cols === term.cols && dims.rows === term.rows)
+  })
 
 /** A terminal's own selection (Shift+drag, or a drag where the program doesn't track the mouse), for tests. */
 ;(window as unknown as { __hiveTerminalSelection?: (key: string) => string | null }).__hiveTerminalSelection = (key) => terminals.get(key)?.getSelection() ?? null
@@ -284,6 +298,8 @@ export function TerminalView({
       // fallback font; squeeze them into their cell instead of letting the next cell paint over half.
       // Needs the WebGL renderer below.
       rescaleOverlappingGlyphs: true,
+      // No buildNumber: xterm then re-wraps lines when the terminal narrows or widens (#896), as ConPTY itself does
+      // from Windows build 21376. A build below that would turn its reflow off.
       windowsPty: { backend: 'conpty' }
     })
     const fit = new FitAddon()
@@ -299,6 +315,7 @@ export function TerminalView({
     term.open(mount.current!)
     termRef.current = term
     terminals.set(ptyKey, term)
+    fits.set(ptyKey, fit)
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true
@@ -421,6 +438,7 @@ export function TerminalView({
     })
     const unregister = (): void => {
       if (terminals.get(ptyKey) === term) terminals.delete(ptyKey)
+      if (fits.get(ptyKey) === fit) fits.delete(ptyKey)
     }
     const unsubExit = subscribe(exitListeners, ptyKey, (code: number) => {
       term.write(`\r\n\x1b[90m[${tr(msg({ id: 'panes.terminal.exited', defaultMessage: 'process exited with code {code}', description: 'Written into a terminal (in grey, in brackets) when its process ends. {code} is the exit code, a number.' }), { code })}]\x1b[0m\r\n`)
