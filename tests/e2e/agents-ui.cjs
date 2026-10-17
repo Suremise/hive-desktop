@@ -37,9 +37,9 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   let p0 = (await inv('workspace:refresh')).projects[0]
   check('new project has no agents', p0.agents.length === 0, String(p0.agents.length))
   check('empty Session tab offers Add Agent', (await page.getByText('No agents yet').count()) === 1)
-  await page.locator('.agent-add:not(.split-caret)').click()
+  await lib.addMenuRun(page, 'Configure Agent and Add…')
   const addDialog = page.locator('.dialog', { hasText: 'Add an agent' })
-  check("Add Agent's main click opens the Add Agent dialog", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
+  check("+ Add ▾ → Configure Agent and Add… opens the Add Agent dialog (#975)", !!(await lib.until(async () => (await addDialog.count()) === 1, 5000)))
   await sleep(500)
   check('…without adding an agent', (await inv('workspace:refresh')).projects[0].agents.length === 0)
   await page.keyboard.press('Escape')
@@ -57,8 +57,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('the project header keeps project items only', !/New Session|Archive|Compact/.test(headerText) && (await page.locator('.project-header .mode-badge').count()) === 0, headerText.replace(/\s+/g, ' '))
   check('the status bar has no agent model or mode', (await page.locator('.statusbar .mode-badge, .statusbar .status-item', { hasText: /ctx$|Auto$/ }).count()) === 0)
 
-  // Add Agent dialog (▾), new worktree option
-  await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click(); await sleep(800)
+  // Add Agent dialog (+ Add ▾, #975), new worktree option
+  await lib.addMenuRun(page, 'Configure Agent and Add…'); await sleep(800)
   check('dialog open', await page.locator('.dialog', { hasText: 'Add an agent' }).count() === 1)
   await page.locator('.choice', { hasText: 'New worktree' }).click(); await sleep(400)
   await page.screenshot({ path: path.join(scratch, 'ui-1-add.png') })
@@ -79,7 +79,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const t = p.agents.find((a) => a.name === 'Tester')
   fs.writeFileSync(path.join(t.worktree.path, 'b.txt'), 'b\n')
   await page.evaluate(([project, agentId]) => window.__hiveSet?.({ mergeFor: { project, agentId } }), [proj, t.id])
-  await page.locator('.agent-tab', { hasText: 'Tester' }).click({ button: 'right' }); await sleep(300)
+  await lib.agentMenu(page, 'Tester')
   await page.locator('.menu-item', { hasText: 'Merge…' }).click(); await lib.until(async () => (await page.locator('.dialog', { hasText: '1 uncommitted change' }).count()) === 1, 10000)
   await page.screenshot({ path: path.join(scratch, 'ui-3-merge.png') })
   check('merge dialog counts changes', await page.locator('.dialog', { hasText: '1 uncommitted change' }).count() === 1)
@@ -114,9 +114,9 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const sessionTab = page.locator('.tabs .tab').filter({ hasText: /^\s*Session\s*$/ })
   await lib.until(async () => (await sessionTab.count()) === 1, HUNG_MS)
   await sessionTab.click()
-  await lib.until(async () => (await page.locator('.agent-add.split-caret').count()) === 1, HUNG_MS)
+  await lib.until(async () => (await page.locator('.session-toolbar .add-menu').count()) === 1, HUNG_MS)
   const addWith = async (name) => {
-    await page.locator('.agent-add.split-caret').click(); await page.locator('.menu .menu-item', { hasText: 'Configure Agent and Add…' }).click()
+    await lib.addMenuRun(page, 'Configure Agent and Add…')
     const d = page.locator('.dialog', { hasText: 'Add an agent' })
     await lib.until(async () => (await d.count()) === 1, HUNG_MS)
     await d.locator('input.input').first().fill(name)

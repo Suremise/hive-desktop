@@ -227,7 +227,7 @@ const LONG = 'Coordinator out of the box: fold the coordinator playbook into the
 
   // --- Narrow and zoomed, with a long agent name: every column still fits, the long cells cut with an ellipsis.
   await inv('agents:update', alpha, a.B1.id, { name: 'Builder with a descriptive agent name' })
-  await until(async () => (await page.locator('.agent-tab', { hasText: 'Builder with a descriptive' }).count()) > 0, 5000)
+  await until(async () => (await page.locator('.pane-header-bar .agent-name', { hasText: 'Builder with a descriptive' }).count()) > 0, 5000)
   await lib.fitWindow(app, page, { width: 900, height: 560 })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.25))
   await until(async () => (await page.evaluate(() => Math.round(window.innerWidth))) === 720, 5000)

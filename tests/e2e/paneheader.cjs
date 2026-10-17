@@ -117,34 +117,21 @@ function commits(wt, n) {
     check(`${a.name}: the header starts with its state mark, a ring while idle`, !!mark && mark.first && mark.idle && mark.name === 'Idle', JSON.stringify(mark))
   }
   await header(long).locator('.agent-name').hover()
-  check("the name's tooltip says the agent and its provider", !!(await until(async () => (await tips()).some((t) => t === `${long.name} · Claude Code`), HUNG_MS)), JSON.stringify(await tips()))
+  check("the name's tooltip says the agent and its provider (#975: with what its strip tab said)", !!(await until(async () => (await tips()).some((t) => t.startsWith(`${long.name} (Claude Code): `)), HUNG_MS)), JSON.stringify(await tips()))
   await away()
   await until(async () => (await tips()).length === 0, HUNG_MS)
 
-  /** #287: on the strip's tab, the worktree is its icon only, with the details in its name and tooltip. */
+  /** #287, #975: the worktree's branch, folder and base are in the name's tooltip; no header shows worktree text. */
   const worktreeMark = async (tag) => {
-    const el = page.locator('.agent-tab', { hasText: long.name }).locator('.agent-branch')
-    const text = (await el.innerText()).trim()
-    check(`${tag}tab: the worktree is its icon, without text`, text === '' && (await el.locator('.codicon-worktree').count()) === 1, JSON.stringify(text))
-    const label = await el.getAttribute('aria-label')
-    check(`${tag}…named "Worktree: <branch> in <folder>"`, label === `Worktree: ${long.worktree.branch} in ${long.worktree.path}`, label)
-    const full = (t) => t.length === 1 && t[0].includes(`Worktree: ${long.worktree.branch}`) && t[0].includes(`in ${long.worktree.path}`) && t[0].includes('branched from')
+    const full = (t) => t.length === 1 && t[0].includes(`Worktree ${long.worktree.path} on ${long.worktree.branch}, branched from`)
     await away()
     await until(async () => (await tips()).length === 0, HUNG_MS)
-    await el.hover()
+    await header(long).locator('.agent-name').hover()
     await until(async () => full(await tips()), HUNG_MS)
-    check(`${tag}…hovered: one tooltip, with its branch, folder and base`, full(await tips()), JSON.stringify(await tips()))
+    check(`${tag}hovered, the name's tooltip has its worktree, branch and base`, full(await tips()), JSON.stringify(await tips()))
     await away()
     await until(async () => (await tips()).length === 0, HUNG_MS)
-    await el.focus()
-    await page.keyboard.press('Tab')
-    await page.keyboard.press('Shift+Tab')
-    await until(async () => full(await tips()), HUNG_MS)
-    check(`${tag}…focused from the keyboard: the same tooltip`, (await el.evaluate((n) => n === document.activeElement)) && full(await tips()), JSON.stringify(await tips()))
-    await page.evaluate(() => document.activeElement?.blur())
-    await away()
-    await until(async () => (await tips()).length === 0, HUNG_MS)
-    check(`${tag}no worktree text in any tab or header`, (await page.locator('.agent-tab, .pane-header-bar').allInnerTexts()).every((t) => !t.includes('hive/')))
+    check(`${tag}no worktree text in any header`, (await page.locator('.pane-header-bar').allInnerTexts()).every((t) => !t.includes('hive/')))
   }
   await worktreeMark('')
 

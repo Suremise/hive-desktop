@@ -111,6 +111,7 @@
   "shell.command.session.startNewAllLive": "{several, select, yes {Start New ({n})…} other {Start New…}}",
   "shell.command.session.stop": "Stop Session",
   "shell.command.session.stopBackgroundAndResume": "Stop a Background Session and Resume It",
+  "shell.command.session.toggleView": "Switch Between Panes and Tiles",
   "shell.command.settings.advanced": "Advanced Settings",
   "shell.command.settings.keybindings": "Customise Keyboard Shortcuts",
   "shell.command.settings.notifications": "Notification Settings",

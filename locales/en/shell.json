@@ -447,6 +447,10 @@
     "defaultMessage": "Stop a Background Session and Resume It",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
   },
+  "shell.command.session.toggleView": {
+    "defaultMessage": "Switch Between Panes and Tiles",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: switches the Session tab between Panes (the agents' terminals) and Tiles (a small tile per agent). Panes and Tiles: as the toggle says them."
+  },
   "shell.command.settings.advanced": {
     "defaultMessage": "Advanced Settings",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Preferences category."

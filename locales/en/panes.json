@@ -1,7 +1,7 @@
 {
   "panes.add.button": {
     "defaultMessage": "Add Agent",
-    "description": "Button (the agent strip): adds an agent to the project. Keep it short."
+    "description": "Button (an empty project or pane), and an item of the session toolbar's + Add ▾ (a quick add with the default provider and settings): adds an agent to the project. Keep it short."
   },
   "panes.add.caretLabel": {
     "defaultMessage": "Add Agent…",
@@ -17,15 +17,31 @@
   },
   "panes.add.configure": {
     "defaultMessage": "Configure Agent and Add…",
-    "description": "Button and menu item (the agent strip): opens the Add Agent dialog (provider, where it works, settings)."
+    "description": "Menu item (+ Add ▾ in the session toolbar, and the Add Agent button's ▾): opens the Add Agent dialog (provider, where it works, settings)."
   },
   "panes.add.fromTemplate": {
     "defaultMessage": "Add Agent from Template",
-    "description": "Menu item (Add Agent ▾): adds one agent of a saved template."
+    "description": "Menu item (+ Add ▾ in the session toolbar, and the Add Agent button's ▾): adds one agent of a saved template."
+  },
+  "panes.add.menu": {
+    "defaultMessage": "Add",
+    "description": "The session toolbar's + Add ▾ button: adds agents (the dialog, a quick add, from a template) and saves or loads templates. Keep it short."
+  },
+  "panes.add.menuTip": {
+    "defaultMessage": "Add an agent (Add Agent…: choose its provider, where it works and its settings), or save and load templates",
+    "description": "Tooltip of the session toolbar's + Add ▾ button. \"Add Agent…\" is its first menu item: use its translation."
+  },
+  "panes.add.quickDetail": {
+    "defaultMessage": "At once, with your defaults",
+    "description": "The detail of + Add ▾'s Add Agent: it adds an agent at once, with the default provider and settings, working in the project folder. Keep it short."
+  },
+  "panes.add.templates": {
+    "defaultMessage": "Templates",
+    "description": "Menu item (+ Add ▾): opens the templates menu (save this project's agents and layout as a template, or load one)."
   },
   "panes.add.tip": {
     "defaultMessage": "Configure Agent and Add…: choose its provider, where it works and its settings",
-    "description": "Tooltip of the Add Agent button (the agent strip). \"Configure Agent and Add…\" names the dialog it opens: use its translation."
+    "description": "Tooltip of the Add Agent button (an empty project or pane). \"Configure Agent and Add…\" names the dialog it opens: use its translation."
   },
   "panes.agent.merge": {
     "defaultMessage": "Merge…",
@@ -74,6 +90,18 @@
   "panes.body.worktree": {
     "defaultMessage": "Works in its own worktree on <code>{branch}</code>.",
     "description": "A stopped worktree agent's pane: its branch ({branch}, shown as code; keep the <code> tags around it)."
+  },
+  "panes.chip.notRunning": {
+    "defaultMessage": "Not running",
+    "description": "An agent's status in the summary chip's list of agents: its session isn't running."
+  },
+  "panes.chip.removing": {
+    "defaultMessage": "Removing…",
+    "description": "An agent's status in the summary chip's list while it is being removed."
+  },
+  "panes.chip.tip": {
+    "defaultMessage": "The project's agents by state: choose one to go to it",
+    "description": "Tooltip of the session toolbar's summary chip (\"1 waiting · 2 working\"), which opens a list of the agents."
   },
   "panes.compact.busy": {
     "defaultMessage": "Available once the agent has finished.",
@@ -207,10 +235,6 @@
     "defaultMessage": "More",
     "description": "Tooltip of the ⋯ button on a pane's header: the agent's menu."
   },
-  "panes.header.nameTip": {
-    "defaultMessage": "{agent} · {provider}",
-    "description": "Tooltip of the agent's name on its pane's header: its name and its provider (\"Claude Code\")."
-  },
   "panes.header.notRunning": {
     "defaultMessage": "Not running",
     "description": "A pane's status: the agent's session isn't running."
@@ -237,11 +261,11 @@
   },
   "panes.layout.name": {
     "defaultMessage": "{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}",
-    "description": "A pane layout's name: its button's tooltip and accessible name on the agent strip."
+    "description": "A pane layout's name: its button's tooltip and accessible name in the session toolbar."
   },
   "panes.layout.wide": {
     "defaultMessage": "{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)",
-    "description": "Tooltip of a layout button with three or more panes (the agent strip): its name ({layout}) and a hint. Ctrl+B hides the sidebar."
+    "description": "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar."
   },
   "panes.leftovers.count": {
     "defaultMessage": "{n, plural, one {# left running} other {# left running}}",
@@ -277,11 +301,11 @@
   },
   "panes.locks.title": {
     "defaultMessage": "Files it is editing this turn:",
-    "description": "Above the files an agent is editing (a worktree agent): its tab's lock mark's hover, its pane's ⋯ menu."
+    "description": "Above the files an agent is editing (a worktree agent), in its pane's ⋯ menu."
   },
   "panes.locks.titleShared": {
     "defaultMessage": "Files it is editing this turn. Other agents in this folder wait until it finishes with them:",
-    "description": "Above the files an agent is editing (an agent sharing the project's folder): its tab's lock mark's hover, its pane's ⋯ menu."
+    "description": "Above the files an agent is editing (an agent sharing the project's folder), in its pane's ⋯ menu."
   },
   "panes.menu.archiveStartNew": {
     "defaultMessage": "Archive and Start New…",
@@ -349,31 +373,31 @@
   },
   "panes.pages.button": {
     "defaultMessage": "Agent page {page}",
-    "description": "Accessible name of a numbered page button on the agent strip."
+    "description": "Accessible name of a numbered page button in the session toolbar."
   },
   "panes.pages.item": {
     "defaultMessage": "Page {page}",
-    "description": "An item of the agent strip's page menu (many pages); its detail lists the page's agents."
+    "description": "An item of the session toolbar's page menu (many pages); its detail lists the page's agents."
   },
   "panes.pages.menu": {
     "defaultMessage": "Agent pages",
-    "description": "Accessible name of the agent strip's page menu (many pages)."
+    "description": "Accessible name of the session toolbar's page menu (many pages)."
   },
   "panes.pages.menuTip": {
     "defaultMessage": "Page {page} of {pages}: choose a page{key, select, none {} other { ({key} for the next page)}}",
-    "description": "Tooltip of the agent strip's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)."
+    "description": "Tooltip of the session toolbar's page menu (many pages): the page shown of how many, and the shortcut for the next page ({key}; none: leave that branch empty)."
   },
   "panes.pages.next": {
     "defaultMessage": "Next agent page",
-    "description": "The › button of the agent strip's compact pager (many pages): shows the next page of agents."
+    "description": "The › button of the session toolbar's compact pager (many pages): shows the next page of agents."
   },
   "panes.pages.previous": {
     "defaultMessage": "Previous agent page",
-    "description": "The ‹ button of the agent strip's compact pager (many pages): shows the previous page of agents."
+    "description": "The ‹ button of the session toolbar's compact pager (many pages): shows the previous page of agents."
   },
   "panes.pages.tip": {
     "defaultMessage": "{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}",
-    "description": "Tooltip of a page button on the agent strip: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+    "description": "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
   },
   "panes.processes.count": {
     "defaultMessage": "{n, plural, one {# process} other {# processes}}",
@@ -513,7 +537,7 @@
   },
   "panes.tab.failed": {
     "defaultMessage": "failed to start: {why}",
-    "description": "An agent's state in its tab's hover, after its name: its last launch failed ({why}: the error's first line). Lower case."
+    "description": "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case."
   },
   "panes.tab.mcp": {
     "defaultMessage": "MCP servers: {servers}",
@@ -525,7 +549,7 @@
   },
   "panes.tab.removing": {
     "defaultMessage": "Removing…",
-    "description": "Tooltip of the spinner on an agent's tab while it is being removed."
+    "description": "Tooltip of the spinner on an agent's pane header while it is being removed."
   },
   "panes.tab.resumeOpens": {
     "defaultMessage": "Resume opens: {session} ({when})",
@@ -615,10 +639,6 @@
     "defaultMessage": "worktree {value}",
     "description": "The agent's worktree in a line of text (screen readers, a dialog's copy): {value} is its branch (\"hive/b1\"). Lower case."
   },
-  "panes.template.button": {
-    "defaultMessage": "Template",
-    "description": "The Template ▾ button on the agent strip (save or load agent templates). Keep it short."
-  },
   "panes.template.detail": {
     "defaultMessage": "{n, plural, one {# agent} other {# agents}} · {layout}",
     "description": "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")."
@@ -655,10 +675,6 @@
     "defaultMessage": "{scope, select, workspace {Workspace templates} other {This project's templates}}",
     "description": "A heading in Template ▾ above the templates kept in the workspace, or in this project."
   },
-  "panes.template.tip": {
-    "defaultMessage": "Templates: save this project's agents and layout as one, or load one (it replaces the agents and layout)",
-    "description": "Tooltip of the Template ▾ button (the agent strip)."
-  },
   "panes.terminal.exited": {
     "defaultMessage": "process exited with code {code}",
     "description": "Written into a terminal (in grey, in brackets) when its process ends. {code} is the exit code, a number."
@@ -666,6 +682,22 @@
   "panes.terminal.pasteFailed": {
     "defaultMessage": "Could not paste image",
     "description": "An error's title: pasting a screenshot into an agent's terminal (saved as an attachment) failed."
+  },
+  "panes.tiles.backToPanes": {
+    "defaultMessage": "Back to Panes",
+    "description": "Button in the Tiles view's placeholder: switches the Session tab back to Panes (the agents' terminals)."
+  },
+  "panes.tiles.placeholder": {
+    "defaultMessage": "Tiles are on their way: a small tile per agent, so a whole team fits on one screen.",
+    "description": "The Session tab in the Tiles view, before the tiles themselves are built: what they will be."
+  },
+  "panes.view.label": {
+    "defaultMessage": "Session view",
+    "description": "Accessible name of the Session tab's Panes | Tiles toggle."
+  },
+  "panes.view.name": {
+    "defaultMessage": "{view, select, tiles {Tiles} other {Panes}}",
+    "description": "The Session tab's two views, on its Panes | Tiles toggle: Panes shows the agents' terminals, Tiles a small tile per agent. Keep them short."
   },
   "panes.watch.agents": {
     "defaultMessage": "Waiting for {agents} to finish",
@@ -694,14 +726,6 @@
   "panes.watchCell.cardsInto": {
     "defaultMessage": "{cards} → {column}",
     "description": "An agents table's Waiting for column: the cards a watching agent waits for ({cards}: \"#12, #13\") to move into a board column ({column})."
-  },
-  "panes.worktree.label": {
-    "defaultMessage": "Worktree: {branch} in {path}",
-    "description": "Accessible name of a worktree agent's mark: its branch and its folder."
-  },
-  "panes.worktree.tip": {
-    "defaultMessage": "Worktree: {branch}\nin {path}\nbranched from {base}",
-    "description": "Hover of a worktree agent's mark (its tab), three lines: its branch, its folder and the branch it was made from. Keep the line breaks."
   },
   "panes.worktree.toMerge": {
     "defaultMessage": "To merge: {work}",

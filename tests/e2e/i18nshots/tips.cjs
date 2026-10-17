@@ -18,9 +18,9 @@ async function shown(ctx, locator, what) {
 const setTips = (ctx, on) => ctx.inv('settings:update', { general: { showTips: on } })
 
 /**
- * The tip card: with tips on, a project of its own gets its second agent, and its agent strip offers the second-agent
+ * The tip card: with tips on, a project of its own gets its second agent, and its session toolbar offers the second-agent
  * moment's tip (the route starts with tips off, so the moment is still unused). Its first agent is added before tips
- * are on, so the strip offers it only when the second one comes.
+ * are on, so the toolbar offers it only when the second one comes.
  */
 async function tipCard(ctx) {
   const { inv, lib, page } = ctx

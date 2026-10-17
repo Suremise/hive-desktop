@@ -1,7 +1,7 @@
-// An agent's card in Doing on the agent: the chip in its strip tab, pane header and the Workspace Overview's running
-// list, its line in the project's sidebar tooltip; clicking opens the card; leaving Doing removes it. In the strip and
-// the pane header the chip is its icon and number (+n), the titles on hover; in the Assistant's workspace section the
-// agent's state mark has its cards and what it is doing (its progress) in its tooltip (#311, #979). The session
+// An agent's card in Doing on the agent: the chip in its pane header (and its name's hover and the summary chip's list, #975) and the Workspace Overview's running
+// list, its line in the project's sidebar tooltip; clicking opens the card; leaving Doing removes it. In the pane header
+// the chip is its icon and number (+n), the titles on hover; in the Assistant's workspace section the agent's state mark
+// has its cards and what it is doing (its progress) in its tooltip (#311, #979). The session
 // records the card (sessions.json) and the Sessions tab shows "Worked on #n", unlinked once the card is deleted.
 // The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -65,27 +65,31 @@ const check = (name, ok, extra = '') => {
   check('Coder ran once', !!(await until(async () => (await live(coder.id))?.status === 'finished', HUNG_MS)))
   const sessionId = (await live(coder.id)).sessionId
 
-  const tab = page.locator('.agent-tab', { hasText: 'Coder' })
   const header = page.locator('.pane-header-bar', { hasText: 'Coder' })
-  check('no chip before it has a card', (await tab.locator('.card-chip').count()) === 0 && (await header.locator('.card-chip').count()) === 0)
+  check('no chip before it has a card', (await header.locator('.card-chip').count()) === 0)
 
   // A card in Todo for it shows nothing; in Doing it shows.
   const card = await inv('tasks:create', { title: 'Attention inbox', project: 'alpha', agent: coder.id })
   await lib.sleep(800) // On purpose: that nothing shows is the check, so it gives a chip time to show wrongly.
-  check('a Todo card shows no chip', (await tab.locator('.card-chip').count()) === 0)
+  check('a Todo card shows no chip', (await header.locator('.card-chip').count()) === 0)
   await inv('tasks:update', card.number, { column: 'doing' })
-  check('the strip tab shows #n only', !!(await until(async () => (await tab.locator('.card-chip').count()) === 1, 5000)) && (await tab.locator('.card-chip').innerText()).trim() === `#${card.number}`, await tab.locator('.card-chip').innerText().catch(() => ''))
   check('the pane header shows #n only, at any width (#311)', !!(await until(async () => (await header.locator('.card-chip').innerText().catch(() => '')).trim() === `#${card.number}`, 5000)), await header.locator('.card-chip').innerText().catch(() => ''))
   let tip = await lib.hoverTip(page, header.locator('.card-chip'), (t) => t.includes(`#${card.number} Attention inbox`))
   check("…its tooltip has the card's title", tip.includes(`#${card.number} Attention inbox`), tip)
-  tip = await lib.hoverTip(page, tab, (t) => t.includes(`Working on #${card.number} Attention inbox`))
-  check("the strip tab's tooltip lists the card with its title", tip.includes(`Working on #${card.number} Attention inbox`), tip)
-  check('the other agent shows none', (await page.locator('.agent-tab', { hasText: 'Other' }).locator('.card-chip').count()) === 0)
+  tip = await lib.hoverTip(page, header.locator('.agent-name'), (t) => t.includes(`Working on #${card.number} Attention inbox`))
+  check("the name's tooltip lists the card with its title (#975: the strip tab's did)", tip.includes(`Working on #${card.number} Attention inbox`), tip)
+  await page.mouse.move(5, 5)
+  // The summary chip's list of agents (#975) gives each agent's card.
+  await page.locator('.session-toolbar .summary-chip').click()
+  check("the summary chip's list gives the card", !!(await until(async () => (await lib.menuEntry(page, 'Coder').innerText().catch(() => '')).includes(`#${card.number} Attention inbox`), 5000)), await lib.menuEntry(page, 'Coder').innerText().catch(() => ''))
+  await page.keyboard.press('Escape')
+  await until(async () => (await page.locator('.menu').count()) === 0, 5000)
+  check('the other agent shows none', (await page.locator('.pane-header-bar', { hasText: 'Other' }).locator('.card-chip').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'cardchip-1-pane.png') })
 
   // A second Doing card: "+1".
   const second = await inv('tasks:create', { title: 'Prompt snippets', project: 'alpha', agent: coder.id, column: 'doing' })
-  check('a second Doing card shows +1', !!(await until(async () => /\+1/.test(await tab.locator('.card-chip').innerText().catch(() => '')), 5000)))
+  check('a second Doing card shows +1', !!(await until(async () => /\+1/.test(await header.locator('.card-chip').innerText().catch(() => '')), 5000)))
   const headerChip = async () => (await header.locator('.card-chip').innerText({ timeout: 1000 }).catch(() => '')).replace(/\s+/g, '')
   check('…in the pane header too, still without titles', !!(await until(async () => (await headerChip()) === `#${card.number}+1`, 5000)), await headerChip())
   const both = (t) => t.includes(`#${card.number} Attention inbox`) && t.includes(`#${second.number} Prompt snippets`)
@@ -153,7 +157,7 @@ const check = (name, ok, extra = '') => {
   // Out of Doing: gone.
   await inv('tasks:update', card.number, { column: 'review' })
   await inv('tasks:update', second.number, { column: 'review' })
-  check('moving the cards out of Doing removes the chip', !!(await until(async () => (await tab.locator('.card-chip').count()) === 0 && (await header.locator('.card-chip').count()) === 0, 5000)))
+  check('moving the cards out of Doing removes the chip', !!(await until(async () => (await header.locator('.card-chip').count()) === 0, 5000)))
 
   // The Sessions tab: "Worked on", linked; a deleted card stays, unlinked.
   await inv('tasks:delete', second.number)

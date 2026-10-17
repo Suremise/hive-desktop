@@ -1,6 +1,6 @@
 // Dragging agents swaps panes (#135), with Playwright's mouse as a person drags: a pane dropped on another pane swaps
 // the two (running or stopped), in a fresh window and after clicking agents into panes (what failed before, when a
-// stored pane arrangement won over the order); the strip inserts like browser tabs; holding a dragged agent over a
+// stored pane arrangement won over the order); Move Left in an agent's menu (#975: the strip's tabs inserted); holding a dragged agent over a
 // page button switches to that page, to drop it on a pane there (the swap crosses pages); a drop on a page button
 // moves it to that page's last place; a drop on an empty pane moves it there; and no target is offered where a drop
 // would change nothing (the last agent over the spare panes or its own page's button, #238). After every step the panes show the
@@ -78,7 +78,6 @@ const check = (name, ok, extra = '') => {
   }
   const header = (n) => page.locator('.pane-header-bar', { hasText: n }).locator('.agent-name')
   const pane = (n) => page.locator('.agent-pane', { has: page.locator('.pane-header-bar', { hasText: n }) })
-  const tab = (n) => page.locator('.agent-tab', { hasText: n })
 
   await page.getByText('alpha', { exact: true }).first().click()
   const agents = []
@@ -97,29 +96,22 @@ const check = (name, ok, extra = '') => {
   check('the running agent kept its session', (await live(one.id))?.sessionId === session)
   check('the drag has ended: no drop targets left', (await page.locator('.pane-drop').count()) === 0)
 
-  // --- After clicking agents into panes (the case that failed): click them, then drag Two's tab onto One's pane.
-  for (const n of ['Four', 'Two', 'One']) {
-    await tab(n).click()
-    await lib.sleep(250)
-  }
-  await drag(tab('Two'), [pane('One')])
-  check('after clicking agents: a tab dropped on a pane swaps them too', !!(await settle('Three,One,Two,Four')), `${saved()} / ${await paneNames()}`)
+  // --- After choosing agents into panes (the case that failed; #975: from the summary chip's list), drag Two onto One's pane.
+  for (const n of ['Four', 'Two', 'One']) await lib.showAgent(page, n)
+  await drag(header('Two'), [pane('One')])
+  check('after choosing agents: a pane dropped on another swaps them too', !!(await settle('Three,One,Two,Four')), `${saved()} / ${await paneNames()}`)
 
   // --- No drop target on its own pane; a drop there does nothing.
   await drag(header('Three'), [pane('Three')])
   check('dropping an agent on its own pane does nothing', !!(await settle('Three,One,Two,Four')), saved().join(','))
 
-  // --- The strip inserts, like browser tabs: Four's tab dropped on Three's left half goes first.
-  const three = await tab('Three').boundingBox()
-  const a = await at(tab('Four'))
-  await page.mouse.move(a.x, a.y)
-  await page.mouse.down()
-  await page.mouse.move(a.x + 8, a.y, { steps: 3 })
-  await lib.sleep(150)
-  await page.mouse.move(three.x + 4, three.y + three.height / 2, { steps: 10 })
-  await lib.sleep(150)
-  await page.mouse.up()
-  check('the strip inserts: Four before Three, the panes follow', !!(await settle('Four,Three,One,Two')), `${saved()} / ${await paneNames()}`)
+  // --- One place at a time (#975: the strip's tabs inserted like browser tabs): Move Left in Four's menu, three times.
+  for (const want of ['Three,One,Four,Two', 'Three,Four,One,Two', 'Four,Three,One,Two']) {
+    await lib.agentMenu(page, 'Four')
+    await lib.menuEntry(page, 'Move Left').click()
+    await settle(want)
+  }
+  check("Move Left in an agent's menu: Four first, the panes follow", !!(await settle('Four,Three,One,Two')), `${saved()} / ${await paneNames()}`)
 
   // --- Hold over a page button to switch, then drop on a pane there: the swap crosses pages. From page 2 (Two), its
   // own pane header dragged (it leaves the screen when page 1 shows), held over "1", dropped on Three's pane.
@@ -148,22 +140,23 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Escape')
   await page.mouse.up()
   await lib.sleep(400)
-  check('Escape ends the drag at once: no drop targets or drag marks left', (await page.locator('.pane-drop').count()) === 0 && (await page.locator('.agent-tab.dragging, .page-switch button.drop-target').count()) === 0, `${await page.locator('.pane-drop').count()} drop targets`)
+  check('Escape ends the drag at once: no drop targets or drag marks left', (await page.locator('.pane-drop').count()) === 0 && (await page.locator('.pane-header-bar.dragging, .page-switch button.drop-target').count()) === 0, `${await page.locator('.pane-drop').count()} drop targets`)
   check('…and nothing moved', saved().join(',') === before && (await matches()), `${saved()} vs ${before}`)
   check('…and One still runs its session', (await live(one.id))?.sessionId === session)
   // A drop outside any target (the project header) cancels too.
-  await drag(tab('One'), [page.locator('.project-header h1')])
+  await drag(header('One'), [page.locator('.project-header h1')])
   check('a drop outside the targets moves nothing and leaves no drop targets', saved().join(',') === before && (await page.locator('.pane-drop').count()) === 0, `${saved()} / ${await page.locator('.pane-drop').count()}`)
 
   // --- A drop on a page button: to that page's last place (Four, from page 1, to page 2's end).
-  await drag(tab('Four'), [page.locator('.page-switch button[aria-label="Agent page 2"]')])
+  await drag(header('Four'), [page.locator('.page-switch button[aria-label="Agent page 2"]')])
   check("a drop on a page button moves the agent to that page's last place", !!(await lib.until(async () => saved().join(',') === 'Two,One,Three,Four', 8000)), saved().join(','))
   check('the panes still follow the order', !!(await lib.until(matches, 5000)), `${saved()} / ${await paneNames()}`)
 
-  // --- A drop on an empty pane (page 2 has one agent and two spare panes): the agent moves there, the end.
-  await page.locator('.page-switch button[aria-label="Agent page 2"]').click()
-  await lib.until(async () => (await activePage()) === 2, 5000)
-  await drag(tab('Two'), [page.locator('.agent-pane:not(:has(.pane-header-bar))').last()])
+  // --- A drop on an empty pane (page 2 has one agent and two spare panes): the agent moves there, the end. Two (on page 1)
+  // is held over page 2's button until it shows, then dropped on a spare pane. Page 1 first (Four's move showed page 2).
+  await page.locator('.page-switch button[aria-label="Agent page 1"]').click()
+  await lib.until(async () => (await activePage()) === 1, 5000)
+  await drag(header('Two'), [page.locator('.page-switch button[aria-label="Agent page 2"]'), () => page.locator('.agent-pane:not(:has(.pane-header-bar))').last()], 900)
   check('a drop on an empty pane moves the agent there', !!(await settle('One,Three,Four,Two')), `${saved()} / ${await paneNames()}`)
 
   // --- No target where a drop would change nothing (#238): Two is now last, alone on page 2 with two spare panes. Each

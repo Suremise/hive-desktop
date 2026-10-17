@@ -111,6 +111,7 @@
   "shell.command.session.startNewAllLive": "{several, select, yes {Começar de novo ({n})…} other {Começar de novo…}}",
   "shell.command.session.stop": "Parar sessão",
   "shell.command.session.stopBackgroundAndResume": "Parar uma sessão em segundo plano e retomá-la",
+  "shell.command.session.toggleView": "Alternar entre Painéis e Blocos",
   "shell.command.settings.advanced": "Configurações avançadas",
   "shell.command.settings.keybindings": "Personalizar atalhos de teclado",
   "shell.command.settings.notifications": "Configurações de notificações",

@@ -78,9 +78,11 @@ async function openCards(ctx) {
   const name = project.split(/[\\/]/).pop()
   const cards = []
   for (const [title, column] of [['Add a greeting', 'doing'], ['Translate the Progress panel', 'todo'], ['Polish plurals', 'todo']]) cards.push(await inv('tasks:create', { title, project: name, agent: four.id, column }))
-  // The window has them once Four's tab in the agent strip shows its card in Doing (the dialog reads the window's cards).
+  // The window has them once Four's pane header shows its card in Doing (the dialog reads the window's cards); Four is
+  // shown from the summary chip's list (#975), which names agents as they are, in any language.
   await ctx.command('project.tab.session')
-  await shown(ctx, page.locator(`[data-agent="${four.id}"] [data-task="${cards[0].number}"]`).first(), "Four's card on its tab")
+  await lib.showAgent(page, 'Four')
+  await shown(ctx, lib.paneHeader(page, 'Four').locator(`[data-task="${cards[0].number}"]`).first(), "Four's card on its pane header")
   await ctx.command('project.tab.settings')
   const remove = await shown(ctx, page.locator(`[data-agent="${four.id}"] [data-action="remove-agent"]`).first(), "Four's remove button")
   await remove.click()

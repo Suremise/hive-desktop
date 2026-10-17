@@ -1,5 +1,5 @@
 // An agent whose CLI exits before its session starts shows why: a red bar under its terminal with the CLI's error,
-// a hint, Retry and Agent Settings…, a red tab and "Failed to start" in its header, and a toast when its pane
+// a hint, Retry and Agent Settings…, a stalled mark and "Failed to start" in its header, and a toast when its pane
 // isn't on screen. Retry starts it again once fixed; a stop or a normal end shows no failure. The agent runs the
 // fake Claude Code (fake-claude/), made to fail with `--model fail-start`. Dev build, throwaway profile,
 // workspace and CLAUDE_CONFIG_DIR.
@@ -52,7 +52,6 @@ const check = (name, ok, extra = '') => {
   const header = page.locator('.pane-header-bar', { hasText: 'Starter' })
   const pane = page.locator('.agent-pane', { has: header })
   const bar = pane.locator('.start-failed')
-  const tab = page.locator('.agent-tab', { hasText: 'Starter' })
   const text = (l) => l.innerText().catch(() => '')
 
   // --- It fails at start, on screen.
@@ -63,7 +62,7 @@ const check = (name, ok, extra = '') => {
   check('with a hint for the fix', /choose another in Agent Settings/.test(said), said)
   check('with Retry and Agent Settings…', (await bar.getByRole('button', { name: 'Retry' }).count()) === 1 && (await bar.getByRole('button', { name: 'Agent Settings…' }).count()) === 1)
   check('the header says Failed to start, in red', /Failed to start/.test(await text(header.locator('.pane-status.failed'))) && (await header.locator('.state-mark.stalled').count()) === 1)
-  check('the tab is red', (await tab.locator('.dot.error').count()) === 1)
+  check("its pane header's mark is stalled (#975: the strip's tab went red)", (await header.locator('.state-mark.stalled').count()) === 1)
   check('no toast while its pane is on screen', (await page.locator('.toast', { hasText: "couldn't start" }).count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'startfail-1-bar.png') })
 
@@ -76,7 +75,7 @@ const check = (name, ok, extra = '') => {
   // --- ✕ puts back the usual "Session ended" bar.
   await bar.getByRole('button', { name: /Dismiss/ }).click()
   check('✕ dismisses it', !!(await until(async () => (await bar.count()) === 0 && (await pane.locator('.session-ended').count()) === 1, 5000)))
-  check('and the header and tab go back to not running', /Not running/.test(await text(header.locator('.pane-status'))) && (await tab.locator('.dot.error').count()) === 0)
+  check('and the header goes back to not running', /Not running/.test(await text(header.locator('.pane-status'))) && (await header.locator('.state-mark.stalled').count()) === 0)
 
   // --- Off screen: a toast with Show.
   await page.locator('.tab', { hasText: 'Files' }).click()
@@ -93,7 +92,7 @@ const check = (name, ok, extra = '') => {
   await inv('agents:update', alpha, agent.id, { model: '' })
   await bar.getByRole('button', { name: 'Retry' }).click()
   check('Retry starts it again', !!(await until(async () => (await live())?.status === 'ready', 15000)))
-  check('the failure is gone once it starts', !!(await until(async () => (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await tab.locator('.dot.error').count()) === 0, HUNG_MS)))
+  check('the failure is gone once it starts', !!(await until(async () => (await bar.count()) === 0 && !/Failed to start/.test(await text(header)) && (await header.locator('.state-mark.stalled').count()) === 0, HUNG_MS)))
 
   // --- A stop isn't a failed start.
   await inv('session:stop', alpha, agent.id)

@@ -120,9 +120,10 @@ function mcp(config, msgs) {
   await page.keyboard.press('Control+Shift+E')
   await page.getByText('alpha', { exact: true }).first().click()
   await page.locator('.tab', { hasText: 'Session' }).first().click()
-  const chip = (name) => page.locator('.agent-tab', { hasText: name }).locator('.card-chip')
-  check("the reviewer's tab shows the card, with an eye", !!(await until(async () => (await chip('Reviewer').getAttribute('data-review').catch(() => null)) === 'true', 5000)) && (await chip('Reviewer').innerText()).includes(`#${n}`))
-  check("the coder's tab doesn't (it isn't working on it)", (await chip('Coder').count()) === 0)
+  // On each agent's pane header (#975: its strip tab had it).
+  const chip = (name) => lib.paneHeader(page, name).locator('.card-chip')
+  check("the reviewer's pane header shows the card, with an eye", !!(await until(async () => (await chip('Reviewer').getAttribute('data-review').catch(() => null)) === 'true', 5000)) && (await chip('Reviewer').innerText()).includes(`#${n}`))
+  check("the coder's doesn't (it isn't working on it)", (await chip('Coder').count()) === 0)
 
   // --- A second reviewer is refused, naming the first.
   const refused = await say(third.id, `boardreview ${n} start`)

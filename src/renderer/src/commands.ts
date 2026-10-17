@@ -1,4 +1,4 @@
-import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, resolveKeybinding } from '@shared/defaults'
+import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, projectSessionView, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProviderId, SessionLayout } from '@shared/types'
@@ -355,6 +355,20 @@ const COMMAND_DEFS: CommandDef[] = [
   layoutCommand('columns3', 3),
   layoutCommand('grid', 4),
   layoutCommand('grid6', 5),
+  // The Session tab's Panes | Tiles toggle (#975), remembered per project; no default shortcut (Ctrl+Alt+letters are AltGr's).
+  {
+    id: 'session.toggleView',
+    name: msg({ id: 'shell.command.session.toggleView', defaultMessage: 'Switch Between Panes and Tiles', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: switches the Session tab between Panes (the agents' terminals) and Tiles (a small tile per agent). Panes and Tiles: as the toggle says them." }),
+    category: 'session',
+    when: hasProject,
+    run: () => {
+      const p = selected()
+      if (!p) return
+      showView('projects')
+      setProjectTab(p.path, 'session')
+      void actions.setSessionView(p.path, projectSessionView(p.config, get().settings) === 'panes' ? 'tiles' : 'panes')
+    }
+  },
   { id: 'session.archive', name: msg({ id: 'shell.command.session.archive', defaultMessage: 'Archive Session and Start New…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: hasProject, run: () => actions.archiveCurrent() },
   // Every agent of the project at once, after one confirmation (#216); the menus and the palette say how many (#275).
   { id: 'session.startNewAll', name: msg({ id: 'shell.command.session.startNewAll', defaultMessage: 'Start New (All)…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: () => hasProject() && !!selected()?.agents.length, liveLabel: () => batchLabel(msg({ id: 'shell.command.session.startNewAllLive', defaultMessage: '{several, select, yes {Start New ({n})…} other {Start New…}}', description: 'The command that gives every agent of the project a new session, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it.' }), 'startNew'), run: () => void actions.startNewAll(get().selectedProject!) },

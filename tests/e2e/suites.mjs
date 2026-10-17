@@ -166,6 +166,7 @@ export const SUITES = [
   { name: 'sessionname' },
   { name: 'sessionorigin' },
   { name: 'sessionsize' },
+  { name: 'sessiontoolbar' },
   { name: 'sessiontree' },
   { name: 'setuplayout' },
   { name: 'signin' },

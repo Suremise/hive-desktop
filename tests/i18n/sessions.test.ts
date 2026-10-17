@@ -66,7 +66,7 @@ describe('the sessions area', () => {
   it("a translation made from the catalogue's English keeps its line breaks and the usage line's separators", () => {
     const catalogue = (area: string) => JSON.parse(readFileSync(join(ROOT, `locales/en/${area}.json`), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
     const en = { ...catalogue('sessions'), ...catalogue('panes'), ...catalogue('project') }
-    const ids = ['sessions.view.usage', 'panes.worktree.tip', 'project.settings.inheritList']
+    const ids = ['sessions.view.usage', 'project.settings.inheritList']
     const messages = ids.map((id) => msg({ id, defaultMessage: en[id].defaultMessage, description: en[id].description }))
     const values = { context: '120K', output: '8K', prompts: 3, compactions: 1, left: '4m', session: 'S', since: 'today', id: 'abc', branch: 'hive/b1', path: 'C:\\wt', base: 'main', value: 'a\nb' }
     const shown = (cache: string) => messages.map((m) => tr(m as never, { ...values, cache } as never))
@@ -74,7 +74,7 @@ describe('the sessions area', () => {
     expect(english[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction · cache warm 4m')
     expect(shown('expired')[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction · cache expired')
     expect(shown('none')[0]).toBe('120K context · 8K output · 3 prompts · 1 compaction')
-    expect(english.slice(1).map((t) => t.split('\n').length)).toEqual([3, 3])
+    expect(english.slice(1).map((t) => t.split('\n').length)).toEqual([3])
     setLanguage('pl', Object.fromEntries(ids.map((id) => [id, en[id].defaultMessage])))
     expect(shown('warm')).toEqual(english)
   })

@@ -226,6 +226,8 @@
   "tips.sessionCleanup.title": "Clear out old sessions",
   "tips.sessionSizes.text": "The Sessions tab shows each session's transcript size. One in amber is past Warn when a transcript is over: hand its work over to a new conversation to keep things quick.",
   "tips.sessionSizes.title": "Spot the conversations that grew too long",
+  "tips.sessionToolbar.text": "The chip above the panes counts your agents by state; its ▾ lists them, most urgent first: choose one to go to it. Panes | Tiles beside it switches between the agents' terminals and a small tile each.",
+  "tips.sessionToolbar.title": "Jump to any agent, or see them all as tiles",
   "tips.sessionTree.text": "In the Sessions tab, right-click a provider, an agent or a session with sub-sessions to archive or delete everything in it at once. Running sessions and ones in use are skipped, and Hive says which.",
   "tips.sessionTree.title": "Clear out a whole branch of sessions",
   "tips.shareTemplates.text": "The Templates view (activity bar) and a project's Templates tab list every template. Export… saves one as a file for teammates; Import… brings one in, for the workspace or a project.",

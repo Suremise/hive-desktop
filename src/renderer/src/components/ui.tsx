@@ -4,6 +4,8 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import type { LiveSessionState, SessionStatus } from '@shared/types'
 import { actClass, cx, type SessionAction } from '../util'
+import type { AgentState } from '@shared/agentState'
+import { StateMark } from './StateMark'
 import { call, errorMessage } from '../api'
 import { formatWhen } from '@shared/dates'
 import { runtimeLabel, shownMergeSlot, shownStatusMessage, unknownStateText } from '@shared/runtime'
@@ -906,6 +908,8 @@ export interface MenuEntry {
   detail?: string
   /** Shown greyed out but still clickable. */
   muted?: boolean
+  /** An agent's state mark in the icon's place (#975); its words belong in the label or detail, as the mark is decorative. */
+  state?: AgentState
   /** Opens another menu in its place (a ▸ at its end; → opens it too). */
   more?: boolean
   /** `keyboard`: chosen with Enter or →, so a menu it opens can take the keys too. */
@@ -1008,7 +1012,7 @@ export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: numb
             onMouseMove={() => active !== i && choosable(it) && setActive(i)}
             onClick={() => choose(it, false)}
           >
-            <Icon name={it.icon ?? 'blank'} />
+            {it.state ? <StateMark state={it.state} decorative className="menu-state" /> : <Icon name={it.icon ?? 'blank'} />}
             {it.detail ? (
               <span className="menu-text">
                 <span className="menu-label">{it.label}</span>

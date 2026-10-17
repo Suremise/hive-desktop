@@ -113,6 +113,7 @@ interface HiveMessageValues {
   'shell.command.session.startNewAllLive': { several: string; n: string | number }
   'shell.command.session.stop': undefined
   'shell.command.session.stopBackgroundAndResume': undefined
+  'shell.command.session.toggleView': undefined
   'shell.command.settings.advanced': undefined
   'shell.command.settings.keybindings': undefined
   'shell.command.settings.notifications': undefined

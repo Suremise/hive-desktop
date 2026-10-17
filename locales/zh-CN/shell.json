@@ -111,6 +111,7 @@
   "shell.command.session.startNewAllLive": "{several, select, yes {新建会话（{n}）…} other {新建会话…}}",
   "shell.command.session.stop": "停止会话",
   "shell.command.session.stopBackgroundAndResume": "停止后台会话并恢复",
+  "shell.command.session.toggleView": "在窗格和磁贴之间切换",
   "shell.command.settings.advanced": "高级设置",
   "shell.command.settings.keybindings": "自定义键盘快捷键",
   "shell.command.settings.notifications": "通知设置",

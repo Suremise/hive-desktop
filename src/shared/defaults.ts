@@ -1,4 +1,4 @@
-import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEvent, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, WorkspaceConfig } from './types'
+import type { AgentBranchStatus, AgentDef, AppConfig, AppSettings, CompactionEvent, KeybindingOverrides, FileLockMode, PageLayout, PlanLimit, PlanUsage, ProjectConfig, ProjectProviderConfig, ProviderId, ProviderSettings, SessionLayout, SessionRecord, SessionStatus, SessionView, WorkspaceConfig } from './types'
 import { CLAUDE_CODE } from './claude'
 import { DEFAULT_COLUMN_COLORS } from './tasks'
 import { formatDateTime } from './dates'
@@ -85,6 +85,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     usageCacheSize: 5000,
     followTranscripts: false,
     overviewRefresh: 'live',
+    defaultView: 'panes',
     recordPerformance: true
   },
   agentApi: {
@@ -284,6 +285,16 @@ export function projectLayout(cfg: Pick<ProjectConfig, 'agents' | 'layout'>): Se
 
 /** How many agents a page of this project's Session tab holds. */
 export const projectPerPage = (cfg: Pick<ProjectConfig, 'agents' | 'layout'>): number => agentsPerPage(projectLayout(cfg))
+
+/**
+ * The Session tab's view for a project (#975): the one its Panes | Tiles toggle chose, else Settings → Sessions → Default
+ * session view, else Panes.
+ */
+export function projectSessionView(cfg: Pick<ProjectConfig, 'sessionView'>, settings: Pick<AppSettings, 'sessions'> | null | undefined): SessionView {
+  const chosen = cfg.sessionView
+  if (chosen === 'panes' || chosen === 'tiles') return chosen
+  return settings?.sessions.defaultView === 'tiles' ? 'tiles' : 'panes'
+}
 
 /** The layout to save when one is chosen: choosing the one that shows the agents makes it automatic again. */
 export function chosenLayout(cfg: Pick<ProjectConfig, 'agents'>, layout: SessionLayout): PageLayout {
