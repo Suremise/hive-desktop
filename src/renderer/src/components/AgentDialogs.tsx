@@ -374,8 +374,8 @@ export function AddAgentDialog() {
       }
       actions.noteManyAgents(project.path)
       const p = useStore.getState().workspace?.projects.find((x) => x.path === project.path)
-      // Show the new agent in a pane: a single-pane layout switches to it.
-      if (p) showAgent(p, def.id)
+      // Show the new agent in a pane: a single-pane layout switches to it (in the Tiles view, its tile: #976).
+      if (p) showAgent(p, def.id, 'select')
       if (startNow) await actions.newSession(project.path, def.id)
     } catch (e) {
       notify('error', tr(msg({ id: 'agents.add.failed', defaultMessage: 'Could not add agent', description: "An error's title: adding an agent to a project failed." })), errorMessage(e))

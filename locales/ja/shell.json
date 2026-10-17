@@ -98,6 +98,7 @@
   "shell.command.session.archive": "セッションをアーカイブして新規開始…",
   "shell.command.session.archiveAll": "アーカイブして新規開始（すべて）…",
   "shell.command.session.archiveAllLive": "{several, select, yes {アーカイブして新規開始（{n}）…} other {アーカイブして新規開始…}}",
+  "shell.command.session.backToTiles": "タイルに戻る",
   "shell.command.session.compact": "会話をコンパクト化…",
   "shell.command.session.focusTerminal": "セッションのターミナルにフォーカス",
   "shell.command.session.handOverTo": "エージェントの作業を引き継ぐ",

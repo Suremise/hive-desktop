@@ -98,6 +98,7 @@
   "shell.command.session.archive": "Archive Session and Start New…",
   "shell.command.session.archiveAll": "Archive and Start New (All)…",
   "shell.command.session.archiveAllLive": "{several, select, yes {Archive and Start New ({n})…} other {Archive and Start New…}}",
+  "shell.command.session.backToTiles": "Back to Tiles",
   "shell.command.session.compact": "Compact Conversation…",
   "shell.command.session.focusTerminal": "Focus Session Terminal",
   "shell.command.session.handOverTo": "Hand Over an Agent's Work",

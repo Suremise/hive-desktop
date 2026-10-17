@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Les modèles réutilisent les worktrees",
   "tips.testedClis.text": "Claude Code, Codex et Copilot se mettent à jour d’eux-mêmes. Configuration des agents montre la version avec laquelle cette version de Hive a été testée à côté de la tienne, et indique quand la tienne est plus récente ou plus ancienne.",
   "tips.testedClis.title": "Voir avec quelles versions des CLI Hive a été testé",
+  "tips.tilesView.text": "Tuiles montre chaque agent comme une petite tuile : son état, son statut, sa carte, sa progression et sa dernière réponse, douze par page. Clique sur une tuile pour ouvrir son volet en grand à côté des autres ; Échap revient. Paramètres → Sessions → Ordre des tuiles peut mettre en premier les agents qui attendent ta réponse.",
+  "tips.tilesView.title": "Toute une équipe d’un coup d’œil, en tuiles",
   "tips.twoProviders.text": "Les agents d’un même projet peuvent utiliser des fournisseurs différents : par exemple un relecteur Codex à côté d’un agent Claude Code. Passer le relais à… transmet le travail de l’un à l’autre.",
   "tips.twoProviders.title": "Mélanger Claude Code et Codex",
   "tips.ui.close": "Fermer",

@@ -16,7 +16,7 @@ import { projectSessionView } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
-import { agentProviderOf, projectKey, set, setProjectTab, useFocusedAgent, useLanguage, useStore, type ProjectTab } from '../store'
+import { agentProviderOf, projectKey, set, setProjectTab, tileFocusOf, useFocusedAgent, useLanguage, useStore, type ProjectTab } from '../store'
 import { carriesFiles, cx, formatKeybinding } from '../util'
 import { AttachmentsTab, FilesTab } from './FilesTab'
 import { GitTab } from './GitTab'
@@ -304,8 +304,12 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const tab = (project && tabs[project.path]) || 'session'
   // The Session tab's view (#975): Panes shows the terminals; Tiles hides them (they keep running) for a tile each (#976).
   const view = project ? projectSessionView(project.config, settings) : 'panes'
-  const terminalVisibleFor = visible && project && tab === 'session' && view === 'panes' ? project.path : null
-  const panes = usePanes(project)
+  // A tile's focus view (#976): that agent's pane, beside the strip of the others.
+  const tileFocus = useStore((s) => (view === 'tiles' ? tileFocusOf(project, s) : null))
+  const panesShown = view === 'panes' || !!tileFocus
+  const terminalVisibleFor = visible && project && tab === 'session' && panesShown ? project.path : null
+  const layoutShows = usePanes(project)
+  const panes = tileFocus ? [tileFocus] : layoutShows
   const focusedAgent = useFocusedAgent(project)
   // A narrow header shortens Resume's label; tighter, Resume, Stop, Active and Agents ▾ show as icons; tighter still
   // (both panels open beside the narrowest window), Agents ▾'s actions move into ⋯. The title gives way to the actions
@@ -504,9 +508,9 @@ export function ProjectView({ visible }: { visible: boolean }) {
 
       <div className="tab-body">
         {tab === 'session' && <SessionToolbar project={project} view={view} />}
-        <div className={cx('agents-area', tab === 'session' && view === 'panes' ? 'shown' : 'hidden')}>
+        <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />
-          {tab === 'session' && view === 'panes' && <PaneChrome project={project} panes={panes} />}
+          {tab === 'session' && panesShown && <PaneChrome project={project} panes={panes} />}
           {tab === 'session' && view === 'panes' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}
         </div>
         {tab === 'session' && view === 'tiles' && <AgentTiles project={project} />}

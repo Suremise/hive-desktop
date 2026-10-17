@@ -243,10 +243,32 @@ Above the panes, the Session tab's toolbar holds what is about all of the projec
 
 - **Panes | Tiles** switches how the Session tab shows the agents: **Panes** shows each agent's terminal, **Tiles** a small tile per agent, so a whole team fits on one screen. The agents keep running either way. Each project remembers its own choice; **Settings → Sessions → Default session view** sets it for projects that haven't chosen yet (Panes unless you change it). **Switch Between Panes and Tiles** in the command palette does the same.
 - **The summary chip** counts the agents in each [state](#agent-states), with the mark of the most urgent (*1 waiting · 2 working · 3 idle*). Its **▾** lists every agent, most urgent first, with its state, its status and its card: choose one to go to it, on another page too. It works from the keyboard (Enter opens it, ↑ and ↓ move, Enter chooses), and a screen reader announces each agent as you move.
-- **The page buttons and the layouts** (Panes only) are on the right: see **Pages** in [Several agents in one project](#several-agents-in-one-project).
+- **The page buttons and the layouts** (Panes only) are on the right: see **Pages** in [Several agents in one project](#several-agents-in-one-project). In Tiles the page buttons are the tile pages: see [The Tiles view](#the-tiles-view).
 - **+ Add ▾**: **Configure Agent and Add…** (the Add Agent dialog), **Add Agent** (straight away, with your defaults: Ctrl+Alt+Shift+N), **Add Agent from Template** and **Templates** (see [Agent templates](#agent-templates)).
 
 To rename an agent, change its settings, move it or remove it, use its pane's **⋯** (or right-click its header); drag a pane by its header to rearrange the agents.
+
+### The Tiles view
+
+**Tiles** (the session toolbar's **Panes | Tiles**) shows each agent as a small tile, so a whole team fits on one screen and you can see at a glance who is doing what and who needs you. A tile shows:
+
+- the agent's [state](#agent-states) mark, its name and its provider;
+- its status (*Working…*, *Waiting for #12 → Review*, *Not running*);
+- the card it works on (or reviews);
+- its progress, when it reports a long run (a test run, a build);
+- the first two lines of its latest reply;
+- small badges for background tasks still running, and for the warnings its pane's footer would show (a context past the Compact threshold, a long transcript).
+
+A tile waiting for you has a red border and a diamond; a stalled one has a square and a border in its own colour. The tiles show what Hive already knows, so they cost nothing: no terminal is drawn for them, and no CLI is asked anything.
+
+**Twelve tiles fit a page.** With more agents, the page buttons on the toolbar's right show the other pages (or press Ctrl+Alt+PageDown and Ctrl+Alt+PageUp). **Settings → Sessions → Tile order** chooses the order:
+
+- **Same as panes** (the default): the tiles are in the panes' order, so a builder stays beside its reviewer, and moving an agent moves its tile too. A tile waiting for you or stalled stays where it is, highlighted, and a page button shows how many such tiles another page has.
+- **By urgency**: waiting for you and stalled first, then working, then idle, so anything that needs you is on page 1.
+
+**Open an agent**: click its tile, or press Enter on it. Its **focus view** shows the agent's own pane, large and fully working (type into it, scroll, select), with the other agents in a strip on the left; choose one there to switch. To go back to the tiles, press **Esc** (outside the terminal: in it, Esc goes to the agent, as always), **Ctrl+Alt+Esc** (from anywhere, the terminal too: **Back to Tiles**), click **← Tiles** at the top of the strip, or click **Tiles** in the toolbar again. Choosing an agent anywhere else (the summary chip's list, a notification, the board, Ctrl+Alt+1…9) opens its focus view too while the project shows Tiles.
+
+From the keyboard: Tab to the tiles, move between them with the arrow keys (Home and End for the first and last), and press Enter to open one.
 
 ### Processes agents leave running
 

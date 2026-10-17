@@ -172,8 +172,18 @@ interface HiveMessageValues {
   'panes.template.scopeHeading': { scope: string }
   'panes.terminal.exited': { code: string | number }
   'panes.terminal.pasteFailed': undefined
-  'panes.tiles.backToPanes': undefined
-  'panes.tiles.placeholder': undefined
+  'panes.tiles.back': undefined
+  'panes.tiles.backTip': { key: string }
+  'panes.tiles.background': { n: number }
+  'panes.tiles.context': { tokens: string | number }
+  'panes.tiles.empty': undefined
+  'panes.tiles.label': { pages: number; page: number }
+  'panes.tiles.notRunning': undefined
+  'panes.tiles.pageButton': { page: number }
+  'panes.tiles.pageTip': { page: number; urgent: number; key: string }
+  'panes.tiles.reviewing': { card: string | number }
+  'panes.tiles.stripLabel': undefined
+  'panes.tiles.transcript': { size: string | number }
   'panes.view.label': undefined
   'panes.view.name': { view: string }
   'panes.watch.agents': { agents: string | number }

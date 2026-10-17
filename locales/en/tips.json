@@ -1019,6 +1019,14 @@
     "defaultMessage": "See which CLI versions Hive was tested with",
     "description": "A tip's title."
   },
+  "tips.tilesView.text": {
+    "defaultMessage": "Tiles shows each agent as a small tile: its state, status, card, progress and latest reply, twelve to a page. Click one to open its pane large beside the others; Esc goes back. Settings → Sessions → Tile order can put the agents waiting for you first.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands (Tiles, Tile order): keep them as Hive shows them."
+  },
+  "tips.tilesView.title": {
+    "defaultMessage": "See a whole team at once as tiles",
+    "description": "A tip's title."
+  },
   "tips.twoProviders.text": {
     "defaultMessage": "Agents in one project can use different providers: say a Codex reviewer next to a Claude Code agent. Hand Over to… passes work between them.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

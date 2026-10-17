@@ -95,6 +95,7 @@ import { beingRead, viewingWindows } from './transcriptReads'
 import { trash } from './trash'
 import { attachmentsDir, freeName, ownAttachmentsFolder } from './attachmentsFolder'
 import { attachmentKind } from '../shared/attachments'
+import { replyStart } from '../shared/tiles'
 
 const log = createLogger('sessions')
 
@@ -3698,7 +3699,11 @@ class SessionManager {
     this.checkFolder(l.state.projectPath, l.state.cwd)
     await this.refreshBackground(l)
     this.sweepTasks(l)
-    if (lastMessage) l.lastReply = lastMessage.slice(0, 2000)
+    if (lastMessage) {
+      l.lastReply = lastMessage.slice(0, 2000)
+      // Its tile's last lines (#976), sent with the turn's end.
+      l.state.replyStart = replyStart(lastMessage)
+    }
   }
 
   /** The agent's turn as its ledger has it (LiveSessionState.turn), sent when it changed. `unknown`: its state is unknown. */

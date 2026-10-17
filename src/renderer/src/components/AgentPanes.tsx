@@ -17,13 +17,14 @@ import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { formatSize } from '@shared/units'
 import { moneyLabel } from '@shared/usageTotals'
 import { TerminalView } from './TerminalView'
+import { focusTileAfter, TilePager } from './AgentTiles'
 import { offerTip } from '../tips'
 import { chooseFocus } from '../deferredFocus'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
@@ -677,7 +678,7 @@ function SignInTip({ live, children }: { live: LiveSessionState | null; children
 }
 
 /** An agent whose last launch failed, in its name's hover and the summary chip's list: "failed to start: <why>". */
-const FAILED_TO_START = msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case." })
+export const FAILED_TO_START = msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case." })
 
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
@@ -995,7 +996,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
             tabIndex={shownView === v ? 0 : -1}
             className={cx(shownView === v && 'active')}
             data-view={v}
-            onClick={() => shownView !== v && chooseView(v, false)}
+            // Tiles again, from an agent's focus view (#976): back to the grid.
+            onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
           >
             {tr(VIEW_NAME, { view: v })}
           </button>
@@ -1011,6 +1013,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         </Tooltip>
       )}
       <div className="grow" />
+      {/* On the right, for Tiles: its pages (#976). */}
+      {!panesView && <TilePager project={project} />}
       {/* On the right, for Panes: the pages beside the layouts they follow from (#292), then + Add ▾. */}
       {panesView && pages > 1 && !compactPager && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
       {/* More pages than fit as buttons (up to 24 agents, #562), or a toolbar short of room (#886): ‹, which page of how

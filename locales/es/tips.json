@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Las plantillas reutilizan los worktrees",
   "tips.testedClis.text": "Claude Code, Codex y Copilot se actualizan solos. Configuración de agentes muestra la versión con la que se probó esta versión de Hive junto a la que tienes, y avisa cuando la tuya es más nueva o más antigua.",
   "tips.testedClis.title": "Mira con qué versiones de las CLI se probó Hive",
+  "tips.tilesView.text": "Mosaicos muestra cada agente como un pequeño mosaico: su estado, estado actual, tarjeta, progreso y última respuesta, doce por página. Haz clic en uno para abrir su panel en grande junto a los demás; Esc vuelve. Configuración → Sesiones → Orden de los mosaicos puede poner primero a los agentes que esperan tu respuesta.",
+  "tips.tilesView.title": "Ve a todo un equipo de un vistazo en mosaicos",
   "tips.twoProviders.text": "Los agentes de un proyecto pueden usar proveedores distintos: por ejemplo, un revisor de Codex junto a un agente de Claude Code. Traspasar a… pasa el trabajo entre ellos.",
   "tips.twoProviders.title": "Combina Claude Code y Codex",
   "tips.ui.close": "Cerrar",

@@ -4723,11 +4723,232 @@ body.pane-resizing .monaco-editor {
 .menu-item .menu-state {
   margin: 0 4px 0 3px;
 }
-/* The Tiles view (#976 builds it): in the panes' place, under the toolbar. */
+/* The Tiles view (#976): in the panes' place, under the toolbar; 12 tiles a page fit a 1440p window in three rows. */
 .agent-tiles {
   position: absolute;
   inset: 32px 0 0 0;
   overflow: auto;
+}
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+  align-content: start;
+  padding: 10px;
+}
+.agent-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 112px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-tile:hover {
+  background: var(--bg-hover);
+}
+.agent-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Waiting for you stands out most (its border and mark); stalled has its own colour's border too. */
+.agent-tile.urgent.waiting {
+  border-color: var(--state-waiting);
+  box-shadow: inset 0 0 0 1px var(--state-waiting);
+}
+.agent-tile.urgent.stalled {
+  border-color: var(--state-stalled);
+}
+.agent-tile.flash {
+  animation: pane-flash 1.2s ease-out;
+}
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.tile-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-provider {
+  margin-left: auto;
+  flex: none;
+  color: var(--fg-faint);
+  font-size: 11px;
+}
+.tile-status,
+.tile-card,
+.tile-progress-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-tile.waiting .tile-status {
+  color: var(--state-waiting);
+}
+.agent-tile.stalled .tile-status {
+  color: var(--state-stalled);
+}
+.tile-card,
+.tile-progress-text {
+  color: var(--fg-muted);
+}
+.tile-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tile-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.tile-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.tile-bar.moving i {
+  width: 30%;
+  animation: tile-bar-move 1.6s ease-in-out infinite alternate;
+}
+@keyframes tile-bar-move {
+  to {
+    transform: translateX(233%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tile-bar.moving i {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+/* Two lines of the latest reply. */
+.tile-reply {
+  color: var(--fg-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.tile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+}
+.tile-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.tile-badge .codicon {
+  font-size: 11px;
+}
+.tile-badge.warn {
+  color: var(--warning);
+}
+/* A tile page's count of urgent tiles on it, while another page is shown. */
+.tile-page-count {
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--state-waiting);
+  color: var(--accent-fg);
+  font-size: 10px;
+  line-height: 14px;
+}
+/* The focus view (#976): the strip of agents on the left, the agent's pane (the agents' area) beside it. */
+.tile-strip {
+  position: absolute;
+  top: 32px;
+  bottom: 0;
+  left: 0;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  overflow: auto;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+}
+.agents-area.tile-focus {
+  left: 200px;
+}
+.tile-strip-back,
+.tile-strip-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 1px 8px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.tile-strip-back {
+  margin-bottom: 4px;
+  color: var(--fg-muted);
+}
+.tile-strip-back:hover,
+.tile-strip-item:hover {
+  background: var(--bg-hover);
+}
+.tile-strip-back:focus-visible,
+.tile-strip-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.tile-strip-item.active {
+  background: var(--bg-selected);
+  border-color: var(--border);
+}
+.tile-strip-item.urgent.waiting {
+  border-color: var(--state-waiting);
+}
+.tile-strip-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-strip-status {
+  grid-column: 2;
+  color: var(--fg-faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* A row scrolled sideways fades out at the ends that have more out of view (useScrollEdges, #886): 24 px, less in a
    short row, so a tab still shows its name. */

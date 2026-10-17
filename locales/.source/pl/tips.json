@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Templates reuse worktrees",
   "tips.testedClis.text": "Claude Code, Codex and Copilot update on their own. Agent Setup shows the version this Hive release was tested with next to the one you have, and says when yours is newer or older.",
   "tips.testedClis.title": "See which CLI versions Hive was tested with",
+  "tips.tilesView.text": "Tiles shows each agent as a small tile: its state, status, card, progress and latest reply, twelve to a page. Click one to open its pane large beside the others; Esc goes back. Settings → Sessions → Tile order can put the agents waiting for you first.",
+  "tips.tilesView.title": "See a whole team at once as tiles",
   "tips.twoProviders.text": "Agents in one project can use different providers: say a Codex reviewer next to a Claude Code agent. Hand Over to… passes work between them.",
   "tips.twoProviders.title": "Mix Claude Code and Codex",
   "tips.ui.close": "Close",

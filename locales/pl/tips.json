@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Szablony ponownie używają worktree",
   "tips.testedClis.text": "Claude Code, Codex i Copilot aktualizują się same. Konfiguracja agentów pokazuje wersję, z którą przetestowano to wydanie Hive, obok Twojej i mówi, czy Twoja jest nowsza, czy starsza.",
   "tips.testedClis.title": "Sprawdź, z jakimi wersjami CLI testowano Hive",
+  "tips.tilesView.text": "Kafelki pokazują każdego agenta jako mały kafelek: stan, status, kartę, postęp i ostatnią odpowiedź, dwanaście na stronę. Kliknij kafelek, aby otworzyć duży panel agenta obok pozostałych; Esc wraca. Ustawienia → Sesje → Kolejność kafelków może stawiać na początku agentów, którzy czekają na Ciebie.",
+  "tips.tilesView.title": "Cały zespół naraz jako kafelki",
   "tips.twoProviders.text": "Agenci w jednym projekcie mogą używać różnych dostawców, np. recenzent Codex obok agenta Claude Code. Polecenie Przekaż pracę… przenosi ją między nimi.",
   "tips.twoProviders.title": "Łącz Claude Code i Codex",
   "tips.ui.close": "Zamknij",

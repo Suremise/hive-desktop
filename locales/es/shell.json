@@ -98,6 +98,7 @@
   "shell.command.session.archive": "Archivar la sesión y empezar una nueva…",
   "shell.command.session.archiveAll": "Archivar y empezar de nuevo (todos)…",
   "shell.command.session.archiveAllLive": "{several, select, yes {Archivar y empezar de nuevo ({n})…} other {Archivar y empezar de nuevo…}}",
+  "shell.command.session.backToTiles": "Volver a los mosaicos",
   "shell.command.session.compact": "Compactar la conversación…",
   "shell.command.session.focusTerminal": "Ir a la terminal de la sesión",
   "shell.command.session.handOverTo": "Traspasar el trabajo de un agente",

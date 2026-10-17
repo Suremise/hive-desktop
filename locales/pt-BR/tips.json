@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Modelos reutilizam worktrees",
   "tips.testedClis.text": "O Claude Code, o Codex e o Copilot se atualizam sozinhos. A Configuração de agentes mostra a versão com que esta versão do Hive foi testada ao lado da que você tem, e avisa quando a sua é mais nova ou mais antiga.",
   "tips.testedClis.title": "Veja com quais versões de CLI o Hive foi testado",
+  "tips.tilesView.text": "Blocos mostra cada agente como um pequeno bloco: estado, status, cartão, progresso e última resposta, doze por página. Clique em um para abrir o painel dele em tamanho grande ao lado dos outros; Esc volta. Configurações → Sessões → Ordem dos blocos pode colocar primeiro os agentes aguardando você.",
+  "tips.tilesView.title": "Veja uma equipe inteira de uma vez em blocos",
   "tips.twoProviders.text": "Os agentes de um projeto podem usar provedores diferentes: por exemplo, um revisor no Codex ao lado de um agente no Claude Code. Passar para… passa o trabalho entre eles.",
   "tips.twoProviders.title": "Combine Claude Code e Codex",
   "tips.ui.close": "Fechar",

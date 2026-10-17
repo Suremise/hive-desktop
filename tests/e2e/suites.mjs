@@ -188,6 +188,7 @@ export const SUITES = [
   { name: 'templateshare' },
   { name: 'termsize' },
   { name: 'testedclis' },
+  { name: 'tilesview' },
   { name: 'tipcorner' },
   { name: 'tips' },
   { name: 'tipwindows' },

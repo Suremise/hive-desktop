@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "Vorlagen verwenden Worktrees wieder",
   "tips.testedClis.text": "Claude Code, Codex und Copilot aktualisieren sich selbst. Die Agent-Einrichtung zeigt die Version, mit der dieses Hive-Release getestet wurde, neben deiner und sagt, wenn deine neuer oder älter ist.",
   "tips.testedClis.title": "Sehen, mit welchen CLI-Versionen Hive getestet wurde",
+  "tips.tilesView.text": "Kacheln zeigt jeden Agenten als kleine Kachel: Zustand, Status, Karte, Fortschritt und letzte Antwort, zwölf pro Seite. Klicke auf eine, um ihren Bereich groß neben den anderen zu öffnen; Esc führt zurück. Einstellungen → Sitzungen → Reihenfolge der Kacheln kann die Agenten, die auf dich warten, nach vorne stellen.",
+  "tips.tilesView.title": "Ein ganzes Team auf einen Blick als Kacheln",
   "tips.twoProviders.text": "Agenten in einem Projekt können verschiedene Anbieter verwenden, etwa ein Codex-Reviewer neben einem Claude-Code-Agenten. „Übergeben an…“ gibt Arbeit zwischen ihnen weiter.",
   "tips.twoProviders.title": "Claude Code und Codex mischen",
   "tips.ui.close": "Schließen",

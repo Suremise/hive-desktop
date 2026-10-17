@@ -254,6 +254,8 @@
   "tips.templateWorktrees.title": "テンプレートはワークツリーを再利用する",
   "tips.testedClis.text": "Claude Code、Codex、Copilotは自動で更新されます。「エージェントのセットアップ」には、このHiveのリリースでテストしたバージョンが手元のバージョンの横に表示され、新しいか古いかも示されます。",
   "tips.testedClis.title": "HiveがテストしたCLIのバージョンを確認",
+  "tips.tilesView.text": "タイル表示では各エージェントが小さなタイルになり、状態、ステータス、カード、進捗、最新の返信を1ページに12件表示します。タイルをクリックすると、他のエージェントの横にそのペインが大きく開きます。Escで戻ります。「設定」→「セッション」→「タイルの順序」で、回答待ちのエージェントを先頭にできます。",
+  "tips.tilesView.title": "チーム全体をタイルでひと目で確認",
   "tips.twoProviders.text": "1つのプロジェクトのエージェントが、それぞれ別のプロバイダーを使えます。たとえば、Claude CodeのエージェントとCodexのレビュアーです。「引き継ぐ…」で作業を受け渡せます。",
   "tips.twoProviders.title": "Claude CodeとCodexを組み合わせる",
   "tips.ui.close": "閉じる",
