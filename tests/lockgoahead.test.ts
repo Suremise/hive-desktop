@@ -12,12 +12,13 @@ import { tempDir } from './tempDir'
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
 const HUNG_MS = 10000
 
-// What Hive types into agents' terminals, recorded instead (no process runs); onWrite acts as each piece goes in.
-const pty = vi.hoisted(() => ({ typed: [] as { key: string; data: string }[], onWrite: (_data: string): void => undefined }))
+// What Hive types into agents' terminals, recorded instead (no process runs), with when each piece went in (Date.now(),
+// the clock Hive's pause after typing is measured by); onWrite acts as each piece goes in.
+const pty = vi.hoisted(() => ({ typed: [] as { key: string; data: string; at: number }[], onWrite: (_data: string): void => undefined }))
 vi.mock('../src/main/ptyHost', async (original) => ({
   ...(await original<object>()),
   writePty: (key: string, data: string) => {
-    pty.typed.push({ key, data })
+    pty.typed.push({ key, data, at: Date.now() })
     pty.onWrite(data)
   }
 }))
@@ -217,22 +218,21 @@ describe('Allow on an "Ask me" lock', () => {
     await a.claim()
     expect(await a.edit()).not.toBeNull()
     await a.allow()
-    let typedBy: number | null = null
+    let typedBy: { n: number; at: number } | null = null
     pty.onWrite = () => {
       if (typedBy === null && pty.typed.map((t) => t.data).join('').includes('New in your inbox')) {
-        typedBy = pty.typed.length
+        typedBy = { n: pty.typed.length, at: Date.now() }
         a.userTypes('My next task')
       }
     }
     await a.hook('Stop')
-    // Within the pause: long enough for Enter to have gone in (some 450 ms after the first piece).
-    await wait(1000)
-    expect(typedBy).not.toBeNull()
-    // Nothing sent, and nothing cleared after their keystroke: what they typed stays where they typed it.
-    expect(a.typed().includes('\r')).toBe(false)
-    expect(pty.typed.slice(typedBy!).some((t) => t.data === '\x15')).toBe(false)
+    await vi.waitFor(() => expect(typedBy).not.toBeNull(), { timeout: HUNG_MS })
     pty.onWrite = () => undefined
-    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: HUNG_MS })
+    // Within their pause, nothing sent and nothing cleared after their keystroke: what they typed stayed where they typed
+    // it. It went once they paused.
+    const within = pty.typed.slice(typedBy!.n).filter((t) => t.key === s.key(p, a.editor.agentId) && t.at - typedBy!.at < PAUSE * 1000)
+    expect(within.filter((t) => t.data === '\r' || t.data === '\x15')).toEqual([])
   })
 
   it('a draft in the terminal when the turn ends: nothing is typed until the user pauses', async () => {
@@ -240,11 +240,13 @@ describe('Allow on an "Ask me" lock', () => {
     await a.claim()
     expect(await a.edit()).not.toBeNull()
     await a.allow()
+    const draftAt = Date.now()
     a.userTypes('half a thought')
     await a.hook('Stop')
-    await wait(PAUSE * 500)
-    expect(a.typed()).toEqual([])
-    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: (PAUSE + 3) * 1000 })
+    await vi.waitFor(async () => expect(await a.goAhead()).toBe(true), { timeout: HUNG_MS })
+    // Its first key went in once their pause had passed, not before.
+    const first = pty.typed.find((t) => t.key === s.key(p, a.editor.agentId))!
+    expect(first.at - draftAt).toBeGreaterThanOrEqual(PAUSE * 1000)
   })
 
   it('interrupted while the go-ahead is being typed: it stops before Enter, and is not tried again', async () => {
