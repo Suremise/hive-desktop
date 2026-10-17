@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 import { app, dialog } from 'electron'
 import { createLogger, userText } from './logger'
+import { exitBy } from './exitLog'
 import { testNotifyLog, testQuiet } from './testQuiet'
 import { config } from './config'
 import { language, msg, setLanguage, tr, type Catalogue } from '../shared/i18n'
@@ -253,7 +254,7 @@ const windowsTools: InstallDirTools = {
     setLanguageBeforeReady()
     tellCantStart(dir, file)
   },
-  exit: (code) => process.exit(code)
+  exit: (code) => exitBy('process.exit', "Hive can't start from its install folder", () => process.exit(code))
 }
 
 /**

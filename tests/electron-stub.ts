@@ -19,4 +19,6 @@ export const clipboard = {}
 export const shell = {}
 export const nativeImage = {}
 export const dialog = {}
-export default { app, BrowserWindow, Notification, clipboard, shell, nativeImage, dialog }
+export const crashReporter = {}
+export const powerMonitor = {}
+export default { app, BrowserWindow, Notification, clipboard, shell, nativeImage, dialog, crashReporter, powerMonitor }

@@ -68,6 +68,7 @@ import { progress, setTaskbarTestHook, startProgress } from './progressService'
 import { startMergeSlots } from './mergeSlotHost'
 import { startLanes } from './lanes'
 import { checkInstallDir } from './installDir'
+import { exitBy, logCrashDumps, startCrashDumps, startExitLog } from './exitLog'
 import { chooseStartLanguage, languageInfo, startI18n, switchLanguage } from './i18n'
 import { fmt, msg, tr } from '../shared/i18n'
 
@@ -99,6 +100,8 @@ function watchMainStalls(): void {
 // productName, "Hive Desktop", but users' settings and conversations are in %APPDATA%\Hive (#443).
 if (process.env.HIVE_USER_DATA) app.setPath('userData', process.env.HIVE_USER_DATA)
 else app.setPath('userData', join(app.getPath('appData'), profileFolder(app.isPackaged)))
+// Every way out from here on is logged (#985).
+startExitLog()
 
 // Hardware acceleration off (#676): Settings → Advanced's value, read from advanced.json before the app is ready, or
 // --disable-gpu for this start.
@@ -117,9 +120,13 @@ if (testQuiet()) app.commandLine.appendSwitch('disable-features', 'CalculateNati
 chooseStartLanguage(config.savedLanguage())
 
 if (!app.requestSingleInstanceLock()) {
-  app.quit()
-  process.exit(0)
+  exitBy('process.exit', 'Hive is already running: this start brings it forward', () => {
+    app.quit()
+    process.exit(0)
+  })
 }
+// Crash dumps stay in the profile, never uploaded (#985); only the copy that runs keeps them.
+startCrashDumps()
 
 // Windows ties the taskbar icon and notification name/icon to this ID. Dev and test builds run as
 // electron.exe, so they get their own ID; sharing it made Windows show Electron's icon for Hive.
@@ -597,7 +604,7 @@ async function quitNow(tellUser: boolean): Promise<void> {
   if (installOnQuit) installNow()
   else {
     if (relaunchOnQuit) relaunch()
-    app.quit()
+    exitBy('app.quit', relaunchOnQuit ? 'quitting to restart' : 'quitting', () => app.quit())
   }
 }
 
@@ -608,7 +615,7 @@ function relaunch(): void {
   const record = !app.isPackaged ? process.env.HIVE_TEST_RELAUNCH_LOG : undefined
   if (record) appendFileSync(record, `${JSON.stringify({ args })}
 `)
-  else app.relaunch({ args })
+  else exitBy('app.relaunch', 'restarting once this copy has quit', () => app.relaunch({ args }))
 }
 
 /**
@@ -797,6 +804,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null)
   // Says the log marks the user's own text (userText()), so Copy Diagnostics can tell this run's lines from older ones.
   log.info(`Hive ${app.getVersion()} starting (Electron ${process.versions.electron}; ${MARKED_LOG})`)
+  logCrashDumps()
   watchMainStalls()
   setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 
@@ -1030,6 +1038,3 @@ app.on('will-quit', () => {
 app.on('window-all-closed', () => {
   // Hive lives in the tray; quitting is explicit.
 })
-
-process.on('uncaughtException', (e) => log.error('uncaughtException', e))
-process.on('unhandledRejection', (e) => log.error('unhandledRejection', e))
