@@ -94,6 +94,15 @@ export class WorkspaceService {
   /** Agents' worktree folders (lower-cased) and the project each belongs to. */
   private roots = new Map<string, string>()
   /**
+   * Which config read or write each project's `roots` are from (#784: lower-cased project → its ticket). Tickets go up
+   * in the order reads begin and writes end, so a read that began before another, or before a write, and ends after it
+   * found older worktrees and changes nothing: it put back a removed agent's worktree and dropped a current one.
+   */
+  private rootsAt = new Map<string, number>()
+  private rootTickets = 0
+  /** The projects the last refresh reported (lower-cased) and its listing's ticket: one missing was gone by then (#784). */
+  private listedAt: { ticket: number; known: Set<string> } | null = null
+  /**
    * Each project's unused worktrees as last listed (#400: lower-cased folder → project): the Changes tab may read their
    * git status and diffs (`assertChangesRoot`), nothing else. Replaced on each listing, so one removed since drops out.
    */
@@ -270,6 +279,8 @@ export class WorkspaceService {
     this.lastAt.clear()
     // The closed workspace's agent worktrees and settings must not route to (or be allowed by) the next one.
     this.roots.clear()
+    this.rootsAt.clear()
+    this.listedAt = null
     this.unusedRoots.clear()
     this.wsConfig = structuredClone(DEFAULT_WORKSPACE_CONFIG)
     // A new lifetime only once it is fully closed: work started while it was closing (its path still set) belongs to the
@@ -681,9 +692,16 @@ export class WorkspaceService {
     return this.roots.get(resolve(p).toLowerCase()) ?? null
   }
 
-  /** Records a project's agent worktrees, from a config read in generation `gen` (none once the workspace has closed or switched since). */
-  private registerRoots(projectPath: string, cfg: ProjectConfig, gen: number): void {
-    if (gen !== this.generation) return
+  /**
+   * Records a project's agent worktrees, from a config read or written in generation `gen` (none once the workspace has
+   * closed or switched since) with `ticket` (none when a later read or write has recorded them already, #784).
+   */
+  private registerRoots(projectPath: string, cfg: ProjectConfig, gen: number, ticket: number): void {
+    const key = projectPath.toLowerCase()
+    if (gen !== this.generation || ticket < (this.rootsAt.get(key) ?? 0)) return
+    // A project gone as the last refresh listed the folders, read before that: the read is older than its going.
+    if (this.listedAt && ticket < this.listedAt.ticket && !this.listedAt.known.has(key)) return
+    this.rootsAt.set(key, ticket)
     for (const [k, v] of this.roots) if (v.toLowerCase() === projectPath.toLowerCase()) this.roots.delete(k)
     for (const a of cfg.agents ?? []) if (a.worktree?.path) this.roots.set(resolve(a.worktree.path).toLowerCase(), projectPath)
   }
@@ -763,13 +781,16 @@ export class WorkspaceService {
     const gen = this.generation
     await this.ensureProject(projectPath)
     const file = join(projectPath, HIVE_DIR, 'project.json')
+    let ticket = 0
     const next = await withFileLock(file, async () => {
       const cfg = await this.projectConfig(projectPath)
       const updated = { ...cfg, ...fn(cfg) }
       await writeKeptJson(file, withLegacyProjectFields(updated))
+      // As it is written: a read begun before now may have found the config from before.
+      ticket = ++this.rootTickets
       return updated
     })
-    this.registerRoots(projectPath, next, gen)
+    this.registerRoots(projectPath, next, gen, ticket)
     this.scheduleRefresh()
     return next
   }
@@ -835,11 +856,12 @@ export class WorkspaceService {
     return [...names].filter((n) => !deployed.has(n))
   }
 
-  async projectInfo(projectPath: string): Promise<ProjectInfo> {
+  /** `gen`: the workspace's lifetime the read is for (a refresh's own, #784): none of its worktrees are recorded after it. */
+  async projectInfo(projectPath: string, gen = this.generation): Promise<ProjectInfo> {
     const active = new Set(this.activeNames())
-    const gen = this.generation
+    const ticket = ++this.rootTickets
     const cfg = await this.projectConfig(projectPath)
-    this.registerRoots(projectPath, cfg, gen)
+    this.registerRoots(projectPath, cfg, gen, ticket)
     const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
     return {
       name: basename(projectPath),
@@ -866,18 +888,31 @@ export class WorkspaceService {
     if (!this.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
     const gen = this.generation
     const seq = ++this.refreshes
+    // Before the folders are listed: a project the listing misses was gone by then.
+    const listed = ++this.rootTickets
     const projects: ProjectInfo[] = []
-    for (const p of await this.listProjectPaths()) projects.push(await this.projectInfo(p))
-    const assistant = await this.projectInfo(this.assistantHome).catch((e) => (log.warn('the Assistant', e), null))
-    // Closed or switched meanwhile: the new workspace's own refresh reports it.
-    if (gen !== this.generation || !this.path) throw hiveError(M.closed, undefined, { kind: 'conflict' })
+    // Closed or switched meanwhile: the new workspace's own refresh reports it. Each read is the refresh's lifetime's
+    // (#784): one begun after a switch would otherwise record the old workspace's worktrees in the new one.
+    const closed = (): boolean => gen !== this.generation || !this.path
+    for (const p of await this.listProjectPaths()) {
+      if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
+      projects.push(await this.projectInfo(p, gen))
+    }
+    if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
+    const assistant = await this.projectInfo(this.assistantHome, gen).catch((e) => (log.warn('the Assistant', e), null))
+    if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
     // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
     // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).
     if (seq < this.refreshReported && this.cached) return this.cached
     this.refreshReported = seq
-    // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace.
+    // Worktrees of projects that are gone (deleted, renamed) no longer belong to this workspace, nor do those a read begun
+    // before the listing puts back (#784, registerRoots); a project read since (made again meanwhile) keeps what that
+    // read found.
     const known = new Set(projects.map((p) => p.path.toLowerCase()))
-    for (const [k, v] of this.roots) if (!known.has(v.toLowerCase())) this.roots.delete(k)
+    // The Assistant's home is read in every refresh too, after the listing.
+    this.listedAt = { ticket: listed, known: assistant ? new Set([...known, this.assistantHome.toLowerCase()]) : known }
+    for (const [k, v] of this.roots) if (!known.has(v.toLowerCase()) && (this.rootsAt.get(v.toLowerCase()) ?? 0) < listed) this.roots.delete(k)
+    for (const [project, at] of this.rootsAt) if (!known.has(project) && at < listed) this.rootsAt.delete(project)
     this.cached = { path: this.path, name: basename(this.path), config: this.wsConfig, projects, assistant: assistant && { ...assistant, name: ASSISTANT_NAME, active: true, unmanagedMcp: [] }, moved: this.moved }
     this.emit({ type: 'workspace-changed', workspace: this.cached })
     this.flagDuplicateNames(projects)

@@ -40,7 +40,6 @@
   "session.handOver.noTools": "Übergeben braucht die Tools von Hive in Sitzungen: Schalte „Hive-Tools für Sitzungen bereitstellen“ unter Einstellungen → Agent API ein.",
   "session.handOver.none": "Für das Projekt {project} gibt es noch keine Übergabe. Lass stattdessen eine neue schreiben.",
   "session.handOver.noneWritten": "Agent {agent} ist fertig, ohne eine Übergabe zu schreiben. Bitte ihn, eine zu schreiben, und übergib dann erneut, ohne neue Übergabe.",
-  "session.handOver.notReady": "Agent {agent} wurde nicht bereit. Beantworte alle Fragen im Terminal und übergib dann erneut, ohne neue Übergabe.",
   "session.handOver.notRunning": "Agent {agent} läuft nicht. Setze ihn fort, damit er eine Übergabe schreibt, oder übergib die neueste Übergabe.",
   "session.handOver.other": "Agent {agent} macht damit weiter, sobald die Übergabe fertig ist.",
   "session.handOver.self": "Der Agent macht damit in einer neuen Unterhaltung weiter, sobald die Übergabe fertig ist.",

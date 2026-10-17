@@ -40,7 +40,6 @@
   "session.handOver.noTools": "Przekazywanie pracy wymaga narzędzi Hive w sesjach: włącz „Udostępniaj sesjom narzędzia Hive” w sekcji Ustawienia → Agent API.",
   "session.handOver.none": "Projekt {project} nie ma jeszcze notatki przekazania. Przekaż pracę z nową notatką przekazania.",
   "session.handOver.noneWritten": "Agent {agent} skończył bez napisania notatki przekazania. Poproś go o nią, a potem przekaż pracę ponownie bez nowej notatki przekazania.",
-  "session.handOver.notReady": "Agent {agent} nie zgłosił gotowości. Odpowiedz na pytania w jego terminalu, a potem przekaż pracę ponownie bez nowej notatki przekazania.",
   "session.handOver.notRunning": "Agent {agent} nie działa. Wznów go, by napisał notatkę przekazania, albo przekaż najnowszą notatkę.",
   "session.handOver.other": "Agent {agent} podejmie od niej pracę, gdy będzie gotowa.",
   "session.handOver.self": "Gdy będzie gotowa, agent podejmie od niej pracę w nowej rozmowie.",
