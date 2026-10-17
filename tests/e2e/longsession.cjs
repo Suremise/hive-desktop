@@ -1,5 +1,5 @@
-// A long conversation: the transcript's size in the pane footer, orange past Settings → Sessions → Warn when a
-// transcript is over, with a notification once; clicking it opens Hand Over to… with the agent itself chosen, which
+// A long conversation: the transcript's size in the hover of the pane footer's context, then a warning of its own in the
+// footer past Settings → Sessions → Warn when a transcript is over (#978), with a notification once; clicking it opens Hand Over to… with the agent itself chosen, which
 // carries the work on in a new conversation. Also the footer's context count opening the Overview at the agent's
 // session. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and
 // CLAUDE_CONFIG_DIR.
@@ -64,9 +64,16 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await inv('pty:write', key, '\r')
   await until(async () => (await live(id))?.status === 'finished', HUNG_MS)
-  const size = page.locator('.pane-footer-bar .pane-foot-item', { hasText: /KB|MB/ })
-  check('the footer shows the transcript size', !!(await until(async () => (await size.count()) === 1 && /KB/.test(await size.innerText()), 15000)), await size.innerText().catch(() => ''))
-  check('under the limit it is not flagged', !(await size.getAttribute('class')).includes('warn'))
+  // Under the limit: in the context's hover, not in the footer's line (#978).
+  const size = page.locator('.pane-footer-bar .foot-transcript')
+  const ctxTip = page.locator('.tip .ctx-tip')
+  const sized = await until(async () => {
+    await page.locator('.pane-footer-bar .foot-ctx').hover().catch(() => undefined)
+    return /Transcript: \d+(\.\d+)? KB/.test(await ctxTip.innerText().catch(() => ''))
+  }, 15000)
+  check("the context's hover has the transcript's size", !!sized, await ctxTip.innerText().catch(() => ''))
+  await page.mouse.move(5, 5)
+  check('under the limit it is not in the line', (await size.count()) === 0)
   const firstSession = (await live(id)).sessionId
 
   // Past 1 MB: orange, one notification, and the size in the agent's activity.
@@ -74,7 +81,7 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(300)
   await inv('pty:write', key, '\r')
   await until(async () => (await live(id))?.status === 'finished' && (await live(id)).transcriptBytes > 1024 * 1024, HUNG_MS)
-  check('past the limit it turns orange', !!(await until(async () => (await size.getAttribute('class')).includes('warn'), 15000)), await size.innerText())
+  check('past the limit it is a warning in the line', !!(await until(async () => (await size.count()) === 1 && /MB/.test(await size.innerText()) && (await size.getAttribute('class')).includes('warn'), 15000)), await size.innerText().catch(() => ''))
   const toast = page.locator('.toast', { hasText: 'long conversation' })
   check('a notification says so, once', !!(await until(async () => (await toast.count()) === 1, 10000)))
   await page.screenshot({ path: path.join(lib.WORK, 'longsession.png') })
@@ -109,7 +116,7 @@ const check = (name, ok, extra = '') => {
   const act = await inv('session:list', alpha)
   const rec = act.find((s) => s.id === fresh?.sessionId)
   check('which is linked to the old one', rec?.handedOverFrom === firstSession, JSON.stringify(rec && { from: rec.handedOverFrom }))
-  check('and is short again', (fresh?.transcriptBytes ?? 0) < 1024 * 1024 && !(await size.getAttribute('class')).includes('warn'))
+  check('and is short again: no warning', (fresh?.transcriptBytes ?? 0) < 1024 * 1024 && !!(await until(async () => (await size.count()) === 0, HUNG_MS)))
 
   await app.close()
   process.exit(failed ? 1 : 0)

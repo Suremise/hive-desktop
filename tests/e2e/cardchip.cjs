@@ -186,7 +186,9 @@ const check = (name, ok, extra = '') => {
 
   // The Sessions tab: "Worked on", linked; a deleted card stays, unlinked.
   await inv('tasks:delete', second.number)
-  await page.locator('.agent-pane', { has: header }).locator('.pane-footer-bar .session-tag').click()
+  // Its running session, from its ⋯ (#978).
+  await header.getByRole('button', { name: 'More', exact: true }).click()
+  await page.locator('.menu .menu-item', { hasText: 'Open in Sessions Tab' }).click()
   const worked = page.locator('.worked-on')
   // Once the board has caught up with the deletion: the deleted card is unlinked (in a tooltip's wrapper, whose
   // layout puts a line break in innerText), so the words are compared with their spacing evened out.

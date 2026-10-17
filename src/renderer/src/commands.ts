@@ -13,6 +13,7 @@ import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
 import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { STRIP_TABS } from '@shared/projectTabs'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
 export type CommandCategory = 'view' | 'file' | 'project' | 'session' | 'help' | 'preferences' | 'assistant' | 'developer' | 'tasks' | 'notes' | 'mcp'
@@ -109,12 +110,14 @@ const tab = (t: ProjectTab) => () => {
   setProjectTab(p, t)
 }
 
-const TAB_ORDER: ProjectTab[] = ['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes', 'memory', 'skills', 'templates', 'mcp', 'settings']
+// The strip's tabs (#974: Settings isn't one); from Project Settings, the next is the first and the previous the last.
+const TAB_ORDER: ProjectTab[] = STRIP_TABS.map((t) => t.id)
 
 function cycleTab(delta: number): void {
   const p = get().selectedProject
   if (!p) return
-  const i = TAB_ORDER.indexOf(get().projectTabs[p] ?? 'session')
+  const at = TAB_ORDER.indexOf(get().projectTabs[p] ?? 'session')
+  const i = at >= 0 ? at : delta > 0 ? -1 : TAB_ORDER.length
   showView('projects')
   setProjectTab(p, TAB_ORDER[(i + delta + TAB_ORDER.length) % TAB_ORDER.length])
 }

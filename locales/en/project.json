@@ -595,13 +595,17 @@
     "defaultMessage": "Active",
     "description": "Label of the project header's switch: you are working on this project."
   },
+  "project.header.agentsMenu": {
+    "defaultMessage": "Agents",
+    "description": "The project header's button that opens a menu of actions on all its agents (Start New, Archive and Start New, Remove All). Keep it short."
+  },
+  "project.header.agentsMenuTip": {
+    "defaultMessage": "Actions on all the project's agents: start new sessions, archive and start new, or remove them",
+    "description": "Tooltip on the project header's Agents ▾ button."
+  },
   "project.header.archiveNew": {
     "defaultMessage": "{many, select, yes {Archive and Start New ({count})} other {Archive and Start New}}",
-    "description": "The project header's button: archives each agent's session and starts a fresh one."
-  },
-  "project.header.archiveNewTip": {
-    "defaultMessage": "{many, select, yes {{count, plural, one {Archive {agent}'s session and start a fresh one} other {Archive the sessions of the # agents that have one and start fresh ones}}} other {Archive the current session and start a fresh one}}",
-    "description": "Tooltip on Archive and Start New. {agent} is the one agent with a session to archive."
+    "description": "The project header's Agents ▾ menu: archives each agent's session and starts a fresh one."
   },
   "project.header.carryOnManyTip": {
     "defaultMessage": "{stopped, plural, =0 {Carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)} one {Resume the stopped agent and carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)} other {Resume the # stopped agents and carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)}}",
@@ -611,37 +615,17 @@
     "defaultMessage": "Carry on {agent}: its turn stopped when its sign-in expired",
     "description": "Tooltip on Resume Agent when its turn stopped because the CLI sign-in expired."
   },
-  "project.header.inStatus": {
-    "defaultMessage": "· {count} of {total} agents",
-    "description": "After the status in the project's badge: how many of its agents are in it (\"Working · 1 of 2 agents\")."
-  },
   "project.header.more": {
     "defaultMessage": "More actions",
     "description": "Tooltip on the project header's ⋯ button."
-  },
-  "project.header.noAgents": {
-    "defaultMessage": "No agents yet",
-    "description": "Tooltip on the project's status badge when it has no agents."
-  },
-  "project.header.noSession": {
-    "defaultMessage": "No session",
-    "description": "The project's status badge when no agent has a session."
   },
   "project.header.notWorkingOn": {
     "defaultMessage": "Not working on this project",
     "description": "Tooltip on the project header's Active switch, off."
   },
-  "project.header.removeAll": {
-    "defaultMessage": "{many, select, yes {Remove All ({count})} other {Remove Agent}}",
-    "description": "The project header's button: removes every agent (asks first)."
-  },
   "project.header.removeAllMenu": {
     "defaultMessage": "{many, select, yes {Remove All ({count})…} other {Remove Agent…}}",
-    "description": "The same in the header's ⋯ menu (it asks first)."
-  },
-  "project.header.removeAllTip": {
-    "defaultMessage": "{many, select, yes {Remove the {count} agents (asks first; their sessions are kept)} other {Remove {agent} (asks first; its sessions are kept)}}",
-    "description": "Tooltip on Remove All."
+    "description": "The project header's Agents ▾ menu (or its ⋯ menu when narrow): removes every agent (it asks first)."
   },
   "project.header.resumeAgent": {
     "defaultMessage": "Resume Agent",
@@ -669,11 +653,7 @@
   },
   "project.header.startNew": {
     "defaultMessage": "{many, select, yes {Start New ({count})} other {Start New}}",
-    "description": "The project header's button: starts a fresh session for each agent. {count} is how many (shown with several agents)."
-  },
-  "project.header.startNewTip": {
-    "defaultMessage": "{many, select, yes {Start a fresh session for each of the {count} agents; running ones are stopped first} other {Start a fresh session; a running one is stopped first}}",
-    "description": "Tooltip on Start New."
+    "description": "The project header's Agents ▾ menu: starts a fresh session for each agent. {count} is how many (shown with several agents)."
   },
   "project.header.stopAgent": {
     "defaultMessage": "Stop Agent",

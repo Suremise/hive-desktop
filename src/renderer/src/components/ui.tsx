@@ -1,4 +1,4 @@
-import { Children, createContext, Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Children, createContext, Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
@@ -918,14 +918,26 @@ const choosable = (it: MenuEntry): boolean => !it.separator && !it.header && !it
 /**
  * A menu at x, y. `above`: where its anchor's top is, so a menu that doesn't fit below opens above it instead. ↑ and ↓
  * move through its entries (Home, End), Enter chooses one, → opens one that leads to another menu; `keyboard` (opened
- * from the keyboard) starts on its first entry.
+ * from the keyboard) starts on its first entry. It takes the focus while open, naming its chosen entry as its active
+ * descendant so screen readers announce it (#974), and gives the focus back to what had it when it closes, unless
+ * something else took it meanwhile.
  */
 export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: number; y: number; above?: number; items: MenuEntry[]; keyboard?: boolean; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
+  const idBase = useId()
   const [pos, setPos] = useState({ x, y })
   const [active, setActive] = useState(() => (keyboard ? items.findIndex(choosable) : -1))
   const activeRef = useRef(active)
   activeRef.current = active
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const menu = ref.current
+    menu?.focus({ preventScroll: true })
+    return () => {
+      const now = document.activeElement
+      if (before?.isConnected && (!now || now === document.body || menu?.contains(now) || !now.isConnected)) before.focus({ preventScroll: true })
+    }
+  }, [])
   const choose = (it: MenuEntry, byKey: boolean): void => {
     if (it.disabled) return
     onClose()
@@ -977,7 +989,7 @@ export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: numb
     if (active >= 0) ref.current?.querySelectorAll('[data-menu-index]').forEach((el) => el.getAttribute('data-menu-index') === String(active) && el.scrollIntoView({ block: 'nearest' }))
   }, [active])
   return createPortal(
-    <div className="menu" ref={ref} role="menu" style={{ left: pos.x, top: pos.y }}>
+    <div className="menu" ref={ref} role="menu" tabIndex={-1} aria-activedescendant={active >= 0 ? `${idBase}-${active}` : undefined} style={{ left: pos.x, top: pos.y }}>
       {items.map((it, i) =>
         it.separator ? (
           <div key={i} className="menu-sep" role="separator" />
@@ -988,6 +1000,7 @@ export function ContextMenu({ x, y, above, items, keyboard, onClose }: { x: numb
         ) : (
           <div
             key={i}
+            id={`${idBase}-${i}`}
             data-menu-index={i}
             role="menuitem"
             aria-disabled={it.disabled || undefined}
@@ -1030,5 +1043,6 @@ export function useContextMenu() {
   /** Opens the menu at a point, e.g. under a button; `keyboard`: opened from the keyboard, on its first entry. */
   const openAt = (x: number, y: number, items: MenuEntry[], keyboard?: boolean): void => setMenu({ x, y, items, keyboard, n: ++opened.current })
   const element = menu ? <ContextMenu key={menu.n} x={menu.x} y={menu.y} items={menu.items} keyboard={menu.keyboard} onClose={() => setMenu(null)} /> : null
-  return { open, openAt, element }
+  /** `shown`: whether the menu is open (a button that opens it says so with aria-expanded). */
+  return { open, openAt, element, shown: !!menu }
 }

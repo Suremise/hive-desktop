@@ -144,8 +144,6 @@ describe('the sentences once built by hand read as before, in English', () => {
   it("the project header's batch actions", () => {
     expect(tr(m('project.header.startNew'), { many: 'yes', count: 3 })).toBe('Start New (3)')
     expect(tr(m('project.header.startNew'), { many: 'no', count: 1 })).toBe('Start New')
-    expect(tr(m('project.header.archiveNewTip'), { many: 'yes', count: 1, agent: 'One' })).toBe("Archive One's session and start a fresh one")
-    expect(tr(m('project.header.archiveNewTip'), { many: 'yes', count: 2, agent: 'One' })).toBe('Archive the sessions of the 2 agents that have one and start fresh ones')
     expect(tr(m('project.header.removeAllMenu'), { many: 'yes', count: 3 })).toBe('Remove All (3)…')
     expect(tr(m('project.header.stopTip'), { count: 1 })).toBe('Stop the running agent')
     expect(tr(m('project.header.carryOnManyTip'), { stopped: 0, stalled: 1 })).toBe('Carry on the agent a refused sign-in stopped (other running ones are left alone)')

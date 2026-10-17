@@ -172,7 +172,7 @@ const check = (name, ok, extra = '') => {
   await inv('pty:write', lib.ptyKey(alpha, agent.id), 'hello')
   await lib.sleep(300)
   await inv('pty:write', lib.ptyKey(alpha, agent.id), String.fromCharCode(13))
-  check('the first conversation shows its usage', !!(await until(async () => /\b30 ctx/.test(await footer.innerText().catch(() => '')), 15000)), await footer.innerText().catch(() => ''))
+  check('the first conversation shows its usage', !!(await until(async () => /\bctx 30\b/.test(await footer.innerText().catch(() => '')), 15000)), await footer.innerText().catch(() => ''))
   const first = (await live())?.sessionId
   // Its usage is now slow to read: a new conversation shows a placeholder, never the old one's numbers.
   await app.evaluate(() => {
@@ -182,9 +182,11 @@ const check = (name, ok, extra = '') => {
   await until(async () => !(await live()), 10000)
   await inv('session:start', alpha, { agentId: agent.id })
   await until(async () => (await live())?.sessionId && (await live()).sessionId !== first && !(await live()).settingUp, 15000)
-  await lib.sleep(500)
+  // Its own context, not yet read: "ctx –", never the previous conversation's "ctx 30" (#978's wording).
+  const fresh = (t) => !/\bctx 30\b/.test(t) && /ctx –/.test(t)
+  await until(async () => fresh(await footer.innerText().catch(() => '')), HUNG_MS)
   const text = await footer.innerText().catch(() => '')
-  check("a new conversation doesn't show the previous one's usage", !/\b30 ctx/.test(text) && /– ctx/.test(text), text)
+  check("a new conversation doesn't show the previous one's usage", fresh(text), text)
   await page.screenshot({ path: path.join(lib.WORK, 'busy-3-usage.png') })
   // Back to the suite's own slow calls (#717: '' here left removing a project fast, and its checks below raced it).
   await app.evaluate((_electronModule, v) => {

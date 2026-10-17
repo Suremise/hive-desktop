@@ -86,7 +86,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.keyboard.press('Escape'); await sleep(300)
 
   // Project settings → Agents & Worktrees
-  await page.locator('.tabs .tab', { hasText: 'Settings' }).click(); await sleep(500)
+  await lib.openProjectSettings(page)
   await page.locator('.settings-nav .row', { hasText: 'Agents & Worktrees' }).click(); await sleep(500)
   await page.screenshot({ path: path.join(scratch, 'ui-4-projsettings.png') })
   check('project settings lists agents', await page.locator('.agent-list-row').count() === 2)

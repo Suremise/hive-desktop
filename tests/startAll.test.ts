@@ -4,7 +4,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { PROJECT_MENU, PROJECT_TABS, tabCommand } from '../src/shared/projectTabs'
+import { PROJECT_MENU, PROJECT_TABS, STRIP_TABS, tabCommand } from '../src/shared/projectTabs'
 import { archiveTarget, batchCounts, batchOutcome, busyNote, eachAgent, removeWorktreeText, sessionsToArchive, type BatchAgent } from '../src/shared/startAll'
 import { agentRowsText } from '../src/shared/agentTable'
 
@@ -18,8 +18,11 @@ describe('the Project menu is the tab strip', () => {
     expect(tabs).toContain('project.tab.performance')
     const commands = src('src/renderer/src/commands.ts')
     for (const id of tabs) expect(commands, id).toContain(`id: '${id}'`)
-    // The strip and the menu read the shared list (not copies of it).
-    expect(src('src/renderer/src/views/ProjectView.tsx')).toMatch(/const TABS = PROJECT_TABS\b/)
+    // The strip and the menu read the shared list (not copies of it); the strip leaves out Project Settings (#974), which
+    // the menu keeps, last.
+    expect(src('src/renderer/src/views/ProjectView.tsx')).toMatch(/const TABS = STRIP_TABS\b/)
+    expect(STRIP_TABS.map((t) => tabCommand(t.id))).toEqual(tabs.filter((id) => id !== 'project.tab.settings'))
+    expect(tabs.at(-1)).toBe('project.tab.settings')
     expect(src('src/renderer/src/components/TitleBar.tsx')).toMatch(/items: PROJECT_MENU\b/)
     // Explorer and Terminal stay in the menu.
     expect(PROJECT_MENU).toEqual(expect.arrayContaining(['project.openExplorer', 'project.openTerminal']))

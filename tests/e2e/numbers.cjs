@@ -134,7 +134,7 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   // Project Settings: empty inherits, the same messages, and Never for the project.
   await page.getByText('demo', { exact: true }).first().click()
   await lib.sleep(600)
-  await page.locator('.tab', { hasText: 'Settings' }).first().click()
+  await lib.openProjectSettings(page)
   await lib.sleep(600)
   await page.locator('.settings-nav .row', { hasText: 'Sessions' }).first().click()
   await lib.sleep(500)
