@@ -32,8 +32,9 @@ import { allTasks, archiveOldDone, endReviews } from './tasks'
 import { agentCardText } from '../shared/agentTable'
 import { emit, emitTo, onHiveEvent, toast } from './events'
 import { advanced, bindAdvancedSettings, mcpAdvancedEnv } from './advanced'
-import { GPU_SWITCH, relaunchArgs, startGpu } from './gpu'
-import { HARDWARE_ACCELERATION_OFF } from '../shared/advanced'
+import { GPU_SWITCH, advancedAtStart, relaunchArgs, startGpu } from './gpu'
+import { HARDWARE_ACCELERATION_OFF, HEAP_SNAPSHOT_NEAR_LIMIT } from '../shared/advanced'
+import { startHeapSnapshots, startMemoryLog } from './memory'
 import { recordLiveCards } from './cardSessions'
 import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
@@ -108,7 +109,9 @@ startExitLog()
 // --disable-gpu for this start.
 const gpu = startGpu(app.getPath('userData'), app.commandLine.hasSwitch(GPU_SWITCH))
 if (gpu.off) app.disableHardwareAcceleration()
-advanced.startedWith({ [HARDWARE_ACCELERATION_OFF]: gpu.setting })
+// A heap snapshot as the main process nears its memory limit (#1005): Settings → Advanced's value as Hive starts.
+const heapSnapshots = advancedAtStart(app.getPath('userData'), HEAP_SNAPSHOT_NEAR_LIMIT)
+advanced.startedWith({ [HARDWARE_ACCELERATION_OFF]: gpu.setting, [HEAP_SNAPSHOT_NEAR_LIMIT]: heapSnapshots })
 
 // Before Electron's own check of the install folder, which crashes Hive with nothing on screen (installDir.ts).
 if (process.platform === 'win32') checkInstallDir()
@@ -810,6 +813,9 @@ app.whenReady().then(async () => {
   // The last run's marker (#984): still there, it ended without quitting; then this run's own.
   checkLastRun()
   startRunMarker()
+  // The main process's memory, now and every 5 minutes, and a snapshot before it runs out if the setting says so (#1005).
+  startMemoryLog()
+  startHeapSnapshots(app.getPath('userData'), heapSnapshots)
   watchMainStalls()
   setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 

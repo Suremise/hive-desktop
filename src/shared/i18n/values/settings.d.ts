@@ -89,6 +89,8 @@ interface HiveMessageValues {
   'settings.advanced.hive.console.showText.title': undefined
   'settings.advanced.hive.disableHardwareAcceleration.desc': undefined
   'settings.advanced.hive.disableHardwareAcceleration.title': undefined
+  'settings.advanced.hive.heapSnapshotNearLimit.desc': undefined
+  'settings.advanced.hive.heapSnapshotNearLimit.title': undefined
   'settings.advanced.hive.mcp.replySeconds.desc': undefined
   'settings.advanced.hive.mcp.replySeconds.title': undefined
   'settings.advanced.hive.progress.lanesShown.desc': undefined

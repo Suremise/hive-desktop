@@ -26,11 +26,12 @@ export interface GpuAtStart {
  * unreadable or not valid is off, the default), or `--disable-gpu`.
  */
 export function gpuAtStart(folder: string, hasSwitch: boolean): GpuAtStart {
-  const setting = settingIn(folder)
+  const setting = advancedAtStart(folder, HARDWARE_ACCELERATION_OFF)
   return { off: setting || hasSwitch, why: setting ? 'setting' : hasSwitch ? 'switch' : null, setting } // i18n-ignore: values, not text
 }
 
-function settingIn(folder: string): boolean {
+/** A boolean advanced setting's value in advanced.json, read before the full load: one missing, unreadable or not valid is off. */
+export function advancedAtStart(folder: string, id: string): boolean {
   let text: string
   try {
     text = readFileSync(join(folder, 'advanced.json'), 'utf8')
@@ -38,8 +39,8 @@ function settingIn(folder: string): boolean {
     return false
   }
   const parsed = parseAdvancedFile(text)
-  const raw = 'values' in parsed ? parsed.values[HARDWARE_ACCELERATION_OFF] : undefined
-  const def = advancedDef(HARDWARE_ACCELERATION_OFF)
+  const raw = 'values' in parsed ? parsed.values[id] : undefined
+  const def = advancedDef(id)
   if (raw === undefined || !def) return false
   const checked = checkAdvanced(def, raw)
   return 'value' in checked && checked.value === true

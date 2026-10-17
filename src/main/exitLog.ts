@@ -2,6 +2,7 @@ import { app, BrowserWindow, crashReporter, powerMonitor } from 'electron'
 import { readdirSync, statSync } from 'original-fs'
 import { basename, join } from 'path'
 import { createLogger } from './logger'
+import { memoryLine } from './memory'
 
 /**
  * Why Hive stopped (#985): crash dumps kept in the profile, never sent anywhere, and a line in hive.log for every way
@@ -81,7 +82,7 @@ const gone = (d: { reason: string; exitCode: number }): string => `${d.reason}, 
 export function startExitLog(): void {
   process.on('uncaughtException', (e) => log.error('uncaughtException', e))
   process.on('unhandledRejection', (e) => log.error('unhandledRejection', e))
-  process.on('exit', (code) => log.info(`The main process is exiting (exit code ${code})`))
+  process.on('exit', (code) => log.info(`The main process is exiting (exit code ${code}); memory: ${memoryLine()}`))
   app.on('render-process-gone', (_e, contents, d) => {
     const line = `A page's process went (${gone(d)}; ${contents.getType()} ${contents.id})`
     if (d.reason === 'clean-exit') log.info(line)

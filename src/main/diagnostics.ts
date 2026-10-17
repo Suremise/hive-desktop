@@ -23,6 +23,7 @@ import { advanced } from './advanced'
 import { gpuDiagnostics, gpuThisRun } from './gpu'
 import { crashDumpLines, crashDumps, crashDumpsDir } from './exitLog'
 import { lastRunDiagnostics } from './lastRun'
+import { memoryDiagnostics } from './memory'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -143,7 +144,12 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     '',
     ...crashDumpLines(crashDumps(), join(crashDumpsDir(), 'reports')),
     // The last run (#984): whether it quit, or ended without quitting.
-    lastRunDiagnostics()
+    lastRunDiagnostics(),
+    '',
+    // The main process's memory (#1005): now, and the last lines logged, which the log's tail may not reach.
+    '### Memory',
+    '',
+    ...memoryDiagnostics(app.getPath('userData'))
   ].join('\n')
 
   // The log goes back further than what is open now: earlier workspaces and their projects are taken out too.

@@ -154,6 +154,9 @@ export interface AdvancedDef {
 /** Hive draws without the graphics card (#676): read from advanced.json before the app is ready (main/gpu.ts). */
 export const HARDWARE_ACCELERATION_OFF = 'hive.disableHardwareAcceleration'
 
+/** Hive writes a heap snapshot as its main process nears its memory limit (#1005): read from advanced.json at start (main/memory.ts). */
+export const HEAP_SNAPSHOT_NEAR_LIMIT = 'hive.heapSnapshotNearLimit'
+
 /**
  * Whether right-click goes to a provider's CLI rather than Hive's copy/paste (#737): `<provider>.mouse.rightClickToCli`,
  * an advanced value for a CLI that handles the mouse itself. A provider without one keeps Hive's.
@@ -224,6 +227,15 @@ const SOURCES: readonly AdvancedSource[] = [
     group: 'hive',
     title: msg({ id: 'settings.advanced.hive.disableHardwareAcceleration.title', defaultMessage: 'Disable hardware acceleration', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
     desc: msg({ id: 'settings.advanced.hive.disableHardwareAcceleration.desc', defaultMessage: "Draw Hive without the graphics card, for a graphics driver that leaves Hive's window blank, flickering or crashing. Terminals then draw without WebGL. Takes effect when Hive restarts; to start once without it, run Hive with --disable-gpu.", description: 'What the advanced setting "Disable hardware acceleration" is for, and what goes wrong when it is wrong (Settings → Advanced). --disable-gpu is a command-line option: keep it.' }),
+    kind: 'boolean',
+    default: false,
+    applies: 'restart'
+  },
+  {
+    id: HEAP_SNAPSHOT_NEAR_LIMIT,
+    group: 'hive',
+    title: msg({ id: 'settings.advanced.hive.heapSnapshotNearLimit.title', defaultMessage: 'Save a memory snapshot if Hive is about to run out of memory', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.hive.heapSnapshotNearLimit.desc', defaultMessage: "When Hive's main process nears its memory limit, it writes a snapshot of its memory to the heap folder in Hive's profile before it closes, to find out what filled it. A snapshot can be several gigabytes, holds whatever Hive had in memory (card text, transcripts, possibly tokens) and stays on this PC; Hive keeps the newest two. Takes effect when Hive restarts.", description: 'What the advanced setting "Save a memory snapshot if Hive is about to run out of memory" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
     kind: 'boolean',
     default: false,
     applies: 'restart'

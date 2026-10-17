@@ -627,6 +627,14 @@
     "defaultMessage": "MCP servers only where they are needed",
     "description": "A tip's title."
   },
+  "tips.memorySnapshot.text": {
+    "defaultMessage": "Turn on Settings → Advanced → Save a memory snapshot if Hive is about to run out of memory, to find out what filled it. Snapshots can be gigabytes, hold what Hive had in memory (card text, transcripts, possibly tokens) and stay on this PC.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.memorySnapshot.title": {
+    "defaultMessage": "Hive closed running out of memory?",
+    "description": "A tip's title."
+  },
   "tips.mergeSlot.text": {
     "defaultMessage": "When several agents finish at once, each claims the project's merge slot before it merges main in, checks and merges, so nobody's checks have to run twice. Who holds it and who waits shows in the Overview and the Progress panel.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
