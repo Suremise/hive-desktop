@@ -87,6 +87,8 @@
   "settings.advanced.hive.console.showText.title": "Developer console: show prompt, reply and command text",
   "settings.advanced.hive.disableHardwareAcceleration.desc": "Draw Hive without the graphics card, for a graphics driver that leaves Hive's window blank, flickering or crashing. Terminals then draw without WebGL. Takes effect when Hive restarts; to start once without it, run Hive with --disable-gpu.",
   "settings.advanced.hive.disableHardwareAcceleration.title": "Disable hardware acceleration",
+  "settings.advanced.hive.heapSnapshotNearLimit.desc": "When Hive's main process nears its memory limit, it writes a snapshot of its memory to the heap folder in Hive's profile before it closes, to find out what filled it. A snapshot can be several gigabytes, holds whatever Hive had in memory (card text, transcripts, possibly tokens) and stays on this PC; Hive keeps the newest two. Takes effect when Hive restarts.",
+  "settings.advanced.hive.heapSnapshotNearLimit.title": "Save a memory snapshot if Hive is about to run out of memory",
   "settings.advanced.hive.mcp.replySeconds.desc": "How long the hive MCP server waits for Hive to answer one of its tools (a wait's own time comes on top). Raise it when a slow or very busy machine makes hive tools fail with \"Hive didn't reply within 300 s\" (#371).",
   "settings.advanced.hive.mcp.replySeconds.title": "hive tools: reply timeout",
   "settings.advanced.hive.progress.lanesShown.desc": "How many card-loop lanes the Progress panel shows before its lanes scroll, until you drag the section's top edge (the drag is kept per workspace). A workspace that runs many lanes at once can set its own.",

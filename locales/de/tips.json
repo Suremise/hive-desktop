@@ -156,6 +156,8 @@
   "tips.mcpPerAgent.title": "MCP-Server nur für manche Agenten",
   "tips.mcpPerProject.text": "Ein MCP-Server des Arbeitsbereichs läuft nur in den Projekten, die ihn einschalten: Schalte ihn im Tab „MCP“ eines Projekts ein oder für alle Projekte in der Ansicht „MCP“. Seine Werkzeuge bleiben aus dem Kontext der Agenten anderer Projekte heraus.",
   "tips.mcpPerProject.title": "MCP-Server nur dort, wo sie gebraucht werden",
+  "tips.memorySnapshot.text": "Schalte Einstellungen → Erweitert → Speicherabbild speichern, wenn Hive bald der Speicher ausgeht ein, um herauszufinden, was ihn gefüllt hat. Abbilder können Gigabyte groß sein, enthalten, was Hive im Speicher hatte (Kartentexte, Transkripte, möglicherweise Tokens), und bleiben auf diesem PC.",
+  "tips.memorySnapshot.title": "Wurde Hive geschlossen, weil der Speicher ausging?",
   "tips.mergeSlot.text": "Werden mehrere Agenten gleichzeitig fertig, holt sich jeder den Merge-Slot des Projekts, bevor er main hineinmergt, prüft und mergt, sodass niemandes Prüfungen zweimal laufen müssen. Wer ihn hat und wer wartet, zeigen die Übersicht und das Fortschrittspanel.",
   "tips.mergeSlot.title": "Agenten mergen der Reihe nach",
   "tips.messageReceipts.text": "Jede Nachricht, die der Assistent einem Agenten hinterlässt, hat eine ID und bleibt erhalten, auch über einen Neustart hinweg: Sie gilt als empfangen, sobald der Agent seinen Posteingang liest, und als bestätigt, sobald er danach gehandelt hat. Eine, die nach {minutes, plural, one {# Minute} other {# Minuten}} nicht bestätigt ist, erscheint in seinem Bereich als überfällig (✉).",
