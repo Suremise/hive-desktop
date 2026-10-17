@@ -33,8 +33,10 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   const width = (sel) => page.locator(sel).first().evaluate((e) => Math.round(e.getBoundingClientRect().width))
 
   for (const [tab, key, def] of [['Sessions', 'sessions', 320], ['Files', 'files', 360], ['Git', 'changes', 280], ['Memory', 'memory', 280]]) {
-    await page.locator('.tabs .tab', { hasText: tab }).first().click(); await sleep(600)
+    if (tab === 'Memory') await lib.openMoreTab(page, tab)
+    else await page.locator('.tabs .tab', { hasText: tab }).first().click()
     const list = '.tab-body:visible .split-list'
+    await lib.until(async () => (await page.locator('.tabs .tab.active .tab-label').innerText().catch(() => '')).trim() === tab && (await page.locator(list).count()) > 0, 10000)
     const w0 = await width(list)
     check(`${tab} default width`, Math.abs(w0 - def) <= 1, `(${w0})`)
     await drag(page.locator(`${list} > .pane-resizer`).first(), 120)

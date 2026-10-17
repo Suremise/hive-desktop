@@ -311,5 +311,7 @@
   "project.tab.skills": "技能",
   "project.tab.tasks": "任务",
   "project.tab.templates": "模板",
+  "project.tabs.more": "更多",
+  "project.tabs.moreTip": "项目的{tabs}",
   "project.tabs.tip": "{tab}（{key}）"
 }

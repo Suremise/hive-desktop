@@ -311,5 +311,7 @@
   "project.tab.skills": "Compétences",
   "project.tab.tasks": "Tâches",
   "project.tab.templates": "Modèles",
+  "project.tabs.more": "Plus",
+  "project.tabs.moreTip": "{tabs} du projet",
   "project.tabs.tip": "{tab} ({key})"
 }

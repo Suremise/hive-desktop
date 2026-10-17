@@ -311,5 +311,7 @@
   "project.tab.skills": "スキル",
   "project.tab.tasks": "タスク",
   "project.tab.templates": "テンプレート",
+  "project.tabs.more": "その他",
+  "project.tabs.moreTip": "プロジェクトの{tabs}",
   "project.tabs.tip": "{tab}（{key}）"
 }

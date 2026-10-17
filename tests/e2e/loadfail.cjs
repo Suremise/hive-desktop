@@ -69,7 +69,7 @@ const check = (name, ok, extra = '') => {
 
   // --- Skills tab: a failed read isn't "no skills"; Retry loads them without reopening the tab.
   await failNext('skills:list')
-  await page.locator('.tab', { hasText: 'Skills' }).click()
+  await lib.openMoreTab(page, 'Skills')
   check('skills: a failure shows the error with Retry', !!(await until(async () => /Could not load the skills: .*failed/.test(await text('.load-failed')), HUNG_MS)))
   check('skills: no empty groups for a failure', (await page.locator('.skill-group').count()) === 0)
   await page.screenshot({ path: path.join(lib.WORK, 'loadfail-2-skills.png') })
@@ -93,7 +93,7 @@ const check = (name, ok, extra = '') => {
     if ((await t.getAttribute('aria-expanded').catch(() => 'true')) === 'false') await t.click()
   }
   await project('beta')
-  await page.locator('.tab', { hasText: 'Skills' }).click()
+  await lib.openMoreTab(page, 'Skills')
   await until(async () => (await page.locator('.skill-group').count()) > 0, HUNG_MS)
   await openProvider()
   await project('alpha')

@@ -22,7 +22,7 @@ const check = (name, ok, extra = '') => {
 const skillsTab = async (page, name) => {
   await page.keyboard.press('Control+Shift+E')
   await page.getByText(name, { exact: true }).first().click()
-  await page.keyboard.press('Alt+8')
+  await lib.openMoreTab(page, 'Skills')
   const pick = page.locator('.skill-provider-pick select')
   await lib.until(async () => (await pick.count()) === 1, 10000)
   return { pick, hive: page.locator('.skill-group-toggle', { hasText: 'Hive' }).first(), provider: page.locator('.skill-provider-toggle') }

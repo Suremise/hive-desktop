@@ -1007,6 +1007,16 @@ async function openProjectSettings(page, ms = 10000) {
   if (!(await until(async () => (await page.locator('.tab-body .settings-top').count()) > 0, ms))) throw new Error("Project Settings didn't open")
 }
 
+/**
+ * Opens one of the project tabs in the strip's More ▾ menu (#1043: Memory, Skills, Templates, MCP) and waits for it:
+ * More ▾ then shows its name.
+ */
+async function openMoreTab(page, label, ms = 10000) {
+  await page.locator('.tabs .tab-more').click()
+  await menuEntry(page, label).click()
+  if (!(await until(async () => (await page.locator('.tabs .tab-more.active .tab-label').innerText().catch(() => '')).trim() === label, ms))) throw new Error(`More ▾ didn't open ${label}`)
+}
+
 /** A menu entry by its label exactly (its first line, not its detail). */
 const menuEntry = (page, label) =>
   page.locator('.menu .menu-item').filter({ has: page.locator(`.menu-label, :scope > span:not(.menu-key)`, { hasText: new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`) }) }).first()
@@ -1051,4 +1061,4 @@ async function addMenuRun(page, label, then, ms = 10000) {
   await menuEntry(page, then).click()
 }
 
-module.exports = { addMenuRun, agentCount, agentMenu, agentsMenu, agentsMenuRun, menuEntry, openProjectSettings, paneHeader, showAgent, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
+module.exports = { addMenuRun, agentCount, agentMenu, agentsMenu, agentsMenuRun, menuEntry, openMoreTab, openProjectSettings, paneHeader, showAgent, ROOT, ELECTRON, WORK, CODEX_HOME, CLAUDE_TEST_HOME, TRASH, trashed, tidyUp, ownClaudeHome, probeDir, hiveEnv, childEnv, baseEnv, git, GIT_LOCKED, plainText, trustChoice, haikuAutoMode, haikuAutoCaveat, sleep, port, until, hoverTip, quitWatch, appReady, openWorkspace, hadEstimate, fitWindow, enableProviders, fakeClaude, launch, waitForProvider, addAgent, soloAgent, ptyKey, acceptClaudeTrust, acceptRelaunchTrust, withFileLock, trustForCodex, gitProject, codexSignedIn, pathWithoutStoreAliases, launchDir, launchHook, codexHook, processTree, stopProcessesIn, identify, stillSame, endExactly, endTreeExactly, endChildTree, processRunning, samplePng, environmentProblem, environmentProblems, storePwshRefusals, stepVerdict, checked, cliStep, sendPrompt, TURN_HUNG_MS, fakePrompts, skip }
