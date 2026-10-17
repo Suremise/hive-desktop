@@ -20,7 +20,7 @@ const wsPath = join(base, 'ws')
 const p = join(wsPath, 'alpha')
 type State = { runId: string; agentId: string; sessionId: string; status: string; statusMessage?: string | null }
 const s = sessions as unknown as {
-  live: Map<string, { state: State }>
+  live: Map<string, { state: State; looks?: Set<Promise<void>> }>
   runs: Map<string, string>
   signedOut: Map<string, unknown>
   hookQueues: Map<string, Promise<void>>
@@ -63,6 +63,11 @@ describe('a Codex turn refused for its sign-in', () => {
     s.notify = () => {}
   })
   afterAll(async () => {
+    // What its sessions still have under way (a look at the rollout after a turn's end) ends before its folder goes (#1034).
+    for (const l of s.live.values()) {
+      await settled(l.state)
+      for (let looks = [...(l.looks ?? [])]; looks.length; looks = [...(l.looks ?? [])]) await Promise.allSettled(looks)
+    }
     s.live.clear()
     s.signedOut.clear()
     await disposeWorkspaceService(w)
