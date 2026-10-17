@@ -629,6 +629,12 @@ Add-Type -ReferencedAssemblies System.Management -TypeDefinition ([Text.Encoding
 while ($null -ne ($line = [Console]::In.ReadLine())) { [Console]::Out.WriteLine([HiveJobs]::Answer($line)) }
 `
 const HOST_INPUT = Buffer.from(HOST_SOURCE, 'utf8').toString('base64') + '\n'
+/** Test copies' helper that is ready but never answers (HIVE_TEST_PROCESS_TRACKER=mute): it notes each request it reads. */
+const MUTE_SCRIPT = `
+$null = [Console]::In.ReadLine()
+[Console]::Out.WriteLine('ready')
+while ($null -ne ($line = [Console]::In.ReadLine())) { if ($env:HIVE_TEST_TRACKER_HEARD) { [IO.File]::AppendAllText($env:HIVE_TEST_TRACKER_HEARD, $line + [Environment]::NewLine) } }
+`
 
 interface JobList {
   total: number
@@ -644,6 +650,10 @@ class JobHost {
   private next = 1
   private waiting = new Map<number, (reply: unknown) => void>()
   private failed = false
+  /** Closed (Hive quitting): no helper starts again, not even for a request already on its way (a refresh's next look). */
+  private closed = false
+  /** Every helper started that hasn't exited yet (one being replaced too), with whether it said it was ready. */
+  private alive = new Map<ChildProcessWithoutNullStreams, { up: boolean; gone: Promise<void> }>()
 
   /** False once the host couldn't start: then nothing is tracked, and launches aren't held for it. */
   get usable(): boolean {
@@ -656,6 +666,7 @@ class JobHost {
   }
 
   private start(): Promise<boolean> {
+    if (this.closed) return Promise.resolve(false)
     if (this.ready) return this.ready
     // Test copies (unpackaged): HIVE_TEST_PROCESS_TRACKER=fail acts out a PC where PowerShell refuses the helper.
     if (!app.isPackaged && process.env.HIVE_TEST_PROCESS_TRACKER === 'fail') {
@@ -667,9 +678,10 @@ class JobHost {
       let up = false
       let p: ChildProcessWithoutNullStreams
       try {
-        // Test copies: HIVE_TEST_PROCESS_TRACKER=silent acts out a helper that starts but never says it is ready.
-        const silent = !app.isPackaged && process.env.HIVE_TEST_PROCESS_TRACKER === 'silent'
-        const script = Buffer.from(silent ? '[System.Threading.Thread]::Sleep(-1)' : HOST_SCRIPT, 'utf16le').toString('base64')
+        // Test copies: HIVE_TEST_PROCESS_TRACKER=silent acts out a helper that starts but never says it is ready, =mute
+        // one that is ready but never answers (each request it reads noted in HIVE_TEST_TRACKER_HEARD), until its input closes.
+        const mode = app.isPackaged ? '' : process.env.HIVE_TEST_PROCESS_TRACKER
+        const script = Buffer.from(mode === 'silent' ? '[System.Threading.Thread]::Sleep(-1)' : mode === 'mute' ? MUTE_SCRIPT : HOST_SCRIPT, 'utf16le').toString('base64')
         // In the temp folder: nothing it might write lands in whatever folder Hive was started from.
         p = spawn(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', script], { windowsHide: true, stdio: 'pipe', cwd: tmpdir() })
       } catch (e) {
@@ -679,6 +691,11 @@ class JobHost {
         return resolve(false)
       }
       this.proc = p
+      const state = { up: false, gone: new Promise<void>((r) => p.once('exit', () => r())) }
+      // A helper that never started (no pid) has nothing to wait for.
+      if (p.pid === undefined) state.gone = Promise.resolve()
+      this.alive.set(p, state)
+      void state.gone.then(() => this.alive.delete(p))
       p.stdin.write(HOST_INPUT)
       // A helper that doesn't say it is ready in time is taken for broken, for the rest of this run: launches go on
       // untracked (decision B), rather than waiting for it.
@@ -704,7 +721,7 @@ class JobHost {
           const line = buf.slice(0, i).trim()
           buf = buf.slice(i + 1)
           if (!up && line === 'ready') {
-            up = true
+            up = state.up = true
             clearTimeout(readyBy)
             resolve(true)
             continue
@@ -723,7 +740,11 @@ class JobHost {
       })
       const ended = (why: string): void => {
         clearTimeout(readyBy)
-        if (this.proc !== p) return
+        if (this.proc !== p) {
+          // Closed before it was ready: nothing waits for it to start any more.
+          if (!up) resolve(false)
+          return
+        }
         this.proc = null
         this.ready = null
         for (const done of this.waiting.values()) done(null)
@@ -780,8 +801,13 @@ class JobHost {
     return this.proc?.pid ?? null
   }
 
-  /** Closes the host (Hive quitting): its jobs close without ending anything. */
-  close(): void {
+  /**
+   * Closes the host (Hive quitting): its jobs close without ending anything. A helper that hasn't said it is ready holds
+   * no jobs, and may never read its input: it is ended. No helper starts after this. Resolves once every helper started
+   * has exited, so nothing of theirs (their working folder, the temp folder) is held any more (#1020).
+   */
+  close(): Promise<void> {
+    this.closed = true
     const p = this.proc
     this.proc = null
     this.ready = null
@@ -790,6 +816,11 @@ class JobHost {
     } catch {
       // Already gone.
     }
+    // Requests on their way get no answer: said now, not once they time out (a refresh's next look would follow).
+    for (const done of this.waiting.values()) done(null)
+    this.waiting.clear()
+    for (const [q, { up }] of this.alive) if (!up) q.kill()
+    return Promise.all([...this.alive.values()].map((h) => h.gone)).then(() => undefined)
   }
 }
 
@@ -1072,11 +1103,11 @@ export function trackingProblemText(): TextPart | null {
   return process.platform !== 'win32' ? null : problem
 }
 
-/** Hive is quitting: the host closes, and its jobs with it, ending nothing. */
-export function closeProcessTracking(): void {
+/** Hive is quitting: the host closes, and its jobs with it, ending nothing. Resolves once its helper has exited (tests wait for it). */
+export function closeProcessTracking(): Promise<void> {
   if (poll) clearInterval(poll)
   poll = null
-  host.close()
+  return host.close()
 }
 
 /**
