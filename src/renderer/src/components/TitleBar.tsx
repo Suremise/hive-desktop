@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import iconUrl from '../assets/icon.svg'
 import { commandKeybinding, commandLabel, commands, runCommand, toggleAlwaysOnTop } from '../commands'
@@ -49,6 +49,42 @@ function useTaskbarCount(title: string): void {
     const scale = window.devicePixelRatio || 1
     void call('window:setBadge', count, count ? drawBadge(count, scale) : null, scale).catch(() => undefined)
   }, [count])
+}
+
+/** Space kept between the title and the menu bar or the pin on either side of it. */
+const TITLE_GAP = 12
+/** Narrower than this between the menu bar and the pin, the title hides rather than show a few letters. */
+const TITLE_MIN = 48
+
+/**
+ * Places the window title (#1038): centred in the window while it fits between the menu bar and the pin, else moved
+ * aside and cut short with an ellipsis, and hidden when there's no room, so a long menu bar (German at 900 px) never
+ * runs into it.
+ */
+function useTitleFit(bar: RefObject<HTMLDivElement | null>, menus: RefObject<HTMLDivElement | null>, end: RefObject<HTMLDivElement | null>, titleEl: RefObject<HTMLDivElement | null>, title: string): CSSProperties {
+  const [style, setStyle] = useState<CSSProperties>({ visibility: 'hidden' })
+  useLayoutEffect(() => {
+    const b = bar.current
+    const m = menus.current
+    const a = end.current
+    const t = titleEl.current
+    if (!b || !m || !a || !t) return
+    const fit = (): void => {
+      const left = m.offsetLeft + m.offsetWidth + TITLE_GAP
+      const right = a.offsetLeft - TITLE_GAP
+      const room = right - left
+      if (room < TITLE_MIN) return setStyle({ visibility: 'hidden' })
+      // scrollWidth is the whole title's width, however narrow it is shown.
+      const width = Math.min(t.scrollWidth, room)
+      const centred = (b.clientWidth - width) / 2
+      setStyle({ left: Math.min(Math.max(centred, left), right - width), maxWidth: width })
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    for (const el of [b, m, a]) ro.observe(el)
+    return () => ro.disconnect()
+  }, [bar, menus, end, titleEl, title])
+  return style
 }
 
 /** A menu of the title bar: its id (a hook for tests, data-menu), its name, and its items (commands by id). */
@@ -131,13 +167,18 @@ export function TitleBar() {
   const pinKey = commandKeybinding('view.alwaysOnTop')
   const title = [selected ? basename(selected) : null, workspace?.name, appName].filter(Boolean).join(' — ')
   useTaskbarCount(title)
+  const barRef = useRef<HTMLDivElement>(null)
+  const menubarRef = useRef<HTMLDivElement>(null)
+  const actionsRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLDivElement>(null)
+  const titleStyle = useTitleFit(barRef, menubarRef, actionsRef, titleRef, title)
 
   return (
-    <div className="titlebar" onDoubleClick={(e) => e.target === e.currentTarget && void window.hive.invoke('window:toggleMaximize')}>
+    <div className="titlebar" ref={barRef} onDoubleClick={(e) => e.target === e.currentTarget && void window.hive.invoke('window:toggleMaximize')}>
       <div className="titlebar-logo">
         <img src={iconUrl} alt="" />
       </div>
-      <div className="menubar">
+      <div className="menubar" ref={menubarRef}>
         {MENUS.map((m, i) => (
           <div
             key={m.id}
@@ -150,9 +191,11 @@ export function TitleBar() {
           </div>
         ))}
       </div>
-      <div className="titlebar-title">{title}</div>
+      <div className="titlebar-title" ref={titleRef} style={titleStyle}>
+        {title}
+      </div>
       {/* Always on Top, just left of the window controls: lit while the window stays above other apps. */}
-      <div className="titlebar-actions">
+      <div className="titlebar-actions" ref={actionsRef}>
         <Tooltip content={`${tr(msg({ id: 'shell.titlebar.pinTip', defaultMessage: '{on, select, yes {Always on Top (on)} other {Always on Top (off)}}', description: 'Tooltip of the pin in the title bar (its shortcut follows): whether the window stays above other apps.' }), { on: pinned ? 'yes' : 'no' })}${pinKey ? `  ${formatKeybinding(pinKey)}` : ''}`}>
           <button className={cx('titlebar-pin', pinned && 'on')} aria-label={tr(msg({ id: 'shell.titlebar.pin', defaultMessage: 'Always on Top', description: 'The name, for screen readers, of the pin in the title bar.' }))} aria-pressed={pinned} onClick={toggleAlwaysOnTop}>
             <Icon name={pinned ? 'pinned' : 'pin'} />

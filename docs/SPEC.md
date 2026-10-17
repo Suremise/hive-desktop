@@ -716,7 +716,7 @@ Not yet: the terminal screen route and jumping to an agent's pane (with Apiary v
 
 ## 13. UI
 
-- **Title bar** with menu bar (File, Edit, View, Project, Session, Help), the Always on Top pin, native window controls.
+- **Title bar** with menu bar (File, Edit, View, Project, Session, Help), the Always on Top pin, native window controls. The window title is centred in the window while it fits between the menu bar and the pin; when it doesn't (a long language's menus at a narrow window), it moves aside and is cut short with "…", and hides when less than 48 px is left, never running into the menu (#1038).
 - **Activity bar**: Projects, Task Board, Shared Notes, Skills, Templates (#127), MCP Servers, Hive Assistant; Docs and Settings at the bottom.
 - **Sidebar** per activity: project list (active toggle, status dot, warning for bypass, context menu), notes tree, skill/MCP lists with toggles.
 - **Compact project list**: the Projects sidebar collapses to a 48 px rail — one tile per project with its initials ("web-dashboard" → WD, "hive" → Hi) and its combined status dot, working-on projects first, then a divider and the others. Hover shows the name, status, branch and each agent's state; click selects, double-click starts a session, right-click gives the usual project menu. Toggle it with the chevron in the list header or on the rail, **Ctrl+Alt+B**, or by dragging the sidebar edge below 120 px (dragging out again restores the earlier width). Only the Projects view compacts; Notes, Skills and MCP always show at full width. Kept in the app config (`ui.sidebarCompact`). Ctrl+B still hides the sidebar entirely.
