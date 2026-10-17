@@ -89,7 +89,7 @@ const until = async (fn, ms = 10000) => {
   const marks = await until(async () => ((await page.locator('.pane-header-bar .state-mark.waiting').count()) >= 3 ? true : null), 5000)
   check('the panes mark the three as waiting for you', !!marks, String(await page.locator('.pane-header-bar .state-mark.waiting').count()))
   check('the pane header says Needs sign-in', (await page.locator('.pane-status.signin', { hasText: 'Needs sign-in' }).count()) >= 1)
-  check('Resume (n) counts the three', (await page.getByRole('button', { name: 'Resume All Agents (3)' }).count()) === 1)
+  check('Resume (n) counts the three', (await page.locator('.project-header button.act-resume', { hasText: 'Resume (3)' }).count()) === 1)
   await page.screenshot({ path: path.join(shots, 'signin-1-needs-sign-in.png') })
   // Another turn refused in the same expiry is shown, never told again.
   await send(agents[0], 'try once more')
@@ -113,7 +113,7 @@ const until = async (fn, ms = 10000) => {
     return i && !i.checking && i.loggedIn === true ? i : null
   }, 15000)
   check('Agent Setup shows it signed in again', !!back && !(back.readiness ?? []).some((r) => r.id === 'signed-out'), JSON.stringify(back?.readiness))
-  const resume = page.getByRole('button', { name: 'Resume All Agents (2)' })
+  const resume = page.locator('.project-header button.act-resume', { hasText: 'Resume (2)' })
   check('Resume (n) counts the two still stopped', (await until(async () => ((await resume.count()) === 1 ? true : null), 5000)) === true)
   await page.screenshot({ path: path.join(shots, 'signin-2-signed-in-again.png') })
 

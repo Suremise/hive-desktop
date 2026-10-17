@@ -151,6 +151,7 @@
   "session.start.worktreeMissing": "Le dossier du worktree de l’agent {agent} est introuvable : {folder}. Démarre l’agent {agent} depuis son volet pour recréer le worktree sur sa branche (Réparer… si l’espace de travail a été déplacé), ou retire l’agent.",
   "session.state.countIdle": "{n, plural, one {# inactif} other {# inactifs}}",
   "session.state.countStalled": "{n, plural, other {# à l’arrêt}}",
+  "session.state.countStopped": "{n, plural, one {# arrêté} other {# arrêtés}}",
   "session.state.countWaiting": "{n, plural, other {# en attente}}",
   "session.state.countWorking": "{n, plural, other {# au travail}}",
   "session.state.idle": "Inactif",

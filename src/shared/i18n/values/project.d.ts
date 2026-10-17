@@ -159,15 +159,14 @@ interface HiveMessageValues {
   'project.header.notWorkingOn': undefined
   'project.header.removeAllMenu': { many: string; count: string | number }
   'project.header.resumeAgent': undefined
-  'project.header.resumeAll': { count: string | number }
-  'project.header.resumeManyTip': { count: string | number }
+  'project.header.resumeAllTip': { count: number }
   'project.header.resumeOneTip': { agent: string | number }
   'project.header.resumeShort': { count: string | number }
   'project.header.resuming': undefined
   'project.header.startNew': { many: string; count: string | number }
   'project.header.stopAgent': undefined
+  'project.header.stopAllTip': { count: number }
   'project.header.stopMany': { count: string | number }
-  'project.header.stopTip': { count: number }
   'project.header.workingOn': undefined
   'project.limit.heading': { plan: string; when: string | number }
   'project.limit.none': { provider: string | number }

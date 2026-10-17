@@ -151,6 +151,7 @@
   "session.start.worktreeMissing": "Falta la carpeta del worktree del agente {agent}: {folder}. Inicia el agente {agent} desde su panel para volver a crear el worktree en su rama (Reparar… si el espacio de trabajo se movió), o quita el agente.",
   "session.state.countIdle": "{n, plural, one {# inactivo} other {# inactivos}}",
   "session.state.countStalled": "{n, plural, one {# estancado} other {# estancados}}",
+  "session.state.countStopped": "{n, plural, one {# detenido} other {# detenidos}}",
   "session.state.countWaiting": "{n, plural, other {# esperando}}",
   "session.state.countWorking": "{n, plural, other {# trabajando}}",
   "session.state.idle": "Inactivo",
