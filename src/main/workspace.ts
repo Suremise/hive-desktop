@@ -430,16 +430,24 @@ export class WorkspaceService {
     this.tasksTimer = setTimeout(() => {
       this.tasksTimer = null
       this.tasksSince = 0
-      if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
+      // A batch started meanwhile: told after it (holdTaskEvents takes a pending one over as it starts; this is in case).
+      if (this.tasksHolds) this.tasksHeld = true
+      else if (this.path && generation === this.generation) this.emit({ type: 'tasks-changed', workspacePath: this.path })
     }, Math.max(0, Math.min(TASKS_QUIET_MS, this.tasksSince + TASKS_MAX_WAIT_MS - Date.now())))
   }
 
   /**
    * Runs a batch of card writes (#1011) with the board's folder events held: what the watcher sees meanwhile (each card's
-   * temporary file and rename) is told once, after the batch, with the batch's own change.
+   * temporary file and rename) is told once, after the batch, with the batch's own change. A change still waiting to be
+   * told as it starts is told then too, not part way through it. Batches that overlap are told once, after the last.
    */
   async holdTaskEvents<T>(fn: () => Promise<T>): Promise<T> {
-    this.tasksHolds++
+    if (this.tasksHolds++ === 0 && this.tasksTimer) {
+      clearTimeout(this.tasksTimer)
+      this.tasksTimer = null
+      this.tasksSince = 0
+      this.tasksHeld = true
+    }
     try {
       return await fn()
     } finally {

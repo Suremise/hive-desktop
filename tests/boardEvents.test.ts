@@ -5,7 +5,7 @@
 // the changes told meanwhile.
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { HiveEvent, LiveSessionState } from '../src/shared/types'
 import { tempDir } from './tempDir'
@@ -154,6 +154,67 @@ describe('board events (#1011)', () => {
     await vi.waitFor(() => expect((w as unknown as { tasksTimer: unknown }).tasksTimer).toBeNull(), { timeout: HUNG_MS })
     // 30 files, each a create and a change: told once a burst (at least every 0.5 s while it goes on), never once a file.
     expect(seen.length).toBeLessThan(10)
+  })
+
+  describe('a batch and a change already waiting to be told (#1011 round 2)', () => {
+    type Held = { tasksChangedSoon: () => void; holdTaskEvents: <T>(fn: () => Promise<T>) => Promise<T>; tasksTimer: unknown }
+    const gate = (): { open: () => void; wait: Promise<void> } => {
+      let open = (): void => undefined
+      const wait = new Promise<void>((r) => (open = r))
+      return { open, wait }
+    }
+    // The quiet times, run on a fake clock: what is told while a batch is held is checked at a time after them, not slept for.
+    const later = (): void => void vi.advanceTimersByTime(5_000)
+
+    beforeEach(async () => {
+      await vi.waitFor(() => expect((w as unknown as Held).tasksTimer).toBeNull(), { timeout: HUNG_MS })
+      seen.length = 0
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    })
+    afterEach(() => void vi.useRealTimers())
+
+    it('a change waiting to be told as a batch starts is told after it, once, not part way through it', async () => {
+      const ws = w as unknown as Held
+      ws.tasksChangedSoon()
+      const g = gate()
+      const batch = ws.holdTaskEvents(() => g.wait)
+      later()
+      expect(seen).toHaveLength(0)
+      // And what changes during it.
+      ws.tasksChangedSoon()
+      later()
+      expect(seen).toHaveLength(0)
+      g.open()
+      await batch
+      later()
+      expect(seen).toHaveLength(1)
+    })
+
+    it('batches that overlap are told once, after the last of them', async () => {
+      const ws = w as unknown as Held
+      const a = gate()
+      const b = gate()
+      const first = ws.holdTaskEvents(() => a.wait)
+      const second = ws.holdTaskEvents(() => b.wait)
+      ws.tasksChangedSoon()
+      a.open()
+      await first
+      later()
+      expect(seen).toHaveLength(0)
+      b.open()
+      await second
+      later()
+      expect(seen).toHaveLength(1)
+    })
+
+    it('a batch with nothing to tell tells nothing', async () => {
+      const g = gate()
+      const batch = (w as unknown as Held).holdTaskEvents(() => g.wait)
+      g.open()
+      await batch
+      later()
+      expect(seen).toHaveLength(0)
+    })
   })
 
   it("recording the running agents' cards reads the board once a run, one run at a time, with one more for the changes told meanwhile", async () => {
