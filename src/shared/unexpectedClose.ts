@@ -144,10 +144,10 @@ export function stillRunningLine(processes: readonly AgentProcess[], kept: reado
 /** What Stop Them does with the processes (#987, #1008): passed in, so the unit tests give their own. */
 export interface StopProcesses {
   /**
-   * Ends these with all they started that runs now: those that still run after it (failed), and how many of their
-   * children run that it could neither end nor check (unverified); null when it can't say.
+   * Ends these with all they started that runs now: those that still run after it (failed), and the ids of their
+   * children that run and it could neither end nor check (unverified); null when it can't say.
    */
-  endTrees(roots: readonly AgentProcess[]): Promise<{ failed: AgentProcess[]; unverified: number } | null>
+  endTrees(roots: readonly AgentProcess[]): Promise<{ failed: AgentProcess[]; unverified: number[] } | null>
   /** Ends these, each only while it is still the same process. */
   endExact(processes: readonly AgentProcess[]): Promise<unknown>
   /** Which still run as the same processes (null: it can't say). */
@@ -159,19 +159,37 @@ export interface StopProcesses {
  * the same process. A hive-progress run goes whole (#1008): from its top (the shell that ran it, while it still runs) and
  * each of its processes still running, all they started that runs now, listed or not (found among all the marker kept).
  * Replies with how many of those listed were stopped, and what still runs as the same processes after it: those listed,
- * and those of a run's tree it couldn't end, to report and to try again (all of them when it can't say); unverified, how
- * many of a run's children still run that it could neither end nor check (reported, never counted as stopped).
+ * and those of a run's tree it couldn't end, to report and to try again (all of them when it can't say); unverified, the
+ * ids of a run's children that still run and it could neither end nor check (reported, never counted as stopped, and
+ * never tried again: with their parent ended, nothing tells them from a process that later gets the id, #1028).
  */
-export async function stopStillRunning(running: readonly AgentProcess[], kept: readonly AgentProcess[], ops: StopProcesses): Promise<{ stopped: number; still: AgentProcess[]; unverified: number }> {
+export async function stopStillRunning(running: readonly AgentProcess[], kept: readonly AgentProcess[], ops: StopProcesses): Promise<{ stopped: number; still: AgentProcess[]; unverified: number[] }> {
   const trees = progressRunsIn(running, kept).runs.flatMap((g) => [g.top, ...g.processes])
-  const tree = trees.length ? await ops.endTrees(trees).catch(() => null) : { failed: [], unverified: 0 }
+  const tree = trees.length ? await ops.endTrees(trees).catch(() => null) : { failed: [], unverified: [] }
   const treeFailed = tree ? tree.failed : trees
   await ops.endExact(running)
   const key = (p: AgentProcess): string => `${p.pid}:${p.created}`
   const tried = [...new Map([...running, ...treeFailed].map((p) => [key(p), p])).values()]
   const still = (await ops.stillRunning(tried).catch(() => null)) ?? tried
   const listed = new Set(running.map(key))
-  return { stopped: running.length - new Set(still.map(key).filter((k) => listed.has(k))).size, still, unverified: tree?.unverified ?? 0 }
+  return { stopped: running.length - new Set(still.map(key).filter((k) => listed.has(k))).size, still, unverified: tree?.unverified ?? [] }
+}
+
+/**
+ * What Stop Them has left (#1028): what still runs as the same processes (running: listed, tried again by the next
+ * click), and the ids of a run's children it could neither end nor check (unverified: their parent ended, so no click can
+ * find them again by id alone; kept so that each click still says they may run).
+ */
+export interface Leftovers {
+  running: AgentProcess[]
+  unverified: number[]
+}
+
+/** One click of Stop Them on what is left: how many of those listed it stopped, and what is left after it. */
+export async function stopLeftovers(left: Leftovers, kept: readonly AgentProcess[], ops: StopProcesses): Promise<{ stopped: number; left: Leftovers }> {
+  if (!left.running.length) return { stopped: 0, left }
+  const r = await stopStillRunning(left.running, kept, ops)
+  return { stopped: r.stopped, left: { running: r.still, unverified: [...new Set([...left.unverified, ...r.unverified])] } }
 }
 
 /** The notice's text: when, what was running, what became of it, what it started that still runs, a crash dump, merges left half done. */

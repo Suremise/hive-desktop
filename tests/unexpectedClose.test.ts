@@ -4,7 +4,7 @@
 // process by id and start time (one without either isn't kept), within bounds, and the notice says how many still run.
 // #1008: a hive-progress run (a test run left over) is one item of the notice, named by its title.
 import { describe, expect, it } from 'vitest'
-import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, parseRunMarker, projectsOf, resumeFailedLine, stillRunningLine, stopStillRunning, unexpectedCloseText, type RunningAgent } from '../src/shared/unexpectedClose'
+import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, parseRunMarker, projectsOf, resumeFailedLine, stillRunningLine, stopLeftovers, stopStillRunning, unexpectedCloseText, type RunningAgent } from '../src/shared/unexpectedClose'
 import { setDateStyle } from '../src/shared/dates'
 import { groupProgressRuns, progressRunTitle, progressRunsIn, type AgentProcess } from '../src/shared/agentProcesses'
 
@@ -139,7 +139,7 @@ describe('a hive-progress run left running is one item, named by its title (#100
     const asked: { trees: number[]; exact: number[]; still: number[] } = { trees: [], exact: [], still: [] }
     const alive = new Set([99])
     const ops = {
-      endTrees: async (roots: readonly AgentProcess[]) => ((asked.trees = ids(roots)), { failed: [late], unverified: 0 }),
+      endTrees: async (roots: readonly AgentProcess[]) => ((asked.trees = ids(roots)), { failed: [late], unverified: [] }),
       endExact: async (ps: readonly AgentProcess[]) => (asked.exact = ids(ps)),
       stillRunning: async (ps: readonly AgentProcess[]) => ((asked.still = ids(ps)), ps.filter((x) => alive.has(x.pid)))
     }
@@ -149,22 +149,50 @@ describe('a hive-progress run left running is one item, named by its title (#100
     expect(asked.exact).toEqual([12, 13, 20])
     expect(asked.still).toEqual([12, 13, 20, 99])
     // Every process listed was stopped, but the late child still runs: not a success, and kept for Stop Them's next try.
-    expect(r).toEqual({ stopped: 3, still: [late], unverified: 0 })
+    expect(r).toEqual({ stopped: 3, still: [late], unverified: [] })
     // The host can't say: the run's processes count as still running.
     const unsure = await stopStillRunning(running, tree, { ...ops, endTrees: async () => null, stillRunning: async () => null })
     expect(ids(unsure.still)).toEqual([12, 13, 20, 10])
     expect(unsure.stopped).toBe(0)
     // No run among them: no tree is asked for.
     asked.trees = []
-    expect(await stopStillRunning([tree[4]], tree, { ...ops, stillRunning: async () => [] })).toEqual({ stopped: 1, still: [], unverified: 0 })
+    expect(await stopStillRunning([tree[4]], tree, { ...ops, stillRunning: async () => [] })).toEqual({ stopped: 1, still: [], unverified: [] })
     expect(asked.trees).toEqual([])
   })
 
   it("Stop Them is no success while a run's child it could neither end nor check still runs", async () => {
     // Everything listed ends; the run's new child (not in the marker) runs, and Windows lets Hive neither end nor read it.
     const running = tree.filter((x) => [12, 13].includes(x.pid))
-    const r = await stopStillRunning(running, tree, { endTrees: async () => ({ failed: [], unverified: 1 }), endExact: async () => undefined, stillRunning: async () => [] })
-    expect(r).toEqual({ stopped: 2, still: [], unverified: 1 })
+    const r = await stopStillRunning(running, tree, { endTrees: async () => ({ failed: [], unverified: [4242] }), endExact: async () => undefined, stillRunning: async () => [] })
+    expect(r).toEqual({ stopped: 2, still: [], unverified: [4242] })
+  })
+
+  it("Stop Them keeps a child it could neither end nor check across clicks, and never tries it again by its id", async () => {
+    const ids = (ps: readonly AgentProcess[]) => ps.map((x) => x.pid)
+    const late: AgentProcess = { pid: 99, created: '500', name: '', label: '' }
+    const asked: number[][] = []
+    // Click 1: the run's processes end but its late child (99) won't, and 4242 can be neither ended nor read.
+    let tree1: { failed: AgentProcess[]; unverified: number[] } = { failed: [late], unverified: [4242] }
+    const alive = new Set([99])
+    const ops = {
+      endTrees: async (roots: readonly AgentProcess[]) => (asked.push(ids(roots)), tree1),
+      endExact: async () => undefined,
+      stillRunning: async (ps: readonly AgentProcess[]) => ps.filter((x) => alive.has(x.pid))
+    }
+    const first = await stopLeftovers({ running: tree.filter((x) => [12, 13].includes(x.pid)), unverified: [] }, tree, ops)
+    expect(first).toEqual({ stopped: 2, left: { running: [late], unverified: [4242] } })
+    // Click 2: 99 is tried again (by id and start time) and ends; 4242 isn't asked for, and is still said to maybe run.
+    alive.clear()
+    tree1 = { failed: [], unverified: [] }
+    const second = await stopLeftovers(first.left, tree, ops)
+    expect(second).toEqual({ stopped: 1, left: { running: [], unverified: [4242] } })
+    // Click 3: nothing to try; nothing is asked of Windows, and 4242 is still there to report rather than a quiet 0.
+    asked.length = 0
+    const third = await stopLeftovers(second.left, tree, ops)
+    expect(third).toEqual({ stopped: 0, left: { running: [], unverified: [4242] } })
+    expect(asked).toEqual([])
+    // Ids reported by two clicks are kept once.
+    expect((await stopLeftovers({ running: [tree[1]], unverified: [4242] }, tree, { ...ops, endTrees: async () => ({ failed: [], unverified: [4242, 4250] }) })).left.unverified).toEqual([4242, 4250])
   })
 
   it("the marker keeps each process's parent and run title; bad ones are left out", () => {
