@@ -6,7 +6,9 @@ import type { StartFailure } from '@shared/startFailure'
 import type { AdvancedState } from '@shared/advanced'
 import type { AgentLeftovers } from '@shared/agentProcesses'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
-import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage } from '@shared/defaults'
+import { agentPtyKey, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectPerPage, projectSessionView } from '@shared/defaults'
+import { projectAgentStates, type AgentState } from '@shared/agentState'
+import { tileOrder, tilePageOf, tilePageShown, tilesOnPage } from '@shared/tiles'
 import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
 import { setDateStyle } from '@shared/dates'
 import { language as shownLanguage, onLanguageChange } from '@shared/i18n'
@@ -330,6 +332,10 @@ interface State {
   running: Record<string, true>
   /** Per project and agent page ("<path>#<page>"): the agent last focused there, focused again on going back. */
   pageFocus: Record<string, string>
+  /** Per project, in the Tiles view (#976): the agent its focus view shows (none: the grid of tiles). */
+  tileFocus: Record<string, string>
+  /** Per project: the page of tiles the Tiles view shows (from 0). */
+  tilePage: Record<string, number>
   /**
    * Per project: whose folder the Changes and Files tabs show (a worktree agent's id; anything else = the project
    * folder). Changes also takes an unused worktree (#400): `unused:<its folder>`, or `unused` for the list of them all.
@@ -486,6 +492,8 @@ export const useStore = create<State>(() => ({
   agentDrag: null,
   running: {},
   pageFocus: {},
+  tileFocus: {},
+  tilePage: {},
   changesRoot: {},
   gitSection: {},
   gitVersion: {},
@@ -659,7 +667,11 @@ export function agentsOnScreen(s: State = get()): Map<string, string[]> {
   const out = new Map<string, string[]>()
   if (!s.windowFocused || !s.workspace) return out
   const p = s.activity === 'projects' ? s.workspace.projects.find((x) => x.path === s.selectedProject) : undefined
-  if (p && (s.projectTabs[p.path] ?? 'session') === 'session') {
+  // The Tiles view (#976): the agent its focus view shows, else the page of tiles.
+  if (p && (s.projectTabs[p.path] ?? 'session') === 'session' && projectSessionView(p.config, s.settings) === 'tiles') {
+    const focus = tileFocusOf(p, s)
+    out.set(p.path, focus ? [focus] : tilesOnPage(tileAgents(p, s), tilePage(p, s)).map((t) => t.a.id))
+  } else if (p && (s.projectTabs[p.path] ?? 'session') === 'session') {
     const focused = s.focusedAgent[p.path]
     const shown = paneAssignment(p, focused && p.agents.some((a) => a.id === focused) ? focused : (p.agents[0]?.id ?? null))
     out.set(p.path, shown.filter((id): id is string => !!id))
@@ -673,8 +685,47 @@ export function agentsOnScreen(s: State = get()): Map<string, string[]> {
  * Shows an agent: focuses its pane, which is on its page (a page shows all its agents, #134); one on another page
  * goes to that page. One at a time (Single), it becomes the one shown.
  */
-export function showAgent(p: ProjectInfo, agentId: string): void {
+export function showAgent(p: ProjectInfo, agentId: string, how: 'show' | 'select' = 'show'): void {
   focusAgent(p.path, agentId)
+  // In the Tiles view (#976) it opens the agent's focus view, unless it is only chosen (an agent just added: its tile).
+  if (how === 'show' && !isAssistantPath(p.path) && projectSessionView(p.config, get().settings) === 'tiles') openTile(p, agentId)
+}
+
+/** A project's agents in the Tiles view's order (#976; Settings → Sessions → Tile order), each with its state. */
+export function tileAgents(p: Pick<ProjectInfo, 'path' | 'name' | 'agents'>, s: Pick<State, 'tasks' | 'startFailures' | 'settings'> = get()): { a: AgentInfo; state: AgentState }[] {
+  const states = projectAgentStates(p, s.tasks, (id) => !!s.startFailures[projectKey(p.path, id)])
+  return tileOrder(states, s.settings?.sessions.tileOrder ?? 'panes').map((i) => ({ a: p.agents[i], state: states[i] }))
+}
+
+/** The page of tiles a project's Tiles view shows. */
+export const tilePage = (p: Pick<ProjectInfo, 'path' | 'agents'>, s: Pick<State, 'tilePage'> = get()): number => tilePageShown(s.tilePage[p.path] ?? 0, p.agents.length)
+
+/** Shows a page of a project's tiles. */
+export function showTilePage(p: Pick<ProjectInfo, 'path' | 'agents'>, page: number): void {
+  set((s) => ({ tilePage: { ...s.tilePage, [p.path]: tilePageShown(page, p.agents.length) } }))
+}
+
+/** The agent a project's focus view shows (#976), while it is one of its agents; null: the grid of tiles. */
+export function tileFocusOf(p: Pick<ProjectInfo, 'path' | 'agents'> | null | undefined, s: Pick<State, 'tileFocus'> = get()): string | null {
+  const id = p ? s.tileFocus[p.path] : undefined
+  return id && p!.agents.some((a) => a.id === id) ? id : null
+}
+
+/** Opens an agent's focus view (#976): its pane large, the other agents in a strip beside it. */
+export function openTile(p: ProjectInfo, agentId: string): void {
+  set((s) => ({ tileFocus: { ...s.tileFocus, [p.path]: agentId } }))
+  focusAgent(p.path, agentId)
+}
+
+/** Back from the focus view to the grid, on the page of the agent it showed; returns that agent, for its tile to take the focus. */
+export function closeTile(p: ProjectInfo): string | null {
+  const id = tileFocusOf(p)
+  set((s) => {
+    const { [p.path]: _, ...rest } = s.tileFocus
+    const at = id ? tileAgents(p, s).findIndex((t) => t.a.id === id) : -1
+    return { tileFocus: rest, ...(at >= 0 ? { tilePage: { ...s.tilePage, [p.path]: tilePageOf(at) } } : {}) }
+  })
+  return id
 }
 
 /**

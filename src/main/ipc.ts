@@ -31,7 +31,7 @@ import { refreshPath, refreshPathBeforeStart } from './freshPath'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
-import { resumeAfterClose, startupStep } from './lastRun'
+import { resumeAfterClose, startupStep, stopLeftAfterClose } from './lastRun'
 import { keepAwakeCount } from './power'
 import { progress } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
@@ -329,6 +329,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const r = await resumeAfterClose()
       return { resumed: r.resumed.length, failed: r.failed.length }
     },
+    'app:stopLeftAfterClose': () => stopLeftAfterClose(),
     'update:state': () => updater.updateState(),
     'update:check': () => updater.check(true),
     'update:download': () => updater.download(),

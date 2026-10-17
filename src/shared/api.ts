@@ -135,6 +135,8 @@ export interface HiveRequests {
   'app:keepAwake': () => number
   /** The notice that Hive closed unexpectedly (#984): resumes the agents that were running, once; main tells the result. */
   'app:resumeAfterClose': () => { resumed: number; failed: number }
+  /** The unexpected-close notice's Stop Them (#987): how many processes the agents had started were stopped. */
+  'app:stopLeftAfterClose': () => number
   'update:state': () => UpdateState
   /** A check started by the user; resolves with the result. */
   'update:check': () => UpdateState

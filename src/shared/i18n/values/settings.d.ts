@@ -719,6 +719,11 @@ interface HiveMessageValues {
   'settings.sessions.resumeAfterUnexpectedClose.desc': undefined
   'settings.sessions.resumeAfterUnexpectedClose.tip': undefined
   'settings.sessions.resumeAfterUnexpectedClose.title': undefined
+  'settings.sessions.tileOrder.desc': undefined
+  'settings.sessions.tileOrder.option.panes': undefined
+  'settings.sessions.tileOrder.option.urgency': undefined
+  'settings.sessions.tileOrder.tip': undefined
+  'settings.sessions.tileOrder.title': undefined
   'settings.sessions.transcriptWarnMB.desc': undefined
   'settings.sessions.transcriptWarnMB.off': undefined
   'settings.sessions.transcriptWarnMB.tip': undefined

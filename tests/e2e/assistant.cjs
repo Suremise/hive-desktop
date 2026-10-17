@@ -56,17 +56,21 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   await page.keyboard.press('Control+Alt+I')
   check('and shows it', await becomes(async () => (await page.locator('.assistant-panel').count()) === 1))
   check('Start is a header button', await becomes(async () => (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 1))
-  // Narrow: Start folds into ⋯.
+  // Narrowest: the header keeps Start and ⋯ inside the panel, as an agent pane's keeps Stop and ⋯ (#979); ⋯ has Start too.
   const edge = await page.locator('.assistant-panel > .pane-resizer').boundingBox()
   await page.mouse.move(edge.x + 3, edge.y + 200)
   await page.mouse.down()
   await page.mouse.move(edge.x + 60, edge.y + 200, { steps: 5 })
-  await page.mouse.move(edge.x + 123, edge.y + 200, { steps: 5 })
+  await page.mouse.move(edge.x + 160, edge.y + 200, { steps: 5 })
   await page.mouse.up()
-  // Narrowed: the header gives up its Start button for the ⋯ menu.
-  await lib.until(async () => (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 0, HUNG_MS)
+  await lib.until(async () => (await panelWidth()) === 300, HUNG_MS)
+  const inside = await page.evaluate(() => {
+    const right = document.querySelector('.assistant-panel').getBoundingClientRect().right
+    return ['button[aria-label="Start"]', 'button[aria-label="More"]'].map((sel) => document.querySelector(`.assistant-header ${sel}`)?.getBoundingClientRect().right ?? Infinity).every((r) => r <= right + 0.5)
+  })
+  check('at its narrowest the header keeps Start and ⋯, inside the panel', inside)
   await page.locator('.assistant-header button[aria-label="More"]').click()
-  check('a narrow panel folds Start into ⋯', await becomes(async () => (await page.locator('.menu-item', { hasText: /^Start$/ }).count()) === 1) && (await page.locator('.assistant-header button[aria-label="Start"]').count()) === 0)
+  check('…and ⋯ has Start too', await becomes(async () => (await page.locator('.menu-item', { hasText: /^Start$/ }).count()) === 1))
   await page.keyboard.press('Escape')
   await page.locator('.assistant-panel > .pane-resizer').dblclick()
   check('double-clicking its edge goes back to 430 px', await becomes(async () => (await panelWidth()) === 430), String(await panelWidth()))

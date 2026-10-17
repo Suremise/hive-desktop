@@ -1,7 +1,8 @@
 import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, projectSessionView, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
-import type { ProviderId, SessionLayout } from '@shared/types'
+import type { ProjectInfo, ProviderId, SessionLayout } from '@shared/types'
+import { tilePageCount } from '@shared/tiles'
 import { APP_NAME } from '@shared/appName'
 import { msg, tr, type Msg, type Values } from '@shared/i18n'
 import { call } from './api'
@@ -12,7 +13,8 @@ import * as actions from './actions'
 import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
-import { agentPage, assistantOnLeft, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { focusTileAfter } from './components/AgentTiles'
+import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
 import { STRIP_TABS } from '@shared/projectTabs'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
@@ -123,10 +125,14 @@ function cycleTab(delta: number): void {
 }
 
 /** Focus agent N (1-based) of the selected project and show it. */
-/** How many agent pages the selected project has (its agents ÷ its layout's panes, #134). */
+/** Whether the selected project's Session tab shows Tiles (#976), whose pages are pages of tiles. */
+const tilesShown = (p: ProjectInfo): boolean => projectSessionView(p.config, get().settings) === 'tiles'
+
+/** How many agent pages the selected project has (its agents ÷ its layout's panes, #134; in Tiles, of tiles, #976). */
 const pageCount = (): number => {
   const p = selected()
-  return p ? agentPageCount(p.agents.length, projectPerPage(p.config)) : 1
+  if (!p) return 1
+  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, projectPerPage(p.config))
 }
 
 /** Goes to the next or previous agent page (when the project has more than one). */
@@ -135,7 +141,12 @@ function cyclePage(delta: number): void {
   if (!p) return
   const pages = pageCount()
   if (pages < 2) return
-  showPage(p, (agentPage(p, focusedAgentId(p)) + delta + pages) % pages)
+  if (tilesShown(p)) {
+    // The grid's next page; from the focus view, back to the grid on it.
+    const next = (tilePage(p) + delta + pages) % pages
+    closeTile(p)
+    showTilePage(p, next)
+  } else showPage(p, (agentPage(p, focusedAgentId(p)) + delta + pages) % pages)
   setProjectTab(p.path, 'session')
 }
 
@@ -304,6 +315,14 @@ const COMMAND_DEFS: CommandDef[] = [
     run: () => void actions.attempt(tr(msg({ id: 'shell.error.resumeAfterClose', defaultMessage: 'Could not resume the agents', description: "An error's title: resuming the agents that were running when Hive closed unexpectedly failed." })), () => call('app:resumeAfterClose'))
   },
   {
+    id: 'session.stopLeftAfterClose',
+    name: msg({ id: 'shell.command.session.stopLeftAfterClose', defaultMessage: 'Stop What the Agents Started Before Hive Closed', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: ends the processes the agents had started that still run after Hive closed unexpectedly. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
+    // Only from the notice that Hive closed unexpectedly (#987), which lists them.
+    internal: true,
+    run: () => void actions.attempt(tr(msg({ id: 'shell.error.stopLeftAfterClose', defaultMessage: 'Could not stop the processes', description: "An error's title: ending the processes the agents had started before Hive closed unexpectedly failed." })), () => call('app:stopLeftAfterClose'))
+  },
+  {
     id: 'session.applyPermissionModes',
     name: msg({ id: 'shell.command.session.applyPermissionModes', defaultMessage: 'Switch Running Agents to Their Permission Mode Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }),
     category: 'session',
@@ -375,6 +394,18 @@ const COMMAND_DEFS: CommandDef[] = [
       showView('projects')
       setProjectTab(p.path, 'session')
       void actions.setSessionView(p.path, projectSessionView(p.config, get().settings) === 'panes' ? 'tiles' : 'panes')
+    }
+  },
+  // From an agent's focus view back to the grid of tiles (#976). Esc does it too, outside the terminal (in it, Esc is the CLI's).
+  {
+    id: 'session.backToTiles',
+    name: msg({ id: 'shell.command.session.backToTiles', defaultMessage: 'Back to Tiles', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: from one agent's focus view (its pane large) back to the Tiles view's grid of tiles." }),
+    category: 'session',
+    keybinding: 'Mod+Alt+Escape', // i18n-ignore: a shortcut's keys
+    when: () => !!tileFocusOf(selected()),
+    run: () => {
+      const p = selected()
+      if (p) focusTileAfter(closeTile(p))
     }
   },
   { id: 'session.archive', name: msg({ id: 'shell.command.session.archive', defaultMessage: 'Archive Session and Start New…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it.' }), category: 'session', when: hasProject, run: () => actions.archiveCurrent() },

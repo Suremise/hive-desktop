@@ -86,6 +86,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     followTranscripts: false,
     overviewRefresh: 'live',
     defaultView: 'panes',
+    tileOrder: 'panes',
     recordPerformance: true,
     resumeAfterUnexpectedClose: false
   },

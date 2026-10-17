@@ -100,6 +100,7 @@ interface HiveMessageValues {
   'shell.command.session.archive': undefined
   'shell.command.session.archiveAll': undefined
   'shell.command.session.archiveAllLive': { several: string; n: string | number }
+  'shell.command.session.backToTiles': undefined
   'shell.command.session.compact': undefined
   'shell.command.session.focusTerminal': undefined
   'shell.command.session.handOverTo': undefined
@@ -114,6 +115,7 @@ interface HiveMessageValues {
   'shell.command.session.startNewAllLive': { several: string; n: string | number }
   'shell.command.session.stop': undefined
   'shell.command.session.stopBackgroundAndResume': undefined
+  'shell.command.session.stopLeftAfterClose': undefined
   'shell.command.session.toggleView': undefined
   'shell.command.settings.advanced': undefined
   'shell.command.settings.keybindings': undefined
@@ -199,6 +201,7 @@ interface HiveMessageValues {
   'shell.error.keepProcesses': undefined
   'shell.error.resumeAfterClose': undefined
   'shell.error.stopBackground': undefined
+  'shell.error.stopLeftAfterClose': undefined
   'shell.error.switchModes': undefined
   'shell.errorBoundary.logs': undefined
   'shell.errorBoundary.named': { view: string }

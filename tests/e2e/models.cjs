@@ -150,7 +150,9 @@ const check = (name, ok, extra = '') => {
   await inv('provider:refresh', 'claude-code')
   await lib.until(async () => (await info('claude-code')).defaultModel === 'claude-opus-5-5', 15000)
   await update({ assistant: { providers: { 'claude-code': { model: '' } } } })
-  await page.locator('.assistant-header button[aria-label^="Hide the Assistant"]').click()
+  // Hidden from the header's ⋯ (#979: the header's own Hide button went into it).
+  await page.locator('.assistant-header button[aria-label="More"]').click()
+  await page.locator('.menu .menu-item', { hasText: 'Hide the Assistant' }).click()
 
   // --- Without the CLI: the fallback lists, as edited, and Reset to defaults.
   await page.keyboard.press('Control+,')

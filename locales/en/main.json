@@ -667,6 +667,10 @@
     "defaultMessage": "Nothing was resumed.",
     "description": "The notice that Hive closed unexpectedly: Hive did not resume the agents that were running (the user chooses)."
   },
+  "main.unexpectedClose.notStopped": {
+    "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.",
+    "description": "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run; Stop Them is the notice's button."
+  },
   "main.unexpectedClose.overview": {
     "defaultMessage": "Show Overview",
     "description": "A button in the notice that Hive closed unexpectedly: shows the Workspace Overview, with every project's agents."
@@ -686,6 +690,18 @@
   "main.unexpectedClose.resumedTitle": {
     "defaultMessage": "{n, plural, =0 {Nothing to resume} one {Resumed one agent} other {Resumed # agents}}",
     "description": "A notice's title: the agents that were running when Hive closed unexpectedly were resumed ({n} of them; 0: all were running again or had no conversation)."
+  },
+  "main.unexpectedClose.stillRunning": {
+    "defaultMessage": "{n, plural, one {One process the agents started is still running: {processes}.} other {# processes the agents started are still running: {processes}.}}",
+    "description": "The notice that Hive closed unexpectedly: processes the agents had started (test runs, servers) still run, checked to be the same ones. {n} is how many; {processes} lists them (\"node serve.js, 2 × npm run e2e\"). The notice has a Stop Them button."
+  },
+  "main.unexpectedClose.stopThem": {
+    "defaultMessage": "Stop Them",
+    "description": "A button in the notice that Hive closed unexpectedly: ends the processes the agents had started that are still running (only those, checked to be the same processes)."
+  },
+  "main.unexpectedClose.stopped": {
+    "defaultMessage": "{n, plural, one {Stopped one process} other {Stopped # processes}}",
+    "description": "A notice's title: the processes the agents had started before Hive closed unexpectedly were ended ({n} of them)."
   },
   "main.unexpectedClose.title": {
     "defaultMessage": "Hive closed unexpectedly",

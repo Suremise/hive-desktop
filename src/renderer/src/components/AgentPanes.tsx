@@ -17,13 +17,14 @@ import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
 import { formatSize } from '@shared/units'
 import { moneyLabel } from '@shared/usageTotals'
 import { TerminalView } from './TerminalView'
+import { focusTileAfter, TilePager } from './AgentTiles'
 import { offerTip } from '../tips'
 import { chooseFocus } from '../deferredFocus'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
@@ -615,12 +616,12 @@ const below = (el: Element): [number, number] => {
 
 /** A template's layout in a menu item's detail: "automatic layout", "two columns". */
 const layoutName = (l: PageLayout): string =>
-  tr(msg({ id: 'panes.template.layout', defaultMessage: '{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}', description: "A template's layout, after how many agents it has (Template ▾ menu): its pane layout, lower case." }), { layout: l })
+  tr(msg({ id: 'panes.template.layout', defaultMessage: '{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}', description: "A template's layout, after how many agents it has (+ Add ▾ → Templates): its pane layout, lower case." }), { layout: l })
 
 /** The templates a project can use (the workspace's and its own), or null after saying why they couldn't be listed. */
 const templateList = (path: string): Promise<TemplateEntry[] | null> =>
   call('templates:list', path).catch((e) => {
-    notify('error', tr(msg({ id: 'panes.template.listFailed', defaultMessage: 'Could not list the templates', description: "An error's title: Hive couldn't read the templates (Template ▾, Add Agent from Template)." })), errorMessage(e))
+    notify('error', tr(msg({ id: 'panes.template.listFailed', defaultMessage: 'Could not list the templates', description: "An error's title: Hive couldn't read the templates (+ Add ▾ → Templates, Add Agent from Template)." })), errorMessage(e))
     return null
   })
 
@@ -639,23 +640,23 @@ function addFromTemplateItems(project: ProjectInfo, list: TemplateEntry[]): Menu
           onClick: () => void actions.addAgentFromTemplate(project.path, t, i)
         }))
       ])
-    : [{ label: tr(msg({ id: 'panes.template.noneYet', defaultMessage: 'No templates yet: Template ▾ → Save Template… first', description: 'Add Agent from Template with no template: how to save one first. "Template ▾" and "Save Template…" are the button and its menu item: use their translations.' })), disabled: true }]
+    : [{ label: tr(msg({ id: 'panes.template.noneYet', defaultMessage: 'No templates yet: + Add ▾ → Templates → Save Template… first', description: 'Add Agent from Template with no template: how to save one first. "+ Add ▾" is the session toolbar\'s button, "Templates" its menu item and "Save Template…" the item of that menu: use their translations.' })), disabled: true }]
 }
 
-/** Template ▾: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
+/** + Add ▾ → Templates: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
 function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntry[] {
   const load: MenuEntry[] = all.length
     ? TEMPLATE_SCOPES.flatMap((scope) => {
         const here = all.filter((t) => t.scope === scope)
         return here.length
           ? [
-              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: "{scope, select, workspace {Workspace templates} other {This project's templates}}", description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
-              ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
+              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: "{scope, select, workspace {Workspace templates} other {This project's templates}}", description: "A heading in + Add ▾ → Templates above the templates kept in the workspace, or in this project." }), { scope }) },
+              ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in + Add ▾ → Templates: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
             ]
           : []
       })
-    : [{ label: tr(msg({ id: 'panes.template.noneSaved', defaultMessage: 'No templates saved yet', description: 'Template ▾ with no template saved.' })), disabled: true }]
-  return [{ label: tr(msg({ id: 'panes.template.save', defaultMessage: 'Save Template…', description: "Menu item (Template ▾): saves this project's agents and layout as a template." })), icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
+    : [{ label: tr(msg({ id: 'panes.template.noneSaved', defaultMessage: 'No templates saved yet', description: '+ Add ▾ → Templates with no template saved.' })), disabled: true }]
+  return [{ label: tr(msg({ id: 'panes.template.save', defaultMessage: 'Save Template…', description: "Menu item (+ Add ▾ → Templates): saves this project's agents and layout as a template." })), icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
 }
 
 /** Opens a strip menu the palette asked for, now or once this strip shows (`project` null: not the strip's). */
@@ -677,7 +678,7 @@ function SignInTip({ live, children }: { live: LiveSessionState | null; children
 }
 
 /** An agent whose last launch failed, in its name's hover and the summary chip's list: "failed to start: <why>". */
-const FAILED_TO_START = msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case." })
+export const FAILED_TO_START = msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case." })
 
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
@@ -995,7 +996,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
             tabIndex={shownView === v ? 0 : -1}
             className={cx(shownView === v && 'active')}
             data-view={v}
-            onClick={() => shownView !== v && chooseView(v, false)}
+            // Tiles again, from an agent's focus view (#976): back to the grid.
+            onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
           >
             {tr(VIEW_NAME, { view: v })}
           </button>
@@ -1011,6 +1013,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         </Tooltip>
       )}
       <div className="grow" />
+      {/* On the right, for Tiles: its pages (#976). */}
+      {!panesView && <TilePager project={project} />}
       {/* On the right, for Panes: the pages beside the layouts they follow from (#292), then + Add ▾. */}
       {panesView && pages > 1 && !compactPager && <div className="segmented page-switch">{Array.from({ length: pages }, (_, i) => pageButton(i))}</div>}
       {/* More pages than fit as buttons (up to 24 agents, #562), or a toolbar short of room (#886): ‹, which page of how
