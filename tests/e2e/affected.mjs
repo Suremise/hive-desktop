@@ -1,5 +1,5 @@
-// Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things, and
-// for the run before a merge to main (#628), rather than the whole set. Errs towards more, never fewer: the files every
+// Which e2e suites a change needs (npm run e2e -- --affected [base]): for review rounds that fixed a few things, rather
+// than the whole set. A tool, not a merge's gate: merges run focused checks (#1010, tests/e2e/README.md). Errs towards more, never fewer: the files every
 // part of Hive goes through, the test tooling, and any file that isn't in an area or known to need no suite (DOCS_ONLY,
 // the unit tests'), mean every suite. The full set itself runs at checkpoints (each RC and release, on request:
 // tests/e2e/README.md). Suites that start a real CLI (the real tier) are picked only when a change touches what they

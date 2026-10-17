@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "Es wurde nichts fortgesetzt.",
   "main.unexpectedClose.notStopped": "{n, plural, one {# Prozess läuft noch: Windows hat Hive ihn nicht beenden lassen.} other {# Prozesse laufen noch: Windows hat Hive sie nicht beenden lassen.}} „Beenden“ in der Meldung versucht es erneut.",
   "main.unexpectedClose.overview": "Übersicht zeigen",
+  "main.unexpectedClose.progressRun": "{title} ({n, plural, one {# Prozess} other {# Prozesse}})",
   "main.unexpectedClose.resumeAll": "Alle fortsetzen",
   "main.unexpectedClose.resumeFailedTitle": "Einige Agenten konnten nicht fortgesetzt werden",
   "main.unexpectedClose.resumed": "{n, plural, =0 {Keiner wurde fortgesetzt.} one {Einer wurde fortgesetzt, wie unter Einstellungen → Sitzungen eingestellt.} other {# wurden fortgesetzt, wie unter Einstellungen → Sitzungen eingestellt.}}",

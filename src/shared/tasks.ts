@@ -384,6 +384,16 @@ export function agentReviewCards(cards: readonly TaskCard[], project: string, ag
   return sortCards(cards.filter((c) => !c.archived && c.review?.agent === agentId && c.project.toLowerCase() === p))
 }
 
+/**
+ * The cards an agent's row in the focus view's strip names (#1021), the one its chip shows first: what it works on (Doing),
+ * then what it reviews, then what it holds that waits on others (its cards in Review, then Passed). Each card once.
+ */
+export function agentRowCards(cards: readonly TaskCard[], project: string, agentId: string): { card: TaskCard; reviewing: boolean }[] {
+  const p = project.toLowerCase()
+  const held = (col: TaskColumn): TaskCard[] => sortCards(cards.filter((c) => !c.archived && c.column === col && c.agent === agentId && c.review?.agent !== agentId && c.project.toLowerCase() === p))
+  return [...agentDoingCards(cards, project, agentId).map((card) => ({ card, reviewing: false })), ...agentReviewCards(cards, project, agentId).map((card) => ({ card, reviewing: true })), ...[...held('review'), ...held('passed')].map((card) => ({ card, reviewing: false }))]
+}
+
 /** Why a card's review isn't going on (its reviewer removed, or not running), or null while it is or there's none. */
 export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, reviewerNow: { name: string; running: boolean } | null, tr?: Tr): string | null {
   if (!card.review || card.archived) return null

@@ -151,6 +151,7 @@
   "session.start.worktreeMissing": "Brakuje folderu worktree agenta {agent}: {folder}. Uruchom agenta {agent} z jego panelu, by odtworzyć worktree na jego gałęzi (Napraw…, jeśli obszar roboczy przeniesiono), albo usuń agenta.",
   "session.state.countIdle": "{n, plural, other {bez zajęcia: #}}",
   "session.state.countStalled": "{n, plural, other {zastój: #}}",
+  "session.state.countStopped": "{n, plural, other {zatrzymane: #}}",
   "session.state.countWaiting": "{n, plural, other {czeka: #}}",
   "session.state.countWorking": "{n, plural, other {pracuje: #}}",
   "session.state.idle": "Bezczynny",

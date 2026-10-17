@@ -295,7 +295,9 @@ export async function syncCopyLocked(src: string, dest: string): Promise<void> {
   await mkdir(dirname(dest), { recursive: true })
   const tmp = `${dest}.${process.pid}-${++tmpCounter}.tmp`
   try {
-    await copyFile(src, tmp)
+    // Not copyFile: Windows' CopyFile opens the source without sharing writes, so the CLI appending to its transcript
+    // at that moment fails (EBUSY: a fake Claude Code died of it, #1041). Node's own opens share them.
+    await copyWhole(src, tmp)
   } catch (e) {
     await rm(tmp, { force: true }).catch(() => undefined)
     throw e
@@ -354,6 +356,27 @@ async function samePrefix(a: string, b: string, len: number): Promise<boolean> {
     if (x.length !== n || !x.equals(y)) return false
   }
   return true
+}
+
+/** Copies all of src, to its end as it is then, to dest, as copyFile does, but through Node's opens, which share writes. */
+async function copyWhole(src: string, dest: string): Promise<void> {
+  const r = await open(src, 'r')
+  try {
+    const w = await open(dest, 'w')
+    try {
+      const buf = Buffer.alloc(4 * 1024 * 1024)
+      for (let pos = 0; ; ) {
+        const { bytesRead } = await r.read(buf, 0, buf.length, pos)
+        if (!bytesRead) break
+        for (let off = 0; off < bytesRead; ) off += (await w.write(buf, off, bytesRead - off, pos + off)).bytesWritten
+        pos += bytesRead
+      }
+    } finally {
+      await w.close()
+    }
+  } finally {
+    await r.close()
+  }
 }
 
 /**

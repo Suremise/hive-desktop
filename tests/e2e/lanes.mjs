@@ -151,10 +151,13 @@ export async function claimLane(dir, { owner = process.pid, root = '', what = ''
   })
 }
 
-/** A claim, for a person: what it runs and where, its process and for how long (slots.mjs's describeClaim too). */
+/**
+ * A claim, for a person: what it runs and where, whether it was left over by a session that ended (leftOver, slots.mjs,
+ * #1008), its process and for how long (slots.mjs's describeClaim too).
+ */
 export function describeHolder(c, now = Date.now(), fallback = 'a test run') {
   const min = Math.max(0, Math.round((now - c.at) / 60_000))
-  return `${c.what || fallback}${c.first ? ' (pre-merge)' : ''} in ${c.root || 'another worktree'} (process ${c.pid}, ${min} min)`
+  return `${c.what || fallback}${c.first ? ' (pre-merge)' : ''} in ${c.root || 'another worktree'}${c.leftOver ? ', left over from a session that ended' : ''} (process ${c.pid}, ${min} min)`
 }
 
 /** The lanes' live claims, lowest lane first ({ lane, pid, at, root, what }): who a waiting runner waits for. */

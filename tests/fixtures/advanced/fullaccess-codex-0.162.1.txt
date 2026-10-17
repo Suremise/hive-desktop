@@ -1,0 +1,39 @@
+│ See https://github.com/openai/codex for installation options. │
+│                                                               │
+│ See full release notes:                                       │
+│ https://github.com/openai/codex/releases/latest               │
+╰───────────────────────────────────────────────────────────────╯
+
+
+  >_ OpenAI Codex (v0.162.1)
+     C:\work\alpha
+
+
+› Use apply_patch to add a file notes.txt containing hi. Do nothing else.
+
+
+• Failed (exit 1) Get-Location; rg  Enable full access?
+  └ C:\work\alpha\                  When Codex runs with full access, it can edit any file on your
+                                    computer and run commands with network, without your approval.
+                                    Exercise caution when enabling full access. This significantly
+    + 3 lines (ctrl+t to expand)    increases the risk of data loss, leaks, or unexpected behavior.
+
+• Added notes.txt (+1 -0)
+    1 +hi                         › 1. Yes, continue anyway  Apply full access for this session
+    + Show details                  2. Cancel                Go back without enabling full access
+
+• Added notes.txt (notes.txt) cont  enter select · esc back
+
+  Worked for 8s • 21:40
+
+• Model changed to gpt-6-luna medium for Plan mode.
+
+• Model changed to gpt-6-luna low for Default mode.
+
+• Permission selection requested: Ask for approval
+
+
+› Ask Codex to do anything
+
+  GPT-6-Luna low · C:\work\alpha
+  ? for shortcuts

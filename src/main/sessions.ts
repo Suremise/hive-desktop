@@ -181,6 +181,8 @@ const STOPS_KEPT = 64
 const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
+/** How many running agents "Switch Now" switches at once (applyModeSettings): the rest wait for one to end. */
+const MODE_SWITCHES_AT_ONCE = 6
 
 /** After a kill, how long a CLI's console takes to be gone (its processes listed and ended, then its exit). */
 const KILL_EXIT_MS = 1000
@@ -1925,25 +1927,47 @@ class SessionManager {
       // The CLI records the new settings in its transcript at once: read them back rather than assume.
       const src = await this.liveTranscript(l)
       if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
-      if (!src || !l.adapter.transcriptDetails) {
-        // Nothing to read yet (no message sent): shown as asked; the first turn's settings correct it.
+      const details = !!src && !!l.adapter.transcriptDetails
+      // The CLI's own question about the mode picked (Codex's warning before Full Access, #1014): the user answers it in
+      // the terminal, so the switch waits for the answer, however long (up to the adapter's answerMs: an advanced
+      // setting), and the 12 seconds the CLI has to confirm start once it is answered. What the CLI printed before the
+      // answer doesn't count: the user may still cancel.
+      const wait = l.adapter.modeConfirmWait?.() ?? { appearMs: 0, answerMs: 0 }
+      let asked = false
+      const askedAt = Date.now()
+      for (let t = Date.now(); same(); ) {
+        if (details) {
+          const hooks = l.hooksSeen ?? 0
+          const s = await stat(src!).catch(() => null)
+          if (s) await this.readDetails(l, src!, s.size, hooks)
+          if (st.permissionMode === mode) break
+        }
+        if (l.adapter.modeConfirmScreen?.(l.screen?.text() ?? '')) {
+          if (!asked) log.info(`${userText(this.label(st))}: ${name} asks to confirm ${mode} in its terminal`)
+          asked = true
+          if (Date.now() - askedAt >= wait.answerMs) break
+          l.switchTail = ''
+          t = Date.now()
+        } else {
+          if (Date.now() - t >= 12_000) break
+          // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
+          const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
+          if (said) {
+            st.permissionMode = said
+            if (said === mode) break
+          }
+          // Nothing to read (no message sent yet) and nothing asked once the CLI has had a moment to ask: shown as picked;
+          // the first turn's settings correct it.
+          if (!details && !asked && Date.now() - t >= wait.appearMs) break
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+      if (!details && !asked && same() && st.permissionMode !== mode) {
+        l.switchTail = undefined
         st.modeSwitching = undefined
         st.permissionMode = mode
         this.emitState(st)
         return { ok: true }
-      }
-      for (let t = Date.now(); Date.now() - t < 12_000 && same(); ) {
-        const hooks = l.hooksSeen ?? 0
-        const s = await stat(src).catch(() => null)
-        if (s) await this.readDetails(l, src, s.size, hooks)
-        if (st.permissionMode === mode) break
-        // The CLI's own confirmation in the terminal comes first (the transcript record a few seconds later).
-        const said = l.adapter.modeFromOutput?.(l.switchTail ?? '')
-        if (said) {
-          st.permissionMode = said
-          if (said === mode) break
-        }
-        await new Promise((r) => setTimeout(r, 400))
       }
       if (!same()) {
         st.permissionMode = before
@@ -2395,10 +2419,14 @@ class SessionManager {
     }, 400)
   }
 
-  /** "Switch Now": moves every running agent whose settings now say another mode into that mode. */
+  /**
+   * "Switch Now": moves every running agent whose settings now say another mode into that mode. The switches run side
+   * by side (at most MODE_SWITCHES_AT_ONCE), each in its own terminal: one waiting for the user's answer to its CLI's
+   * own question (Codex's Full Access warning, up to 10 minutes: #1024) doesn't hold up the others. Reported in the
+   * agents' order once all have ended.
+   */
   async applyModeSettings(): Promise<{ switched: string[]; skipped: string[] }> {
-    const switched: string[] = []
-    const skipped: string[] = []
+    const todo: { l: LiveSession; mode: PermissionMode }[] = []
     for (const l of [...this.live.values()]) {
       const st = l.state
       if (st.settingUp) continue
@@ -2407,16 +2435,31 @@ class SessionManager {
       const mode = (await this.effective(st.projectPath, pinProvider(agent, st.provider))).permissionMode
       if (!mode || mode === l.configuredMode) continue
       l.configuredMode = mode
-      if (mode === st.permissionMode) continue
+      if (mode !== st.permissionMode) todo.push({ l, mode })
+    }
+    const results: { switched?: string; skipped?: string }[] = []
+    const one = async (i: number): Promise<void> => {
+      const { l, mode } = todo[i]
+      const st = l.state
+      // Queued, its session may have stopped or been replaced (a restart) meanwhile: the switch was for this session, and
+      // never goes into another. setPermissionMode takes the session it switches before its first await.
+      if (this.live.get(liveId(st.projectPath, st.agentId)) !== l) {
+        results[i] = { skipped: `${this.label(st)}: ${tr(M.switchEnded, { mode: permissionLabel(st.provider, mode, tr) })}` }
+        return
+      }
       try {
         const r = await this.setPermissionMode(st.projectPath, st.agentId, mode)
-        if (r.ok) switched.push(`${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}`)
-        else skipped.push(`${this.label(st)}: ${r.message}`)
+        results[i] = r.ok ? { switched: `${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}` } : { skipped: `${this.label(st)}: ${r.message}` }
       } catch (e) {
-        skipped.push(`${this.label(st)}: ${shownError(e)}`)
+        results[i] = { skipped: `${this.label(st)}: ${shownError(e)}` }
       }
     }
-    return { switched, skipped }
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < todo.length) await one(next++)
+    }
+    await Promise.all(Array.from({ length: Math.min(MODE_SWITCHES_AT_ONCE, todo.length) }, worker))
+    return { switched: results.flatMap((r) => r.switched ?? []), skipped: results.flatMap((r) => r.skipped ?? []) }
   }
 
   /** Stops the CLI's background job holding a conversation, then resumes the conversation in this agent. */

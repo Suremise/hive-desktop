@@ -4,7 +4,8 @@
 // its terminal is hidden, coming back gives the same size as before (or one new size after a font change), no
 // in-between size while the view settles (a smaller window, 125% zoom), and a terminal that was scrolled to the bottom
 // is still at the bottom well after (xterm syncs its scroll position late), while one scrolled up to read stays on its
-// line. A Claude Code agent and a Codex agent (the fakes).
+// line. At the end, at the narrowest window with the Progress panel open, what a terminal shows re-wraps (#896). A
+// Claude Code agent and a Codex agent (the fakes).
 // Dev build, throwaway profile, workspace, CLAUDE_CONFIG_DIR and CODEX_HOME.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -185,6 +186,31 @@ function sizes(home) {
   check('reader: scrolled back down to the bottom', !!(await lib.until(async () => atBottom(await state(writer.key)), HUNG_MS)), JSON.stringify(await state(writer.key)))
   await roundTrip('Settings after scrolling back down', () => settingsBtn.click(), () => projectsBtn.click())
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-end.png') })
+
+  // Narrowed, what the terminal shows re-wraps instead of being cut at its edge (#896): Hive's exit line, and a line as
+  // wide as the terminal was, written in a wide window. xterm keeps a line's cells past a narrower terminal's edge
+  // without drawing them, so only what is drawn counts.
+  const fitted = () => page.evaluate(() => window.__hiveTerminalsFitted())
+  const drawn = async () => {
+    const cols = (await state(writer.key)).cols
+    return ((await page.evaluate((k) => window.__hiveTerminalLines(k), writer.key)) ?? []).map((l) => l.slice(0, cols)).join('')
+  }
+  // One pane: two columns at the narrowest window with the panel open are narrower than Hive fits a terminal to.
+  await page.locator('.layout-switch button[aria-label="One at a time"]').click()
+  await lib.fitWindow(app, page, { width: 1400, height: 650 })
+  await inv('session:stop', alpha, claude.id)
+  check('reflow: Hive writes its exit line', !!(await lib.until(async () => (await drawn()).includes('[process exited with code'), HUNG_MS)), await drawn())
+  check('reflow: the terminal is fitted to the wide window', !!(await lib.until(fitted, HUNG_MS)), JSON.stringify(await state(writer.key)))
+  const wide = (await state(writer.key)).cols
+  const marker = Array.from({ length: wide }, (_, i) => String.fromCharCode(65 + (i % 26))).join('')
+  await page.evaluate(([k, d]) => window.__hiveTerminalOutput(k, d), [writer.key, `${marker}\r\n`])
+  // The narrowest window, with the Progress panel open.
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
+  if (!(await page.locator('.progress-panel').count())) await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'menu-command', command: 'progress.toggle', args: [] }))
+  check('reflow: the Progress panel opens', !!(await lib.until(async () => (await page.locator('.progress-panel').count()) > 0, HUNG_MS)))
+  check('reflow: the terminal narrows', !!(await lib.until(async () => (await state(writer.key)).cols < wide && (await fitted()), HUNG_MS)), JSON.stringify({ wide, now: await state(writer.key) }))
+  check('reflow: the wide line and the exit line are whole after narrowing', !!(await lib.until(async () => { const t = await drawn(); return t.includes(marker) && t.includes('[process exited with code') }, HUNG_MS)), JSON.stringify({ wide, cols: (await state(writer.key)).cols, drawn: await drawn() }))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-reflow.png') })
 
   for (const a of [claude, codex]) await inv('session:stop', alpha, a.id).catch(() => undefined)
   await app.close()

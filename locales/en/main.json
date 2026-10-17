@@ -691,6 +691,10 @@
     "defaultMessage": "Show Overview",
     "description": "A button in the notice that Hive closed unexpectedly: shows the Workspace Overview, with every project's agents."
   },
+  "main.unexpectedClose.progressRun": {
+    "defaultMessage": "{title} ({n, plural, one {# process} other {# processes}})",
+    "description": "In the notice that Hive closed unexpectedly, a test run (or other command) an agent ran through hive-progress that still runs, as one item of the list of what still runs: its title as the agent gave it ({title}: \"e2e: 196 suites in hb2\") and how many of its processes still run ({n})."
+  },
   "main.unexpectedClose.resumeAll": {
     "defaultMessage": "Resume All",
     "description": "A button in the notice that Hive closed unexpectedly: resumes the agents that were running."

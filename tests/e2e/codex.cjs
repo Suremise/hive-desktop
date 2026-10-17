@@ -103,6 +103,52 @@ function prepare() {
   check('switches preset with the /permissions menu', r.ok && !!(await waitFor(async () => (await live())?.permissionMode === 'ask', 20000)), JSON.stringify(r))
   await page.screenshot({ path: path.join(scratch, 'cxh-3-menu.png') })
 
+  // Full Access live (#1014), as the menu does it after Hive's own confirmation: Codex shows its own warning after the
+  // pick, which the user answers in its terminal, and the switch waits for that answer. Answered "1. Yes, continue
+  // anyway" (0.162.1 offers that and Cancel, neither of which changes the test home), the session switches in place: the
+  // same Codex process and conversation, no restart. Its screens are kept for the advanced setting's recorded sample.
+  await inv('settings:update', { providers: { codex: { enableDangerousMode: true } } })
+  const before2 = await live()
+  /** Codex's screen now, rendered from its terminal's output at its size (kept as cxh-fullaccess-<name>.txt). */
+  const screenNow = async (name) => {
+    const { Terminal } = require('@xterm/headless')
+    const size = await inv('pty:size', key)
+    const term = new Terminal({ cols: size?.cols ?? 120, rows: size?.rows ?? 40, allowProposedApi: true })
+    const output = await inv('pty:buffer', key)
+    await new Promise((res) => term.write(output, res))
+    const b = term.buffer.active
+    const lines = []
+    for (let i = 0; i < term.rows; i++) lines.push(b.getLine(b.viewportY + i)?.translateToString(true) ?? '')
+    term.dispose()
+    const text = lines.join('\n')
+    fs.writeFileSync(path.join(scratch, `cxh-fullaccess-${name}.txt`), text)
+    return text
+  }
+  // The menu, as the user opens it from the footer's mode badge: Full access says what it does, not that it restarts.
+  await page.locator('.pane-footer-bar .mode-badge').click()
+  const fullItem = page.locator('.menu .menu-item', { hasText: /^Full access/ })
+  await waitFor(async () => (await fullItem.count()) === 1, 10000)
+  const fullText = await fullItem.innerText().catch(() => '')
+  check("the mode menu: Full access with its own description, not 'Restarts the session'", /No sandbox and no approvals/.test(fullText) && !/Restarts the session/.test(fullText), fullText)
+  await fullItem.click()
+  // Hive's own confirmation first, unchanged; no restart question after it.
+  const useFull = page.getByRole('button', { name: 'Use Full access', exact: true })
+  check("Hive's confirmation comes first", !!(await waitFor(async () => (await useFull.count()) === 1, 10000)))
+  await useFull.click()
+  const warned = await waitFor(async () => /Enable full access\?/i.test(await screenNow('warning')), 20000)
+  check("Codex shows its own Full Access warning, and Hive's switch waits for the answer", !!warned && (await live())?.modeSwitching === 'full-access', JSON.stringify(await live().then((l) => l && { mode: l.permissionMode, switching: l.modeSwitching, status: l.status })))
+  await page.screenshot({ path: path.join(scratch, 'cxh-5-fullaccess-warning.png') })
+  // What Codex printed so far (before the answer), for whether it says the selection before or after it.
+  fs.writeFileSync(path.join(scratch, 'cxh-fullaccess-before-answer.txt'), lib.plainText(await inv('pty:buffer', key)).slice(-4000))
+  check('…and no restart question', (await page.getByText('Restart in Full access?').count()) === 0)
+  await inv('pty:write', key, '1')
+  check('…answered in the terminal, it switches to Full Access', !!(await waitFor(async () => { const l = await live(); return l?.permissionMode === 'full-access' && !l.modeSwitching }, 20000)), JSON.stringify(await live().then((l) => l && { mode: l.permissionMode, switching: l.modeSwitching })))
+  const after2 = await live()
+  check('…live: the same Codex process and conversation, no restart', after2?.runId === before2?.runId && after2?.pid === before2?.pid && after2?.sessionId === sessionId, JSON.stringify(after2 && { run: [before2?.runId, after2.runId], pid: [before2?.pid, after2.pid], s: after2.sessionId }))
+  await screenNow('answered')
+  fs.writeFileSync(path.join(scratch, 'cxh-fullaccess-after-answer.txt'), lib.plainText(await inv('pty:buffer', key)).slice(-4000))
+  await page.screenshot({ path: path.join(scratch, 'cxh-6-fullaccess.png') })
+
   await inv('session:stop', proj, def.id)
   const stopped = await waitFor(async () => (!(await live()) ? true : null), 20000)
   check('stops', !!stopped)

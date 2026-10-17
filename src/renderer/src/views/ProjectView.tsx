@@ -4,14 +4,14 @@ import { agentLaunchSettings, defaultProviderWarning, isProviderEnabled, modeOpt
 import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
 import { batchCounts } from '@shared/startAll'
 import { STRIP_TABS, tabCommand } from '@shared/projectTabs'
-import { mostUrgent, projectAgentStates, stateSummary } from '@shared/agentState'
+import { mostUrgent, projectAgentStates, projectStateSummary } from '@shared/agentState'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, SessionToolbar, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { AgentTiles } from '../components/AgentTiles'
+import { AgentTiles, useTileStripWidth } from '../components/AgentTiles'
 import { projectSessionView } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
@@ -52,16 +52,15 @@ const M = {
   createFirst: msg({ id: 'project.none.createFirst', defaultMessage: 'Create your first project to get started.', description: 'Shown when the workspace has no projects.' }),
   newProject: msg({ id: 'project.none.newProject', defaultMessage: 'New Project', description: 'Button: creates a project.' }),
   resumeAgent: msg({ id: 'project.header.resumeAgent', defaultMessage: 'Resume Agent', description: "The project header's button when one agent can be resumed." }),
-  resumeAll: msg({ id: 'project.header.resumeAll', defaultMessage: 'Resume All Agents ({count})', description: "The project header's button: resumes every stopped agent. {count} is how many." }),
-  resumeShort: msg({ id: 'project.header.resumeShort', defaultMessage: 'Resume ({count})', description: "The project header's Resume All Agents button when the header is narrow." }),
+  resumeShort: msg({ id: 'project.header.resumeShort', defaultMessage: 'Resume ({count})', description: "The project header's button: resumes every stopped agent. {count} is how many. Keep it short: its tooltip says it in full." }),
   resuming: msg({ id: 'project.header.resuming', defaultMessage: 'Resuming…', description: "The project header's Resume button while it runs." }),
   carryOn: msg({ id: 'project.header.carryOnTip', defaultMessage: 'Carry on {agent}: its turn stopped when its sign-in expired', description: 'Tooltip on Resume Agent when its turn stopped because the CLI sign-in expired.' }),
   resumeOne: msg({ id: 'project.header.resumeOneTip', defaultMessage: "Resume {agent}'s last session", description: 'Tooltip on Resume Agent.' }),
   carryOnMany: msg({ id: 'project.header.carryOnManyTip', defaultMessage: '{stopped, plural, =0 {Carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)} one {Resume the stopped agent and carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)} other {Resume the # stopped agents and carry on {stalled, plural, one {the agent} other {the # agents}} a refused sign-in stopped (other running ones are left alone)}}', description: 'Tooltip on Resume All Agents when some agents stopped because a sign-in expired. {stopped} is how many are stopped; {stalled} how many stopped mid-turn on a refused sign-in.' }),
-  resumeMany: msg({ id: 'project.header.resumeManyTip', defaultMessage: 'Resume the {count} stopped agents (running ones are left alone)', description: 'Tooltip on Resume All Agents.' }),
+  resumeMany: msg({ id: 'project.header.resumeAllTip', defaultMessage: '{count, plural, other {Resume all # stopped agents}}', description: "Tooltip and accessible name of the project header's Resume ({count}) button, with several stopped agents." }),
   stopAgent: msg({ id: 'project.header.stopAgent', defaultMessage: 'Stop Agent', description: "The project header's button when one agent is running." }),
   stopMany: msg({ id: 'project.header.stopMany', defaultMessage: 'Stop ({count})', description: "The project header's button: stops every running agent. {count} is how many." }),
-  stopTip: msg({ id: 'project.header.stopTip', defaultMessage: '{count, plural, one {Stop the running agent} other {Stop the # running agents}}', description: "Tooltip on the project header's Stop button." }),
+  stopTip: msg({ id: 'project.header.stopAllTip', defaultMessage: '{count, plural, one {Stop the running agent} other {Stop all # running agents}}', description: "Tooltip and accessible name of the project header's Stop ({count}) button." }),
   startNew: msg({ id: 'project.header.startNew', defaultMessage: '{many, select, yes {Start New ({count})} other {Start New}}', description: "The project header's Agents ▾ menu: starts a fresh session for each agent. {count} is how many (shown with several agents)." }),
   archiveNew: msg({ id: 'project.header.archiveNew', defaultMessage: '{many, select, yes {Archive and Start New ({count})} other {Archive and Start New}}', description: "The project header's Agents ▾ menu: archives each agent's session and starts a fresh one." }),
   removeAllMenu: msg({ id: 'project.header.removeAllMenu', defaultMessage: '{many, select, yes {Remove All ({count})…} other {Remove Agent…}}', description: "The project header's Agents ▾ menu (or its ⋯ menu when narrow): removes every agent (it asks first)." }),
@@ -106,13 +105,13 @@ const TAB_FIT_SPARE = 12
 
 /** The least of the project's name the header keeps beside its status before its actions fold further (#886). */
 const TITLE_MIN = 96
-/** How far the header's actions can fold: every label; Resume shorter; Resume, Stop, Active and Agents ▾ as icons; Agents ▾'s actions in ⋯. */
-const HEADER_FOLDS = 3
+/** How far the header's actions can fold: every label; Resume, Stop, Active and Agents ▾ as icons; Agents ▾'s actions in ⋯. */
+const HEADER_FOLDS = 2
 
 /**
  * The width the project header's title (its least room) and actions (all of them, on one row) need side by side, for
- * `useFolds` (#886): 0 shows every label; 1 shortens Resume's; 2 shows Resume, Stop, Active and Agents ▾ as icons; 3
- * moves Agents ▾'s actions into ⋯.
+ * `useFolds` (#886): 0 shows every label; 1 shows Resume, Stop, Active and Agents ▾ as icons; 2 moves Agents ▾'s
+ * actions into ⋯.
  */
 function headerNeed(el: HTMLElement): number | null {
   const title = el.querySelector<HTMLElement>('.project-title')
@@ -307,11 +306,13 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // A tile's focus view (#976): that agent's pane, beside the strip of the others.
   const tileFocus = useStore((s) => (view === 'tiles' ? tileFocusOf(project, s) : null))
   const panesShown = view === 'panes' || !!tileFocus
+  // The focus view's pane beside its strip, as wide as the user made it (#1021).
+  const stripWidth = useTileStripWidth()
   const terminalVisibleFor = visible && project && tab === 'session' && panesShown ? project.path : null
   const layoutShows = usePanes(project)
   const panes = tileFocus ? [tileFocus] : layoutShows
   const focusedAgent = useFocusedAgent(project)
-  // A narrow header shortens Resume's label; tighter, Resume, Stop, Active and Agents ▾ show as icons; tighter still
+  // A narrow header shows Resume, Stop, Active and Agents ▾ as icons; tighter still
   // (both panels open beside the narrowest window), Agents ▾'s actions move into ⋯. The title gives way to the actions
   // down to its least room (#216, #291); how far they fold is measured, so a longer language folds sooner (#886).
   const [headerWidthRef, headerWidth] = useWidth<HTMLDivElement>()
@@ -328,9 +329,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
     ? [language, project.name, project.agents.map((a) => `${a.live?.status ?? '-'}`).join(), ...['resumeAll', 'startNewAll', 'archiveAll', 'removeAll'].map((k) => !!runningActions[`${k}:${project.path}`])].join('|')
     : ''
   const folds = useFolds(header, headerWidth, headerContent, HEADER_FOLDS, headerNeed)
-  const narrow = folds >= 1
-  const tight = folds >= 2
-  const cramped = folds >= 3
+  const tight = folds >= 1
+  const cramped = folds >= 2
   // The status badge's table as text, for its accessible description (#529).
   const agentsDescription = useAgentsText(project)
   const cards = useStore((s) => s.tasks)
@@ -359,7 +359,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // controls are in its pane's header and footer.
   const live = focusedAgent?.live ?? null
   const many = project.agents.length > 1
-  // Its agents' states in one line, with the most urgent's mark (#974): "1 waiting · 2 working".
+  // Its agents' states in one line, with the most urgent's mark (#974): idle ones too, the stopped apart (#1035), so
+  // Stop's and Resume's counts read beside it: "3 working · 7 idle · 2 stopped".
   const states = projectAgentStates(project, cards, (id) => !!startFailures[projectKey(project.path, id)])
   const running = project.agents.filter((a) => a.live)
   const resumable = agentsToResume(project.agents)
@@ -369,7 +370,8 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const removingAll = !!runningActions[`removeAll:${project.path}`]
   // How many agents each batch action acts on, as its confirmation lists them (#275): shown in its label.
   const counts = batchCounts(project.agents)
-  const resumeLabel = resumable.length === 1 ? tr(M.resumeAgent) : tr(M.resumeAll, { count: resumable.length })
+  // Short labels, the full wording in the tooltip and the accessible name (#1035).
+  const resumeLabel = resumable.length === 1 ? tr(M.resumeAgent) : tr(M.resumeShort, { count: resumable.length })
   // Running agents a refused sign-in stopped are carried on, the stopped ones resumed (#309).
   const stalled = resumable.filter((a) => stalledOnSignIn(a.live)).length
   const stoppedCount = resumable.length - stalled
@@ -380,6 +382,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         ? tr(M.carryOnMany, { stopped: stoppedCount, stalled })
         : tr(M.resumeMany, { count: resumable.length })
   const stopLabel = running.length === 1 ? tr(M.stopAgent) : tr(M.stopMany, { count: running.length })
+  const stopTip = tr(M.stopTip, { count: running.length })
   const yes = many ? 'yes' : 'no'
   // Agents ▾ (#974): every agent at once, after one confirmation (#216), Remove All last after a line (#291); with one
   // agent, no count. In ⋯ when cramped.
@@ -419,7 +422,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
             <Tooltip content={<ProjectAgentsTable project={project} />} className="agents-tip" focus>
               <span tabIndex={0} aria-description={agentsDescription || undefined} className="badge project-state">
                 <StateMark state={mostUrgent(states)} decorative />
-                <span className="badge-text">{stateSummary(states)}</span>
+                <span className="badge-text">{projectStateSummary(project.agents, states)}</span>
               </span>
             </Tooltip>
           )}
@@ -433,16 +436,16 @@ export function ProjectView({ visible }: { visible: boolean }) {
           </Tooltip>
           {resumable.length > 0 && (
             <Tooltip content={resumeTip}>
-              <button className="btn act-resume" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeLabel} onClick={() => void actions.resumeAllAgents(project.path)}>
+              <button className="btn act-resume quiet" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeTip} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
-                {!tight && ` ${resuming ? tr(M.resuming) : resumable.length === 1 ? tr(M.resumeAgent) : narrow ? tr(M.resumeShort, { count: resumable.length }) : resumeLabel}`}
+                {!tight && ` ${resuming ? tr(M.resuming) : resumeLabel}`}
                 {tight && resumable.length > 1 && <span className="btn-count">{resumable.length}</span>}
               </button>
             </Tooltip>
           )}
           {running.length > 0 && (
-            <Tooltip content={tr(M.stopTip, { count: running.length })}>
-              <button className="btn act-stop" aria-label={stopLabel} onClick={() => void actions.stopAllAgents(project.path)}>
+            <Tooltip content={stopTip}>
+              <button className="btn act-stop quiet" aria-label={stopTip} onClick={() => void actions.stopAllAgents(project.path)}>
                 <Icon name="stop-circle" />
                 {!tight && ` ${stopLabel}`}
                 {tight && running.length > 1 && <span className="btn-count">{running.length}</span>}
@@ -508,7 +511,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
 
       <div className="tab-body">
         {tab === 'session' && <SessionToolbar project={project} view={view} />}
-        <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')}>
+        <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')} style={tileFocus ? { left: stripWidth } : undefined}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />
           {tab === 'session' && panesShown && <PaneChrome project={project} panes={panes} />}
           {tab === 'session' && view === 'panes' && panes.length === 1 && !live && <SessionEmpty project={project} framed={!!focusedAgent} />}

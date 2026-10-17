@@ -260,6 +260,8 @@ interface HiveMessageValues {
   'tips.templateWorktrees.title': undefined
   'tips.testedClis.text': undefined
   'tips.testedClis.title': undefined
+  'tips.tileStrip.text': undefined
+  'tips.tileStrip.title': undefined
   'tips.tilesView.text': undefined
   'tips.tilesView.title': undefined
   'tips.twoProviders.text': undefined

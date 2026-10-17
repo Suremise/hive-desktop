@@ -11,6 +11,12 @@
 // Claims are files in a folder of the run context (runContext.HEAVY_DIR), as lanes are (lanes.mjs): `slot-<k>.json`
 // for a run holding a slot and `wait-<pid>.json` for one waiting (when it asked; `first` for a pre-merge run), each
 // with its runner's process id, changed only under the claims lock. A crashed run's claim expires: its process is gone (or it is a day old).
+//
+// A run left over (#1008): one started in an agent's session that has ended since (Hive closed under it, the agent
+// stopped or restarted) keeps running, and keeps its slot, while its process lives. Its claim records the agent's launch
+// (owner: runOwner), and a waiting run asks Hive whether that launch still runs (launchEnded): the wait line names a
+// holder that was left over, and a run in the same worktree says so as it starts. Nothing is stopped on its own: its
+// results may still be wanted. Hive's notice after an unexpected close offers to stop it (#987).
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { createRequire } from 'module'
 import { join } from 'path'
@@ -99,14 +105,13 @@ export function needsSlot({ count, repeat = 1 }, env = process.env) {
 }
 
 /**
- * Whether this run is the merge slot holder's (#558): started in the session of the agent that holds its project's
- * merge slot (the default branch's), asked through Hive's Agent API with the session's own variables, which the runners
- * read from the shell they were started in, as their progress reporting does. False when no Hive agent runs it or the
- * API doesn't answer in time: an ordinary run then.
+ * A GET of Hive's Agent API with the session's own variables, which the runners read from the shell they were started
+ * in, as their progress reporting does: the reply's JSON, or null when no Hive agent runs this, or the API doesn't answer
+ * in time or refuses. workspace: the X-Hive-Workspace to name (the session's own by default).
  */
-export async function holdsMergeSlot(env = process.env, { fetch = globalThis.fetch, timeoutMs = 3000 } = {}) {
+async function apiGet(path, env, { fetch = globalThis.fetch, timeoutMs = 3000, workspace = env.HIVE_WORKSPACE } = {}) {
   const url = env.HIVE_API_URL?.replace(/\/+$/, '')
-  if (!url || !env.HIVE_PROJECT || !env.HIVE_AGENT) return false
+  if (!url) return null
   let token = env.HIVE_API_TOKEN && !env.HIVE_API_TOKEN.includes('${') ? env.HIVE_API_TOKEN : ''
   if (!token && env.HIVE_API_TOKEN_FILE) {
     try {
@@ -115,17 +120,67 @@ export async function holdsMergeSlot(env = process.env, { fetch = globalThis.fet
       token = ''
     }
   }
-  if (!token) return false
+  if (!token) return null
   try {
-    const res = await fetch(`${url}/v1/projects/${encodeURIComponent(env.HIVE_PROJECT)}/merge-slot`, {
-      headers: { Authorization: `Bearer ${token}`, ...(env.HIVE_WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(env.HIVE_WORKSPACE) } : {}) },
+    const res = await fetch(`${url}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, ...(workspace ? { 'X-Hive-Workspace': encodeURIComponent(workspace) } : {}) },
       signal: AbortSignal.timeout(timeoutMs)
     })
-    if (!res.ok) return false
-    const holder = (await res.json())?.holder
-    return holder?.kind === 'agent' && holder.name === env.HIVE_AGENT
+    return res.ok ? await res.json() : null
   } catch {
-    return false
+    return null
+  }
+}
+
+/**
+ * Whether this run is the merge slot holder's (#558): started in the session of the agent that holds its project's
+ * merge slot (the default branch's), asked through Hive's Agent API. False when no Hive agent runs it or the API doesn't
+ * answer in time: an ordinary run then.
+ */
+export async function holdsMergeSlot(env = process.env, { fetch = globalThis.fetch, timeoutMs = 3000 } = {}) {
+  if (!env.HIVE_PROJECT || !env.HIVE_AGENT) return false
+  const holder = (await apiGet(`/v1/projects/${encodeURIComponent(env.HIVE_PROJECT)}/merge-slot`, env, { fetch, timeoutMs }))?.holder
+  return holder?.kind === 'agent' && holder.name === env.HIVE_AGENT
+}
+
+/**
+ * The agent's launch a run was started in (#1008), from its shell's variables, for its claim: { project, agent, run,
+ * workspace }, or undefined outside an agent's session.
+ */
+export function runOwner(env = process.env) {
+  if (!env.HIVE_PROJECT || !env.HIVE_AGENT || !env.HIVE_RUN_ID) return undefined
+  return { project: env.HIVE_PROJECT, agent: env.HIVE_AGENT, run: env.HIVE_RUN_ID, ...(env.HIVE_WORKSPACE ? { workspace: env.HIVE_WORKSPACE } : {}) }
+}
+
+/**
+ * Whether the launch a claim's run was started in has ended (#1008): Hive closed under it, or its agent stopped or
+ * restarted, so the run was left over and nobody waits for its results in that session. Asked through the Agent API
+ * with this run's own session: true or false, or null when it can't say (no owner, no Hive agent here, no answer).
+ */
+export async function launchEnded(owner, env = process.env, opts = {}) {
+  if (!owner?.project || !owner.agent || !owner.run) return null
+  const path = `/v1/projects/${encodeURIComponent(owner.project)}/agents/${encodeURIComponent(owner.agent)}/launches/${encodeURIComponent(owner.run)}`
+  const r = await apiGet(path, env, { ...opts, workspace: owner.workspace })
+  return typeof r?.running === 'boolean' ? !r.running : null
+}
+
+/**
+ * Marks the claims whose run was left over (leftOver: true, #1008), asking about each claim's launch at most every
+ * askMs (its answer kept meanwhile): for waitForSlot, at each look. Nothing is stopped: the results may still be wanted.
+ */
+export function leftOverCheck({ env = process.env, askMs = 30_000, ended = launchEnded, now = () => Date.now() } = {}) {
+  const known = new Map()
+  return async (holders) => {
+    const t = now()
+    return Promise.all(
+      holders.map(async (c) => {
+        if (!c?.owner) return c
+        const key = `${c.pid}:${c.at}`
+        let k = known.get(key)
+        if (!k || t - k.asked >= askMs) known.set(key, (k = { asked: t, left: await ended(c.owner, env) }))
+        return k.left ? { ...c, leftOver: true } : c
+      })
+    )
   }
 }
 
@@ -163,9 +218,10 @@ function claims(dir, prefix) {
  * One look, under the claims lock: takes a slot if one is free and no run ahead of this one is still waiting for it:
  * pre-merge runs (first) are ahead of the others, and among each, those that asked earlier. Returns { slot } (its number), or { holders, ahead }: the claims holding the slots, and how many runs wait ahead of
  * this one. Waiting (wait: true), this run's place in the queue is kept (wait-<pid>.json, with when it first asked);
- * otherwise it leaves no trace. Claims whose runner is gone are removed.
+ * otherwise it leaves no trace. Claims whose runner is gone are removed. session: the agent's launch it was started in
+ * (runOwner), recorded in its slot's claim as owner.
  */
-export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, what = '', root = '', first = false, wait = true, alive = processAlive, now = () => Date.now() } = {}) {
+export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, what = '', root = '', first = false, wait = true, alive = processAlive, now = () => Date.now(), session = runOwner() } = {}) {
   mkdirSync(dir, { recursive: true })
   return withLock(dir, async () => {
     const t = now()
@@ -186,7 +242,7 @@ export async function trySlot(dir, { slots = heavySlots(), owner = process.pid, 
       const used = new Set(held.map((c) => c.slot))
       let k = 0
       while (used.has(k)) k++
-      writeFileSync(join(dir, `slot-${k}.json`), JSON.stringify({ pid: owner, at: t, slot: k, root, what, ...(first ? { first: true } : {}) }))
+      writeFileSync(join(dir, `slot-${k}.json`), JSON.stringify({ pid: owner, at: t, slot: k, root, what, ...(first ? { first: true } : {}), ...(session ? { owner: session } : {}) }))
       rmSync(mine, { force: true })
       return { slot: k }
     }
@@ -207,25 +263,57 @@ export function waitLine({ holders, ahead, first = false }, slots = heavySlots()
   return `Waiting for a test slot (${slots} heavy runs at once on this machine, HIVE_TEST_HEAVY_SLOTS)${place}: held by ${holders.map((c) => describeClaim(c)).join('; ') || 'runs just finishing'}.`
 }
 
+/** The claims holding slots now, read without the lock (for a line to a person, not to take one). */
+function slotHolders(dir, alive = processAlive, now = Date.now()) {
+  try {
+    return claims(dir, 'slot-').flatMap(({ claim }) => (claimHeld(claim, alive, now) ? [claim] : []))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * What a run prints as it starts when a run in its own worktree holds a slot and was left over (#1008): the agent that
+ * started it, resumed, may want its results, or to stop it (by its process id). Empty when there is none.
+ */
+export function leftOverLine(holders, root, now = Date.now()) {
+  const mine = holders.filter((c) => c.leftOver && root && String(c.root).toLowerCase() === String(root).toLowerCase())
+  if (!mine.length) return ''
+  return `Still running in this worktree, left over from a session that ended: ${mine.map((c) => describeClaim({ ...c, leftOver: false }, now)).join('; ')}. Its results may still be wanted; to stop it, stop its process by id (never by name).`
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
  * Waits for a slot (wait: false, only one look): { slot, waitedMs, release() }, or { refused: { holders, ahead } }.
  * first: whether it is a pre-merge run, or a function saying so at each look (preMerge). onWait({ holders, ahead, first })
- * is called at each look that finds none, every pollMs. release() lets the slot go (only if
- * it is still this run's); it is also let go when the process exits, and expires if it crashes.
+ * is called at each look that finds none, every pollMs, each holder left over marked (leftOver, through leftOver: a
+ * leftOverCheck). say(line) prints, once, a run of this worktree that was left over (leftOverLine). release() lets the
+ * slot go (only if it is still this run's); it is also let go when the process exits, and expires if it crashes.
  */
-export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = () => {}, first = false, ...opts } = {}) {
+export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = () => {}, first = false, leftOver = leftOverCheck(), say = (line) => console.log(line), ...opts } = {}) {
   const started = Date.now()
   const owner = opts.owner ?? process.pid
   const queued = join(dir, `wait-${owner}.json`)
   const leaveQueue = () => rmSync(queued, { force: true })
+  let told = false
+  const tell = async (held) => {
+    if (told || !opts.root) return held
+    told = true
+    const marked = await leftOver(held)
+    const line = leftOverLine(marked, opts.root, (opts.now ?? Date.now)())
+    if (line) say(line)
+    return marked
+  }
   process.on('exit', leaveQueue)
   try {
     for (;;) {
       const goesFirst = typeof first === 'function' ? await first() : !!first
+      // Those holding slots as this run asks: a run of this worktree left over is told as this one starts, or waits.
+      const before = told || !opts.root ? [] : slotHolders(dir, opts.alive, (opts.now ?? Date.now)()).filter((c) => c.pid !== owner)
       const r = await trySlot(dir, { ...opts, owner, wait, first: goesFirst })
       if (r.slot !== undefined) {
+        await tell(before)
         const file = join(dir, `slot-${r.slot}.json`)
         const release = () => {
           try {
@@ -237,8 +325,9 @@ export async function waitForSlot(dir, { wait = true, pollMs = 2000, onWait = ()
         process.on('exit', release)
         return { slot: r.slot, waitedMs: Date.now() - started, release }
       }
-      if (!wait) return { refused: r }
-      onWait({ ...r, first: goesFirst })
+      await tell(r.holders)
+      if (!wait) return { refused: { ...r, holders: await leftOver(r.holders) } }
+      onWait({ ...r, holders: await leftOver(r.holders), first: goesFirst })
       await sleep(pollMs)
     }
   } finally {

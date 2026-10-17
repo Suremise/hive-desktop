@@ -86,6 +86,9 @@ const STATE_COUNT: Record<AgentState, Msg> = {
   idle: msg({ id: 'session.state.countIdle', defaultMessage: '{n, plural, other {# idle}}', description: 'How many agents are idle, in a summary of the agents of a project ("2 working · 3 idle"). {n} is how many.' })
 }
 
+/** How many agents have no session running, in the project header's summary. */
+const STOPPED_COUNT = msg({ id: 'session.state.countStopped', defaultMessage: '{n, plural, other {# stopped}}', description: "How many agents have no session running, last in the project header's summary of its agents (\"3 working · 7 idle · 2 stopped\"). {n} is how many." })
+
 /**
  * Agents' states in one line, most urgent first: "1 waiting · 2 working". Idle agents are left out unless `idle` is
  * set or every agent is idle; '' for none.
@@ -96,4 +99,15 @@ export function stateSummary(states: Iterable<AgentState>, idle = false): string
   return AGENT_STATES.filter((s) => n[s] > 0 && (s !== 'idle' || idle || !busy))
     .map((s) => tr(STATE_COUNT[s], { n: n[s] }))
     .join(' · ')
+}
+
+/**
+ * The project header's summary of its agents (#1035): as the session toolbar's chip, but the idle agents with no session
+ * running are counted apart, last ("3 working · 7 idle · 2 stopped"), so the working and idle ones are those Stop
+ * counts. `states` are the agents' states, in the same order.
+ */
+export function projectStateSummary(agents: readonly Pick<AgentInfo, 'live'>[], states: readonly AgentState[]): string {
+  const stopped = (s: AgentState, i: number): boolean => s === 'idle' && !agents[i]?.live
+  const n = states.filter(stopped).length
+  return [stateSummary(states.filter((s, i) => !stopped(s, i)), true), n ? tr(STOPPED_COUNT, { n }) : ''].filter(Boolean).join(' · ')
 }

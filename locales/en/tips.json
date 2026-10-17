@@ -1035,6 +1035,14 @@
     "defaultMessage": "See which CLI versions Hive was tested with",
     "description": "A tip's title."
   },
+  "tips.tileStrip.text": {
+    "defaultMessage": "In an agent's focus view (Tiles), the strip on the left shows each agent's card as a small chip, tinted with the colour of the board column it is in; click one to open the card. Drag the strip's edge to make it wider, and double-click the edge to reset it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands (Tiles): keep them as Hive shows them."
+  },
+  "tips.tileStrip.title": {
+    "defaultMessage": "Each agent's card, beside its name",
+    "description": "A tip's title."
+  },
   "tips.tilesView.text": {
     "defaultMessage": "Tiles shows each agent as a small tile: its state, status, card, progress and latest reply, twelve to a page. Click one to open its pane large beside the others; Esc goes back. Settings → Sessions → Tile order can put the agents waiting for you first.",
     "description": "A tip. Names of Hive's menus, views, settings and commands (Tiles, Tile order): keep them as Hive shows them."

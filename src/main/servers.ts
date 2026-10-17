@@ -1218,6 +1218,17 @@ route('GET', '/v1/projects/:name/agents/:agent/activity', async ({ params, query
   return agentActivity(p, await agentParam(p, decodeURIComponent(params[1])), query.get('detail') === 'true')
 })
 
+/**
+ * Whether a launch of an agent (its HIVE_RUN_ID) is still its running one (#1008): a test run started in an agent's
+ * shell records it, and a run waiting for a test slot asks, to say when the holder was left over by a session that has
+ * ended (Hive closed, the agent stopped or restarted). Status, as agents' is: open to every caller.
+ */
+route('GET', '/v1/projects/:name/agents/:agent/launches/:run', async ({ params }) => {
+  const p = projectByName(params[0])
+  const id = await agentParam(p, decodeURIComponent(params[1]))
+  return { running: sessions.liveFor(p, id)?.runId === decodeURIComponent(params[2]) }
+})
+
 /** An agent as a wait reads it: a prompt Hive just typed that its CLI hasn't taken yet counts as working (#416). */
 const agentNowFor = (p: string, id: string): AgentNow => sessions.agentNow(p, id) ?? { status: 'stopped', runId: null, prompts: 0, pending: false }
 

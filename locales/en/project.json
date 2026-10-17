@@ -631,13 +631,9 @@
     "defaultMessage": "Resume Agent",
     "description": "The project header's button when one agent can be resumed."
   },
-  "project.header.resumeAll": {
-    "defaultMessage": "Resume All Agents ({count})",
-    "description": "The project header's button: resumes every stopped agent. {count} is how many."
-  },
-  "project.header.resumeManyTip": {
-    "defaultMessage": "Resume the {count} stopped agents (running ones are left alone)",
-    "description": "Tooltip on Resume All Agents."
+  "project.header.resumeAllTip": {
+    "defaultMessage": "{count, plural, other {Resume all # stopped agents}}",
+    "description": "Tooltip and accessible name of the project header's Resume ({count}) button, with several stopped agents."
   },
   "project.header.resumeOneTip": {
     "defaultMessage": "Resume {agent}'s last session",
@@ -645,7 +641,7 @@
   },
   "project.header.resumeShort": {
     "defaultMessage": "Resume ({count})",
-    "description": "The project header's Resume All Agents button when the header is narrow."
+    "description": "The project header's button: resumes every stopped agent. {count} is how many. Keep it short: its tooltip says it in full."
   },
   "project.header.resuming": {
     "defaultMessage": "Resuming…",
@@ -659,13 +655,13 @@
     "defaultMessage": "Stop Agent",
     "description": "The project header's button when one agent is running."
   },
+  "project.header.stopAllTip": {
+    "defaultMessage": "{count, plural, one {Stop the running agent} other {Stop all # running agents}}",
+    "description": "Tooltip and accessible name of the project header's Stop ({count}) button."
+  },
   "project.header.stopMany": {
     "defaultMessage": "Stop ({count})",
     "description": "The project header's button: stops every running agent. {count} is how many."
-  },
-  "project.header.stopTip": {
-    "defaultMessage": "{count, plural, one {Stop the running agent} other {Stop the # running agents}}",
-    "description": "Tooltip on the project header's Stop button."
   },
   "project.header.workingOn": {
     "defaultMessage": "You are working on this project",

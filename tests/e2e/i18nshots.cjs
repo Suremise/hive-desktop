@@ -158,7 +158,10 @@ if (require.main === module) {
       const theme = async (t) => {
         await inv('settings:update', { appearance: { theme: t } })
         if (!(await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === t, HUNG_MS))) throw new Error(`the ${t} theme didn't apply`)
-        // Painted in it: two frames after the change.
+        // Painted in it: two frames after the change, with the terminals on screen fitted to their panes (a theme change
+        // and a pane that changed size fit them a moment later, and their lines re-wrap then: #896).
+        await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))))
+        if (!(await lib.until(() => page.evaluate(() => window.__hiveTerminalsFitted?.() ?? true), HUNG_MS))) throw new Error("the terminals weren't fitted to their panes")
         await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))))
       }
 

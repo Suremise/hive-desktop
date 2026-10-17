@@ -1,4 +1,5 @@
-// Screenshot cases for the `shell` area (#795): the title bar's menus (each open), the command palette, the
+// Screenshot cases for the `shell` area (#795): the title bar's menus (each open), the title bar at the narrowest
+// window (#1038), the command palette, the
 // notifications panel, Help → About, Copy Diagnostics, Keyboard Shortcuts and Agent Setup, the Compact dialog and the
 // quit dialog, reached for the i18nshots route (tests/e2e/i18nshots.cjs has the case format) with locale-independent
 // means only: IPC, command ids and structural hooks (data-menu, data-command, classes), never English text.
@@ -114,10 +115,47 @@ async function notifications(ctx) {
   return shown(ctx, ctx.page.locator('.notif-panel'), 'the notifications panel')
 }
 
+/** Where the title bar's menu bar, title and pin are, in the page: the title's null while it's hidden. */
+const titleBarLayout = (page) =>
+  page.evaluate(() => {
+    const box = (sel) => {
+      const el = document.querySelector(sel)
+      if (!el || getComputedStyle(el).visibility === 'hidden') return null
+      const r = el.getBoundingClientRect()
+      return { left: r.left, right: r.right }
+    }
+    return { width: window.innerWidth, menubar: box('.titlebar .menubar'), title: box('.titlebar-title'), actions: box('.titlebar-actions') }
+  })
+
+/**
+ * The title bar at the narrowest window, 900 × 650 (#1038): the window title gives way to the menu bar (shortened with
+ * an ellipsis, or hidden) rather than running into it, as German's "Hilfe" ran into "alpha". Throws while they overlap.
+ */
+async function titleBarNarrow(ctx) {
+  const { app, page, lib } = ctx
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
+  let layout = null
+  const clear = async () => {
+    layout = await titleBarLayout(page)
+    const { width, menubar, title, actions } = layout
+    return width === 900 && !!menubar && !!actions && (!title || (title.left >= menubar.right && title.right <= actions.left))
+  }
+  if (!(await lib.until(clear, ctx.hungMs))) throw new Error(`the window title overlaps the menu bar or the pin at 900 px: ${JSON.stringify(layout)}`)
+  return page.locator('.titlebar')
+}
+
 module.exports = {
   area: 'shell',
   screens: [
     ...MENUS.map(menuScreen),
+    {
+      name: 'titlebar-narrow',
+      open: titleBarNarrow,
+      close: async (ctx) => {
+        await ctx.lib.fitWindow(ctx.app, ctx.page, { width: 1400, height: 860 })
+        if (!(await ctx.lib.until(async () => (await ctx.page.evaluate(() => window.innerWidth)) === 1400, ctx.hungMs))) throw new Error("the window didn't go back to 1400 px")
+      }
+    },
     { name: 'palette', open: palette, close: (ctx) => escapeFrom(ctx, '.palette', 'the palette') },
     { name: 'palette-empty', open: paletteEmpty, close: (ctx) => escapeFrom(ctx, '.palette', 'the palette') },
     {

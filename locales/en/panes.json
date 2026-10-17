@@ -695,6 +695,14 @@
     "defaultMessage": "{n, plural, one {# background task} other {# background tasks}}",
     "description": "A badge on an agent's tile: background tasks it started that still run."
   },
+  "panes.tiles.chipLabel": {
+    "defaultMessage": "Card #{card}, {column}{blocked, select, yes {, blocked} other {}}",
+    "description": "Accessible name of the card chip on an agent's row in the focus view's strip: the card's number ({card}), the board column it is in ({column}) and whether it is blocked (yes: add \", blocked\")."
+  },
+  "panes.tiles.chipLine": {
+    "defaultMessage": "#{card} {title} ({role, select, reviewing {reviewing, } other {}}{column}{blocked, select, yes {, blocked} other {}})",
+    "description": "A card in the hover of the card chip on an agent's row in the focus view's strip: its number ({card}), title (the user's own words), whether the agent reviews it (reviewing: add \"reviewing, \"), the board column it is in ({column}) and whether it is blocked (yes: add \", blocked\")."
+  },
   "panes.tiles.context": {
     "defaultMessage": "Context {tokens}",
     "description": "A warning badge on an agent's tile: its context is past the Compact threshold ({tokens}: \"210K\")."
@@ -730,6 +738,14 @@
   "panes.tiles.transcript": {
     "defaultMessage": "Transcript {size}",
     "description": "A warning badge on an agent's tile: its transcript is past the size Hive flags ({size}: \"24 MB\")."
+  },
+  "panes.tiles.waitingCard": {
+    "defaultMessage": "Waiting for its card",
+    "description": "An agent's status in the focus view's strip while it waits for its card (named by the chip beside it) to change."
+  },
+  "panes.tiles.waitingInto": {
+    "defaultMessage": "Waiting → {column}",
+    "description": "An agent's status in the focus view's strip while it waits for its card (named by the chip beside it) to move into a board column ({column})."
   },
   "panes.view.label": {
     "defaultMessage": "Session view",

@@ -4,7 +4,7 @@
 // word, never runs it. The gate passes the command line node-pty itself would have built.
 import { spawn, type ChildProcess } from 'child_process'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { createRequire } from 'module'
 import * as pty from '@lydell/node-pty'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -34,6 +34,9 @@ const alive = (pid: number): boolean => {
     return false
   }
 }
+// The CLI the gate starts here is Node, named as Windows has it spelled in the path it was started by: node.exe, or
+// node.EXE when Vitest was started through that spelling (#998).
+const program = basename(process.execPath)
 const plain = (s: string): string => s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
 
 describe.runIf(process.platform === 'win32')('a launch held at its gate', () => {
@@ -57,7 +60,8 @@ setTimeout(() => process.exit(7), 1500)
   )
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
-    closeProcessTracking()
+    // The job host's PowerShell works in the run's temp folder: gone before the run removes it (#1020).
+    await closeProcessTracking()
     // Its own children, through their handles (not a pid Windows may have reused).
     for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
     stopProcessesIn(dir, since)
@@ -105,7 +109,7 @@ setTimeout(() => process.exit(7), 1500)
     expect(refused.ranAt).toBe(0)
     expect(refused.serverPid).toBe(0)
     expect(refused.code).toBe(1)
-    expect(refused.output.replace(/\s+/g, ' ')).toContain("Error: Hive didn't start node.exe: its processes couldn't be tracked (test)")
+    expect(refused.output.replace(/\s+/g, ' ')).toContain(`Error: Hive didn't start ${program}: its processes couldn't be tracked (test)`)
     const failed = await launch('failed', () => Promise.reject(new Error('the tracker broke')))
     expect(failed.ranAt).toBe(0)
     expect(failed.output.replace(/\s+/g, ' ')).toContain('the tracker broke')
@@ -122,7 +126,7 @@ setTimeout(() => process.exit(7), 1500)
     const code = await new Promise<number>((resolve) => proc.onExit(({ exitCode }) => resolve(exitCode)))
     expect(existsSync(ran)).toBe(false)
     expect(code).toBe(1)
-    expect(plain(output).replace(/\s+/g, ' ')).toContain("Error: Hive didn't start node.exe")
+    expect(plain(output).replace(/\s+/g, ' ')).toContain(`Error: Hive didn't start ${program}`)
   }, 60000)
 
   it("doesn't track a process that has exited, and lets go of a launch stopped while it was being tracked", async () => {

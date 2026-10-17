@@ -168,6 +168,7 @@
   "main.unexpectedClose.notResumed": "Nada foi retomado.",
   "main.unexpectedClose.notStopped": "{n, plural, one {# processo ainda está em execução: o Windows não deixou o Hive encerrá-lo.} other {# processos ainda estão em execução: o Windows não deixou o Hive encerrá-los.}} Encerrar na notificação tenta de novo.",
   "main.unexpectedClose.overview": "Mostrar visão geral",
+  "main.unexpectedClose.progressRun": "{title} ({n, plural, =0 {# processos} one {# processo} other {# processos}})",
   "main.unexpectedClose.resumeAll": "Retomar todos",
   "main.unexpectedClose.resumeFailedTitle": "Alguns agentes não puderam ser retomados",
   "main.unexpectedClose.resumed": "{n, plural, =0 {Nenhum foi retomado.} one {Um foi retomado, como diz Configurações → Sessões.} other {# foram retomados, como diz Configurações → Sessões.}}",
