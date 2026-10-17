@@ -147,6 +147,33 @@ const check = (name, ok, extra = '') => {
     check('←: Tiles', !!(await lib.until(async () => (await radios()) === 'panes:false:-1 tiles:true:0:focused' && projectCfg(alpha).sessionView === 'tiles', HUNG_MS)), await radios())
     await page.keyboard.press('Home')
     check('Home: Panes, kept after the keyboard choice', !!(await lib.until(async () => (await radios()) === 'panes:true:0:focused tiles:false:-1' && projectCfg(alpha).sessionView === 'panes', HUNG_MS)), await radios())
+    // Faster than the saves (each held 700 ms): → then ← at once ends on Panes, and → → → on Tiles: the latest choice
+    // wins, shown at once, focused and saved, whatever was still saving.
+    await app.evaluate(() => {
+      process.env.HIVE_TEST_SLOW_IPC = 'project:updateConfig=700'
+    })
+    await panes.focus()
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowLeft')
+    check('slow saves: → then ← at once shows Panes chosen and focused at once', (await radios()) === 'panes:true:0:focused tiles:false:-1', await radios())
+    check('…and Panes is what is saved once the saves are done, the panes shown', !!(await lib.until(async () => projectCfg(alpha).sessionView === 'panes' && (await radios()) === 'panes:true:0:focused tiles:false:-1' && (await page.locator('.agent-tiles').count()) === 0, HUNG_MS)), `${projectCfg(alpha).sessionView} ${await radios()}`)
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowRight')
+    check('slow saves: → → → shows Tiles at once', (await radios()) === 'panes:false:-1 tiles:true:0:focused', await radios())
+    check('…and Tiles is saved and shown once the saves are done', !!(await lib.until(async () => projectCfg(alpha).sessionView === 'tiles' && (await page.locator('.agent-tiles').count()) === 1 && (await radios()) === 'panes:false:-1 tiles:true:0:focused', HUNG_MS)), `${projectCfg(alpha).sessionView} ${await radios()}`)
+    // A save that fails: the choice goes back to the saved view, and a notice says it couldn't change.
+    await app.evaluate(() => {
+      delete process.env.HIVE_TEST_SLOW_IPC
+      process.env.HIVE_TEST_FAIL_IPC = 'project:updateConfig*1'
+    })
+    await page.keyboard.press('Home')
+    check('a failed save: back to Tiles (what is saved), focused, with a notice', !!(await lib.until(async () => (await radios()) === 'panes:false:-1 tiles:true:0:focused', HUNG_MS)) && projectCfg(alpha).sessionView === 'tiles' && !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Could not change the view' }).count()) > 0, HUNG_MS)), `${await radios()} ${projectCfg(alpha).sessionView}`)
+    await app.evaluate(() => {
+      delete process.env.HIVE_TEST_FAIL_IPC
+    })
+    await page.locator('.view-switch [data-view="panes"]').click()
+    await lib.until(async () => projectCfg(alpha).sessionView === 'panes' && (await page.locator('.agent-tiles').count()) === 0, HUNG_MS)
     await page.evaluate(() => document.activeElement?.blur())
 
     // --- A launch that fails (the fake's --model fail-start) is stalled in the chip, its list and the header's state line;

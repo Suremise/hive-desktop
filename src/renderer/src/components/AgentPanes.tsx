@@ -758,14 +758,43 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   const chip = useRef<HTMLButtonElement>(null)
   const add = useRef<HTMLButtonElement>(null)
   const viewButtons = useRef<(HTMLButtonElement | null)[]>([])
+  // The view last chosen (#975 round 3), shown at once while it saves: choices made faster than a save (arrow keys on a
+  // slow disk) go from it, not from the last saved view. Saves go one at a time per project, each sending the latest
+  // choice, so the last one wins; once they are done the saved view shows (a failed save's view, its notice said why).
+  const [chosen, setChosen] = useState<{ path: string; view: SessionView } | null>(null)
+  const saving = useRef(new Map<string, { want: SessionView; keyboard: boolean }>())
+  const shownView = chosen?.path === project.path ? chosen.view : view
+  const chooseView = (v: SessionView, keyboard: boolean): void => {
+    const path = project.path
+    setChosen({ path, view: v })
+    const running = saving.current.get(path)
+    if (running) {
+      running.want = v
+      running.keyboard ||= keyboard
+      return
+    }
+    const s = { want: v, keyboard }
+    saving.current.set(path, s)
+    void (async () => {
+      let sent: SessionView | null = null
+      while (sent !== s.want) {
+        sent = s.want
+        await actions.setSessionView(path, sent)
+      }
+      saving.current.delete(path)
+      setChosen((c) => (c?.path === path ? null : c))
+    })()
+  }
+  // The focus, when on the toggle, stays on the view shown: a failed save takes the choice back to the saved view.
+  useEffect(() => {
+    const el = viewButtons.current[SESSION_VIEWS.indexOf(shownView)]
+    if (el && document.activeElement !== el && viewButtons.current.includes(document.activeElement as HTMLButtonElement)) el.focus()
+  }, [shownView])
   // A view chosen from the keyboard keeps the focus on its radio: the panes shown again would focus their terminal (a
   // deferred focus, asked for in its effect); after this commit's effects, the choice counts as newer than that.
-  const keyboardView = useRef(false)
   useEffect(() => {
-    if (!keyboardView.current) return
-    keyboardView.current = false
-    queueMicrotask(chooseFocus)
-  }, [view])
+    if (saving.current.get(project.path)?.keyboard) queueMicrotask(chooseFocus)
+  }, [view, project.path])
   const page = agentPage(project, focused ?? null)
   const panesView = view === 'panes'
   // One layout for the project; a page holds as many agents as it has panes (#134).
@@ -947,14 +976,12 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         role="radiogroup"
         aria-label={tr(msg({ id: 'panes.view.label', defaultMessage: 'Session view', description: "Accessible name of the Session tab's Panes | Tiles toggle." }))}
         onKeyDown={(e) => {
-          const at = SESSION_VIEWS.indexOf(view)
+          const at = SESSION_VIEWS.indexOf(shownView)
           const next = e.key === 'Home' ? 0 : e.key === 'End' ? SESSION_VIEWS.length - 1 : e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (at + 1) % SESSION_VIEWS.length : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (at - 1 + SESSION_VIEWS.length) % SESSION_VIEWS.length : -1
           if (next < 0) return
           e.preventDefault()
           viewButtons.current[next]?.focus()
-          if (SESSION_VIEWS[next] === view) return
-          keyboardView.current = true
-          void actions.setSessionView(project.path, SESSION_VIEWS[next])
+          if (SESSION_VIEWS[next] !== shownView) chooseView(SESSION_VIEWS[next], true)
         }}
       >
         {SESSION_VIEWS.map((v, i) => (
@@ -962,11 +989,11 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
             key={v}
             ref={(el) => void (viewButtons.current[i] = el)}
             role="radio"
-            aria-checked={view === v}
-            tabIndex={view === v ? 0 : -1}
-            className={cx(view === v && 'active')}
+            aria-checked={shownView === v}
+            tabIndex={shownView === v ? 0 : -1}
+            className={cx(shownView === v && 'active')}
             data-view={v}
-            onClick={() => view !== v && void actions.setSessionView(project.path, v)}
+            onClick={() => shownView !== v && chooseView(v, false)}
           >
             {tr(VIEW_NAME, { view: v })}
           </button>
