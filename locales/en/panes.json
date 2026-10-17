@@ -167,9 +167,9 @@
     "defaultMessage": "API-equivalent cost of this session, as the provider reports it",
     "description": "Hover of a pane footer's cost: the provider reported it, at API prices."
   },
-  "panes.footer.ctx": {
-    "defaultMessage": "{tokens} ctx",
-    "description": "A pane footer's context used, in tokens (\"120K ctx\"; – before it is read). ctx is short for context: keep it short."
+  "panes.footer.ctxValue": {
+    "defaultMessage": "ctx {value}",
+    "description": "A pane footer's context used: the percentage of the context window (\"42%\"), or its tokens while the window isn't known (\"120K\"; – before it is read). ctx is short for context: keep it short."
   },
   "panes.footer.handOverAdvice": {
     "defaultMessage": "Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.",
@@ -191,9 +191,21 @@
     "defaultMessage": "Couldn’t read it again just now: this may be behind.",
     "description": "A line of the hover of a pane footer's context: Hive couldn't read the usage again, so the numbers may be old."
   },
+  "panes.footer.tasks": {
+    "defaultMessage": "{n, plural, one {# background task} other {# background tasks}}",
+    "description": "A pane footer's warning: how many background tasks ({n}) the agent started are still running. Keep it short."
+  },
+  "panes.footer.tasksTip": {
+    "defaultMessage": "{n, plural, one {A background task it started is still running.} other {# background tasks it started are still running.}} Its status says whether its turn waits for them.",
+    "description": "Hover of a pane footer's background-task warning: how many background tasks ({n}) the agent started are still running."
+  },
+  "panes.footer.transcriptLine": {
+    "defaultMessage": "Transcript: {size}",
+    "description": "A line of the hover of a pane footer's context: the size of the conversation's transcript ({size}: \"12 MB\")."
+  },
   "panes.footer.transcriptTip": {
     "defaultMessage": "Transcript: {size}{limit, select, none {} other { (flagged over {limit} MB: Settings → Sessions)}}. A long conversation slows down the CLI and Hive, and compacting doesn't shrink the file: it keeps the whole history.{advice, select, none {} other { {advice}}}",
-    "description": "Hover of a pane footer's transcript size ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
+    "description": "Hover of a pane footer's transcript warning, and a line of its context's hover ({size}: \"12 MB\"): the size it is flagged over ({limit} MB, set in Settings → Sessions; none: leave that branch empty), why a long one matters, and when it is long what to do ({advice}; none: leave it empty)."
   },
   "panes.header.asks": {
     "defaultMessage": "Asks: {question}",
@@ -495,9 +507,9 @@
     "defaultMessage": "Before it, its last tool calls: {tools}.",
     "description": "An agent's safeguard note: the names of the agent's last tool calls before the stop ({tools}: \"Bash, Edit\"; tool names, keep them)."
   },
-  "panes.session.name": {
-    "defaultMessage": "Session: {session}",
-    "description": "Accessible name of the session icon in an agent's footer ({session}: the session's name)."
+  "panes.session.detail": {
+    "defaultMessage": "{session} · since {since}",
+    "description": "The detail of Open in Sessions Tab in an agent's menu: the running session's name and when it started ({since}: a date and time)."
   },
   "panes.session.new": {
     "defaultMessage": "New Session",
@@ -505,11 +517,7 @@
   },
   "panes.session.openInTab": {
     "defaultMessage": "Open in Sessions Tab",
-    "description": "Menu item on the session icon in an agent's footer: reads the session in the Sessions tab."
-  },
-  "panes.session.rename": {
-    "defaultMessage": "Rename…",
-    "description": "Menu item on the session icon in an agent's footer: renames the session."
+    "description": "Menu item (an agent's menu): reads its running session in the Sessions tab; the session's name and start are its detail."
   },
   "panes.session.renameButton": {
     "defaultMessage": "Rename",
@@ -519,13 +527,13 @@
     "defaultMessage": "Could not rename",
     "description": "An error's title: renaming a session failed."
   },
+  "panes.session.renameItem": {
+    "defaultMessage": "Rename Session…",
+    "description": "Menu item (an agent's menu): renames its running session."
+  },
   "panes.session.renameTitle": {
     "defaultMessage": "Rename session",
     "description": "Title of the dialog renaming an agent's session (from its footer)."
-  },
-  "panes.session.tip": {
-    "defaultMessage": "{session}\nRunning since {since}\nSession {id}\nClick to read it in the Sessions tab; right-click to rename it.",
-    "description": "Hover of the session icon in an agent's footer, four lines: the session's name, when it started ({since}: a date and time), its id, and what clicking does. Keep the line breaks."
   },
   "panes.tab.failed": {
     "defaultMessage": "failed to start: {why}",

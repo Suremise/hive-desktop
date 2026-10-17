@@ -80,8 +80,15 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
 
   // The session's name in Agent 1's footer.
   const h1 = page.locator('.pane-header-bar', { hasText: 'Agent 1' })
-  const tag1 = page.locator('.agent-pane', { has: h1 }).locator('.pane-footer-bar .session-tag')
-  check('session tag shown', (await tag1.count()) === 1, await tag1.textContent().catch(() => ''))
+  // Its session, in its ⋯ (#978: a footer icon before): Open in Sessions Tab, with the session's name as its detail.
+  const sessionItem = page.locator('.menu .menu-item', { hasText: 'Open in Sessions Tab' })
+  const openSessionItem = async () => {
+    await h1.getByRole('button', { name: 'More', exact: true }).click()
+    await lib.until(() => sessionItem.isVisible(), 5000)
+  }
+  await openSessionItem()
+  check("its session is in its ⋯", (await sessionItem.count()) === 1)
+  await page.keyboard.press('Escape')
 
   // Picker for Agent 2: Agent 1's open session greyed, old sessions resumable.
   await pickFrom(h2); await lib.until(async () => (await page.locator('.menu .menu-item.two-line').count()) > 0, 10000)
@@ -97,7 +104,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   check('still only Agent 1 runs', (await project()).agents.filter((a) => a.live).length === 1)
 
   // Session tag → Sessions tab on that session, with Show instead of Resume.
-  await tag1.click(); await lib.until(async () => (await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count()) === 1 && (await page.locator('.session-row.selected').count()) === 1, 10000)
+  await openSessionItem(); await sessionItem.click(); await lib.until(async () => (await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count()) === 1 && (await page.locator('.session-row.selected').count()) === 1, 10000)
   check('Sessions tab opened', await page.locator('.tabs .tab.active', { hasText: 'Sessions' }).count() === 1)
   check('live session selected', await page.locator('.session-row.selected').count() === 1)
   check('Show button for the running session', await page.locator('.transcript-toolbar button', { hasText: 'Show' }).count() === 1)
@@ -123,10 +130,15 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await shot(page, '4-header')
   await page.keyboard.press('Escape')
 
-  // Rename the live session: the tag follows.
+  // Rename the live session: the ⋯'s detail follows.
   await inv('session:rename', proj, st.sessionId, 'Renamed live')
-  await sleep(600)
-  check('tag follows rename', /Renamed live/.test(await tag1.getAttribute('aria-label')))
+  const renamed = await lib.until(async () => {
+    await openSessionItem()
+    const d = await sessionItem.locator('.menu-detail').innerText().catch(() => '')
+    await page.keyboard.press('Escape')
+    return /Renamed live/.test(d)
+  }, 5000)
+  check('its detail follows rename', !!renamed)
 
   await inv('session:stop', proj, A1.id); await lib.until(async () => !(await inv('session:live')).some((l) => l.agentId === A1.id), 15000)
   p = await project()

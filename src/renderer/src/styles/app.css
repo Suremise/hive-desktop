@@ -5099,11 +5099,11 @@ body.pane-resizing .monaco-editor {
   height: 24px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   padding: 0 8px 0 10px;
   background: var(--bg-sidebar);
   border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--fg-muted);
   pointer-events: auto;
   white-space: nowrap;
@@ -5111,10 +5111,15 @@ body.pane-resizing .monaco-editor {
   container-type: inline-size;
 }
 /*
- * Short of room (useFooterFit in AgentPanes.tsx sets data-fit), items give up their text for their icon in turn: the
- * transcript size, then the context's tokens, then the whole context; their tooltips have it all. Then the
- * permission mode's label shortens, then the model, and only then is the cost cut off at the right.
+ * One quiet line (#978): model · effort · mode · ctx · cost, and warnings only when they matter. Short of room
+ * (useFooterFit in AgentPanes.tsx sets data-fit), the warnings give up their text for their icon in turn: the background
+ * tasks', then the transcript's; their tooltips have it all. Then the permission mode's label shortens, then the model,
+ * and only then is the line cut off at the right.
  */
+.pane-footer-bar .foot-sep {
+  flex-shrink: 0;
+  color: var(--fg-faint);
+}
 .pane-footer-bar > .tip-wrap {
   display: inline-flex;
   min-width: 0;
@@ -5148,23 +5153,16 @@ body.pane-resizing .monaco-editor {
   overflow: hidden;
   margin-left: 4px;
 }
-.pane-footer-bar .ctx-tokens {
-  display: inline-block;
-  overflow: hidden;
-  vertical-align: top;
-  white-space: pre;
-}
 .pane-footer-bar .pane-foot-item:has(> .fit-text) {
   gap: 0;
 }
-.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
-.pane-footer-bar:is([data-fit='2'], [data-fit='3']) .ctx-tokens,
-.pane-footer-bar[data-fit='3'] .ctx-text {
+.pane-footer-bar:is([data-fit='1'], [data-fit='2']) .fit-text[data-give='1'],
+.pane-footer-bar[data-fit='2'] .fit-text[data-give='2'] {
   max-width: 0;
-}
-.pane-footer-bar:is([data-fit='1'], [data-fit='2'], [data-fit='3']) .size-text,
-.pane-footer-bar[data-fit='3'] .ctx-text {
   margin-left: 0;
+}
+.pane-footer-bar .pane-foot-item .codicon {
+  font-size: 12px;
 }
 .pane-footer-bar .pane-foot-item {
   display: inline-flex;

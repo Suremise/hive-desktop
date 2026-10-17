@@ -367,7 +367,6 @@ export function AssistantPanel() {
           onTranscript={() => undefined}
           transcriptAdvice={tr(M.transcriptAdvice)}
           settingsName={tr(M.settingsName)}
-          showSession={false}
         />
       </div>
     </div>
