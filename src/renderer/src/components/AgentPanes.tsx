@@ -974,6 +974,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       <div
         className="segmented view-switch"
         role="radiogroup"
+        // Busy while the choice saves (it shows meanwhile; a failed save goes back to the saved view).
+        aria-busy={chosen?.path === project.path || undefined}
         aria-label={tr(msg({ id: 'panes.view.label', defaultMessage: 'Session view', description: "Accessible name of the Session tab's Panes | Tiles toggle." }))}
         onKeyDown={(e) => {
           const at = SESSION_VIEWS.indexOf(shownView)

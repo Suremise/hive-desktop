@@ -152,16 +152,31 @@ const check = (name, ok, extra = '') => {
     await app.evaluate(() => {
       process.env.HIVE_TEST_SLOW_IPC = 'project:updateConfig=700'
     })
+    // While its saves run the toggle is busy (aria-busy); the views saved meanwhile are recorded as they change, so a case
+    // ends only once its saves are done and shows what was written, in order.
+    const busy = async () => (await page.locator('.view-switch').getAttribute('aria-busy')) === 'true'
+    let saved = []
+    const record = () => {
+      const v = projectCfg(alpha).sessionView
+      if (saved.at(-1) !== v) saved.push(v)
+    }
+    const settled = (want) => lib.until(async () => (record(), !(await busy()) && saved.join() === want), HUNG_MS)
+    // The last choice's save done (its refresh too): a choice made while one runs only changes what it sends next.
+    check('the toggle is idle before the slow saves', !!(await lib.until(async () => !(await busy()), HUNG_MS)))
+    saved = [projectCfg(alpha).sessionView]
     await panes.focus()
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowLeft')
-    check('slow saves: → then ← at once shows Panes chosen and focused at once', (await radios()) === 'panes:true:0:focused tiles:false:-1', await radios())
-    check('…and Panes is what is saved once the saves are done, the panes shown', !!(await lib.until(async () => projectCfg(alpha).sessionView === 'panes' && (await radios()) === 'panes:true:0:focused tiles:false:-1' && (await page.locator('.agent-tiles').count()) === 0, HUNG_MS)), `${projectCfg(alpha).sessionView} ${await radios()}`)
+    check('slow saves: → then ← at once: Panes chosen and focused', !!(await lib.until(async () => (record(), (await radios()) === 'panes:true:0:focused tiles:false:-1'), HUNG_MS)), await radios())
+    check('…saving: Tiles written, then Panes, the last choice', !!(await settled('panes,tiles,panes')), `${saved.join()} busy ${await busy()}`)
+    check('…and once saved: Panes chosen, focused and shown', (await radios()) === 'panes:true:0:focused tiles:false:-1' && (await page.locator('.agent-tiles').count()) === 0, await radios())
+    saved = [projectCfg(alpha).sessionView]
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
-    check('slow saves: → → → shows Tiles at once', (await radios()) === 'panes:false:-1 tiles:true:0:focused', await radios())
-    check('…and Tiles is saved and shown once the saves are done', !!(await lib.until(async () => projectCfg(alpha).sessionView === 'tiles' && (await page.locator('.agent-tiles').count()) === 1 && (await radios()) === 'panes:false:-1 tiles:true:0:focused', HUNG_MS)), `${projectCfg(alpha).sessionView} ${await radios()}`)
+    check('slow saves: → → → at once: Tiles chosen and focused', !!(await lib.until(async () => (record(), (await radios()) === 'panes:false:-1 tiles:true:0:focused'), HUNG_MS)), await radios())
+    check('…saving: Tiles written (the choices made meanwhile end where it started)', !!(await settled('panes,tiles')), `${saved.join()} busy ${await busy()}`)
+    check('…and once saved: Tiles chosen, focused and shown', (await radios()) === 'panes:false:-1 tiles:true:0:focused' && (await page.locator('.agent-tiles').count()) === 1, await radios())
     // A save that fails: the choice goes back to the saved view, and a notice says it couldn't change.
     await app.evaluate(() => {
       delete process.env.HIVE_TEST_SLOW_IPC
