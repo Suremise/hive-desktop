@@ -5,6 +5,7 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { clearEditorDraftsUnder } from '../editorDrafts'
 import { DocEditor } from './DocEditor'
+import { AssistantMark } from './AssistantMark'
 import { Icon, IconButton, Tooltip } from './ui'
 import { confirm, notify, prompt, set, showView, useStore } from '../store'
 import { cx } from '../util'
@@ -147,7 +148,7 @@ export function AudienceBadge({ audience, small }: { audience: SkillAudience | u
   return (
     <Tooltip content={<>{Children.toArray(tRich<React.ReactNode>(AUDIENCE_TIP[a], { code }))}</>}>
       <span className={cx('badge', small && 'audience', a !== 'agents' && 'accent')} data-audience={a}>
-        <Icon name={a === 'agents' ? 'folder' : a === 'assistant' ? 'hubot' : 'organization'} /> {tr(AUDIENCE_LABEL[a])}
+        {a === 'assistant' ? <AssistantMark /> : <Icon name={a === 'agents' ? 'folder' : 'organization'} />} {tr(AUDIENCE_LABEL[a])}
       </span>
     </Tooltip>
   )

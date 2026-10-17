@@ -97,6 +97,8 @@ export type PageLayout = SessionLayout | 'auto'
 
 /** How the Session tab shows a project's agents (#975): their terminals in panes, or a tile each (#976). */
 export type SessionView = 'panes' | 'tiles'
+/** The Tiles view's order (#976): the panes' own, or by urgency (waiting and stalled first). */
+export type TileOrder = 'panes' | 'urgency'
 /** 'window': quitting was asked, but only the window showing the question closes (Close this window only). */
 export type QuitChoice = 'now' | 'wait' | 'cancel' | 'window'
 /** What the quit dialog is for: quitting, closing a window, closing its workspace, or switching the window to another workspace. */
@@ -216,6 +218,8 @@ export interface AppSettings {
     overviewRefresh: 'live' | 'minute' | 'manual'
     /** The Session tab's view for a project that hasn't chosen one with its Panes | Tiles toggle (#975). */
     defaultView: SessionView
+    /** The order of the Tiles view's tiles (#976): the panes' order (urgent tiles highlighted where they are) or by urgency. */
+    tileOrder: TileOrder
     /** Hive counts what its Agent API, tools, guidance and skill service cost (aggregates only), per workspace. */
     recordPerformance: boolean
     /** After Hive closed unexpectedly (#984), resume the agents that were running at the next start: off, only the notice. */
@@ -1386,6 +1390,8 @@ export interface LiveSessionState {
   backgroundTasks?: number
   /** The running conversation's transcript size in bytes, once the provider has written one. */
   transcriptBytes?: number
+  /** The start of its latest reply, as its last turn's end reported it (shared/tiles.ts replyStart): its tile's last lines (#976). */
+  replyStart?: string
 }
 
 export interface ProjectInfo {

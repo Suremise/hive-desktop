@@ -1,7 +1,7 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
 import { agentLimit } from './advanced'
-import { agentOf, agentProviderOf, choose, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
+import { agentOf, agentProviderOf, choose, closeTile, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
 import { MANY_AGENTS, agentLimitText, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
@@ -362,7 +362,8 @@ export async function quickAddAgent(path: string | null = get().selectedProject,
   await refreshWorkspace()
   noteManyAgents(path)
   const now = project(path)
-  if (now) showAgent(now, def.id)
+  // Its pane; in the Tiles view its tile (#976), not its focus view.
+  if (now) showAgent(now, def.id, 'select')
   return def.id
 }
 
@@ -1092,7 +1093,7 @@ export async function addAgentFromTemplate(path: string, entry: Pick<TemplateEnt
   if (def.reused && def.worktree) notify('info', tr(msg({ id: 'actions.template.reusedTitle', defaultMessage: '{agent} works in its worktree again', description: "A notification's title: an agent added from a template ({agent}) works in the clean worktree it had before." }), { agent: def.name }), tr(msg({ id: 'actions.template.reusedMessage', defaultMessage: '{branch} in {path}: it was clean, and its branch is left as it is.', description: 'Under the notification that an agent works in its old worktree again: its branch ({branch}) and folder ({path}).' }), { branch: def.worktree.branch, path: def.worktree.path }))
   await refreshWorkspace()
   const p = project(path)
-  if (p) showAgent(p, def.id)
+  if (p) showAgent(p, def.id, 'select')
 }
 
 /** Removes an agent; for a worktree agent, asks whether to keep its worktree and branch. */
@@ -1272,7 +1273,10 @@ export async function setLayout(path: string, layout: SessionLayout): Promise<vo
 
 /** The Session tab's view for a project (#975): Panes or Tiles, remembered in its project.json. */
 export async function setSessionView(path: string, view: SessionView): Promise<void> {
-  if (!project(path)) return
+  const p = project(path)
+  if (!p) return
+  // Panes leaves the focus view (#976): Tiles shows its grid again.
+  if (view === 'panes') closeTile(p)
   await attempt(tr(msg({ id: 'actions.sessionView.failed', defaultMessage: 'Could not change the view', description: "An error's title: switching a project's Session tab between Panes and Tiles failed." })), () => call('project:updateConfig', path, { sessionView: view }))
   await refreshWorkspace()
 }

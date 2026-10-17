@@ -2871,6 +2871,26 @@
     "defaultMessage": "Resume agents after an unexpected close",
     "description": "A setting's title (Settings → Sessions)."
   },
+  "settings.sessions.tileOrder.desc": {
+    "defaultMessage": "The order of the agents' tiles in the Tiles view.",
+    "description": "What the setting \"Tile order\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.tileOrder.option.panes": {
+    "defaultMessage": "Same as panes",
+    "description": "A choice of the setting \"Tile order\" (Settings → Sessions): the tiles in the panes' order. The default."
+  },
+  "settings.sessions.tileOrder.option.urgency": {
+    "defaultMessage": "By urgency",
+    "description": "A choice of the setting \"Tile order\" (Settings → Sessions): waiting for you and stalled first, then working, then idle."
+  },
+  "settings.sessions.tileOrder.tip": {
+    "defaultMessage": "Same as panes keeps the agents in their panes' order, so a builder stays beside its reviewer: tiles waiting for you or stalled are highlighted where they are, and a page button counts them on other pages. By urgency puts them first, then the agents working, then the idle ones.",
+    "description": "The info tip of the setting \"Tile order\" (Settings → Sessions). \"Same as panes\" and \"By urgency\" are its choices: use their translations."
+  },
+  "settings.sessions.tileOrder.title": {
+    "defaultMessage": "Tile order",
+    "description": "A setting's title (Settings → Sessions): the order of the Tiles view's tiles."
+  },
   "settings.sessions.transcriptWarnMB.desc": {
     "defaultMessage": "Size, in MB, at which a running conversation's transcript turns orange in its footer and Hive notifies you once.",
     "description": "What the setting \"Warn when a transcript is over\" does, under its title (Settings → Sessions)."

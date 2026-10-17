@@ -204,8 +204,8 @@ describe('the sentences once built by hand read as before, in English', () => {
   })
 
   it("the Assistant's panel", () => {
-    expect(tr(m('assistant.panel.compactTip'), { hasTokens: 'yes', tokens: '120K', suggested: 'yes' })).toBe('Compact the conversation (now 120K tokens). Recommended: the context is over your threshold.')
-    expect(tr(m('assistant.panel.compactTip'), { hasTokens: 'no', tokens: '', suggested: 'no' })).toBe('Compact the conversation.')
+    expect(tr(m('assistant.panel.namesTip'), { shown: 'yes' })).toBe("Show only the agents' state marks (names on hover)")
+    expect(tr(m('assistant.panel.namesTip'), { shown: 'no' })).toBe("Show the agents' names beside their state marks")
     expect(tr(m('assistant.panel.attention'), { kind: 'question' })).toBe('has a question for you')
     expect(tr(m('assistant.panel.openCard'), { number: 12, known: 'yes', column: 'Review' })).toBe('Open card #12, in Review')
     expect(tr(m('assistant.panel.progress'), { run: 'e2e: 4/12', hasStep: 'yes', step: 'agents' })).toBe('Progress: e2e: 4/12 (agents)')

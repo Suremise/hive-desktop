@@ -92,7 +92,9 @@ const check = (name, ok, extra = '') => {
   await inv('settings:update', { appearance: { theme: 'dark' } })
 
   // Folded: its strip stays on the left, its arrow pointing right (to open it).
-  await page.locator('.assistant-header button[aria-label^="Hide the Assistant"]').click()
+  // Hidden from the header's ⋯ (#979: the header's own Hide button went into it).
+  await page.locator('.assistant-header button[aria-label="More"]').click()
+  await page.locator('.menu .menu-item', { hasText: 'Hide the Assistant' }).click()
   await lib.until(async () => !!(await layout()).rail, 5000)
   l = await layout()
   check('hidden, its strip is on the left too', leftOfMain(l, 'rail'), JSON.stringify(l))

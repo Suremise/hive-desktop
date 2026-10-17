@@ -183,10 +183,6 @@
     "defaultMessage": "Make this the mode of this workspace's Assistant (a running Assistant is told at once, keeping its conversation)",
     "description": "Tooltip on Use in This Workspace."
   },
-  "assistant.panel.agentTip": {
-    "defaultMessage": "{running, select, yes {{name}: {status}} other {{name}: not running}}",
-    "description": "The first line of an agent's tooltip in the Assistant's overview ({status}: Working…)."
-  },
   "assistant.panel.allConversations": {
     "defaultMessage": "All Conversations…",
     "description": "The Assistant's More menu: opens its conversations in the Assistant view."
@@ -215,10 +211,6 @@
     "defaultMessage": "Coding agent",
     "description": "Assistant Settings: a heading (Claude Code, Codex…)."
   },
-  "assistant.panel.compact": {
-    "defaultMessage": "Compact",
-    "description": "The Assistant's Compact button, for screen readers."
-  },
   "assistant.panel.compactLater": {
     "defaultMessage": "Compact once the Assistant has finished",
     "description": "Tooltip on Compact while the Assistant works."
@@ -227,9 +219,9 @@
     "defaultMessage": "Compact…",
     "description": "The Assistant's More menu, in a narrow panel."
   },
-  "assistant.panel.compactTip": {
-    "defaultMessage": "{hasTokens, select, yes {Compact the conversation (now {tokens} tokens).} other {Compact the conversation.}}{suggested, select, yes { Recommended: the context is over your threshold.} other {}}",
-    "description": "Tooltip on Compact ({tokens}: \"120K\"). The second sentence when the context is over Settings → Sessions' threshold."
+  "assistant.panel.compactRecommended": {
+    "defaultMessage": "Recommended: the context is over your threshold.",
+    "description": "The detail of Compact… in the Assistant's ⋯ menu once its context passes Settings → Assistant's Highlight Compact over."
   },
   "assistant.panel.compacting": {
     "defaultMessage": "Compacting the conversation…",
@@ -259,10 +251,6 @@
     "defaultMessage": "The conversation has ended.",
     "description": "The Assistant's panel after its conversation ended."
   },
-  "assistant.panel.foldLabel": {
-    "defaultMessage": "{folded, select, yes {Show {project}'s agents} other {Fold {project}'s agents}}",
-    "description": "The Assistant's overview: a project's chevron, for screen readers."
-  },
   "assistant.panel.forWorkspace": {
     "defaultMessage": "For this workspace. Anything left at <i>Default</i> follows <link>Settings → Assistant</link>.",
     "description": "Assistant Settings, at the top. <i> is italic (the choice Default); <link> opens Settings → Assistant."
@@ -270,10 +258,6 @@
   "assistant.panel.hide": {
     "defaultMessage": "Hide the Assistant",
     "description": "An item of the Assistant panel's More (⋯) menu: hides the panel; the Assistant keeps running."
-  },
-  "assistant.panel.hideTip": {
-    "defaultMessage": "{hasKey, select, yes {Hide the Assistant (it keeps running) ({key})} other {Hide the Assistant (it keeps running)}}",
-    "description": "Tooltip on the button that hides the Assistant panel, with its shortcut ({key}: \"Ctrl+Alt+I\")."
   },
   "assistant.panel.inactive": {
     "defaultMessage": "{count, plural, one {# inactive project} other {# inactive projects}}",
@@ -286,6 +270,10 @@
   "assistant.panel.manageModes": {
     "defaultMessage": "Manage Modes…",
     "description": "The Assistant's mode and More menus: opens the modes in the Assistant view."
+  },
+  "assistant.panel.markLabel": {
+    "defaultMessage": "{name}: {state}{running, select, yes {{hasDetail, select, yes { · {detail}} other {}}} other { · not running}}",
+    "description": "An agent's state mark in the Assistant's workspace section: its name for screen readers and the first line of its tooltip. {state}: the state its mark draws (Working, Idle, Waiting for you, Stalled); {detail}: what it is doing, when that says more (\"e2e: 12 suites 4/12\"); \"not running\" while its session isn't. Lower case after the dot."
   },
   "assistant.panel.mode": {
     "defaultMessage": "Mode",
@@ -323,6 +311,18 @@
     "defaultMessage": "Move Panel to the Right",
     "description": "An item of the Assistant panel's More (⋯) menu: moves the panel to the window's right side."
   },
+  "assistant.panel.nameTip": {
+    "defaultMessage": "Assistant · {provider}",
+    "description": "Tooltip of the Assistant's name on its panel's header: its coding agent ({provider}: \"Claude Code\"). Assistant as the panel's title says it."
+  },
+  "assistant.panel.names": {
+    "defaultMessage": "Show agent names",
+    "description": "The Assistant's workspace section: a toggle button that shows each agent's name beside its state mark, for screen readers."
+  },
+  "assistant.panel.namesTip": {
+    "defaultMessage": "{shown, select, yes {Show only the agents' state marks (names on hover)} other {Show the agents' names beside their state marks}}",
+    "description": "Tooltip of the toggle in the Assistant's workspace section: what clicking it does."
+  },
   "assistant.panel.new": {
     "defaultMessage": "New",
     "description": "A button after the conversation ended: starts a new one."
@@ -330,14 +330,6 @@
   "assistant.panel.newConversation": {
     "defaultMessage": "New Conversation",
     "description": "An item of the Assistant panel's More (⋯) menu: starts a new conversation."
-  },
-  "assistant.panel.newConversationLabel": {
-    "defaultMessage": "New conversation",
-    "description": "The Assistant's New button, for screen readers."
-  },
-  "assistant.panel.newConversationTip": {
-    "defaultMessage": "Start a new conversation",
-    "description": "Tooltip on the Assistant's New button."
   },
   "assistant.panel.noAgents": {
     "defaultMessage": "no agents",
@@ -355,13 +347,13 @@
     "defaultMessage": "No projects in this workspace yet.",
     "description": "The Assistant's overview with no projects."
   },
+  "assistant.panel.noneRunning": {
+    "defaultMessage": "no agents running",
+    "description": "The Assistant's workspace section: a project none of whose agents run. Lower case."
+  },
   "assistant.panel.notDone": {
     "defaultMessage": "Not done: {error}",
     "description": "Tooltip on something the Assistant was refused, after when: why ({error}, from Hive's Agent API, in English)."
-  },
-  "assistant.panel.notRunning": {
-    "defaultMessage": "not running",
-    "description": "The Assistant's overview: none of a folded project's agents run. Lower case."
   },
   "assistant.panel.nothingToCompact": {
     "defaultMessage": "Nothing to compact yet",
@@ -382,6 +374,10 @@
   "assistant.panel.progress": {
     "defaultMessage": "{hasStep, select, yes {Progress: {run} ({step})} other {Progress: {run}}}",
     "description": "An agent's tooltip in the Assistant's overview: its test run ({run}: \"e2e: 12 suites 4/12\"; {step}: what it is on)."
+  },
+  "assistant.panel.provider": {
+    "defaultMessage": "Coding agent: {provider}",
+    "description": "A line of an agent's tooltip in the Assistant's workspace section ({provider}: \"Claude Code\")."
   },
   "assistant.panel.railLabel": {
     "defaultMessage": "Hive Assistant",

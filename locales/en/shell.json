@@ -395,6 +395,10 @@
     "defaultMessage": "{several, select, yes {Archive and Start New ({n})…} other {Archive and Start New…}}",
     "description": "The command that archives the agents' sessions and starts new ones, as the menus and the palette show it: with several agents, how many it acts on ({n}). The … says it asks first: keep it."
   },
+  "shell.command.session.backToTiles": {
+    "defaultMessage": "Back to Tiles",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: from one agent's focus view (its pane large) back to the Tiles view's grid of tiles."
+  },
   "shell.command.session.compact": {
     "defaultMessage": "Compact Conversation…",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."

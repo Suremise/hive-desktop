@@ -1,6 +1,6 @@
 // The Hive Assistant's Compact highlight (#290): Settings → Assistant → Highlight Compact over (500,000 by default, its
-// own, not Settings → Sessions' 200,000 for project agents). At or past it, the Assistant's Compact button is highlighted
-// (with "Recommended: the context is over your threshold." in its tooltip) and its footer's context turns amber (with
+// own, not Settings → Sessions' 200,000 for project agents). At or past it, Compact… in the Assistant's ⋯ (#979) is
+// recommended ("Recommended: the context is over your threshold." under it) and its footer's context turns amber (with
 // "— consider compacting"), as an agent's do; below it, or with Never, neither. A change in Settings shows at once. The
 // Assistant runs the fake Claude Code (fake-claude/), whose "context N" makes its context about N tokens. Screenshots
 // in both themes. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
@@ -64,10 +64,18 @@ const check = (name, ok, extra = '') => {
   const ctx = panel.locator('.assistant-footer .pane-foot-item', { has: page.locator('.ctx-text') })
   check('its footer shows the context, about 300k', !!(await lib.until(async () => /300/.test(await ctx.innerText().catch(() => '')), 10000)), await ctx.innerText().catch(() => ''))
 
-  const compact = header.getByRole('button', { name: 'Compact', exact: true })
-  /** Whether the button and the footer's context are highlighted, and what their tooltips say. */
+  /** Compact… in the header's ⋯ (#979: the header's Compact button before), as its menu shows it: label and detail. */
+  const compactItem = async () => {
+    await header.getByRole('button', { name: 'More', exact: true }).click()
+    const item = page.locator('.menu-item', { hasText: 'Compact…' })
+    const text = await lib.until(async () => ((await item.count()) === 1 ? (await item.innerText()).replace(/\s+/g, ' ').trim() : null), HUNG_MS)
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.menu-item').count()) === 0, HUNG_MS)
+    return text ?? ''
+  }
+  /** Whether Compact… is recommended (as an agent's ⋯ says it) and the footer's context highlighted. */
   const shown = async () => {
-    const button = await compact.evaluate((b) => b.classList.contains('suggest'))
+    const button = (await compactItem()).includes('Recommended')
     const footer = await ctx.evaluate((el) => el.classList.contains('warn'))
     return { button, footer }
   }
@@ -88,10 +96,10 @@ const check = (name, ok, extra = '') => {
     const t = await tooltip(target)
     return t !== null && !t.includes(text)
   }
-  const highlighted = async (on) => lib.until(async () => JSON.stringify(await shown()) === JSON.stringify({ button: on, footer: on }), 5000)
+  const highlighted = async (on) => lib.until(async () => JSON.stringify(await shown()) === JSON.stringify({ button: on, footer: on }), HUNG_MS)
 
   check("under 500,000 (but over the agents' 200,000): neither is highlighted", await highlighted(false), JSON.stringify(await shown()))
-  check('…and the tooltips say nothing of it', (await saysNot(compact, 'Recommended')) && (await saysNot(ctx, 'consider compacting')), JSON.stringify([await tooltip(compact), await tooltip(ctx)]))
+  check('…and neither says anything of it', !(await compactItem()).includes('Recommended') && (await saysNot(ctx, 'consider compacting')), JSON.stringify([await compactItem(), await tooltip(ctx)]))
 
   // --- Settings → Assistant → Highlight Compact over: 500,000 shown; 250,000 highlights both at once.
   await page.keyboard.press('Control+,')
@@ -110,12 +118,12 @@ const check = (name, ok, extra = '') => {
   }
   check('250000 saves', await enter('250000'))
   check('…and both are highlighted at once', await highlighted(true), JSON.stringify(await shown()))
-  check("…the button's tooltip recommends it, as an agent's does", await says(compact, 'Recommended: the context is over your threshold.'), await tooltip(compact))
+  check("…⋯'s Compact… recommends it, as an agent's does", (await compactItem()).includes('Recommended: the context is over your threshold.'), await compactItem())
   check("…the footer's says to consider compacting", await says(ctx, '— consider compacting'), await tooltip(ctx))
   check("project agents' threshold is unchanged", (await settings()).sessions.compactSuggestTokens === 200000)
   for (const theme of ['dark', 'light']) {
     await inv('settings:update', { appearance: { theme } })
-    await lib.sleep(300) // on purpose: the theme's colours settle
+    await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
     await page.screenshot({ path: path.join(lib.WORK, `assistantcompact-highlighted-${theme}.png`) })
   }
   await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -130,7 +138,7 @@ const check = (name, ok, extra = '') => {
   // --- Back over the context: neither.
   check('400000 saves', await enter('400000'))
   check('…and neither is highlighted (the context is under it)', await highlighted(false), JSON.stringify(await shown()))
-  check('…nor recommended in the tooltips', (await saysNot(compact, 'Recommended')) && (await saysNot(ctx, 'consider compacting')), JSON.stringify([await tooltip(compact), await tooltip(ctx)]))
+  check('…nor recommended', !(await compactItem()).includes('Recommended') && (await saysNot(ctx, 'consider compacting')), JSON.stringify([await compactItem(), await tooltip(ctx)]))
   await page.screenshot({ path: path.join(lib.WORK, 'assistantcompact-under.png') })
 
   await app.close()

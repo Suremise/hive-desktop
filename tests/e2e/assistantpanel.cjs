@@ -1,14 +1,14 @@
-// The Assistant panel's status line and "Done by the Assistant" (#312, #399). The header has no status dot. Under it,
-// "Status: …" with the Assistant's own status icon (its mark, in the status's colour, the agent's dot on it) says what the
-// Assistant is doing: Not running, Idle, Working, Waiting for you (the attention colour), and a card watch's cards as the
-// app's card chips (their column's colour) that open the card, with the watch's end, and Hive's own approval cards
-// (stopping a busy agent) as "Waiting for your approval" in the attention colour until answered; the header no longer
-// says it a second time. Between the status line and the workspace, what it has done: the last 3 (rows of one height, a
-// setting's with Revert too), Show all scrolling every one inside the same height (nothing moves), Show fewer back at the
-// top, and its header folding it away so the terminal gets the room (and refits); the fold is remembered for the
-// workspace, across a restart. A project in the workspace list folds to one line (its dot and how many run), with the
-// keyboard too, remembered across a restart. Screenshots in both themes, wide and narrow. The Assistant runs the fake
-// Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
+// The Assistant panel's watch line and "Done by the Assistant" (#312, #399, #979). The header has the Assistant's state
+// mark (#973: a ring idle, a pulsing dot working, a diamond waiting for you) and no status text. Under it, "Status: …"
+// says what the Assistant is doing: Not running, Idle, Working, Waiting for you (the attention colour), and a card
+// watch's cards as the app's card chips (their column's colour) that open the card, with the watch's end, and Hive's own
+// approval cards (stopping a busy agent) as "Waiting for your approval" in the attention colour until answered. At the
+// line's end, once it has done something, "Done by the Assistant (n)" opens the list under it (closed at first): the last
+// 3 (rows of one height, a setting's with Revert too), Show all scrolling every one inside the same height (nothing
+// moves), Show fewer back at the top; closing it (Enter on the link too) gives the terminal the room (it refits); open
+// or closed is remembered for the workspace, across a restart. A busy agent's mark in the workspace section says it
+// works. Screenshots in both themes, wide and narrow. The Assistant runs the fake Claude Code (fake-claude/). Dev build,
+// throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -75,10 +75,14 @@ const check = (name, ok, extra = '') => {
   const ends = async (typed) => !!(await prompts.over(typed))
   const say = async (text) => !!(await prompts.say(text))
   const box = async (sel) => (await panel().locator(sel).first().boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 }
+  /** Switches the theme, waiting until the window has it. */
+  const themed = async (theme) => {
+    await inv('settings:update', { appearance: { theme } })
+    return !!(await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS))
+  }
   const shots = async (name) => {
     for (const theme of ['dark', 'light']) {
-      await inv('settings:update', { appearance: { theme } })
-      await lib.sleep(300) // on purpose: the theme's colours settle
+      await themed(theme)
       await page.screenshot({ path: path.join(lib.WORK, `assistantpanel-${name}-${theme}.png`) })
     }
     await inv('settings:update', { appearance: { theme: 'dark' } })
@@ -90,17 +94,19 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => (await panel().locator('.assistant-header').count()) === 1, 5000)
   check('a status line under the header says it isn’t running', (await statusText()) === 'Status: Not running' && (await tone()) === 'off', `${await statusText()} / ${await tone()}`)
   check('…and the header doesn’t say it again, nor has a status dot', (await panel().locator('.assistant-header .pane-status').count()) === 0 && !(await panel().locator('.assistant-header').innerText()).includes('Not running') && (await panel().locator('.assistant-header .dot').count()) === 0)
-  const mark = () => status().locator('.assistant-mark')
-  check('…the status line starts with the Assistant’s own status icon, stopped', (await mark().count()) === 1 && (await mark().getAttribute('data-status')) === 'stopped' && (await mark().locator('svg').count()) === 1 && (await mark().locator('.dot.stopped').count()) === 1)
-  check('nothing done yet: no “Done by the Assistant”', (await panel().locator('.assistant-actions').count()) === 0)
+  const mark = () => panel().locator('.assistant-header .state-mark')
+  const markIs = async (state) => (await mark().count()) === 1 && (await mark().evaluate((el, s) => el.classList.contains(s), state))
+  check('…the header starts with the Assistant’s state mark: idle (a ring) while it isn’t running', await markIs('idle'))
+  const link = panel().locator('.assistant-done-link')
+  check('nothing done yet: no “Done by the Assistant”', (await link.count()) === 0 && (await panel().locator('.assistant-actions').count()) === 0)
 
   // --- Idle, working, waiting for you.
   await panel().locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
   check('started and idle: “Status: Idle”', !!(await lib.until(async () => (await statusText()) === 'Status: Idle' && (await tone()) === 'calm', 20000)), await statusText())
-  check('…its icon idle, outlined', ['ready', 'finished', 'idle'].includes(await mark().getAttribute('data-status')) && (await mark().locator('.fill').evaluate((el) => getComputedStyle(el).opacity)) === '0')
+  check('…its mark idle', await markIs('idle'))
   const working = await type('work 4')
   check('working: “Status: Working”', !!(await lib.until(async () => (await statusText()) === 'Status: Working' && (await tone()) === 'busy', 5000)), await statusText())
-  check('…its icon working, filled, with the working dot', (await mark().getAttribute('data-status')) === 'working' && (await mark().locator('.fill').evaluate((el) => getComputedStyle(el).opacity)) !== '0' && (await mark().locator('.dot.working').count()) === 1)
+  check('…its mark working (the pulsing dot)', await markIs('working'))
   check('…and that turn ends', await ends(working))
   const asking = await type('ask then work 5')
   check('asking for permission: “Status: Waiting for you”, in the attention colour', !!(await lib.until(async () => (await statusText()) === 'Status: Waiting for you' && (await tone()) === 'attention', 8000)), await statusText())
@@ -128,18 +134,19 @@ const check = (name, ok, extra = '') => {
       const [hi, lo] = [lum(back), lum(text)].sort((x, y) => y - x)
       return { got: getComputedStyle(el).color, want, ratio: Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100 }
     })
-  /** The attention colour and its contrast in both themes (AA for its 12 px text: 4.5:1). */
+  /** The attention colour and its contrast in both themes (AA for its 12 px text: 4.5:1), once each theme's colour is drawn. */
   const attentionAA = async () => {
     const out = {}
     for (const theme of ['light', 'dark']) {
-      await inv('settings:update', { appearance: { theme } })
-      await lib.sleep(300) // on purpose: the theme's colours settle
-      out[theme] = await attentionColour()
+      await themed(theme)
+      // The line's colour once it is the theme's (a colour transition passes through others); the last read if never.
+      await lib.until(async () => { out[theme] = await attentionColour(); return out[theme].got === out[theme].want && out[theme].ratio >= 4.5 }, HUNG_MS)
     }
     return out
   }
   const colours = await attentionAA()
   check('…in the attention colour, with AA contrast on its tint in both themes', Object.values(colours).every((c) => c.got === c.want && c.ratio >= 4.5), JSON.stringify(colours))
+  check('…and the header’s mark waiting for you (the diamond)', await markIs('waiting'))
   await shots('waiting')
   check('…and its turn ends by itself after the question', await ends(asking))
 
@@ -148,7 +155,10 @@ const check = (name, ok, extra = '') => {
   const task = (t) => `hive hive_create_task {"project":"alpha","title":"${t}"}`
   check('it makes six changes in one turn', await say([task('First thing'), task('Second thing'), task('Third thing'), 'skill tune-settings', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":50}', 'hive hive_update_setting {"id":"sessions.transcriptWarnMB","value":60}', task('Sixth thing')].join(' then ')))
   const section = panel().locator('.assistant-actions')
-  check('six changes: “Done by the Assistant (6)”', !!(await lib.until(async () => /Done by the Assistant\s*\(6\)/i.test(await section.locator('.assistant-actions-head').innerText().catch(() => '')), HUNG_MS)), await section.innerText().catch(() => ''))
+  check('six changes: “Done by the Assistant (6)” at the watch line’s end, closed', !!(await lib.until(async () => /Done by the Assistant\s*\(6\)/i.test(await link.innerText().catch(() => '')), HUNG_MS)) && (await link.getAttribute('aria-expanded')) === 'false' && (await section.count()) === 0, await link.innerText().catch(() => ''))
+  check('…with the Assistant’s crown', (await link.locator('.assistant-mark').count()) === 1)
+  await link.click()
+  check('…a click opens the list', !!(await lib.until(async () => (await section.count()) === 1 && (await link.getAttribute('aria-expanded')) === 'true', HUNG_MS)))
   const order = await page.evaluate(() => {
     const at = (sel) => document.querySelector(`.assistant-panel ${sel}`)?.getBoundingClientRect().top ?? -1
     return { status: at('.assistant-status'), actions: at('.assistant-actions'), workspace: at('.assistant-overview'), terminal: at('.assistant-terminal'), inOverview: !!document.querySelector('.assistant-overview .assistant-action') }
@@ -185,19 +195,29 @@ const check = (name, ok, extra = '') => {
   await section.locator('.assistant-revert').first().click()
   check('…and Revert works', !!(await lib.until(async () => (await section.locator('.assistant-action', { hasText: 'You reverted' }).count()) >= 1, 5000)))
 
-  // --- The fold: the header folds it all away, and the terminal gets the room (refitted, not clipped).
-  const head = section.locator('.assistant-actions-head')
-  check('the header is a button saying it is open', (await head.evaluate((el) => el.tagName)) === 'BUTTON' && (await head.getAttribute('aria-expanded')) === 'true')
+  // --- Closing it: the link closes the list, and the terminal gets the room (refitted, not clipped).
+  const head = link
+  check('the link is a button saying the list is open', (await head.evaluate((el) => el.tagName)) === 'BUTTON' && (await head.getAttribute('aria-expanded')) === 'true')
   // The terminal's drawn screen (xterm draws on a canvas here): taller once it has refitted to more rows.
   const rowsOf = async () => Math.round((await panel().locator('.assistant-terminal .xterm-screen').boundingBox())?.height ?? 0)
+  // Measured once the terminal has refitted to the open list (its screen inside its box), not while a refit is due.
+  const screenFits = () =>
+    page.evaluate(() => {
+      const t = document.querySelector('.assistant-panel .assistant-terminal')?.getBoundingClientRect()
+      const s = document.querySelector('.assistant-panel .assistant-terminal .xterm-screen')?.getBoundingClientRect()
+      return !!t && !!s && s.height > 0 && s.bottom <= t.bottom + 1 && t.bottom - s.bottom < 40
+    })
+  check('with the list open, the terminal fits its box', !!(await lib.until(screenFits, HUNG_MS)))
   const before = { term: await box('.assistant-terminal'), rows: await rowsOf() }
   await head.focus()
   await page.keyboard.press('Enter')
-  check('Enter folds it to its header', !!(await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false' && (await rows.count()) === 0, HUNG_MS)))
-  await lib.sleep(500) // on purpose: the terminal refits after its box changes
-  const after = { term: await box('.assistant-terminal'), rows: await rowsOf() }
-  check('…the terminal gets the room', after.term.height > before.term.height + 40, `${before.term.height} → ${after.term.height}`)
-  check('…and refits to it: more rows (a taller screen)', after.rows > before.rows + 30, `${before.rows} → ${after.rows}`)
+  check('Enter on it closes the list', !!(await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false' && (await rows.count()) === 0, HUNG_MS)))
+  // The terminal's box grows, then it refits to more rows: both waited for (the last read is reported if not).
+  let after = { term: before.term, rows: before.rows }
+  const grown = await lib.until(async () => { after = { term: await box('.assistant-terminal'), rows: await rowsOf() }; return after.term.height > before.term.height + 40 }, HUNG_MS)
+  check('…the terminal gets the room', !!grown, `${before.term.height} → ${after.term.height}`)
+  const refitted = await lib.until(async () => { after.rows = await rowsOf(); return after.rows > before.rows + 30 }, HUNG_MS)
+  check('…and refits to it: more rows (a taller screen)', !!refitted, `${before.rows} → ${after.rows}`)
   const fits = await page.evaluate(() => {
     const t = document.querySelector('.assistant-panel .assistant-terminal')?.getBoundingClientRect()
     const s = document.querySelector('.assistant-panel .assistant-terminal .xterm-screen')?.getBoundingClientRect()
@@ -212,18 +232,9 @@ const check = (name, ok, extra = '') => {
   const alpha = path.join(ws, 'alpha')
   const fixerLive = async () => (await inv('session:live')).find((x) => x.projectPath.toLowerCase() === alpha.toLowerCase() && x.agentName === 'Fixer')
   check('an agent of alpha is busy', !!(await lib.until(async () => (await fixerLive())?.status === 'working', 30000)))
-  // Its row in the workspace list is backed in its status's colour (#399), its activity in the text colour (AA).
-  const fixerRow = panel().locator('.assistant-agent', { hasText: 'Fixer' })
-  check('…its row in the workspace list has the working wash', !!(await lib.until(async () => (await fixerRow.getAttribute('data-status').catch(() => null)) === 'working' && (await fixerRow.evaluate((el) => el.classList.contains('row-wash'))), 5000)))
-  const textColours = await fixerRow.evaluate((el) => {
-    const probe = document.createElement('span')
-    probe.style.color = 'var(--fg)'
-    document.body.appendChild(probe)
-    const want = getComputedStyle(probe).color
-    probe.remove()
-    return { got: getComputedStyle(el.querySelector('.assistant-agent-status')).color, want, backing: getComputedStyle(el, '::before').backgroundColor }
-  })
-  check('…its activity in the text colour, over a tint', textColours.got === textColours.want && textColours.backing !== 'rgba(0, 0, 0, 0)', JSON.stringify(textColours))
+  // Its mark in the workspace section says it works (#979), and its label says who and what.
+  const fixerMark = panel().locator('.assistant-project[data-project="alpha"] .assistant-agent')
+  check('…its mark in the workspace section is working', !!(await lib.until(async () => (await fixerMark.count()) === 1 && (await fixerMark.getAttribute('data-state')) === 'working' && ((await fixerMark.getAttribute('aria-label')) ?? '').startsWith('Fixer: '), 5000)), await fixerMark.getAttribute('aria-label').catch(() => 'no mark'))
   const stopping = await type('hive hive_stop_agent {"project":"alpha","agent":"Fixer"}')
   const card = panel().locator('.assistant-question', { hasText: 'Stop Fixer in alpha?' })
   check('stopping it asks the user on a card', !!(await lib.until(async () => (await card.count()) === 1, 15000)))
@@ -257,9 +268,13 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(edge.x + 60, edge.y + 200, { steps: 5 })
   await page.mouse.move(edge.x + 125, edge.y + 200, { steps: 5 })
   await page.mouse.up()
-  await lib.sleep(600)
-  const cut = await status().locator('.assistant-status-text').evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, ellipsis: getComputedStyle(el).textOverflow }))
-  check('narrow: the status line is cut short with “…”', cut.cut && cut.ellipsis === 'ellipsis', JSON.stringify(cut))
+  // Narrowed to about 310 px: the line cut once it has laid out at that width.
+  let cut = null
+  const narrowed = await lib.until(async () => {
+    cut = await status().locator('.assistant-status-text').evaluate((el) => ({ cut: el.scrollWidth > el.clientWidth, ellipsis: getComputedStyle(el).textOverflow, panel: Math.round(el.closest('.assistant-panel').getBoundingClientRect().width) }))
+    return cut.panel <= 320 && cut.cut
+  }, HUNG_MS)
+  check('narrow: the status line is cut short with “…”', !!narrowed && cut.ellipsis === 'ellipsis', JSON.stringify(cut))
   await status().locator('.assistant-status-text').hover()
   check('…its tooltip has the whole line', !!(await lib.until(async () => /Status: Waiting for #1, #2 → Review \(watch until/.test((await page.locator('.tip:visible').allInnerTexts()).join(' ')), HUNG_MS)))
   await page.mouse.move(0, 0)
@@ -269,19 +284,6 @@ const check = (name, ok, extra = '') => {
   await head.click()
   await lib.until(async () => (await head.getAttribute('aria-expanded')) === 'false', HUNG_MS)
   await page.locator('.assistant-panel > .pane-resizer').dblclick()
-
-  // --- A project in the workspace list folds to one line: its dot and how many run (Enter on its chevron too).
-  await inv('project:setActive', alpha, true).catch(() => undefined)
-  const project = panel().locator('.assistant-project[data-project="alpha"]')
-  const fold = project.locator('.assistant-project-fold')
-  check('a project’s chevron says it is open', (await fold.getAttribute('aria-expanded')) === 'true' && (await project.locator('.assistant-agent').count()) >= 1)
-  await fold.focus()
-  await page.keyboard.press('Enter')
-  check('Enter folds the project to one line', !!(await lib.until(async () => (await fold.getAttribute('aria-expanded')) === 'false' && (await project.locator('.assistant-agent').count()) === 0, HUNG_MS)))
-  const summary = (await project.locator('.assistant-project-summary').innerText().catch(() => '')).trim()
-  check('…its name, its dot and how many agents run', /^(\d+ running|not running)$/.test(summary) && (await project.locator('.assistant-project-summary .dot').count()) === 1 && (await project.locator('.assistant-project-name').innerText()).trim() === 'alpha', summary)
-  check('…in one line', (await project.locator('.assistant-project-head').boundingBox()).height <= 22)
-  await shots('project-folded')
 
   // --- After a restart: still folded (once it has done something again; the list is the running Hive's).
   await inv('session:stop', home, 'assistant')
@@ -301,12 +303,10 @@ const check = (name, ok, extra = '') => {
   await lib.until(async () => (await panel().locator('.assistant-header').count()) === 1, 5000)
   await panel().locator('.assistant-header').getByRole('button', { name: /Resume|Start/ }).first().click()
   check('it adds a card after the restart', await say('hive hive_create_task {"project":"alpha","title":"After the restart"}'))
-  const again = panel().locator('.assistant-actions')
-  check('after a restart, “Done by the Assistant” is still folded', !!(await lib.until(async () => (await again.count()) === 1, 10000)) && (await again.locator('.assistant-actions-head').getAttribute('aria-expanded')) === 'false' && (await again.locator('.assistant-action').count()) === 0)
-  const alphaAgain = panel().locator('.assistant-project[data-project="alpha"]')
-  check('…and so is the project', (await alphaAgain.locator('.assistant-project-fold').getAttribute('aria-expanded')) === 'false' && (await alphaAgain.locator('.assistant-agent').count()) === 0)
-  await alphaAgain.locator('.assistant-project-fold').press(' ')
-  check('Space unfolds it again', !!(await lib.until(async () => (await alphaAgain.locator('.assistant-project-fold').getAttribute('aria-expanded')) === 'true' && (await alphaAgain.locator('.assistant-agent').count()) >= 1, HUNG_MS)))
+  const again = panel().locator('.assistant-done-link')
+  check('after a restart, “Done by the Assistant” is still closed', !!(await lib.until(async () => (await again.count()) === 1, 10000)) && (await again.getAttribute('aria-expanded')) === 'false' && (await panel().locator('.assistant-action').count()) === 0)
+  await again.press(' ')
+  check('Space opens it again', !!(await lib.until(async () => (await again.getAttribute('aria-expanded')) === 'true' && (await panel().locator('.assistant-action').count()) >= 1, HUNG_MS)))
 
   // --- Its mark where the Assistant is listed: its run in the Progress panel (reported with its own token, as
   // hive-progress would), the Workspace Overview's running row, and the hidden panel's strip.
