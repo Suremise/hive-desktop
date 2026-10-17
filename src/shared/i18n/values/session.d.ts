@@ -151,6 +151,10 @@ interface HiveMessageValues {
   'session.start.subSession': { kind: string | number; provider: string | number }
   'session.start.turnedOff': { provider: string | number; agent: string | number }
   'session.start.worktreeMissing': { agent: string | number; folder: string | number }
+  'session.state.idle': undefined
+  'session.state.stalled': undefined
+  'session.state.waiting': undefined
+  'session.state.working': undefined
   'session.status.asksAtStart': undefined
   'session.status.asksTrust': undefined
   'session.status.compacting': undefined
