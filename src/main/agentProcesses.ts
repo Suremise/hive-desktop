@@ -10,6 +10,7 @@ import { hiveError } from './hiveError'
 import { processLabel, type AgentLeftovers, type AgentProcess } from '../shared/agentProcesses'
 import { englishText, shownText, withValues, type TextPart } from '../shared/advanced'
 import { msg, tr } from '../shared/i18n'
+import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, type LaunchProcesses } from '../shared/unexpectedClose'
 
 /**
  * The processes each agent's launch starts, and the ones it leaves running when it stops (#507).
@@ -762,6 +763,23 @@ export async function agentsMemory(): Promise<{ agents: number; bytes: number } 
   return each.length ? { agents: each.length, bytes: each.reduce((a, b) => a + b, 0) } : null
 }
 
+/**
+ * What running agents' launches have started, now (#987): each launch's job, its CLI and all it started, each process by
+ * id and start time (one without can't be told from a later process with its id, so it is left out), within the
+ * marker's bounds. For the running marker (lastRun.ts), so that after Hive is ended without quitting, the next start
+ * knows them. Empty when no launch is tracked; never starts the host.
+ */
+export async function runningProcesses(): Promise<LaunchProcesses[]> {
+  if (process.platform !== 'win32' || !running.size || !host.pid) return []
+  const out: LaunchProcesses[] = []
+  for (const l of [...running.values()].slice(-MAX_MARKER_LAUNCHES)) {
+    const list = await listJob(l.runId)
+    const processes = (list?.processes ?? []).filter((p) => p.created).slice(0, MAX_MARKER_PROCESSES)
+    if (processes.length) out.push({ projectPath: l.projectPath, agentId: l.agentId, agentName: l.agentName, processes })
+  }
+  return out
+}
+
 /** Once every launch that has exited has been looked at (Hive quitting asks about all their leftovers at once). */
 export async function leftoversSettled(): Promise<void> {
   while (settling.size) await Promise.allSettled([...settling])
@@ -1100,13 +1118,41 @@ function boundedSaved(saved: Partial<SavedLeftovers> | null): SavedLaunch[] {
   return kept.reverse()
 }
 
+/** The start's restore of what agents left running (restoreLeftovers), once it has begun. */
+let restoring: Promise<AgentLeftovers[]> | null = null
+
 /**
  * What agents left running before Hive last closed (#614): the kept launches' processes still running as the same ones,
  * each launch listed again on its own (the agent's pane's ⋯, `session:leftovers`) within the usual bounds, and
  * returned (per agent) for Hive to offer as when an agent stops. Without the host, nothing is restored and the list
- * stays kept for the next start.
+ * stays kept for the next start. Once a start.
  */
-export async function restoreLeftovers(): Promise<AgentLeftovers[]> {
+export function restoreLeftovers(): Promise<AgentLeftovers[]> {
+  restoring ??= restore()
+  return restoring
+}
+
+/**
+ * Of processes an earlier run's agents had started (the running marker's, #987), those still running as the same
+ * processes (id and start time), apart from those listed as left running (#614: offered on their own, once, after the
+ * start's restore). Null when the host can't say.
+ */
+export async function stillRunningOf(processes: readonly AgentProcess[]): Promise<AgentProcess[] | null> {
+  if (!processes.length) return []
+  if (!(await trackingReady())) return null
+  await restoring?.catch(() => [])
+  const listed = new Set([...left.values()].flatMap((l) => l.processes.map(identity)))
+  const seen = new Set<string>()
+  const mine = processes.filter((p) => p.created && !listed.has(identity(p)) && !seen.has(identity(p)) && seen.add(identity(p)))
+  return (await stillRunning(mine))?.processes ?? null
+}
+
+/** Ends these processes, each only while it is still the same process (id and start time, #987): whether none still runs. */
+export async function endProcessesExactly(processes: readonly AgentProcess[]): Promise<boolean> {
+  return (await trackingReady()) && !killFailsForTests() && (await endExactly([...processes]))
+}
+
+async function restore(): Promise<AgentLeftovers[]> {
   const launches = boundedSaved(await readJson<Partial<SavedLeftovers> | null>(savedFile(), null))
   const all = launches.flatMap((l) => l.processes)
   if (!all.length || !(await trackingReady())) return []

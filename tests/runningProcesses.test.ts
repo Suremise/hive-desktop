@@ -1,0 +1,106 @@
+// What running agents had started, after Hive closed unexpectedly (#987): while a launch runs, runningProcesses() gives
+// its job's processes, each by id and start time (for the running marker). At the next start (the module fresh, the old
+// helper gone as after a crash), stillRunningOf() keeps those still running as the same processes: not the CLI that
+// ended, not a record whose pid names another process by now (a stranger's, with another start time), and not one
+// already listed as left running (#614: restored from leftovers.json and offered on its own). endProcessesExactly()
+// ends exactly those, and the stranger keeps running. The real helper (PowerShell).
+import { createRequire } from 'module'
+import { spawn, type ChildProcess } from 'child_process'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { tempDir } from './tempDir'
+// What the test started that is still running: stopped by its command line (it names the test's folder) and start,
+// never by a pid remembered from earlier (#547).
+const { stopProcessesIn } = createRequire(import.meta.url)('./e2e/folderProcesses.cjs') as { stopProcessesIn: (folder: string, since?: number) => number }
+// Every child gets the run context's allowlisted environment, never the shell's (a NODE_OPTIONS preload, a GIT_DIR).
+const { baseEnv } = createRequire(import.meta.url)('./e2e/runContext.cjs') as { baseEnv: () => NodeJS.ProcessEnv }
+
+vi.mock('../src/main/events', () => ({ emit: () => undefined, toast: () => undefined }))
+// Hive's profile, where leftovers.json is kept: this file's own.
+const profile = vi.hoisted(() => ({ dir: '' }))
+vi.mock('electron', async (importOriginal) => {
+  const stub = await importOriginal<typeof import('./electron-stub')>()
+  return { ...stub, app: { ...stub.app, getPath: () => profile.dir } }
+})
+profile.dir = tempDir('hive-running-profile-')
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+async function until(fn: () => boolean, ms: number): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end && !fn()) await new Promise((r) => setTimeout(r, 100))
+  return fn()
+}
+
+describe.runIf(process.platform === 'win32')('what running agents had started, after an unexpected close (#987)', () => {
+  const dir = tempDir('hive-running-')
+  const since = Date.now()
+  const children: ChildProcess[] = []
+  afterAll(() => {
+    // Its own children, through their handles (not a pid Windows may have reused).
+    for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
+    stopProcessesIn(dir, since)
+  })
+
+  it('lists them by identity while they run, and at the next start keeps, and ends, exactly those still running', async () => {
+    // A CLI that starts two detached servers and keeps running, tracked from before it starts them.
+    const cli = join(dir, 'cli.cjs')
+    const outs = [join(dir, 'a.txt'), join(dir, 'b.txt')]
+    const server = (out: string): string => `require('child_process').spawn(process.execPath, ['-e', "require('fs').writeFileSync(process.argv[1], String(process.pid)); setTimeout(() => {}, 120000)", ${JSON.stringify(out)}], { detached: true, stdio: 'ignore', windowsHide: true, env: process.env }).unref();`
+    writeFileSync(cli, `process.stdin.once('data', () => { ${outs.map(server).join(' ')} }); setTimeout(() => {}, 120000)`)
+    // Its servers get the CLI's own environment, explicitly: the allowlisted one it was given.
+    const proc = spawn(process.execPath, [cli], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true, env: baseEnv() })
+    children.push(proc)
+    let mod = await import('../src/main/agentProcesses')
+    expect(await mod.runningProcesses()).toEqual([])
+    expect(await mod.trackLaunch({ runId: 'r1', projectPath: dir, agentId: 'a1', agentName: 'Website' }, proc.pid!)).toEqual({ tracked: true })
+    proc.stdin!.write('go\n')
+    expect(await until(() => outs.every((o) => existsSync(o) && readFileSync(o, 'utf8').length > 0), 10_000)).toBe(true)
+    const [a, b] = outs.map((o) => Number(readFileSync(o, 'utf8')))
+
+    const launches = await mod.runningProcesses()
+    expect(launches.map((l) => [l.projectPath, l.agentId, l.agentName])).toEqual([[dir, 'a1', 'Website']])
+    const listed = launches[0].processes
+    expect(listed.map((p) => p.pid).sort()).toEqual([proc.pid!, a, b].sort())
+    expect(listed.every((p) => /^\d+$/.test(p.created ?? ''))).toBe(true)
+
+    // Hive ends without quitting: its helper goes (its jobs close, ending nothing), and the CLI with its terminal.
+    mod.closeProcessTracking()
+    proc.kill()
+    await new Promise((r) => (proc.exitCode !== null ? r(null) : proc.once('exit', r)))
+    expect(alive(a) && alive(b)).toBe(true)
+
+    // Someone else's process, which a record names with another start time: as if its pid had been reused.
+    const stranger = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)', dir], { stdio: 'ignore', windowsHide: true, env: baseEnv() })
+    children.push(stranger)
+    const strangerRecord = { pid: stranger.pid!, name: 'node.exe', label: 'node old-server.js', created: '116444736000000000' }
+    // b was also kept as left running (leftovers.json, #614): restored and offered on its own, so not listed here.
+    const bRow = listed.find((p) => p.pid === b)!
+    writeFileSync(join(profile.dir, 'leftovers.json'), JSON.stringify({ version: 1, launches: [{ runId: 'r0', projectPath: dir, agentId: 'a1', agentName: 'Website', since: new Date().toISOString(), processes: [bRow] }] }))
+
+    // The next start: a fresh module and helper.
+    vi.resetModules()
+    mod = await import('../src/main/agentProcesses')
+    try {
+      expect((await mod.restoreLeftovers()).flatMap((l) => l.processes.map((p) => p.pid))).toEqual([b])
+      const still = await mod.stillRunningOf([...listed, strangerRecord])
+      expect(still?.map((p) => p.pid)).toEqual([a])
+      expect(await mod.endProcessesExactly([...(still ?? []), strangerRecord])).toBe(true)
+      expect(await until(() => !alive(a), 5000)).toBe(true)
+      expect(alive(stranger.pid!)).toBe(true)
+      expect(await mod.stillRunningOf(listed)).toEqual([])
+      // b stays listed as left running, to end there.
+      expect(await mod.settleLeftovers(dir, 'a1', 'end')).toBe(1)
+      expect(await until(() => !alive(b), 5000)).toBe(true)
+    } finally {
+      mod.closeProcessTracking()
+    }
+  }, 60_000)
+})

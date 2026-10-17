@@ -451,6 +451,10 @@
     "defaultMessage": "Stop a Background Session and Resume It",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
   },
+  "shell.command.session.stopLeftAfterClose": {
+    "defaultMessage": "Stop What the Agents Started Before Hive Closed",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: ends the processes the agents had started that still run after Hive closed unexpectedly. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
   "shell.command.session.toggleView": {
     "defaultMessage": "Switch Between Panes and Tiles",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: switches the Session tab between Panes (the agents' terminals) and Tiles (a small tile per agent). Panes and Tiles: as the toggle says them."
@@ -790,6 +794,10 @@
   "shell.error.stopBackground": {
     "defaultMessage": "Could not stop the background session",
     "description": "An error's title: stopping an agent's background session failed."
+  },
+  "shell.error.stopLeftAfterClose": {
+    "defaultMessage": "Could not stop the processes",
+    "description": "An error's title: ending the processes the agents had started before Hive closed unexpectedly failed."
   },
   "shell.error.switchModes": {
     "defaultMessage": "Could not switch permission modes",

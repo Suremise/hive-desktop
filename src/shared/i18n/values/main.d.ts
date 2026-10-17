@@ -168,11 +168,15 @@ interface HiveMessageValues {
   'main.unexpectedClose.merge': { agent: string | number; branch: string | number; folder: string | number }
   'main.unexpectedClose.mergeCards': { agent: string | number; branch: string | number; cards: string | number; folder: string | number }
   'main.unexpectedClose.notResumed': undefined
+  'main.unexpectedClose.notStopped': { n: number }
   'main.unexpectedClose.overview': undefined
   'main.unexpectedClose.resumeAll': undefined
   'main.unexpectedClose.resumeFailedTitle': undefined
   'main.unexpectedClose.resumed': { n: number }
   'main.unexpectedClose.resumedTitle': { n: number }
+  'main.unexpectedClose.stillRunning': { n: number; processes: string | number }
+  'main.unexpectedClose.stopThem': undefined
+  'main.unexpectedClose.stopped': { n: number }
   'main.unexpectedClose.title': undefined
   'main.unexpectedClose.when': { date: string | number; time: string | number }
   'main.unused.branchKept': { branch: string | number; why: string | number }
