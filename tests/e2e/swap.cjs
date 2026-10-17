@@ -58,23 +58,38 @@ const check = (name, ok, extra = '') => {
     const b = await loc.boundingBox()
     return { x: b.x + b.width / 2, y: b.y + b.height / 2 }
   }
-  // A native drag with the mouse: press, a small first move (so the drag starts), over each stop in turn (holding
-  // there `hold` ms), and release.
+  // A native drag with the mouse: press, small moves until the drag has started (the page's dragstart), over each stop
+  // in turn, and release, then wait for its dragend. A pane with a drop target is left only once it shows the drop as
+  // over it; anything else (a page button, which shows its page after being held over) is held over for `hold` ms.
+  // Each move nudges by a pixel: a native drag only follows the mouse while it moves.
+  const dragState = () => page.evaluate(() => window.__swapDrag)
   const drag = async (from, stops, hold = 150) => {
+    await page.evaluate(() => {
+      window.__swapDrag = 'none'
+      document.addEventListener('dragstart', () => (window.__swapDrag = 'started'), { once: true })
+      document.addEventListener('dragend', () => (window.__swapDrag = 'ended'), { once: true })
+    })
     const a = await at(from)
     await page.mouse.move(a.x, a.y)
     await page.mouse.down()
-    await page.mouse.move(a.x + 8, a.y, { steps: 3 })
-    await lib.sleep(150)
+    let dx = 0
+    if (!(await lib.until(async () => (await dragState()) !== 'none' || void (await page.mouse.move(a.x + 8 + (dx = 1 - dx), a.y, { steps: 2 })), HUNG_MS))) throw new Error('the drag never started (no dragstart)')
     for (const s of stops) {
-      const b = typeof s === 'function' ? await at(await s()) : await at(s)
+      const loc = typeof s === 'function' ? await s() : s
+      const b = await at(loc)
       await page.mouse.move(b.x, b.y, { steps: 8 })
-      await lib.sleep(hold)
-      await page.mouse.move(b.x + 1, b.y, { steps: 2 })
-      await lib.sleep(typeof s === 'function' ? 100 : hold)
+      if ((await loc.locator('.pane-drop').count()) > 0) {
+        if (!(await lib.until(async () => (await loc.locator('.pane-drop.over').count()) > 0 || void (await page.mouse.move(b.x + (dx = 1 - dx), b.y, { steps: 2 })), HUNG_MS))) throw new Error('the drop target never showed the drag over it')
+      } else {
+        await lib.sleep(hold)
+        await page.mouse.move(b.x + 1, b.y, { steps: 2 })
+        await lib.sleep(typeof s === 'function' ? 100 : hold)
+      }
     }
     await page.mouse.up()
-    await lib.sleep(400)
+    // A source that left the screen (its page switched) gets no dragend in the page: then the drop targets going is the
+    // end, which the case after such a drag checks.
+    await lib.until(async () => (await dragState()) === 'ended' || (await page.locator('.pane-drop').count()) === 0, HUNG_MS)
   }
   const header = (n) => page.locator('.pane-header-bar', { hasText: n }).locator('.agent-name')
   const pane = (n) => page.locator('.agent-pane', { has: page.locator('.pane-header-bar', { hasText: n }) })

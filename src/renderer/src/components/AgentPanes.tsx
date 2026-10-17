@@ -615,12 +615,12 @@ const below = (el: Element): [number, number] => {
 
 /** A template's layout in a menu item's detail: "automatic layout", "two columns". */
 const layoutName = (l: PageLayout): string =>
-  tr(msg({ id: 'panes.template.layout', defaultMessage: '{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}', description: "A template's layout, after how many agents it has (Template ▾ menu): its pane layout, lower case." }), { layout: l })
+  tr(msg({ id: 'panes.template.layout', defaultMessage: '{layout, select, auto {automatic layout} single {one at a time} columns2 {two columns} columns3 {three columns} grid {grid of four} grid6 {grid of six} other {{layout}}}', description: "A template's layout, after how many agents it has (+ Add ▾ → Templates): its pane layout, lower case." }), { layout: l })
 
 /** The templates a project can use (the workspace's and its own), or null after saying why they couldn't be listed. */
 const templateList = (path: string): Promise<TemplateEntry[] | null> =>
   call('templates:list', path).catch((e) => {
-    notify('error', tr(msg({ id: 'panes.template.listFailed', defaultMessage: 'Could not list the templates', description: "An error's title: Hive couldn't read the templates (Template ▾, Add Agent from Template)." })), errorMessage(e))
+    notify('error', tr(msg({ id: 'panes.template.listFailed', defaultMessage: 'Could not list the templates', description: "An error's title: Hive couldn't read the templates (+ Add ▾ → Templates, Add Agent from Template)." })), errorMessage(e))
     return null
   })
 
@@ -639,23 +639,23 @@ function addFromTemplateItems(project: ProjectInfo, list: TemplateEntry[]): Menu
           onClick: () => void actions.addAgentFromTemplate(project.path, t, i)
         }))
       ])
-    : [{ label: tr(msg({ id: 'panes.template.noneYet', defaultMessage: 'No templates yet: Template ▾ → Save Template… first', description: 'Add Agent from Template with no template: how to save one first. "Template ▾" and "Save Template…" are the button and its menu item: use their translations.' })), disabled: true }]
+    : [{ label: tr(msg({ id: 'panes.template.noneYet', defaultMessage: 'No templates yet: + Add ▾ → Templates → Save Template… first', description: 'Add Agent from Template with no template: how to save one first. "+ Add ▾" is the session toolbar\'s button, "Templates" its menu item and "Save Template…" the item of that menu: use their translations.' })), disabled: true }]
 }
 
-/** Template ▾: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
+/** + Add ▾ → Templates: Save Template…, then the templates to load, by scope (loading replaces the agents, after saying who goes and who comes). */
 function templateMenuItems(project: ProjectInfo, all: TemplateEntry[]): MenuEntry[] {
   const load: MenuEntry[] = all.length
     ? TEMPLATE_SCOPES.flatMap((scope) => {
         const here = all.filter((t) => t.scope === scope)
         return here.length
           ? [
-              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: "{scope, select, workspace {Workspace templates} other {This project's templates}}", description: "A heading in Template ▾ above the templates kept in the workspace, or in this project." }), { scope }) },
-              ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in Template ▾: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
+              { header: true, label: tr(msg({ id: 'panes.template.scopeHeading', defaultMessage: "{scope, select, workspace {Workspace templates} other {This project's templates}}", description: "A heading in + Add ▾ → Templates above the templates kept in the workspace, or in this project." }), { scope }) },
+              ...here.map((t) => ({ label: t.name, icon: 'library', detail: shownProblem(t) ?? tr(msg({ id: 'panes.template.detail', defaultMessage: '{n, plural, one {# agent} other {# agents}} · {layout}', description: "A template's detail in + Add ▾ → Templates: how many agents it has and its layout ({layout}: \"two columns\")." }), { n: t.agents.length, layout: layoutName(t.layout) }), disabled: !!t.problem, onClick: () => void actions.loadTemplate(project.path, t) }))
             ]
           : []
       })
-    : [{ label: tr(msg({ id: 'panes.template.noneSaved', defaultMessage: 'No templates saved yet', description: 'Template ▾ with no template saved.' })), disabled: true }]
-  return [{ label: tr(msg({ id: 'panes.template.save', defaultMessage: 'Save Template…', description: "Menu item (Template ▾): saves this project's agents and layout as a template." })), icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
+    : [{ label: tr(msg({ id: 'panes.template.noneSaved', defaultMessage: 'No templates saved yet', description: '+ Add ▾ → Templates with no template saved.' })), disabled: true }]
+  return [{ label: tr(msg({ id: 'panes.template.save', defaultMessage: 'Save Template…', description: "Menu item (+ Add ▾ → Templates): saves this project's agents and layout as a template." })), icon: 'save', disabled: !project.agents.length, onClick: () => void actions.saveTemplate(project.path) }, { separator: true }, ...load]
 }
 
 /** Opens a strip menu the palette asked for, now or once this strip shows (`project` null: not the strip's). */
