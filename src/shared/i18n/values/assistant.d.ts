@@ -55,10 +55,9 @@ interface HiveMessageValues {
   'assistant.panel.cancel': undefined
   'assistant.panel.chooseMode': undefined
   'assistant.panel.codingAgent': undefined
-  'assistant.panel.compact': undefined
   'assistant.panel.compactLater': undefined
   'assistant.panel.compactMenu': undefined
-  'assistant.panel.compactTip': { hasTokens: string; tokens: string | number; suggested: string }
+  'assistant.panel.compactRecommended': undefined
   'assistant.panel.compacting': undefined
   'assistant.panel.conversations': undefined
   'assistant.panel.counts': { running: string | number; projects: number }
@@ -66,10 +65,8 @@ interface HiveMessageValues {
   'assistant.panel.defaultMode': { name: string | number }
   'assistant.panel.doneBy': undefined
   'assistant.panel.ended': undefined
-  'assistant.panel.foldLabel': { folded: string; project: string | number }
   'assistant.panel.forWorkspace': undefined
   'assistant.panel.hide': undefined
-  'assistant.panel.hideTip': { hasKey: string; key: string | number }
   'assistant.panel.inactive': { count: number }
   'assistant.panel.listFailed': undefined
   'assistant.panel.manageModes': undefined
@@ -82,21 +79,23 @@ interface HiveMessageValues {
   'assistant.panel.more': undefined
   'assistant.panel.moveLeft': undefined
   'assistant.panel.moveRight': undefined
+  'assistant.panel.nameTip': { provider: string | number }
+  'assistant.panel.names': undefined
+  'assistant.panel.namesTip': { shown: string }
   'assistant.panel.new': undefined
   'assistant.panel.newConversation': undefined
-  'assistant.panel.newConversationLabel': undefined
-  'assistant.panel.newConversationTip': undefined
   'assistant.panel.noAgents': undefined
   'assistant.panel.noConversations': undefined
   'assistant.panel.noEdits': undefined
   'assistant.panel.noProjects': undefined
+  'assistant.panel.noneRunning': undefined
   'assistant.panel.notDone': { error: string | number }
-  'assistant.panel.notRunning': undefined
   'assistant.panel.nothingToCompact': undefined
   'assistant.panel.openCard': { known: string; number: string | number; column: string | number }
   'assistant.panel.openNow': undefined
   'assistant.panel.personaTip': { name: string | number; description: string | number }
   'assistant.panel.progress': { hasStep: string; run: string | number; step: string | number }
+  'assistant.panel.provider': { provider: string | number }
   'assistant.panel.railLabel': undefined
   'assistant.panel.restart': undefined
   'assistant.panel.restartButton': undefined

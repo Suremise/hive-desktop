@@ -200,6 +200,11 @@ const check = (name, ok, extra = '') => {
   // What it did is listed in the panel.
   const done = await inv('assistant:actions')
   check('its actions are listed', done.some((x) => x.text.startsWith('Created the project beta')) && done.some((x) => x.text.startsWith('Stopped Fixer')) && done.some((x) => !x.ok), JSON.stringify(done.map((x) => x.text)))
+  // The list opens from "Done by the Assistant (n)" at the panel's watch line (#979: closed until then).
+  const doneLink = page.locator('.assistant-panel .assistant-done-link')
+  if ((await page.locator('.assistant-panel').count()) === 0) await page.keyboard.press('Control+Alt+I')
+  await until(async () => (await doneLink.count()) === 1, HUNG_MS)
+  if ((await doneLink.getAttribute('aria-expanded')) !== 'true') await doneLink.click()
   check('the panel shows them', !!(await until(async () => (await page.locator('.assistant-action').count()) >= 3, HUNG_MS)), String(await page.locator('.assistant-action').count()))
   await page.screenshot({ path: path.join(lib.WORK, 'control-2-actions.png') })
 

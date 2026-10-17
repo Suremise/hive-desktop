@@ -467,6 +467,16 @@ kbd {
 .activity-btn .codicon {
   font-size: 24px;
 }
+/* The Assistant's mark (#979) at a codicon's size there, in the button's colour, its line about as thick as theirs. */
+.activity-btn .assistant-mark.activity-mark,
+.activity-btn .assistant-mark.activity-mark svg {
+  width: 24px;
+  height: 24px;
+  color: inherit;
+}
+.activity-btn .assistant-mark.activity-mark .line {
+  stroke-width: 1;
+}
 .activity-btn:hover {
   color: var(--fg-strong);
 }
@@ -6143,8 +6153,7 @@ body.pane-resizing .monaco-editor {
   display: inline-flex;
   flex-shrink: 0;
 }
-.pane-header-bar .card-chip,
-.assistant-agent .card-chip {
+.pane-header-bar .card-chip {
   flex-shrink: 0;
 }
 .agent-tab .card-chip {
@@ -6403,33 +6412,67 @@ button.mode-badge.badge:hover {
   border-left: none;
   border-right: 1px solid var(--border-subtle);
 }
+/* The header, as an agent pane's (#977, #979): state mark, name, the mode pill, Stop's place and ⋯. */
 .assistant-header {
-  height: 34px;
+  height: 26px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 6px 0 10px;
+  padding: 0 3px 0 8px;
   border-bottom: 1px solid var(--border-subtle);
   min-width: 0;
-}
-.assistant-header .pane-status {
-  font-size: 12px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.assistant-header .icon-btn {
+  flex-shrink: 0;
+}
+.assistant-header .pane-btn.icon-only {
+  height: 20px;
+  min-width: 22px;
+  padding: 0 3px;
+  border-color: transparent;
+  background: none;
+}
+.assistant-header .pane-btn.icon-only:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 .assistant-title {
   color: var(--fg-strong);
+  font-weight: 600;
   flex-shrink: 0;
 }
-.assistant-persona {
-  height: 22px;
-  gap: 4px;
-  flex-shrink: 1;
+/* The mode as a pill (its menu): it gives way first, with an ellipsis. */
+.assistant-header > .tip-wrap:has(> .assistant-persona) {
   min-width: 0;
-  max-width: 160px;
+  flex-shrink: 1;
+}
+.assistant-persona {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.assistant-persona:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
+}
+.assistant-persona .codicon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.assistant-persona-icon {
+  flex-shrink: 0;
 }
 .assistant-persona-name {
   overflow: hidden;
@@ -6573,6 +6616,25 @@ body.pane-resizing-v .monaco-editor {
   height: 16px;
   margin-top: -2px;
 }
+/* "Done by the Assistant (n)" at the watch line's end (#979): a link that opens and closes the list under it. */
+.assistant-done-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.assistant-done-link:hover,
+.assistant-done-link[aria-expanded='true'] {
+  color: var(--fg);
+  text-decoration: underline;
+}
 /* The Assistant's mark (#399, AssistantMark): its own glyph, one colour like a codicon. As its status icon it takes the
    status's colour (as the agents' dots do), filled while it runs something, with the agent's status dot as a badge. */
 .assistant-mark {
@@ -6602,6 +6664,16 @@ body.pane-resizing-v .monaco-editor {
 }
 .assistant-mark .solid {
   fill: currentColor;
+}
+/* In a skill's audience badge (#979), in the badge's colour like the others' codicons. */
+.badge .assistant-mark {
+  color: inherit;
+  width: 14px;
+  height: 14px;
+}
+.badge .assistant-mark svg {
+  width: 14px;
+  height: 14px;
 }
 .assistant-mark > .dot {
   position: absolute;
@@ -6638,35 +6710,6 @@ body.pane-resizing-v .monaco-editor {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 2px;
-}
-.assistant-actions-head {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 5px 10px;
-  border: 0;
-  background: none;
-  color: var(--fg-muted);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  text-align: left;
-}
-.assistant-actions-head:hover {
-  color: var(--fg);
-}
-.assistant-actions-head .faint {
-  font-weight: normal;
-}
-.assistant-actions-head .codicon {
-  font-size: 14px;
-}
-.assistant-actions-head .assistant-mark {
-  margin: 0 2px;
 }
 /* Every row the same height, a setting's with its Revert button too, so the list's 3 rows are its height unfolded. */
 .assistant-actions .assistant-action {
@@ -6717,7 +6760,7 @@ body.pane-resizing-v .monaco-editor {
   background: var(--bg-sidebar);
   padding: 8px 0 6px;
   display: flex;
-  justify-content: space-between;
+  gap: 6px;
   align-items: baseline;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -6768,147 +6811,87 @@ body.pane-resizing-v .monaco-editor {
   color: var(--warning);
   margin-top: 1px;
 }
-/* A project's block (#240): its name on a line of its own, its agents under it with a fixed indent, whatever the
-   panel's width (they used to sit in a column starting 34% across, moving right as the panel widened). */
+/* A project on one line (#979): its name, its agents' state marks (they wrap in a narrow panel), how many run. */
 .assistant-project {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 3px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.assistant-project:last-child {
-  border-bottom: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  padding: 2px 0;
+  min-width: 0;
 }
 .assistant-project.inactive {
   opacity: 0.6;
 }
-/* Its name, after the chevron that folds it (#399); folded, its most urgent dot and how many agents run. */
-.assistant-project-head {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  min-width: 0;
-}
-.assistant-project-fold {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 16px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 3px;
-  background: none;
-  color: var(--fg-muted);
-  cursor: pointer;
-}
-.assistant-project-fold:hover {
-  color: var(--fg-strong);
-  background: var(--bg-hover);
-}
-.assistant-project-fold .codicon {
-  font-size: 14px;
-}
-.assistant-project-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  /* It keeps its room: a long name gives way first, with an ellipsis. */
-  flex: 0 0 auto;
-  min-width: 0;
-  margin-left: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: pointer;
-}
 .assistant-project-name {
   flex: 0 1 auto;
-  max-width: 100%;
-  min-width: 0;
+  width: 30%;
+  min-width: 4em;
+  max-width: 12em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-strong);
+  color: var(--fg-muted);
   cursor: pointer;
 }
 .assistant-project-name:hover {
+  color: var(--fg-strong);
   text-decoration: underline;
 }
-.assistant-agents {
+.assistant-marks {
+  flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-left: 18px;
-}
-/* An agent's row (#399): its padding reaches out over the indent, so its dot still lines up under the project's name. */
-.assistant-agent {
-  position: relative;
-  isolation: isolate;
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  min-width: 0;
-  margin: 0 -6px;
-  padding: 2px 6px;
+  gap: 2px;
+}
+.assistant-project-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+/* An agent: its state mark in a small button (with its name beside it when the section shows names). */
+.assistant-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  min-width: 20px;
+  justify-content: center;
+  padding: 0 4px;
+  border: 0;
   border-radius: 4px;
+  background: none;
+  color: var(--fg);
+  font: inherit;
   cursor: pointer;
-  --row: var(--fg-faint);
 }
 .assistant-agent:hover {
-  background-color: var(--bg-hover);
+  background: var(--bg-hover);
 }
-/* Its backing, after the Performance chart: a wash of its status's colour while it runs something, the chart's faint
-   hatch while it waits (on cards, or for you); either fades out to the right, so the row stays calm and its text keeps
-   AA contrast. Stopped and idle rows stay plain. */
-.assistant-agent::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, transparent 85%);
-  mask-image: linear-gradient(90deg, #000 0%, transparent 85%);
+.assistant-agent.named {
+  padding-right: 6px;
 }
-.assistant-agent.row-wash::before {
-  background: color-mix(in srgb, var(--row) 16%, transparent);
-}
-.assistant-agent.row-hatch::before {
-  background: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--row) 24%, transparent) 3px 5px);
-}
-.assistant-agent[data-status='starting'],
-.assistant-agent[data-status='watching'] { --row: var(--info); }
-.assistant-agent[data-status='working'],
-.assistant-agent[data-status='background'] { --row: var(--accent); }
-.assistant-agent[data-status='waiting'] { --row: var(--warning); }
-.assistant-agent[data-status='signin'] { --row: var(--signin); }
-.assistant-agent[data-status='error'] { --row: var(--error); }
-/* On a backing, or hovered, what it is doing takes the text colour: 4.9:1 or more on any of them, in both themes (the
-   muted grey keeps AA only on the plain sidebar). */
-.assistant-agent:is(.row-wash, .row-hatch, :hover) .assistant-agent-status {
-  color: var(--fg);
-}
-.assistant-agent:hover .assistant-agent-name {
-  color: var(--fg-strong);
-}
-/* Short of room, what the agent is doing gives way first, then its name (down to a few letters); the card chip stays. */
 .assistant-agent-name {
-  flex: 0 1 auto;
-  min-width: 3em;
+  max-width: 10em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.assistant-agent-status {
-  color: var(--fg-muted);
-  flex: 0 1000 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.assistant-section-title .assistant-names {
+  width: 20px;
+  height: 18px;
+  margin: -2px -2px -2px 4px;
+  align-self: center;
+}
+.assistant-section-title .assistant-names.on {
+  color: var(--fg-strong);
+  background: var(--bg-hover);
 }
 .assistant-empty {
   padding: 6px 0;

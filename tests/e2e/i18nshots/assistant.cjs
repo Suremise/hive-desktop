@@ -79,9 +79,9 @@ async function settingsDialog(ctx) {
   return shown(ctx, ctx.page.locator('.dialog').last(), 'Assistant Settings')
 }
 
-/** The panel hidden (its last button, on the right as it starts): the strip down the window's edge. */
+/** The panel hidden (its command: the header's ⋯ has it, #979): the strip down the window's edge. */
 async function rail(ctx) {
-  await iconButton(ctx, '.assistant-header', 'chevron-right').click()
+  await ctx.command('assistant.toggle')
   return shown(ctx, ctx.page.locator('.assistant-rail'), "the Assistant's strip")
 }
 

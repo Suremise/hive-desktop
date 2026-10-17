@@ -1,7 +1,8 @@
 import { Children, useEffect, useRef, useState } from 'react'
 import { ASSISTANT_AGENT_ID, DEFAULT_PERSONA, NEW_PERSONA_DESCRIPTION, assistantPersona } from '@shared/assistant'
 import { assistantStatusLine } from '@shared/assistantStatus'
-import { compactThreshold, isCompacting, mostUrgent } from '@shared/defaults'
+import { AGENT_STATE_LABEL, agentState, boardExtras, type AgentState } from '@shared/agentState'
+import { compactThreshold, isCompacting } from '@shared/defaults'
 import { formatDateTime, formatTime } from '@shared/dates'
 import { agentOpenRun, runWords } from '@shared/progress'
 import { columnName } from '@shared/tasks'
@@ -12,20 +13,19 @@ import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { agentProviderOf, confirm, get, notify, NO_PROJECTS, projectKey, revealAgent, runOnce, set, setActivity, setAssistantOpen, showAssistantView, showView, useDateStyle, useStore, assistantOnLeft, setAssistantSide } from '../store'
 import { useInbox } from '../inbox'
-import { rememberProjectPref } from '../projectPrefs'
 import { useLiveUsage } from '../usage'
-import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
+import { cx, formatKeybinding, sessionLabel, timeAgo } from '../util'
 import { Overrides, ProviderChoice, contextChoice, contextValue, type ContextChoice } from './AgentDialogs'
-import { PaneFooter, RESUME_TINT, useWidth } from './AgentPanes'
+import { PaneFooter, RESUME_TINT } from './AgentPanes'
 import { AssistantMark } from './AssistantMark'
-import { CardChip, TaskChip, useAgentCards, useAgentReviews } from './CardChip'
+import { TaskChip, useAgentCards, useAgentReviews } from './CardChip'
 import { confirmDangerousMode } from './PermissionMode'
-import { ProviderIcon } from './ProviderIcon'
 import { PaneResizer, usePaneSize } from './Resizer'
+import { StateMark } from './StateMark'
 import { ShowAllList } from './ShowAllList'
 import { TerminalView } from './TerminalView'
-import { Icon, IconButton, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
-import { msg, tr, tRich, type Msg } from '@shared/i18n'
+import { Icon, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 
 /**
  * The Hive Assistant's side panel: the workspace's overseer. Its header (persona, controls) and status line, what is
@@ -77,7 +77,7 @@ const M = {
   manageModes: msg({ id: 'assistant.panel.manageModes', defaultMessage: 'Manage Modes…', description: "The Assistant's mode and More menus: opens the modes in the Assistant view." }),
   compacting: msg({ id: 'assistant.panel.compacting', defaultMessage: 'Compacting the conversation…', description: 'Tooltip on Compact while the conversation is compacted.' }),
   nothingToCompact: msg({ id: 'assistant.panel.nothingToCompact', defaultMessage: 'Nothing to compact yet', description: 'Tooltip on Compact before anything was said.' }),
-  compactTip: msg({ id: 'assistant.panel.compactTip', defaultMessage: '{hasTokens, select, yes {Compact the conversation (now {tokens} tokens).} other {Compact the conversation.}}{suggested, select, yes { Recommended: the context is over your threshold.} other {}}', description: 'Tooltip on Compact ({tokens}: "120K"). The second sentence when the context is over Settings → Sessions\' threshold.' }),
+  compactRecommended: msg({ id: 'assistant.panel.compactRecommended', defaultMessage: 'Recommended: the context is over your threshold.', description: "The detail of Compact… in the Assistant's ⋯ menu once its context passes Settings → Assistant's Highlight Compact over." }),
   compactLater: msg({ id: 'assistant.panel.compactLater', defaultMessage: 'Compact once the Assistant has finished', description: 'Tooltip on Compact while the Assistant works.' }),
   compactMenu: msg({ id: 'assistant.panel.compactMenu', defaultMessage: 'Compact…', description: "The Assistant's More menu, in a narrow panel." }),
   stop: msg({ id: 'assistant.panel.stop', defaultMessage: 'Stop', description: "The Assistant's Stop button and menu item." }),
@@ -90,16 +90,17 @@ const M = {
   moveRight: msg({ id: 'assistant.panel.moveRight', defaultMessage: 'Move Panel to the Right', description: "An item of the Assistant panel's More (⋯) menu: moves the panel to the window's right side." }),
   moveLeft: msg({ id: 'assistant.panel.moveLeft', defaultMessage: 'Move Panel to the Left', description: "An item of the Assistant panel's More (⋯) menu: moves the panel to the window's left side." }),
   hide: msg({ id: 'assistant.panel.hide', defaultMessage: 'Hide the Assistant', description: "An item of the Assistant panel's More (⋯) menu: hides the panel; the Assistant keeps running." }),
+  nameTip: msg({ id: 'assistant.panel.nameTip', defaultMessage: 'Assistant · {provider}', description: "Tooltip of the Assistant's name on its panel's header: its coding agent ({provider}: \"Claude Code\"). Assistant as the panel's title says it." }),
+  provider: msg({ id: 'assistant.panel.provider', defaultMessage: 'Coding agent: {provider}', description: "A line of an agent's tooltip in the Assistant's workspace section ({provider}: \"Claude Code\")." }),
+  noneRunning: msg({ id: 'assistant.panel.noneRunning', defaultMessage: 'no agents running', description: "The Assistant's workspace section: a project none of whose agents run. Lower case." }),
+  names: msg({ id: 'assistant.panel.names', defaultMessage: 'Show agent names', description: "The Assistant's workspace section: a toggle button that shows each agent's name beside its state mark, for screen readers." }),
+  namesTip: msg({ id: 'assistant.panel.namesTip', defaultMessage: "{shown, select, yes {Show only the agents' state marks (names on hover)} other {Show the agents' names beside their state marks}}", description: "Tooltip of the toggle in the Assistant's workspace section: what clicking it does." }),
   title: msg({ id: 'assistant.panel.title', defaultMessage: 'Assistant', description: "The Assistant panel's title, beside its coding agent's icon. Keep it short." }),
   personaTip: msg({ id: 'assistant.panel.personaTip', defaultMessage: '{name}: {description}', description: "Tooltip on the Assistant's mode button: the mode and what it is for." }),
   chooseMode: msg({ id: 'assistant.panel.chooseMode', defaultMessage: 'Choose a mode', description: "Tooltip on the Assistant's mode button when it has none." }),
-  compact: msg({ id: 'assistant.panel.compact', defaultMessage: 'Compact', description: "The Assistant's Compact button, for screen readers." }),
   stopTip: msg({ id: 'assistant.panel.stopTip', defaultMessage: 'Stop the Assistant (the conversation is kept)', description: "Tooltip on the Assistant panel's Stop button." }),
-  newConversationLabel: msg({ id: 'assistant.panel.newConversationLabel', defaultMessage: 'New conversation', description: "The Assistant's New button, for screen readers." }),
-  newConversationTip: msg({ id: 'assistant.panel.newConversationTip', defaultMessage: 'Start a new conversation', description: "Tooltip on the Assistant's New button." }),
   startTip: msg({ id: 'assistant.panel.startTip', defaultMessage: 'Start the Assistant', description: "Tooltip on the Assistant's Start button." }),
   more: msg({ id: 'assistant.panel.more', defaultMessage: 'More', description: "The Assistant panel's ⋯ button, which opens its More menu." }),
-  hideTip: msg({ id: 'assistant.panel.hideTip', defaultMessage: '{hasKey, select, yes {Hide the Assistant (it keeps running) ({key})} other {Hide the Assistant (it keeps running)}}', description: 'Tooltip on the button that hides the Assistant panel, with its shortcut ({key}: "Ctrl+Alt+I").' }),
   status: msg({ id: 'assistant.panel.status', defaultMessage: 'Status: {text}', description: "The Assistant's status line under its header ({text}: \"Working\", \"Waiting for #12 → Review\")." }),
   openCard: msg({ id: 'assistant.panel.openCard', defaultMessage: '{known, select, yes {Open card #{number}, in {column}} other {Open card #{number}}}', description: 'A card chip in the Assistant\'s status line, for screen readers ({column}: "Review").' }),
   revertFailed: msg({ id: 'assistant.panel.revertFailed', defaultMessage: 'Could not revert the setting', description: "An error notice: a setting the Assistant changed couldn't be put back; the reason follows." }),
@@ -115,8 +116,6 @@ const M = {
   worktree: msg({ id: 'assistant.panel.worktree', defaultMessage: 'Worktree on {branch}', description: "An agent's tooltip in the Assistant's overview: its worktree's branch." }),
   noAgents: msg({ id: 'assistant.panel.noAgents', defaultMessage: 'no agents', description: "The Assistant's overview: a project with no agents. Lower case." }),
   running: msg({ id: 'assistant.panel.running', defaultMessage: '{count} running', description: "The Assistant's overview: how many of a folded project's agents run. Lower case." }),
-  notRunning: msg({ id: 'assistant.panel.notRunning', defaultMessage: 'not running', description: "The Assistant's overview: none of a folded project's agents run. Lower case." }),
-  foldLabel: msg({ id: 'assistant.panel.foldLabel', defaultMessage: "{folded, select, yes {Show {project}'s agents} other {Fold {project}'s agents}}", description: "The Assistant's overview: a project's chevron, for screen readers." }),
   workspace: msg({ id: 'assistant.panel.workspace', defaultMessage: 'Workspace', description: "The heading of the Assistant's overview of the workspace." }),
   counts: msg({ id: 'assistant.panel.counts', defaultMessage: '{running} running · {projects, plural, one {# project} other {# projects}}', description: "Beside Workspace in the Assistant's overview." }),
   attention: msg({ id: 'assistant.panel.attention', defaultMessage: '{kind, select, waiting {is waiting for you} question {has a question for you} safeguard {changed models after a safeguard stop} other {has finished}}', description: "The Assistant's overview: what an agent that needs you is doing, after its project and name. Lower case: it follows them." }),
@@ -481,12 +480,13 @@ function useConversationPicker() {
   return { openAt, openBelow, element: menu.element }
 }
 
-/** Below this header width Start, Compact and Stop fold into ⋯. */
-const BUTTONS_FROM = 380
-
+/**
+ * The panel's header, as an agent pane's (#977, #979): the Assistant's state mark, its name (its provider in the
+ * tooltip), its mode as a pill (the mode menu), then Stop (Resume, or Start, while it isn't running) and ⋯ with
+ * everything else: Compact…, its conversations, its settings and modes, the panel's side, Hide. The pill gives way
+ * first; Stop and ⋯ never shrink.
+ */
 function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
-  const [ref, width] = useWidth<HTMLDivElement>()
-  const buttons = width === 0 || width >= BUTTONS_FROM
   const settings = useStore((s) => s.settings)
   const left = useStore(assistantOnLeft)
   const personas = usePersonas()
@@ -528,82 +528,71 @@ function AssistantHeader({ project, a }: { project: ProjectInfo; a: AgentInfo })
   const stop = (): void => void actions.stopSession(project.path, AGENT)
   const compact = (): void => set({ compactFor: { project: project.path, agentId: AGENT } })
   const compacting = isCompacting(live)
-  const compactTip = compacting
-    ? tr(M.compacting)
-    : empty
-      ? tr(M.nothingToCompact)
-      : idle
-        ? tr(M.compactTip, { hasTokens: usage ? 'yes' : 'no', tokens: formatTokens(usage?.contextTokens ?? 0), suggested: suggested ? 'yes' : 'no' })
-        : tr(M.compactLater)
-  /** A header button: an icon with a tooltip, like an agent pane's in its icon size. */
-  const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string, disabled = false, spin = false) => (
+  // Compact…'s detail in ⋯, as an agent's: why it is unavailable, or that it is recommended.
+  const compactDetail = compacting ? tr(M.compacting) : !idle ? tr(M.compactLater) : empty ? tr(M.nothingToCompact) : suggested ? tr(M.compactRecommended) : undefined
+  /** Stop's place: an icon with a tooltip, in its action's colour, as on an agent's pane. */
+  const btn = (icon: string, label: string, onClick: () => void, tone: string, tip: string) => (
     <Tooltip content={tip}>
-      <button type="button" className={cx(/* i18n-ignore: class names */ 'btn small pane-btn icon-only', tone)} disabled={disabled} aria-label={label} onClick={onClick}>
-        <Icon name={icon} spin={spin} />
+      <button type="button" className={cx(/* i18n-ignore: class names */ 'btn small pane-btn icon-only', tone)} aria-label={label} onClick={onClick}>
+        <Icon name={icon} />
       </button>
     </Tooltip>
   )
-  const moreMenu = (e: React.MouseEvent): void => {
-    const { clientX: x, clientY: y } = e
-    // Start, Compact and Stop are the header's buttons until it gets too narrow for them (Resume always is one).
-    const folded: MenuEntry[] = buttons
-      ? []
-      : live
-        ? [
-            { label: tr(M.compactMenu), icon: 'fold', disabled: !idle || empty, onClick: compact },
-            { label: tr(M.stop), icon: 'debug-stop', action: 'stop', onClick: stop }
-          ]
-        : [a.resume ? { label: tr(M.newConversation), icon: 'add', action: 'start', onClick: start } : { label: tr(M.startMenu), icon: 'play', action: 'start', onClick: start }]
-    menu.openAt(x, y, [
-      ...folded,
-      live
-        ? { label: tr(M.newConversation), icon: 'add', action: 'start', onClick: start }
-        : { label: tr(M.resumeMenu), icon: 'debug-continue', action: 'resume', disabled: !a.resume, onClick: resume },
-      { label: tr(M.resumeConversation), icon: 'history', action: 'resume', onClick: () => void picker.openAt(project, x, y) },
-      { label: tr(M.allConversations), icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
-      { separator: true },
-      { label: tr(M.settingsMenu), icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
-      { label: tr(M.manageModes), icon: 'person', onClick: () => showAssistantView('personas') },
-      { separator: true },
-      { label: tr(left ? M.moveRight : M.moveLeft), icon: left ? 'layout-sidebar-right' : 'layout-sidebar-left', onClick: () => void setAssistantSide(left ? 'right' : 'left') },
-      { label: tr(M.hide), icon: left ? 'layout-sidebar-left-off' : 'layout-sidebar-right-off', onClick: () => setAssistantOpen(false) }
-    ])
+  const more = useRef<HTMLButtonElement>(null)
+  const openMore = (keyboard: boolean): void => {
+    const r = more.current?.getBoundingClientRect()
+    if (!r) return
+    const [x, y] = [r.left, r.bottom + 2]
+    menu.openAt(
+      x,
+      y,
+      [
+        // Compact… as on an agent's ⋯: once the Assistant has finished, recommended past the threshold.
+        ...(live ? [{ label: tr(M.compactMenu), icon: compacting ? 'loading' : 'fold', detail: compactDetail, disabled: !idle || empty || compacting, onClick: compact } as MenuEntry] : []),
+        // Stop's place has Resume while there is a conversation to go back to: a new one is here.
+        live || a.resume ? { label: tr(M.newConversation), icon: 'add', action: 'start', onClick: start } : { label: tr(M.startMenu), icon: 'play', action: 'start', onClick: start },
+        ...(live ? [] : [{ label: tr(M.resumeMenu), icon: 'debug-continue', action: 'resume', disabled: !a.resume, onClick: resume } as MenuEntry]),
+        { label: tr(M.resumeConversation), icon: 'history', action: 'resume', onClick: () => void picker.openAt(project, x, y) },
+        { label: tr(M.allConversations), icon: 'comment-discussion', onClick: () => showAssistantView('conversations') },
+        { separator: true },
+        { label: tr(M.settingsMenu), icon: 'settings', onClick: () => set({ assistantSettingsOpen: true }) },
+        { label: tr(M.manageModes), icon: 'person', onClick: () => showAssistantView('personas') },
+        { separator: true },
+        { label: tr(left ? M.moveRight : M.moveLeft), icon: left ? 'layout-sidebar-right' : 'layout-sidebar-left', onClick: () => void setAssistantSide(left ? 'right' : 'left') },
+        { label: tr(M.hide), icon: left ? 'layout-sidebar-left-off' : 'layout-sidebar-right-off', keybinding: kb ? formatKeybinding(kb) : undefined, onClick: () => setAssistantOpen(false) }
+      ],
+      keyboard
+    )
   }
   const kb = commandKeybinding('assistant.toggle')
+  const provider = providerDescriptor(agentProviderOf(project, a)).name
+  const state = agentState(live)
   return (
-    <div className="assistant-header" ref={ref}>
-      <Tooltip content={providerDescriptor(agentProviderOf(project, a)).name}>
-        <span>
-          <ProviderIcon provider={agentProviderOf(project, a)} />
-        </span>
+    <div className="assistant-header">
+      <Tooltip content={tr(M.statusTitle, { running: live ? 'yes' : 'no', status: live ? statusText(live) : '' })}>
+        <StateMark state={state} />
       </Tooltip>
-      <strong className="assistant-title">{tr(M.title)}</strong>
+      <Tooltip content={tr(M.nameTip, { provider })}>
+        <span className="assistant-title">{tr(M.title)}</span>
+      </Tooltip>
       <Tooltip content={persona ? tr(M.personaTip, { name: personaName(persona), description: personaDescription(persona) }) : tr(M.chooseMode)}>
-        <button className="btn subtle small assistant-persona" onClick={personaMenu}>
-          <span className="assistant-persona-icon">{persona?.icon || '🐝'}</span>
+        <button type="button" className="assistant-persona" aria-haspopup="menu" onClick={personaMenu}>
+          {persona?.icon && <span className="assistant-persona-icon">{persona.icon}</span>}
           <span className="assistant-persona-name">{persona ? personaName(persona) : personaId}</span>
           <Icon name="chevron-down" />
         </button>
       </Tooltip>
       <div className="grow" />
-      {live ? (
-        buttons && (
-          <>
-            {btn(compacting ? 'loading' : 'fold', tr(M.compact), compact, cx('subtle', suggested && idle && 'suggest'), compactTip, !idle || empty, compacting)}
-            {btn('stop-circle', tr(M.stop), stop, 'act-stop', tr(M.stopTip))}
-          </>
-        )
-      ) : a.resume ? (
-        // A conversation to go back to: Resume first, and stays when the header narrows; New folds into ⋯.
-        <>
-          {btn('debug-continue', tr(M.resume), resume, /* i18n-ignore: class names */ 'act-resume solid', resumeTip)}
-          {buttons && btn('add', tr(M.newConversationLabel), start, 'act-start', tr(M.newConversationTip))}
-        </>
-      ) : (
-        buttons && btn('play', tr(M.startMenu), start, /* i18n-ignore: class names */ 'act-start solid', tr(M.startTip))
-      )}
-      <IconButton icon="ellipsis" title={tr(M.more)} onClick={moreMenu} />
-      <IconButton icon={left ? 'chevron-left' : 'chevron-right'} title={tr(M.hideTip, { hasKey: kb ? 'yes' : 'no', key: kb ? formatKeybinding(kb) : '' })} onClick={() => setAssistantOpen(false)} />
+      {live
+        ? btn('stop-circle', tr(M.stop), stop, 'act-stop', tr(M.stopTip))
+        : a.resume
+          ? btn('debug-continue', tr(M.resume), resume, 'act-resume', resumeTip)
+          : btn('play', tr(M.startMenu), start, 'act-start', tr(M.startTip))}
+      <Tooltip content={tr(M.more)}>
+        <button ref={more} type="button" className="icon-btn pane-more" aria-label={tr(M.more)} aria-haspopup="menu" onClick={(e) => openMore(e.detail === 0)}>
+          <Icon name="ellipsis" />
+        </button>
+      </Tooltip>
       {menu.element}
       {picker.element}
     </div>
@@ -638,11 +627,14 @@ function AssistantQuestions() {
   )
 }
 
+/** Whether a workspace's "Done by the Assistant" list is open (#979: closed until its link in the watch line opens it). */
+const doneOpenKey = (ws: string): string => `assistant-done:${ws.toLowerCase()}`
+
 /**
- * The Assistant's status in one line under the header (#312): its own status icon (#399: its mark in the status's
- * colour, with an agent's status dot on it), then "Status: Working", "Status: Waiting for #12 #13 → Review (watch until
+ * The watch line under the header (#312, #979): "Status: Working", "Status: Waiting for #12 #13 → Review (watch until
  * 22:22)", the attention colour when it needs you, and each card it waits for the card chip used everywhere (its column's
- * colour; a click opens it). Cut short with "…" in a narrow panel, the whole line in its tooltip.
+ * colour; a click opens it); cut short with "…" in a narrow panel, the whole line in its tooltip. At its end, once the
+ * Assistant has done something, "Done by the Assistant (n)" opens and closes that list.
  */
 function AssistantStatus({ a }: { a: AgentInfo }) {
   useDateStyle()
@@ -650,12 +642,19 @@ function AssistantStatus({ a }: { a: AgentInfo }) {
   // Hive's own questions its actions wait on (the cards under this line): the user is wanted first.
   const approvals = useStore((s) => s.assistantQuestions)
   const tasks = useStore((s) => s.tasks)
+  const done = useStore((s) => s.assistantActions.length)
+  const ws = useStore((s) => s.workspace?.path ?? '')
+  const open = useStore((s) => s.panes[doneOpenKey(ws)] === 1)
   const line = assistantStatusLine(live, (iso) => formatTime(iso), approvals.map((q) => q.title))
   const whole = tr(M.status, { text: `${line.text}${line.cards.map((n) => `#${n}`).join(', ')}${line.after}` })
-  const status = live?.status ?? 'stopped'
+  const toggle = (): void => {
+    const key = doneOpenKey(ws)
+    set((s) => ({ panes: { ...s.panes, [key]: open ? 0 : 1 } }))
+    void call('ui:setPane', key, open ? null : 1)
+  }
   return (
     <div className={cx('assistant-status', line.tone)} data-tone={line.tone}>
-      <AssistantMark status={status} unseen={live?.unseen} title={tr(M.statusTitle, { running: live ? 'yes' : 'no', status: live ? statusText(live) : '' })} />
+      {live?.status === 'watching' && <Icon name="eye" />}
       <Tooltip content={whole}>
         <span className="assistant-status-text">
           {Children.toArray(
@@ -675,32 +674,29 @@ function AssistantStatus({ a }: { a: AgentInfo }) {
         </span>
       </Tooltip>
       <ReviewMark live={live} />
+      {done > 0 && (
+        <button type="button" className="assistant-done-link" aria-expanded={open} onClick={toggle}>
+          <AssistantMark />
+          {tr(M.doneBy)} <span className="faint">({fmt.number(done)})</span>
+        </button>
+      )}
     </div>
   )
 }
 
-/** Whether a workspace's "Done by the Assistant" is folded to its header (remembered per workspace). */
-const actionsFoldKey = (ws: string): string => `assistant-actions:${ws.toLowerCase()}`
-
 /**
- * What the Assistant did in this workspace, newest first, under its status line (#312, moved there by #399): the last 3,
- * Show all scrolls every one inside the same height, and the header folds it all away to give the terminal the room.
- * Not shown until it has done something.
+ * What the Assistant did in this workspace, newest first, under the watch line (#312, #399), while its link there has it
+ * open (#979): the last 3, Show all scrolls every one inside the same height.
  */
 function AssistantActions() {
   const list = useStore((s) => s.assistantActions)
   const reverting = useStore((s) => s.running)
   const ws = useStore((s) => s.workspace?.path ?? '')
-  const folded = useStore((s) => s.panes[actionsFoldKey(ws)] === 1)
+  const open = useStore((s) => s.panes[doneOpenKey(ws)] === 1)
   useDateStyle()
-  if (!list.length) return null
+  if (!list.length || !open) return null
   const newest = [...list].reverse()
   const reverted = new Set(list.map((a) => a.revertOf).filter(Boolean))
-  const toggle = (): void => {
-    const key = actionsFoldKey(ws)
-    set((s) => ({ panes: { ...s.panes, [key]: folded ? 0 : 1 } }))
-    void call('ui:setPane', key, folded ? null : 1)
-  }
   // A setting it changed (#186): Revert puts the old value back, through the same checks.
   const revert = (x: AssistantAction): void => void runOnce(`revert:${x.id}`, () => actions.attempt(tr(M.revertFailed), () => call('assistant:revertSetting', x.id)))
   const row = (x: AssistantAction) => (
@@ -730,14 +726,8 @@ function AssistantActions() {
     </Tooltip>
   )
   return (
-    <div className={cx('assistant-actions', folded && 'folded')}>
-      <button type="button" className="assistant-actions-head" aria-expanded={!folded} onClick={toggle}>
-        <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
-        <AssistantMark />
-        {tr(M.doneBy)}
-        <span className="faint">({list.length})</span>
-      </button>
-      {!folded && <ShowAllList items={newest} few={3} keyOf={(x) => x.id} renderItem={row} label={tr(M.doneBy)} className="assistant-actions-list" />}
+    <div className="assistant-actions" id="assistant-done-list">
+      <ShowAllList items={newest} few={3} keyOf={(x) => x.id} renderItem={row} label={tr(M.doneBy)} className="assistant-actions-list" />
     </div>
   )
 }
@@ -753,32 +743,19 @@ function activityOf(live: AgentInfo['live'], run: ProgressRun | null): string | 
 }
 
 /**
- * How an agent's row in the workspace overview is backed (#399, after the Performance chart): a soft wash of its status's
- * colour while it runs something, the chart's faint hatch while it waits (on cards, or for you), plain otherwise.
+ * One agent in the workspace section (#979): its state mark (#973), and its name beside it when the section shows names;
+ * a click focuses it, switching project. Its tooltip has the rest: its name and provider, its status (or its test run),
+ * every card it has in Doing or is reviewing, its progress and its worktree's branch.
  */
-function rowBacking(live: AgentInfo['live']): { status: string; backing: 'wash' | 'hatch' | null } {
-  if (!live) return { status: 'stopped', backing: null }
-  // A question it works on beside is waiting for you too.
-  const status = live.question && live.status !== 'waiting' ? 'waiting' : live.status
-  if (status === 'working' || status === 'background' || status === 'starting') return { status, backing: 'wash' }
-  if (status === 'watching' || status === 'waiting' || status === 'signin' || status === 'error') return { status, backing: 'hatch' }
-  return { status, backing: null }
-}
-
-/**
- * One agent in the workspace overview: its dot, provider and name, the card it is on (#311: the short chip, its icon and
- * number, the eye when reviewing; a click opens the card) and what it is doing, cut short with "…" when the panel is
- * narrow. The tooltip has the rest: its status, every card it has in Doing or is reviewing, its progress and its
- * worktree's branch.
- */
-function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: AgentInfo; onGo: () => void }) {
+function OverviewAgent({ project: p, a, state, names, onGo }: { project: ProjectInfo; a: AgentInfo; state: AgentState; names: boolean; onGo: () => void }) {
   const doing = useAgentCards(p, a.id)
   const reviewing = useAgentReviews(p, a.id)
   const run = useStore((s) => agentOpenRun(s.progressRuns, p.path, a.id))
   const activity = activityOf(a.live, run)
-  const row = rowBacking(a.live)
+  const first = tr(M.agentTip, { name: a.name, running: a.live ? 'yes' : 'no', status: activity ?? tr(AGENT_STATE_LABEL[state]) })
   const tip = [
-    tr(M.agentTip, { name: a.name, running: a.live ? 'yes' : 'no', status: a.live ? statusText(a.live) : '' }),
+    first,
+    tr(M.provider, { provider: providerDescriptor(agentProviderOf(p, a)).name }),
     ...doing.map((c) => tr(M.workingOn, { number: c.number, title: c.title })),
     ...reviewing.map((c) => tr(M.reviewing, { number: c.number, title: c.title })),
     ...(run ? [tr(M.progress, { run: runWords(run), hasStep: run.stepName ? 'yes' : 'no', step: run.stepName ?? '' })] : []),
@@ -786,65 +763,48 @@ function OverviewAgent({ project: p, a, onGo }: { project: ProjectInfo; a: Agent
   ].join('\n')
   return (
     <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
-      <span className={cx('assistant-agent', row.backing && `row-${row.backing}`)} data-agent={a.id} data-status={row.status} onClick={onGo}>
-        <span className={cx('dot', a.live?.status ?? 'stopped', a.live?.unseen && 'unseen')} />
-        <ProviderIcon provider={agentProviderOf(p, a)} />
-        <span className="assistant-agent-name">{a.name}</span>
-        <CardChip project={p} a={a} short tip={false} />
-        {activity && <span className="assistant-agent-status">{activity}</span>}
-      </span>
+      <button type="button" className={cx('assistant-agent', names && 'named')} data-agent={a.id} data-state={state} aria-label={first} onClick={onGo}>
+        <StateMark state={state} decorative />
+        {names && <span className="assistant-agent-name">{a.name}</span>}
+      </button>
     </Tooltip>
   )
 }
 
-/** Whether a workspace's overview shows its inactive projects (remembered per workspace). */
-const inactiveKey = (ws: string): string => `assistant-inactive:${ws.toLowerCase()}`
-
-/** Where a project's fold in the overview is remembered (#399): per workspace and project. */
-const assistantFoldKey = (ws: string, project: string): string => `${ws}|${project}`.toLowerCase()
-
 /**
- * A project in the workspace overview: its name, and its agents under it with a fixed indent (#240). Its chevron folds it
- * to one line (#399, remembered per workspace and project): the name, its most urgent agent's dot and how many run.
+ * A project in the workspace section, on one line (#979): its name (a click opens it), a state mark for each agent
+ * running, or not running but waiting or stalled on the board (a card of its blocked on you, or in Doing with no one on
+ * it), in the project's order so they stay put as states change, and how many run.
  */
-function OverviewProject({ ws, project: p, go }: { ws: string; project: ProjectInfo; go: (p: ProjectInfo, id?: string) => void }) {
-  const key = assistantFoldKey(ws, p.path)
-  const folded = useStore((s) => s.assistantFold[key] === true)
+function OverviewProject({ project: p, names, go }: { project: ProjectInfo; names: boolean; go: (p: ProjectInfo, id?: string) => void }) {
+  const tasks = useStore((s) => s.tasks)
+  const marks = p.agents.map((a) => ({ a, state: agentState(a.live, boardExtras(p.name, a, tasks)) })).filter(({ a, state }) => a.live || state !== 'idle')
   const running = p.agents.filter((a) => a.live).length
-  const urgent = mostUrgent(p.agents.map((a) => a.live))
-  const summary = p.agents.length === 0 ? tr(M.noAgents) : running ? tr(M.running, { count: running }) : tr(M.notRunning)
-  const toggle = (): void => rememberProjectPref('assistantFold', key, folded ? null : true)
   return (
-    <div className={cx('assistant-project', !p.active && 'inactive', folded && 'folded')} data-project={p.name}>
-      <div className="assistant-project-head">
-        <button type="button" className="assistant-project-fold" aria-expanded={!folded} aria-label={tr(M.foldLabel, { folded: folded ? 'yes' : 'no', project: p.name })} onClick={toggle}>
-          <Icon name={folded ? 'chevron-right' : 'chevron-down'} />
-        </button>
-        <span className="assistant-project-name" onClick={() => go(p)}>
-          {p.name}
-        </span>
-        {folded && (
-          <span className="assistant-project-summary" onClick={toggle}>
-            {p.agents.length > 0 && <span className={cx('dot', urgent?.status ?? 'stopped', urgent?.unseen && 'unseen')} />}
-            <span className="faint">{summary}</span>
-          </span>
-        )}
-      </div>
-      {!folded && (
-        <div className="assistant-agents">
-          {p.agents.length === 0 && <span className="faint">{tr(M.noAgents)}</span>}
-          {p.agents.map((a) => (
-            <OverviewAgent key={a.id} project={p} a={a} onGo={() => go(p, a.id)} />
-          ))}
-        </div>
-      )}
+    <div className={cx('assistant-project', !p.active && 'inactive')} data-project={p.name}>
+      <button type="button" className="assistant-project-name" onClick={() => go(p)}>
+        {p.name}
+      </button>
+      <span className="assistant-marks">
+        {marks.length === 0 && <span className="faint">{tr(p.agents.length ? M.noneRunning : M.noAgents)}</span>}
+        {marks.map(({ a, state }) => (
+          <OverviewAgent key={a.id} project={p} a={a} state={state} names={names} onGo={() => go(p, a.id)} />
+        ))}
+      </span>
+      {running > 0 && <span className="faint assistant-project-count">{tr(M.running, { count: running })}</span>}
     </div>
   )
 }
 
+/** Whether a workspace's section shows its agents' names beside their marks (remembered per workspace; on hover only by default). */
+const namesKey = (ws: string): string => `assistant-names:${ws.toLowerCase()}`
+
+/** Whether a workspace's overview shows its inactive projects (remembered per workspace). */
+const inactiveKey = (ws: string): string => `assistant-inactive:${ws.toLowerCase()}`
+
 /**
- * What is happening in the workspace: agents needing you first, then each project and its agents. Click one to go
- * to it. Inactive projects without a running agent fold into one row at the end.
+ * What is happening in the workspace: agents needing you first, then a line per project with its agents' state marks
+ * (#979). Click one to go to it. Inactive projects without a running agent fold into one row at the end.
  */
 function WorkspaceOverview() {
   const projects = useStore((s) => s.workspace?.projects ?? NO_PROJECTS)
@@ -854,6 +814,11 @@ function WorkspaceOverview() {
     const v = showInactive ? 0 : 1
     set((s) => ({ panes: { ...s.panes, [inactiveKey(ws)]: v } }))
     void call('ui:setPane', inactiveKey(ws), v)
+  }
+  const names = useStore((s) => s.panes[namesKey(ws)] === 1)
+  const toggleNames = (): void => {
+    set((s) => ({ panes: { ...s.panes, [namesKey(ws)]: names ? 0 : 1 } }))
+    void call('ui:setPane', namesKey(ws), names ? null : 1)
   }
   const go = (p: ProjectInfo, id?: string): void => {
     set({ selectedProject: p.path })
@@ -870,12 +835,17 @@ function WorkspaceOverview() {
   const running = projects.reduce((n, p) => n + p.agents.filter((a) => a.live).length, 0)
   const shown = projects.filter((p) => p.active || p.agents.some((a) => a.live))
   const folded = projects.filter((p) => !shown.includes(p))
-  const row = (p: ProjectInfo) => <OverviewProject key={p.path} ws={ws} project={p} go={go} />
+  const row = (p: ProjectInfo) => <OverviewProject key={p.path} project={p} names={names} go={go} />
   return (
     <div className="assistant-overview">
       <div className="assistant-section-title">
-        {tr(M.workspace)}
+        <span className="grow">{tr(M.workspace)}</span>
         <span className="faint">{tr(M.counts, { running, projects: projects.length })}</span>
+        <Tooltip content={tr(M.namesTip, { shown: names ? 'yes' : 'no' })}>
+          <button type="button" className={cx('icon-btn', 'assistant-names', names && 'on')} aria-label={tr(M.names)} aria-pressed={names} onClick={toggleNames}>
+            <Icon name="tag" />
+          </button>
+        </Tooltip>
       </div>
       {attention.map(({ i, p, a }) => (
         <div key={`${p.path}#${a.id}`} className="assistant-attention" onClick={() => go(p, a.id)}>
