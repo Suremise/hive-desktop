@@ -264,11 +264,14 @@ same code while every required check still runs:
 - **A flake fix, or a change to a suite's waits**, is proven by focused repeats under load (the `investigate-flake`
   skill): the suite with its neighbours (its area's suites in `affected.mjs`, filling the four jobs) five times,
   `npm run e2e -- <suite> <neighbours> --build --record --repeat 5`. The full-set check is the next quiet-time or
-  release run (above), not the merge's; the full set repeated (`--all --repeat 5`) runs only when the user asks: it holds a heavy slot for over an hour while
-  other lanes queue, and under that load it fails on their flakes (a failure in another lane's suite is a card of its
-  own, not a reason to fail the fix).
+  release run (above), not the card's or the merge's; the full set repeated (`--all --repeat 5`) runs only when the
+  user asks: it holds a heavy slot for over an hour while other lanes queue, and under that load it fails on their
+  flakes (a failure in another lane's suite is a card of its own, not a reason to fail the fix).
 - **When a change could make every suite flaky** (the runner, `lib.cjs`, the run context, how suites run side by side),
-  run the full set several times: `npm run e2e -- --all --build --record --repeat 3`.
+  the card proves it with focused loaded runs: `npm run e2e:concurrency` (`-- --heavy` after a change to `slots.mjs`)
+  and the suites closest to the change with their neighbours, repeated (`--repeat 3`). The full set, repeated if need
+  be (`--all --build --record --repeat 3`), is then the next quiet-time run on the integration branch (say on the card
+  that it's due), or runs when the user asks: never a per-card mandate.
 - A repeat stops at the first run that fails, and its one record is valid only if every run passed on the same code. A
   failure means fix it and start a new repeat: a later passing run doesn't make up for an earlier failure.
 
