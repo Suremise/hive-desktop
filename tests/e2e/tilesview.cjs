@@ -7,8 +7,8 @@
 // the strip's Tiles button and the Tiles toggle go back, the keyboard on the agent's tile. Paging with the page buttons and
 // Ctrl+Alt+PageDown; the chip's list opens an agent's focus view; Panes leaves it. Reordering (#993), in the panes'
 // order: a tile dragged onto another swaps them, onto a page button goes to that page's end, and Move Agent Left/Right
-// (the keys, the tile's menu) move the tile the keyboard is on; the order is saved and the panes show it; By urgency, no
-// tile drags. Throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
+// (the keys, an override without modifiers, the tile's menu) move the tile the keyboard is on, other shortcuts and chords
+// still working there; the order is saved and the panes show it; By urgency, no tile drags. Throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -218,6 +218,29 @@ const check = (name, ok, extra = '') => {
     await lib.until(async () => (await lib.menuEntry(page, 'Move Right').count()) === 1, HUNG_MS)
     await lib.menuEntry(page, 'Move Right').click()
     check("the tile's menu, Move Right: B a place right, page 2 shown", !!(await lib.until(async () => saved() === order(toEnd) && (await tileNames()).join() === 'B', HUNG_MS)), `${saved()} / ${(await tileNames()).join()}`)
+    // Other shortcuts still work from a tile, chords too: Ctrl+K Ctrl+S (Keyboard Shortcuts).
+    await tile('B').focus()
+    await page.keyboard.press('Control+K')
+    await page.keyboard.press('Control+S')
+    check('a chord from a tile: Ctrl+K Ctrl+S opens Keyboard Shortcuts', !!(await lib.until(async () => (await page.locator('.dialog').innerText().catch(() => '')).startsWith('Keyboard Shortcuts'), HUNG_MS)), `${await page.locator('.dialog').count()} dialogs`)
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.dialog').count()) === 0, HUNG_MS)
+    // Move Agent Right bound to F6 (no modifier): on A's tile it moves A, not B (the agent moved last).
+    await inv('settings:update', { keybindings: { 'agent.moveRight': 'F6' } })
+    await lib.until(async () => (await inv('settings:get')).keybindings['agent.moveRight'] === 'F6', HUNG_MS)
+    await page.locator('.session-toolbar .tile-pages button').nth(0).click()
+    await lib.until(async () => (await tile('A').count()) === 1, HUNG_MS)
+    await tile('A').focus()
+    await page.keyboard.press('F6')
+    const f6 = ['C', 'D', 'A', ...NAMES.slice(4), 'B']
+    check("Move Agent Right on F6, on A's tile: A a place right, the keyboard on it", !!(await lib.until(async () => saved() === order(f6) && (await tileNames()).join() === order(f6.slice(0, 12)) && (await focusedTile()) === 'A', HUNG_MS)), `${saved()} / ${await focusedTile()}`)
+    // Bound to a plain arrow, the command wins over moving between tiles: Move Agent Left on ←.
+    await inv('settings:update', { keybindings: { 'agent.moveRight': 'F6', 'agent.moveLeft': 'ArrowLeft' } })
+    await lib.until(async () => (await inv('settings:get')).keybindings['agent.moveLeft'] === 'ArrowLeft', HUNG_MS)
+    await tile('A').focus()
+    await page.keyboard.press('ArrowLeft')
+    const back = ['C', 'A', ...NAMES.slice(3), 'B']
+    check("Move Agent Left on ←, on A's tile: A moves back (not the keyboard to the tile beside it)", !!(await lib.until(async () => saved() === order(back) && (await tileNames()).join() === order(back.slice(0, 12)) && (await focusedTile()) === 'A', HUNG_MS)), `${saved()} / ${await focusedTile()}`)
   } finally {
     await inv('session:stop', alpha).catch(() => undefined)
     await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)

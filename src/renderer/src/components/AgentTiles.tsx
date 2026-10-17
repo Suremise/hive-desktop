@@ -11,7 +11,7 @@ import type { AgentInfo, ProjectInfo, ProgressRun } from '@shared/types'
 import { formatSize } from '@shared/units'
 import { agentProviderOf, closeTile, openTile, projectKey, showTilePage, tileAgents, tileFocusOf, tilePage, useLanguage, useStore } from '../store'
 import * as actions from '../actions'
-import { commandKeybinding, matchKeybinding } from '../commands'
+import { commandKeybinding, isAppShortcut } from '../commands'
 import { deferredFocus } from '../deferredFocus'
 import { useLiveUsage, useNow } from '../usage'
 import { cx, formatKeybinding, formatTokens } from '../util'
@@ -112,6 +112,17 @@ function TileGrid({ project }: { project: ProjectInfo }) {
   const grid = useRef<HTMLDivElement>(null)
   const movable = useMovable(project)
   const menu = useContextMenu()
+  // Move Agent Left/Right (whatever its keys) with the keyboard on a tile moves that tile (#993).
+  useEffect(() => {
+    if (!movable) return
+    return actions.onTileNudge((delta) => {
+      const el = document.activeElement
+      const id = grid.current?.contains(el) ? (el as HTMLElement).closest<HTMLElement>('.agent-tile')?.dataset.agent : undefined
+      if (!id) return false
+      moveTile(project, id, delta)
+      return true
+    })
+  }, [movable, project])
   // The tile that holds the grid's one tab stop: the last one the keyboard was on, while it is on this page.
   const [current, setCurrent] = useState<string | null>(null)
   const stop = shown.some((t) => t.a.id === current) ? current : (shown[0]?.a.id ?? null)
@@ -128,16 +139,8 @@ function TileGrid({ project }: { project: ProjectInfo }) {
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     const els = [...(grid.current?.querySelectorAll<HTMLElement>('.agent-tile') ?? [])]
     const at = els.indexOf(document.activeElement as HTMLElement)
-    if (at < 0) return
-    // Move Agent Left/Right moves the tile the keyboard is on, not the agent focused before (#993).
-    const cmd = movable && (e.ctrlKey || e.altKey || e.metaKey) ? matchKeybinding(e.nativeEvent)?.id : undefined
-    if (cmd === 'agent.moveLeft' || cmd === 'agent.moveRight') {
-      e.preventDefault()
-      e.stopPropagation()
-      const id = els[at].dataset.agent
-      if (id) moveTile(project, id, cmd === 'agent.moveLeft' ? -1 : 1)
-      return
-    }
+    // A key bound to a command is the command's (the user may bind an arrow), which the window runs.
+    if (at < 0 || isAppShortcut(e.nativeEvent)) return
     // As many columns as tiles in the first row.
     const cols = Math.max(1, els.filter((el) => el.offsetTop === els[0].offsetTop).length)
     const to = { ArrowRight: at + 1, ArrowLeft: at - 1, ArrowDown: at + cols, ArrowUp: at - cols, Home: 0, End: els.length - 1 }[e.key]

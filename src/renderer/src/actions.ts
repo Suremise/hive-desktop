@@ -975,7 +975,22 @@ export async function swapAgents(path: string, agentId: string, otherId: string)
 }
 
 /** Moves the focused agent (or `agentId`) one place left or right, across pages at their edges. */
+/**
+ * The Tiles view's move (#993, set by AgentTiles while its grid can be reordered): Move Agent Left/Right with the keyboard
+ * on a tile moves that tile's agent, not the agent focused before. Returns whether it took the move.
+ */
+let tileNudge: ((delta: -1 | 1) => boolean) | null = null
+
+/** Sets the Tiles view's move; returns its removal. */
+export function onTileNudge(fn: (delta: -1 | 1) => boolean): () => void {
+  tileNudge = fn
+  return () => {
+    if (tileNudge === fn) tileNudge = null
+  }
+}
+
 export function nudgeAgent(delta: -1 | 1, path: string | null = get().selectedProject, agentId?: string): void {
+  if (!agentId && tileNudge?.(delta)) return
   const p = path ? project(path) : undefined
   const id = agentId ?? (p ? focusedAgentId(p) : null)
   if (!p || !id || p.agents.length < 2) return
