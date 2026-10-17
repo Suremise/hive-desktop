@@ -175,6 +175,8 @@ interface HiveMessageValues {
   'panes.tiles.back': undefined
   'panes.tiles.backTip': { key: string }
   'panes.tiles.background': { n: number }
+  'panes.tiles.chipLabel': { card: string | number; column: string | number; blocked: string }
+  'panes.tiles.chipLine': { card: string | number; title: string | number; role: string; column: string | number; blocked: string }
   'panes.tiles.context': { tokens: string | number }
   'panes.tiles.empty': undefined
   'panes.tiles.label': { pages: number; page: number }
@@ -184,6 +186,8 @@ interface HiveMessageValues {
   'panes.tiles.reviewing': { card: string | number }
   'panes.tiles.stripLabel': undefined
   'panes.tiles.transcript': { size: string | number }
+  'panes.tiles.waitingCard': undefined
+  'panes.tiles.waitingInto': { column: string | number }
   'panes.view.label': undefined
   'panes.view.name': { view: string }
   'panes.watch.agents': { agents: string | number }

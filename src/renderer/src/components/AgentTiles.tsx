@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { AgentState } from '@shared/agentState'
-import { agentDoingCards, agentReviewCards } from '@shared/tasks'
+import { agentDoingCards, agentReviewCards, columnName } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
 import { compactThreshold, pageEndIndex, transcriptWarnLimit } from '@shared/defaults'
 import { fractionDone, runStatusLine } from '@shared/progress'
@@ -16,8 +16,10 @@ import { deferredFocus } from '../deferredFocus'
 import { useLiveUsage, useNow } from '../usage'
 import { cx, formatKeybinding, formatTokens } from '../util'
 import { AddAgentButton, agentDragProps, dropAgent, FAILED_TO_START, moveItems, PAGE_HOVER_MS, SWAP_WITH, swapDrop, useAgentDrag } from './AgentPanes'
+import { RowCardChip, useRowCards } from './CardChip'
+import { PaneResizer, usePaneSize } from './Resizer'
 import { StateMark } from './StateMark'
-import { Icon, statusText, Tooltip, useContextMenu } from './ui'
+import { Icon, statusText, Tooltip, useClipped, useContextMenu } from './ui'
 
 /**
  * The Session tab's Tiles view (#976; #975's toggle switches to it): a tile per agent, 12 to a page, in the order Settings
@@ -290,12 +292,19 @@ function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { projec
   )
 }
 
+/** The focus view's strip's width (#1021): dragged at its edge, remembered like the other panels' (double-click resets it). */
+export const TILE_STRIP = { key: 'tileStrip', width: 200, min: 170, max: 420 } as const
+
+export const useTileStripWidth = (): number => usePaneSize(TILE_STRIP.key, TILE_STRIP.width)
+
 /**
- * The focus view's strip (#976): Back to Tiles, then every agent in tile order (its mark, name and status), the one shown
- * marked; choosing another shows it. Esc, outside the terminal (where it is the CLI's), goes back to the grid.
+ * The focus view's strip (#976): Back to Tiles, then every agent in tile order (its mark, name, card and status), the one
+ * shown marked; choosing another shows it. Esc, outside the terminal (where it is the CLI's), goes back to the grid. Its
+ * right edge resizes it (#1021); ProjectView puts the agent's pane beside it.
  */
 function TileStrip({ project, focus }: { project: ProjectInfo; focus: string }) {
   const tiles = useTiles(project)
+  const width = useTileStripWidth()
   const key = commandKeybinding('session.backToTiles')
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -310,6 +319,7 @@ function TileStrip({ project, focus }: { project: ProjectInfo; focus: string }) 
     return () => document.removeEventListener('keydown', onKey)
   }, [project])
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // Between the rows' buttons (their card chips are Tab's).
     const els = [...e.currentTarget.querySelectorAll<HTMLElement>('button')]
     const at = els.indexOf(document.activeElement as HTMLElement)
     const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: els.length - 1 }[e.key]
@@ -318,27 +328,59 @@ function TileStrip({ project, focus }: { project: ProjectInfo; focus: string }) 
     els[Math.max(0, Math.min(els.length - 1, to))]?.focus()
   }
   return (
-    <nav className="tile-strip" aria-label={tr(msg({ id: 'panes.tiles.stripLabel', defaultMessage: "The project's agents", description: "Accessible name of the focus view's strip of agents (the Tiles view, one agent's pane large)." }))} onKeyDown={onKeyDown}>
-      <Tooltip content={tr(msg({ id: 'panes.tiles.backTip', defaultMessage: 'Back to the tiles (Esc outside the terminal{key, select, none {} other {, or {key}}})', description: "Tooltip of the focus view's Back to Tiles button: the keys that do it too ({key}: \"Ctrl+Alt+Escape\"; none: leave that branch empty)." }), { key: key ? formatKeybinding(key) : 'none' })}>
-        <button type="button" className="tile-strip-back" onClick={() => back(project)}>
-          <Icon name="arrow-left" /> {tr(msg({ id: 'panes.tiles.back', defaultMessage: 'Tiles', description: "The focus view's button back to the grid of tiles. Use the Panes | Tiles toggle's word." }))}
-        </button>
-      </Tooltip>
-      {tiles.map(({ a, state }) => (
-        <StripItem key={a.id} project={project} a={a} state={state} active={a.id === focus} />
-      ))}
-    </nav>
+    <div className="tile-strip" style={{ width }}>
+      <nav className="tile-strip-list" aria-label={tr(msg({ id: 'panes.tiles.stripLabel', defaultMessage: "The project's agents", description: "Accessible name of the focus view's strip of agents (the Tiles view, one agent's pane large)." }))} onKeyDown={onKeyDown}>
+        <Tooltip content={tr(msg({ id: 'panes.tiles.backTip', defaultMessage: 'Back to the tiles (Esc outside the terminal{key, select, none {} other {, or {key}}})', description: "Tooltip of the focus view's Back to Tiles button: the keys that do it too ({key}: \"Ctrl+Alt+Escape\"; none: leave that branch empty)." }), { key: key ? formatKeybinding(key) : 'none' })}>
+          <button type="button" className="tile-strip-back" onClick={() => back(project)}>
+            <Icon name="arrow-left" /> {tr(msg({ id: 'panes.tiles.back', defaultMessage: 'Tiles', description: "The focus view's button back to the grid of tiles. Use the Panes | Tiles toggle's word." }))}
+          </button>
+        </Tooltip>
+        {tiles.map(({ a, state }) => (
+          <StripItem key={a.id} project={project} a={a} state={state} active={a.id === focus} />
+        ))}
+      </nav>
+      <PaneResizer paneKey={TILE_STRIP.key} min={TILE_STRIP.min} max={TILE_STRIP.max} keep={360} />
+    </div>
   )
 }
 
+/**
+ * An agent's row in the strip: a button (its mark, name and status) and its card's chip (#1021) at the name line's right,
+ * beside the button rather than in it (a chip is a button of its own). An unseen copy of the chip holds its room on the
+ * name's line, so a long name ends in an ellipsis before it and the chips line up down the strip.
+ */
 function StripItem({ project, a, state, active }: { project: ProjectInfo; a: AgentInfo; state: AgentState; active: boolean }) {
   const status = useStatus(project, a)
+  const cards = useRowCards(project, a.id)
+  const [nameRef, clipped] = useClipped<HTMLSpanElement>()
+  const shown = cards[0]?.card.number
+  const watch = a.live?.status === 'watching' ? a.live.watch : undefined
+  // Waiting on its own card only (#1021): the chip says which, so the status doesn't repeat its number.
+  const short = watch && status === watch.label && shown !== undefined && !watch.agents?.length && !watch.lanes?.length && watch.cards.length === 1 && watch.cards[0] === shown
+  const line = short ? (watch.column ? tr(msg({ id: 'panes.tiles.waitingInto', defaultMessage: 'Waiting → {column}', description: "An agent's status in the focus view's strip while it waits for its card (named by the chip beside it) to move into a board column ({column})." }), { column: columnName(watch.column, tr) }) : tr(msg({ id: 'panes.tiles.waitingCard', defaultMessage: 'Waiting for its card', description: "An agent's status in the focus view's strip while it waits for its card (named by the chip beside it) to change." }))) : status
   return (
-    <button type="button" className={cx('tile-strip-item', state, isUrgent(state) && 'urgent', active && 'active')} data-agent={a.id} aria-current={active || undefined} onClick={() => openTile(project, a.id)}>
-      <StateMark state={state} />
-      <span className="tile-strip-name">{a.name}</span>
-      <span className="tile-strip-status">{status}</span>
-    </button>
+    <div className="tile-strip-row">
+      <button type="button" className={cx('tile-strip-item', state, isUrgent(state) && 'urgent', active && 'active')} data-agent={a.id} aria-current={active || undefined} onClick={() => openTile(project, a.id)}>
+        <StateMark state={state} />
+        {/* Its name in full on hover when it is cut short. */}
+        <Tooltip content={clipped ? a.name : null} block>
+          <span ref={nameRef} className="tile-strip-name">
+            {a.name}
+          </span>
+        </Tooltip>
+        {shown !== undefined && (
+          <span className="tile-strip-chip-space" aria-hidden="true" inert>
+            <RowCardChip cards={cards} space />
+          </span>
+        )}
+        <span className="tile-strip-status">{line}</span>
+      </button>
+      {shown !== undefined && (
+        <span className="tile-strip-chip">
+          <RowCardChip cards={cards} />
+        </span>
+      )}
+    </div>
   )
 }
 
