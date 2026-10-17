@@ -330,6 +330,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // The status badge's table as text, for its accessible description (#529).
   const agentsDescription = useAgentsText(project)
   const cards = useStore((s) => s.tasks)
+  const startFailures = useStore((s) => s.startFailures)
 
   if (!workspace) return null
 
@@ -355,7 +356,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const live = focusedAgent?.live ?? null
   const many = project.agents.length > 1
   // Its agents' states in one line, with the most urgent's mark (#974): "1 waiting · 2 working".
-  const states = projectAgentStates(project, cards)
+  const states = projectAgentStates(project, cards, (id) => !!startFailures[projectKey(project.path, id)])
   const running = project.agents.filter((a) => a.live)
   const resumable = agentsToResume(project.agents)
   const resuming = !!runningActions[`resumeAll:${project.path}`]

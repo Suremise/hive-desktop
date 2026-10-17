@@ -231,7 +231,7 @@ An agent's header, its **⋯** and the **Session** menu let you:
 Hive sums up what each agent is doing in one of four states, each drawn with its own shape as well as its own colour, so they read apart without colour too:
 
 - **◆ Waiting for you** (a diamond): it asks you something (a permission, a question, a sign-in), or a card it has is blocked on you.
-- **■ Stalled** (a square): nothing will move it on by itself: its coding agent failed, it has gone silent with its state unknown, it stopped watching the cards it loops on, or it isn't running while its card is in Doing.
+- **■ Stalled** (a square): nothing will move it on by itself: its coding agent failed or failed to start, it has gone silent with its state unknown, it stopped watching the cards it loops on, or it isn't running while its card is in Doing.
 - **● Working** (a dot that pulses, held still if Windows is set to show fewer animations): a turn, its start, a compaction or background tasks.
 - **○ Idle** (a ring): ready, finished, waiting on cards, or stopped.
 

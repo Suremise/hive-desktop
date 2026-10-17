@@ -529,7 +529,7 @@
   },
   "panes.tab.failed": {
     "defaultMessage": "failed to start: {why}",
-    "description": "An agent's state in its tab's hover, after its name: its last launch failed ({why}: the error's first line). Lower case."
+    "description": "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case."
   },
   "panes.tab.mcp": {
     "defaultMessage": "MCP servers: {servers}",

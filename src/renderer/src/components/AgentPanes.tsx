@@ -25,6 +25,7 @@ import { formatSize } from '@shared/units'
 import { moneyLabel } from '@shared/usageTotals'
 import { TerminalView } from './TerminalView'
 import { offerTip } from '../tips'
+import { chooseFocus } from '../deferredFocus'
 import { onStripMenu, takeStripMenu, type StripMenu } from '../stripMenus'
 import { ModeBadge } from './PermissionMode'
 import { contextLines, projectProviderConfig, providerDescriptor, providerName, providerSettings } from '@shared/providers'
@@ -693,6 +694,9 @@ function SignInTip({ live, children }: { live: LiveSessionState | null; children
   return note ? <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{note}</span>}>{children}</Tooltip> : <>{children}</>
 }
 
+/** An agent whose last launch failed, in its name's hover and the summary chip's list: "failed to start: <why>". */
+const FAILED_TO_START = msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state after its name (its name's hover on its pane, the summary chip's list): its last launch failed ({why}: the error's first line). Lower case." })
+
 function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const usage = useLiveUsage(project, a.live ? a.id : undefined)
   const cards = useAgentCards(project, a.id)
@@ -703,7 +707,7 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
   const state = live
     ? statusText(live)
     : failure
-      ? tr(msg({ id: 'panes.tab.failed', defaultMessage: 'failed to start: {why}', description: "An agent's state in its tab's hover, after its name: its last launch failed ({why}: the error's first line). Lower case." }), { why: failure.reason.split('\n')[0] })
+      ? tr(FAILED_TO_START, { why: failure.reason.split('\n')[0] })
       : tr(msg({ id: 'panes.tab.notRunning', defaultMessage: 'not running', description: "An agent's state in its tab's hover, after its name: its session isn't running. Lower case." }))
   const lines = [tr(msg({ id: 'panes.tab.title', defaultMessage: '{agent} ({provider}): {state}', description: "The first line of an agent tab's hover: its name, its provider (\"Claude Code\") and its state." }), { agent: a.name, provider: providerName(agentProviderOf(project, a)), state })]
   const signIn = signInNote(live)
@@ -740,6 +744,9 @@ function toolbarNeed(el: HTMLElement): number | null {
   return Math.ceil(items.reduce((n, c) => n + c.getBoundingClientRect().width, 0) + gap * Math.max(0, items.length - 1) + chipShort)
 }
 
+/** The Session tab's views, in the toggle's order. */
+const SESSION_VIEWS: readonly SessionView[] = ['panes', 'tiles']
+
 const VIEW_NAME = msg({ id: 'panes.view.name', defaultMessage: '{view, select, tiles {Tiles} other {Panes}}', description: "The Session tab's two views, on its Panes | Tiles toggle: Panes shows the agents' terminals, Tiles a small tile per agent. Keep them short." })
 const ADD = msg({ id: 'panes.add.menu', defaultMessage: 'Add', description: "The session toolbar's + Add ▾ button: adds agents (the dialog, a quick add, from a template) and saves or loads templates. Keep it short." })
 
@@ -768,6 +775,15 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   const addMenu = useContextMenu()
   const chip = useRef<HTMLButtonElement>(null)
   const add = useRef<HTMLButtonElement>(null)
+  const viewButtons = useRef<(HTMLButtonElement | null)[]>([])
+  // A view chosen from the keyboard keeps the focus on its radio: the panes shown again would focus their terminal (a
+  // deferred focus, asked for in its effect); after this commit's effects, the choice counts as newer than that.
+  const keyboardView = useRef(false)
+  useEffect(() => {
+    if (!keyboardView.current) return
+    keyboardView.current = false
+    queueMicrotask(chooseFocus)
+  }, [view])
   const page = agentPage(project, focused ?? null)
   const panesView = view === 'panes'
   // One layout for the project; a page holds as many agents as it has panes (#134).
@@ -802,7 +818,9 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   }, [dragging])
   const folds = useFolds(bar, width, [language, project.agents.length, pages, layout, many, view, assistant].join('|'), TOOLBAR_FOLDS, toolbarNeed)
   // Each agent's state (#973), with what the board says of it (a card blocked on you, a Doing card while it isn't running).
-  const states = projectAgentStates(project, tasks)
+  const startFailures = useStore((s) => s.startFailures)
+  const failure = (id: string): StartFailure | undefined => startFailures[projectKey(project.path, id)]
+  const states = projectAgentStates(project, tasks, (id) => !!failure(id))
   // The chip's list: every agent, most urgent first, the project's order within a state.
   const agentList = (): MenuEntry[] =>
     project.agents
@@ -811,7 +829,8 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       .map(({ a, state }) => {
         const busy = !!removing[`removeAgent:${project.path}#${a.id}`]
         const cards = assistant ? [] : agentDoingCards(tasks, project.name, a.id)
-        const status = a.live ? statusText(a.live) : tr(msg({ id: 'panes.chip.notRunning', defaultMessage: 'Not running', description: "An agent's status in the summary chip's list of agents: its session isn't running." }))
+        const failed = a.live ? undefined : failure(a.id)
+        const status = a.live ? statusText(a.live) : failed ? tr(FAILED_TO_START, { why: failed.reason.split('\n')[0] }) : tr(msg({ id: 'panes.chip.notRunning', defaultMessage: 'Not running', description: "An agent's status in the summary chip's list of agents: its session isn't running." }))
         return {
           ...(busy ? { icon: 'loading' } : { state }),
           label: a.name,
@@ -940,9 +959,33 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   return (
     <div className="session-toolbar" ref={barRef} data-folded={folds > 0 || undefined}>
       {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
-      <div className="segmented view-switch" role="radiogroup" aria-label={tr(msg({ id: 'panes.view.label', defaultMessage: 'Session view', description: "Accessible name of the Session tab's Panes | Tiles toggle." }))}>
-        {(['panes', 'tiles'] as const).map((v) => (
-          <button key={v} role="radio" aria-checked={view === v} className={cx(view === v && 'active')} data-view={v} onClick={() => view !== v && void actions.setSessionView(project.path, v)}>
+      {/* A radio group (#975): one tab stop, on the chosen view; the arrow keys (round, Home, End) move to the other and choose it. */}
+      <div
+        className="segmented view-switch"
+        role="radiogroup"
+        aria-label={tr(msg({ id: 'panes.view.label', defaultMessage: 'Session view', description: "Accessible name of the Session tab's Panes | Tiles toggle." }))}
+        onKeyDown={(e) => {
+          const at = SESSION_VIEWS.indexOf(view)
+          const next = e.key === 'Home' ? 0 : e.key === 'End' ? SESSION_VIEWS.length - 1 : e.key === 'ArrowRight' || e.key === 'ArrowDown' ? (at + 1) % SESSION_VIEWS.length : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? (at - 1 + SESSION_VIEWS.length) % SESSION_VIEWS.length : -1
+          if (next < 0) return
+          e.preventDefault()
+          viewButtons.current[next]?.focus()
+          if (SESSION_VIEWS[next] === view) return
+          keyboardView.current = true
+          void actions.setSessionView(project.path, SESSION_VIEWS[next])
+        }}
+      >
+        {SESSION_VIEWS.map((v, i) => (
+          <button
+            key={v}
+            ref={(el) => void (viewButtons.current[i] = el)}
+            role="radio"
+            aria-checked={view === v}
+            tabIndex={view === v ? 0 : -1}
+            className={cx(view === v && 'active')}
+            data-view={v}
+            onClick={() => view !== v && void actions.setSessionView(project.path, v)}
+          >
             {tr(VIEW_NAME, { view: v })}
           </button>
         ))}

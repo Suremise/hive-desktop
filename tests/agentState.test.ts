@@ -72,6 +72,14 @@ describe('agent state marks (#973)', () => {
     expect(boardExtras('alpha', agent('a1', null), none)).toEqual({ blocked: false, stalled: false })
   })
 
+  it('a launch that failed to start is stalled while it has no session (#975)', () => {
+    expect(agentState(null, { failedToStart: true })).toBe('stalled')
+    expect(agentState(live('ready'), { failedToStart: true })).toBe('idle')
+    expect(agentState(null, { failedToStart: true, blocked: true })).toBe('waiting')
+    const p = { name: 'alpha', agents: [agent('a1', null), agent('a2', null)] }
+    expect(projectAgentStates(p, [], (id) => id === 'a2')).toEqual(['idle', 'stalled'])
+  })
+
   it("a project's agents' states, in its order, with the board's facts", () => {
     const p = { name: 'alpha', agents: [agent('a1', live('working')), agent('a2', null), agent('a3', live('finished'))] }
     expect(projectAgentStates(p, [card('a2', 'doing'), card('a3', 'review', { blocked: 'Which?' })])).toEqual(['working', 'stalled', 'waiting'])
