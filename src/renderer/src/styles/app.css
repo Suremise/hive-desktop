@@ -4762,6 +4762,20 @@ body.pane-resizing .monaco-editor {
   text-align: left;
   cursor: pointer;
 }
+/* Dragged (#993): like a pane header; the tile being dragged dims, and another agent's tile shows a drop target. */
+.agent-tile {
+  position: relative;
+}
+.agent-tile[draggable='true'] {
+  cursor: grab;
+}
+.agent-tile.dragging {
+  opacity: 0.5;
+}
+.tile-drop {
+  border-radius: inherit;
+  text-align: center;
+}
 .agent-tile:hover {
   background: var(--bg-hover);
 }

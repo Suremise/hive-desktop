@@ -1,10 +1,12 @@
 // Moving a project's agents: where a move, a drop or a page drop puts an agent, and the saved order in project.json
 // (under its lock, keeping each agent's settings and anything changed meanwhile).
+import { AsyncLocalStorage } from 'async_hooks'
 import { mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
-import { dropIndex, moveAgentTo, pageAgents, pageEndIndex, swapAgentsIn } from '../src/shared/defaults'
+import { dropIndex, moveAgentTo, pageAgents, pageEndIndex, projectAgents, swapAgentsIn } from '../src/shared/defaults'
+import type { HiveEvent, ProjectConfig } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 const base = tempDir('hive-order-')
@@ -43,6 +45,10 @@ describe('agent order', () => {
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const { moveAgent, swapAgents } = await import('../src/main/projectAgents')
+const { onHiveEvent } = await import('../src/main/events')
+
+// The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
+const HUNG_MS = 10000
 
 describe('saving the order', () => {
   let w: ReturnType<typeof createWorkspaceService>
@@ -91,6 +97,49 @@ describe('saving the order', () => {
     expect(cfg.agents[1].model).toBe('haiku')
     expect(cfg.agents.find((a: { id: string }) => a.id === 'a3').worktree.branch).toBe('hive/three')
     await expect(inWorkspace(w, () => swapAgents(alpha, 'a1', 'gone'))).rejects.toThrow(/no longer exists/)
+  })
+
+  it('quick moves: a refresh that read the order before a later move never reports it (#999: the panes flickered)', async () => {
+    // Each move's own refresh is held once it has read the project, as refreshes slowed by running agents were, and let go
+    // in turn after all three moves have saved. Only the test's own: a refresh a move schedules runs outside `mine`.
+    const mine = new AsyncLocalStorage<boolean>()
+    const held: (() => void)[] = []
+    const live = (hold: boolean) => async (p: string, cfg: ProjectConfig) => {
+      if (hold && p === alpha && mine.getStore()) await new Promise<void>((r) => held.push(r))
+      return { live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) }
+    }
+    // Each order reported, beside the order saved as it was reported.
+    const reported: { order: string; saved: string }[] = []
+    const off = onHiveEvent((e: HiveEvent) => {
+      const p = e.type === 'workspace-changed' ? e.workspace?.projects.find((x) => x.path === alpha) : undefined
+      if (p) reported.push({ order: p.agents.map((a) => a.id).join(','), saved: saved().agents.map((a: { id: string }) => a.id).join(',') })
+    })
+    w.setLiveProvider(live(true))
+    try {
+      const [x, y, z] = saved().agents.map((a: { id: string }) => a.id)
+      const move = (fn: () => Promise<string[]>) => mine.run(true, () => inWorkspace(w, fn))
+      const moves = [move(() => swapAgents(alpha, x, z))]
+      await vi.waitFor(() => expect(held).toHaveLength(1), { timeout: HUNG_MS })
+      moves.push(move(() => moveAgent(alpha, z, 1)))
+      await vi.waitFor(() => expect(held).toHaveLength(2), { timeout: HUNG_MS })
+      moves.push(move(() => moveAgent(alpha, y, 2)))
+      await vi.waitFor(() => expect(held).toHaveLength(3), { timeout: HUNG_MS })
+      const last = saved().agents.map((a: { id: string }) => a.id).join(',')
+      expect(last).toBe([z, x, y].join(','))
+      // Let go oldest first, each ending before the next: the first two read the order from before a later move.
+      for (let i = 0; i < 3; i++) {
+        held[i]()
+        await moves[i]
+      }
+      expect(reported.length).toBeGreaterThan(0)
+      for (const r of reported) expect(r.order).toBe(r.saved)
+      expect(reported.at(-1)?.order).toBe(last)
+      expect(w.info()?.projects.find((p) => p.path === alpha)?.agents.map((a) => a.id).join(',')).toBe(last)
+    } finally {
+      for (const r of held) r()
+      w.setLiveProvider(live(false))
+      off()
+    }
   })
 })
 

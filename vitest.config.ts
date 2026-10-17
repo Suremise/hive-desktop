@@ -1,6 +1,13 @@
 import { fileURLToPath } from 'url'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { progressWanted, VitestProgress } from './tests/progressReport.mts'
+import { tempRoot } from './tests/tempDir'
+
+// The run's temp folder is the tests' own, hive-test\tmp (tests/tempDir.ts, #992), not %TEMP%: Vitest's copies of the
+// modules it serves the workers (about 600 files a run, and left behind), the temp files of Hive's code under test and of
+// the programs tests start (git) go there too, where Hive's Antivirus scanning setting covers them and npm run test:clean
+// sweeps them. Set before Vitest starts its workers, which inherit it.
+if (process.env.LOCALAPPDATA) process.env.TEMP = process.env.TMP = tempRoot()
 
 export default defineConfig({
   // Hive's main-process modules import Electron; unit tests use a stub (no Electron binary needed, e.g. in CI). They

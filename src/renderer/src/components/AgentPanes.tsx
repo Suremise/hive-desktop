@@ -238,12 +238,12 @@ function sessionItems(project: ProjectInfo, live: LiveSessionState | null | unde
   ]
 }
 
-// Dragging an agent (its strip tab or pane header) changes the project's order, which the panes follow (#135): dropped
-// on a tab it goes before or after it, on another agent's pane the two swap, on an empty pane to the end, on a page
+// Dragging an agent (its pane header, or its tile in the Tiles view, #993) changes the project's order, which the panes
+// and tiles follow (#135): dropped on another agent's pane or tile the two swap, on an empty pane to the end, on a page
 // button to the end of that page (held over one, that page shows).
 const AGENT_DRAG = 'application/x-hive-agent'
 
-function agentDragProps(project: ProjectInfo, a: AgentInfo) {
+export function agentDragProps(project: ProjectInfo, a: AgentInfo) {
   if (project.agents.length < 2 || isAssistantPath(project.path)) return {}
   return {
     draggable: true,
@@ -259,27 +259,30 @@ function agentDragProps(project: ProjectInfo, a: AgentInfo) {
 }
 
 /** The agent being dragged in this project, if any. */
-function useAgentDrag(project: ProjectInfo): string | null {
+export function useAgentDrag(project: ProjectInfo): string | null {
   return useStore((s) => (s.agentDrag?.project === project.path ? s.agentDrag.id : null))
 }
 
-function dropAgent(project: ProjectInfo, index: number): void {
+export function dropAgent(project: ProjectInfo, index: number): void {
   const id = useStore.getState().agentDrag?.id
   set({ agentDrag: null })
   if (id) void actions.moveAgent(project.path, id, index)
 }
 
-/** A dragged agent dropped on another's pane: they swap places (#135). */
-function swapDrop(project: ProjectInfo, otherId: string): void {
+/** A dragged agent dropped on another's pane or tile: they swap places (#135, #993). */
+export function swapDrop(project: ProjectInfo, otherId: string): void {
   const id = useStore.getState().agentDrag?.id
   set({ agentDrag: null })
   if (id && id !== otherId) void actions.swapAgents(project.path, id, otherId)
 }
 
-/** How long a dragged agent hovers over a page button before that page shows, so it can be dropped on one of its panes. */
 /** Up to this many agent pages show a button each; more show the compact pager (#562): 12 agents in two columns are six. */
 const PAGE_BUTTONS_MAX = 6
-const PAGE_HOVER_MS = 600
+/** How long a dragged agent hovers over a page button before that page shows, so it can be dropped on one of its panes. */
+export const PAGE_HOVER_MS = 600
+
+/** Shown over another agent's pane or tile while an agent is dragged onto it. */
+export const SWAP_WITH = msg({ id: 'panes.drop.swap', defaultMessage: 'Swap with {agent}', description: "Shown over another agent's pane (or its tile in the Tiles view) while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)." })
 
 /**
  * Ends a drag Hive is tracking when the browser's own end of it can't reach its source: a pane header dragged to another
@@ -352,8 +355,11 @@ const CANCEL_WATCH_FAILED = msg({ id: 'panes.watchCancel.failed', defaultMessage
 const FROM_TEMPLATE = msg({ id: 'panes.add.fromTemplate', defaultMessage: 'Add Agent from Template', description: "Menu item (+ Add ▾ in the session toolbar, and the Add Agent button's ▾): adds one agent of a saved template." })
 const CONFIGURE_AGENT = msg({ id: 'panes.add.configure', defaultMessage: 'Configure Agent and Add…', description: 'Menu item (+ Add ▾ in the session toolbar, and the Add Agent button\'s ▾): opens the Add Agent dialog (provider, where it works, settings).' })
 
-/** Move Left / Move Right, for a project with several agents (they cross pages at the edges). */
-function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
+/**
+ * Move Left / Move Right, for a project with several agents (they cross pages at the edges). `nudge`: how it moves (the
+ * Tiles view's follows the tile to its page).
+ */
+export function moveItems(project: ProjectInfo, a: AgentInfo, nudge = (delta: -1 | 1): void => actions.nudgeAgent(delta, project.path, a.id)): MenuEntry[] {
   if (project.agents.length < 2 || isAssistantPath(project.path)) return []
   const i = project.agents.findIndex((x) => x.id === a.id)
   const kb = (id: string): string | undefined => {
@@ -362,8 +368,8 @@ function moveItems(project: ProjectInfo, a: AgentInfo): MenuEntry[] {
   }
   return [
     { separator: true },
-    { label: tr(msg({ id: 'panes.menu.moveLeft', defaultMessage: 'Move Left', description: "Menu item (an agent's menu): moves the agent one place left among the project's agents." })), icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => actions.nudgeAgent(-1, project.path, a.id) },
-    { label: tr(msg({ id: 'panes.menu.moveRight', defaultMessage: 'Move Right', description: "Menu item (an agent's menu): moves the agent one place right among the project's agents." })), icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => actions.nudgeAgent(1, project.path, a.id) }
+    { label: tr(msg({ id: 'panes.menu.moveLeft', defaultMessage: 'Move Left', description: "Menu item (an agent's menu): moves the agent one place left among the project's agents." })), icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => nudge(-1) },
+    { label: tr(msg({ id: 'panes.menu.moveRight', defaultMessage: 'Move Right', description: "Menu item (an agent's menu): moves the agent one place right among the project's agents." })), icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => nudge(1) }
   ]
 }
 
@@ -1662,7 +1668,7 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
                 }}
               >
                 <span>
-                  <Icon name="arrow-swap" /> {a ? tr(msg({ id: 'panes.drop.swap', defaultMessage: 'Swap with {agent}', description: "Shown over another agent's pane while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)." }), { agent: a.name }) : tr(msg({ id: 'panes.drop.move', defaultMessage: 'Move here', description: 'Shown over an empty pane while an agent is dragged onto it: dropping moves it there.' }))}
+                  <Icon name="arrow-swap" /> {a ? tr(SWAP_WITH, { agent: a.name }) : tr(msg({ id: 'panes.drop.move', defaultMessage: 'Move here', description: 'Shown over an empty pane while an agent is dragged onto it: dropping moves it there.' }))}
                 </span>
               </div>
             )}

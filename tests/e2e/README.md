@@ -484,7 +484,8 @@ kept and why, without removing anything; `--days N` sets the age, default 3).
   folder no run's logs claim, whatever its age (a failed suite's is claimed until its run is pruned: below), and
   anything left from before suites had folders of their own; in scenario lanes, numbered copies (`<scenario>-2`…) and
   folders older than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own,
-  probes); and anything else in `hive-test` older than the age (one-off folders and files).
+  probes); in `tmp` (the unit tests' temp folders: tests/README.md, #992), anything older than a day (or `--days`, if
+  less); and anything else in `hive-test` older than the age (one-off folders and files).
 - **In the Codex test home** (`codex`, #404), which otherwise only grows (1.8 GB by 8 Oct 2026): its rollouts older
   than the age (`sessions\YYYY\MM\DD`; a folder whose rollouts are all that old goes whole), package copies Codex no
   longer runs (`packages\<name>\releases\<version>` that is neither its `current` link's target nor the version

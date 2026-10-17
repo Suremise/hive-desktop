@@ -5,6 +5,13 @@ suites are in [e2e](e2e/README.md) and the agent-behaviour scenarios in [scenari
 `tempDir()` (`tempDir.ts`) for a test's folders, `pathAliases.ts` for another name for one, `noGlobalGit.ts` (unit
 tests run git with no global config, as CI does), and `electron-stub.ts` standing in for `electron`.
 
+Unit tests' temp folders are in the test area, `%LOCALAPPDATA%\hive-test\tmp` (#992), not `%TEMP%`: Hive's Antivirus
+scanning setting covers the test area, and thousands of folders made and removed in `%TEMP%` kept Defender busy.
+`tempDir()` makes them there, and `vitest.config.ts` makes it the run's temp folder (`TEMP`, `TMP`) too, so Vitest's own
+copies of the modules, Hive's code under test and the programs tests start (git) put theirs there. Each test removes
+its own; `npm run test:clean` and the e2e and scenario runners sweep what is older than a day (e2e/README.md,
+Housekeeping). Off Windows, with no `LOCALAPPDATA`, they are in the temp folder.
+
 ## Tests wait for conditions, never for time
 
 Every test, unit or end-to-end, new or changed, follows these rules. Each one was a flaky test in 0.6.0, failing on a
