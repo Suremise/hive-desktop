@@ -95,12 +95,28 @@
     "defaultMessage": "Footer: {mode}",
     "description": "An advanced setting's title (Settings → Advanced, under Claude Code): the footer Claude Code shows in a permission mode. {mode} is the mode's name."
   },
+  "settings.advanced.codex.fullAccess.answerSeconds.desc": {
+    "defaultMessage": "How long Hive's switch to Full Access waits for you to answer Codex's own warning in its terminal. Meanwhile Hive types nothing into the agent; once it passes, Hive says Codex didn't confirm the switch, and still notices it later if you answer Yes.",
+    "description": "What the advanced setting \"Full Access warning: wait for your answer\" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access is Codex's: keep it."
+  },
+  "settings.advanced.codex.fullAccess.answerSeconds.title": {
+    "defaultMessage": "Full Access warning: wait for your answer",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it."
+  },
   "settings.advanced.codex.fullAccess.warning.desc": {
     "defaultMessage": "Codex's own warning after Full Access is picked in its /permissions menu, which you answer in its terminal. While it is on screen, Hive's switch to Full Access waits for your answer; if it doesn't match, Hive may say Codex didn't confirm the switch while the warning is still waiting.",
     "description": "What the advanced setting \"Full Access warning\" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access and /permissions are Codex's: keep them."
   },
   "settings.advanced.codex.fullAccess.warning.title": {
     "defaultMessage": "Full Access warning",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it."
+  },
+  "settings.advanced.codex.fullAccess.warningAfterSeconds.desc": {
+    "defaultMessage": "How long Codex has, after Hive picks a preset in its /permissions menu before its first message, to show its own warning (Full Access). With no session file to read the switch back from, Hive takes the preset as switched once this passes with no warning; raise it if a slow machine draws the warning later.",
+    "description": "What the advanced setting \"Full Access warning: time to appear\" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access and /permissions are Codex's: keep them."
+  },
+  "settings.advanced.codex.fullAccess.warningAfterSeconds.title": {
+    "defaultMessage": "Full Access warning: time to appear",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it."
   },
   "settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc": {

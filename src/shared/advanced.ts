@@ -476,6 +476,32 @@ const SOURCES: readonly AdvancedSource[] = [
     samples: [{ from: `${FIX}/advanced/fullaccess-codex-0.162.1.txt`, version: '0.162.1', text: 'Enable full access?' }] // i18n-ignore: a CLI's recorded text (#367)
   },
   {
+    id: 'codex.fullAccess.warningAfterSeconds',
+    group: 'codex',
+    title: msg({ id: 'settings.advanced.codex.fullAccess.warningAfterSeconds.title', defaultMessage: 'Full Access warning: time to appear', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it." }),
+    desc: msg({ id: 'settings.advanced.codex.fullAccess.warningAfterSeconds.desc', defaultMessage: "How long Codex has, after Hive picks a preset in its /permissions menu before its first message, to show its own warning (Full Access). With no session file to read the switch back from, Hive takes the preset as switched once this passes with no warning; raise it if a slow machine draws the warning later.", description: 'What the advanced setting "Full Access warning: time to appear" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access and /permissions are Codex\'s: keep them.' }),
+    kind: 'number',
+    default: 2,
+    min: 1,
+    max: 30,
+    unit: 's',
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/fullaccess-codex-0.162.1.txt`, version: '0.162.1', text: 'Enable full access?', shows: "Codex's warning after Full Access is picked, which it draws within this time" }] // i18n-ignore: a CLI's recorded text (#367)
+  },
+  {
+    id: 'codex.fullAccess.answerSeconds',
+    group: 'codex',
+    title: msg({ id: 'settings.advanced.codex.fullAccess.answerSeconds.title', defaultMessage: 'Full Access warning: wait for your answer', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it." }),
+    desc: msg({ id: 'settings.advanced.codex.fullAccess.answerSeconds.desc', defaultMessage: "How long Hive's switch to Full Access waits for you to answer Codex's own warning in its terminal. Meanwhile Hive types nothing into the agent; once it passes, Hive says Codex didn't confirm the switch, and still notices it later if you answer Yes.", description: 'What the advanced setting "Full Access warning: wait for your answer" is for, and what goes wrong when it is wrong (Settings → Advanced). Full Access is Codex\'s: keep it.' }),
+    kind: 'number',
+    default: 600,
+    min: 30,
+    max: 3600,
+    unit: 's',
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/fullaccess-codex-0.162.1.txt`, version: '0.162.1', text: '1. Yes, continue anyway', shows: "Codex's warning waiting for the user's answer" }] // i18n-ignore: a CLI's recorded text (#367)
+  },
+  {
     id: 'codex.ready.placeholder',
     group: 'codex',
     title: msg({ id: 'settings.advanced.codex.ready.placeholder.title', defaultMessage: 'Composer placeholder', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),

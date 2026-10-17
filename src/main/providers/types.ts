@@ -374,6 +374,11 @@ export interface ProviderAdapter {
    * #1014): the user answers it in the terminal, and a menu switch waits for that answer.
    */
   modeConfirmScreen?(screen: string): boolean
+  /**
+   * With modeConfirmScreen, how long the CLI has after the pick to show its question (when no transcript can confirm the
+   * switch) and how long the switch waits for the user's answer, in milliseconds: advanced settings, as a CLI changes.
+   */
+  modeConfirmWait?(): { appearMs: number; answerMs: number }
   /** Whether the CLI's screen shows it busy holding what was typed (as CommandSpec.busyScreen): a menu switch waits while it does. */
   busyScreen?(screen: string): boolean
   /** For providers with a Plan toggle: the key that turns it on or off. */

@@ -181,10 +181,6 @@ const STOPS_KEPT = 64
 const howLong = (ms: number): string => (ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`)
 /** How long after a CLI starts or is ready its size refresh comes (refreshSize). */
 const SIZE_REFRESH_DELAY_MS = 500
-/** How long a menu switch waits for the user to answer the CLI's own question about the mode (#1014). */
-const MODE_ANSWER_MS = 10 * 60_000
-/** With no transcript to read the switch back from, how long the CLI has after the pick to ask its own question. */
-const MODE_ASK_GRACE_MS = 1500
 
 /** After a kill, how long a CLI's console takes to be gone (its processes listed and ended, then its exit). */
 const KILL_EXIT_MS = 1000
@@ -1931,9 +1927,10 @@ class SessionManager {
       if (!same()) return notSwitched(tr(M.switchEnded, { mode: permissionLabel(p, mode, tr) }))
       const details = !!src && !!l.adapter.transcriptDetails
       // The CLI's own question about the mode picked (Codex's warning before Full Access, #1014): the user answers it in
-      // the terminal, so the switch waits for the answer, however long (up to MODE_ANSWER_MS), and the 12 seconds the
-      // CLI has to confirm start once it is answered. What the CLI printed before the answer doesn't count: the user
-      // may still cancel.
+      // the terminal, so the switch waits for the answer, however long (up to the adapter's answerMs: an advanced
+      // setting), and the 12 seconds the CLI has to confirm start once it is answered. What the CLI printed before the
+      // answer doesn't count: the user may still cancel.
+      const wait = l.adapter.modeConfirmWait?.() ?? { appearMs: 0, answerMs: 0 }
       let asked = false
       const askedAt = Date.now()
       for (let t = Date.now(); same(); ) {
@@ -1946,7 +1943,7 @@ class SessionManager {
         if (l.adapter.modeConfirmScreen?.(l.screen?.text() ?? '')) {
           if (!asked) log.info(`${userText(this.label(st))}: ${name} asks to confirm ${mode} in its terminal`)
           asked = true
-          if (Date.now() - askedAt >= MODE_ANSWER_MS) break
+          if (Date.now() - askedAt >= wait.answerMs) break
           l.switchTail = ''
           t = Date.now()
         } else {
@@ -1959,7 +1956,7 @@ class SessionManager {
           }
           // Nothing to read (no message sent yet) and nothing asked once the CLI has had a moment to ask: shown as picked;
           // the first turn's settings correct it.
-          if (!details && !asked && Date.now() - t >= MODE_ASK_GRACE_MS) break
+          if (!details && !asked && Date.now() - t >= wait.appearMs) break
         }
         await new Promise((r) => setTimeout(r, 400))
       }

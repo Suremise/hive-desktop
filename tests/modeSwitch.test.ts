@@ -25,6 +25,7 @@ const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await i
 const { sessions } = await import('../src/main/sessions')
 const { codex } = await import('../src/main/providers/codex/adapter')
 const { config } = await import('../src/main/config')
+const { advanced } = await import('../src/main/advanced')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'switching')
@@ -62,6 +63,7 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
     writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [] }))
     w = createWorkspaceService()
     await w.open(wsPath)
+    advanced.load(join(base, 'advanced'))
   })
   afterAll(async () => {
     s.live.clear()
@@ -74,6 +76,7 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
   afterEach(() => {
     vi.useRealTimers()
     config.settings.providers.codex.enableDangerousMode = false
+    return advanced.resetAll()
   })
 
   it('switches when Codex is free: Ctrl+U, /permissions, Enter, then the preset picked from its menu', async () => {
@@ -181,6 +184,49 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
     expect(r.message).toMatch(/didn't confirm switching to Full access/i)
     expect(a.state.permissionMode).toBe('read-only')
     expect(a.state.modeSwitching).toBeUndefined()
+  })
+
+  it("how long it waits for the answer is Settings → Advanced's (codex.fullAccess.answerSeconds)", async () => {
+    vi.useFakeTimers()
+    await advanced.set('codex.fullAccess.answerSeconds', 30)
+    const a = warned()
+    const result = a.switchTo('full-access')
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(a.state.modeSwitching).toBe('full-access')
+    await vi.advanceTimersByTimeAsync(10_000)
+    const r = await result
+    expect(r.ok).toBe(false)
+    expect(r.message).toMatch(/didn't confirm switching to Full access/i)
+    expect(a.state.permissionMode).toBe('read-only')
+    expect(a.state.modeSwitching).toBeUndefined()
+  })
+
+  it("how long Codex has to show its warning is Settings → Advanced's (codex.fullAccess.warningAfterSeconds)", async () => {
+    vi.useFakeTimers()
+    /** A warning drawn three seconds after the pick (a slow machine), with no transcript to read the switch back from. */
+    const late = () => {
+      const a = warned()
+      pty.onWrite = (d) => {
+        if (d === '\r') a.view.text = MENU
+        else if (/^\d$/.test(d)) setTimeout(() => (a.view.text = WARNING), 3000)
+      }
+      return a
+    }
+    // By default (2 s) the preset is taken as switched before the warning comes.
+    const early = late()
+    const r1 = early.switchTo('full-access')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(await r1).toEqual({ ok: true })
+    // Given 5 s, the switch sees the warning and waits for the answer; cancelled, not switched.
+    await advanced.set('codex.fullAccess.warningAfterSeconds', 5)
+    const a = late()
+    const r2 = a.switchTo('full-access')
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(a.state.modeSwitching).toBe('full-access')
+    a.view.text = IDLE
+    await vi.advanceTimersByTimeAsync(13_000)
+    expect((await r2).ok).toBe(false)
+    expect(a.state.permissionMode).toBe('read-only')
   })
 
   it('busy for longer than 30 seconds: stops, types nothing, not switched', async () => {

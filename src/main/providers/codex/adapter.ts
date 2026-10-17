@@ -751,6 +751,10 @@ export class CodexAdapter implements ProviderAdapter {
     return advanced.pattern('codex.fullAccess.warning').test(screen)
   }
 
+  modeConfirmWait(): { appearMs: number; answerMs: number } {
+    return { appearMs: advanced.get<number>('codex.fullAccess.warningAfterSeconds') * 1000, answerMs: advanced.get<number>('codex.fullAccess.answerSeconds') * 1000 }
+  }
+
   canSwitchLive(): boolean {
     return true
   }
