@@ -60,7 +60,8 @@ setTimeout(() => process.exit(7), 1500)
   )
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
-    closeProcessTracking()
+    // The job host's PowerShell works in the run's temp folder: gone before the run removes it (#1020).
+    await closeProcessTracking()
     // Its own children, through their handles (not a pid Windows may have reused).
     for (const c of children) if (c.exitCode === null && c.signalCode === null) c.kill()
     stopProcessesIn(dir, since)

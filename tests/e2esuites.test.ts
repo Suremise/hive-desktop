@@ -1480,12 +1480,17 @@ describe('the run context: what a test starts gets only the allowlist and its ow
       ...readdirSync(join(__dirname, 'scenarios')).filter((f) => /\.(c|m)js$/.test(f)).map((f) => join(__dirname, 'scenarios', f))
     ]
     expect(files.length).toBeGreaterThan(80)
+    const fromProcessEnv = /\.\.\.\s*process\.env\b|env\s*:\s*process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*process\.env\b|\b(const|let|var)\s+\w+\s*=\s*process\.env\s*($|[;,])/
+    // Each form it catches, and reading one variable it doesn't (#1023: a backspace in place of the last \b made that
+    // form never match, unnoticed from #203 on).
+    for (const line of ['spawn(x, [], { env: { ...process.env, A: 1 } })', '{ env: process.env }', 'Object.assign({}, process.env)', 'const env = process.env', '  let e = process.env;']) expect(fromProcessEnv.test(line), line).toBe(true)
+    for (const line of ['const home = process.env.HOME', 'const env = process.env.NODE_ENV || "x"', 'if (process.env.CI) return']) expect(fromProcessEnv.test(line), line).toBe(false)
     const found: string[] = []
     for (const f of files)
       readFileSync(f, 'utf8')
         .split(/\r?\n/)
         .forEach((line, i) => {
-          if (/\.\.\.\s*process\.env\b|env\s*:\s*process\.env\b|Object\.assign\(\s*\{\s*\}\s*,\s*process\.env\b|(const|let|var)\s+\w+\s*=\s*process\.env\s*($|[;,])/.test(line)) found.push(`${f.slice(root.length + 1)}:${i + 1}`)
+          if (fromProcessEnv.test(line)) found.push(`${f.slice(root.length + 1)}:${i + 1}`)
         })
     expect(found).toEqual([])
   })

@@ -132,7 +132,7 @@ else {
 
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
-    closeProcessTracking()
+    await closeProcessTracking()
     stopProcessesIn(dir, since)
   })
 
@@ -639,7 +639,7 @@ $r | ConvertTo-Json -Compress
 
     // Hive restarts: its tracker and its memory go (the processes keep running), the kept list stays.
     const restart = async (mod: typeof before): Promise<typeof before> => {
-      mod.closeProcessTracking()
+      await mod.closeProcessTracking()
       vi.resetModules()
       return import('../src/main/agentProcesses')
     }
@@ -669,7 +669,7 @@ $r | ConvertTo-Json -Compress
     expect(alive(stranger)).toBe(true)
     expect(after.leftoversOf(dir, 'a7').processes).toHaveLength(0)
     expect(await keptNow()).toEqual([])
-    after.closeProcessTracking()
+    await after.closeProcessTracking()
     await endHeld(strangerProc)
   }, 90000)
 })
