@@ -7,6 +7,8 @@
   "tips.agentLayouts.title": "Several agents side by side",
   "tips.agentSettings.text": "Click an agent's model in its footer for Agent Settings: give a reviewer a faster model while another agent codes with the strongest.",
   "tips.agentSettings.title": "A model per agent",
+  "tips.agentStates.text": "Each agent has one of four states, told apart by shape as well as colour: a diamond waits for you, a square is stalled, a pulsing dot is working and a ring is idle. The project header counts them: \"1 waiting · 2 working\".",
+  "tips.agentStates.title": "Read your agents at a glance",
   "tips.alwaysOnTop.text": "The pin in the title bar (or Ctrl+Alt+O) keeps the window above your other apps, so a test run or an emulator can work underneath. Each window has its own, remembered for its workspace.",
   "tips.alwaysOnTop.title": "Keep a Hive window on top",
   "tips.antivirus.text": "On Windows, Microsoft Defender scans every file builds, tests and git touch. Settings → Workspace → Antivirus scanning shows whether it scans your workspace and can exclude its folders, with your consent.",

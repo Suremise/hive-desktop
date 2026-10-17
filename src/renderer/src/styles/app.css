@@ -385,6 +385,10 @@ kbd {
   padding: 4px;
   -webkit-app-region: no-drag;
 }
+/* It holds the focus while open (#974); the chosen entry shows where it is. */
+.menu:focus {
+  outline: none;
+}
 .menu-item {
   display: flex;
   align-items: center;

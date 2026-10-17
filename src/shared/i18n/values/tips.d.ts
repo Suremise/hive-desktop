@@ -9,6 +9,8 @@ interface HiveMessageValues {
   'tips.agentLayouts.title': undefined
   'tips.agentSettings.text': undefined
   'tips.agentSettings.title': undefined
+  'tips.agentStates.text': undefined
+  'tips.agentStates.title': undefined
   'tips.alwaysOnTop.text': undefined
   'tips.alwaysOnTop.title': undefined
   'tips.antivirus.text': undefined

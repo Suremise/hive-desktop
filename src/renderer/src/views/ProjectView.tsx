@@ -297,6 +297,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const settings = useStore((s) => s.settings)
   const runningActions = useStore((s) => s.running)
   const menu = useContextMenu()
+  const agentsMenu = useContextMenu()
   const project = workspace?.projects.find((p) => p.path === selected) ?? null
   const tab = (project && tabs[project.path]) || 'session'
   const terminalVisibleFor = visible && project && tab === 'session' ? project.path : null
@@ -442,7 +443,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
           {/* Every agent at once, after one confirmation (#216): in Agents ▾ (#974), in ⋯ when even its icon doesn't fit. */}
           {batch.length > 0 && !cramped && (
             <Tooltip content={tr(M.agentsMenuTip)}>
-              <button className="btn agents-menu" aria-haspopup="menu" aria-label={tight ? tr(M.agentsMenu) : undefined} onClick={(e) => menu.openAt(...menuBelow(e.currentTarget), batch, e.detail === 0)}>
+              <button className="btn agents-menu" aria-haspopup="menu" aria-expanded={agentsMenu.shown} aria-label={tight ? tr(M.agentsMenu) : undefined} onClick={(e) => agentsMenu.openAt(...menuBelow(e.currentTarget), batch, e.detail === 0)}>
                 <Icon name="organization" />
                 {!tight && ` ${tr(M.agentsMenu)}`}
                 <Icon name="chevron-down" />
@@ -519,6 +520,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
         </ErrorBoundary>
       </div>
       {menu.element}
+      {agentsMenu.element}
     </div>
   )
 }

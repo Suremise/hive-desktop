@@ -93,7 +93,7 @@ const check = (name, ok, extra = '') => {
     await tip.waitFor({ timeout: 3000 }).catch(() => undefined)
     const t = (await tip.count()) ? (await tip.innerText()).trim() : null
     await page.mouse.move(0, 0)
-    await lib.until(async () => (await page.locator('.tip').count()) === 0, 3000)
+    await lib.until(async () => (await page.locator('.tip').count()) === 0, HUNG_MS)
     return t
   }
   check('the tooltips keep the full meaning', (await tipOf('Stop (2)')) === 'Stop the 2 running agents' && /Actions on all the project's agents/.test((await tipOf('Agents')) ?? ''), `${await tipOf('Stop (2)')} / ${await tipOf('Agents')}`)
@@ -110,6 +110,33 @@ const check = (name, ok, extra = '') => {
   }
   await page.keyboard.press('Escape')
   await inv('settings:update', { appearance: { theme: 'dark' } })
+  // From the keyboard (#974): Enter on Agents ▾ opens it with the focus in the menu, its chosen entry named as the active
+  // descendant (what a screen reader announces) and the button expanded; ↓ moves it; Escape closes it and gives the focus
+  // back to the button.
+  const agentsButton = page.locator('.project-header .agents-menu')
+  await lib.until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
+  await agentsButton.focus()
+  await page.keyboard.press('Enter')
+  const focusState = () =>
+    page.evaluate(() => {
+      const f = document.activeElement
+      const id = f?.getAttribute('aria-activedescendant')
+      const chosen = id ? document.getElementById(id) : null
+      return { role: f?.getAttribute('role') ?? f?.tagName, chosen: chosen?.getAttribute('role') === 'menuitem' ? chosen.innerText.trim() : null, expanded: document.querySelector('.project-header .agents-menu')?.getAttribute('aria-expanded'), onButton: f?.classList.contains('agents-menu') ?? false }
+    })
+  const opened = await lib.until(async () => {
+    const f = await focusState()
+    return f.role === 'menu' && f.chosen === 'Start New (3)' && f.expanded === 'true' ? f : null
+  }, HUNG_MS)
+  check('Enter on Agents ▾: the focus is in the menu, on Start New (3) as its active descendant, the button expanded', !!opened, JSON.stringify(await focusState()))
+  await page.keyboard.press('ArrowDown')
+  check('↓: the active descendant is Archive and Start New (3)', !!(await lib.until(async () => (await focusState()).chosen === 'Archive and Start New (3)', HUNG_MS)), JSON.stringify(await focusState()))
+  await page.keyboard.press('Escape')
+  check('Escape: the menu closes, the focus back on Agents ▾, no longer expanded', !!(await lib.until(async () => {
+    const f = await focusState()
+    return (await page.locator('.menu').count()) === 0 && f.onButton && f.expanded === 'false'
+  }, HUNG_MS)), JSON.stringify(await focusState()))
+  await page.evaluate(() => document.activeElement?.blur())
   // Narrower: the actions turn to icons (named for screen readers and in their tooltips) and the title gives way; at the
   // narrowest window Hive supports (900 px, sidebar and rails open), every action is inside the header, on screen and
   // the thing under its own centre, in both themes. With the Assistant's panel open too, Agents ▾'s actions go into ⋯.
