@@ -235,11 +235,15 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
       await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED.' }))
       st.status.set('r1', 'working')
       st.status.set('b1', 'ready')
+      // Typed once a try finds the board as its wake was made (#1045: the board folder's own events of these changes land
+      // late on a loaded machine), then nothing more.
+      await typedUntil(st, 2)
       await settled()
       expect(st.typed).toHaveLength(2)
       expect(st.typed[1].agent).toBe('b1')
       st.status.set('r1', 'ready')
       await inWorkspace(w, () => tasks.updateTask(c, { column: 'review' }, b1))
+      await typedUntil(st, 3)
       await settled()
       expect(st.typed).toHaveLength(3)
       expect(st.typed[2]).toMatchObject({ agent: 'r1', text: expect.stringMatching(/was returned for review \(round 2\)/) })
