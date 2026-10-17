@@ -1,7 +1,7 @@
 // Agent pages (#134): one layout for the project (automatic until chosen), and a page holds as many agents as it has
 // panes, so every agent on a page has a pane: pages = agents ÷ panes. One at a time (Single) is one page of every agent.
 import { describe, expect, it } from 'vitest'
-import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutColumns, layoutFitting, paneColumnsFor, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
+import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutColumns, layoutFitting, paneColumnsFor, tileStripRoom, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
 import type { PageLayout, SessionLayout } from '../src/shared/types'
 
 const agents = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i + 1}`, name: `Agent ${i + 1}` }))
@@ -143,5 +143,30 @@ describe('how many panes fit, with a margin before giving one back (#1037)', () 
     // Wiggling a pixel either side of 400 changes nothing.
     expect(paneColumnsFor(401, 200, 1, 24)).toBe(1)
     expect(paneColumnsFor(400, 200, 2, 24)).toBe(2)
+  })
+})
+
+describe("the focus view's strip gives way to the terminal beside it (#1037, #1050)", () => {
+  // A terminal's least 200 px, the strip's 170.
+  const room = (width: number, was: number | null = null) => tileStripRoom(width, 200, 170, was, 24)
+
+  it('at most 40% of the width, so the strip is at its least before the terminal is', () => {
+    // Wide: 40% (the chosen width, up to 420, is shown when it is less).
+    expect(room(1200)).toBe(480)
+    expect(room(700)).toBe(280)
+    // At its least from 425 px down, the terminal still 255 px.
+    expect(room(425)).toBe(170)
+    expect(room(400)).toBe(170)
+    // Then the terminal narrows to its least, and the strip hides.
+    expect(room(370)).toBe(170)
+    expect(room(369)).toBe(0)
+  })
+
+  it('a pixel at a time across where it hides: shown again only past the margin', () => {
+    expect(room(369, 170)).toBe(0)
+    expect(room(370, 0)).toBe(0)
+    expect(room(393, 0)).toBe(0)
+    expect(room(394, 0)).toBe(170)
+    expect(room(380, 170)).toBe(170)
   })
 })

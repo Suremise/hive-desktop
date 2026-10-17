@@ -306,6 +306,21 @@ export function paneColumnsFor(width: number, paneMin: number, was: number | nul
   return Math.max(was, Math.floor((width - margin) / paneMin))
 }
 
+/** The most of the Session tab's width the focus view's strip takes, above its least (#1050): the terminal comes first. */
+export const TILE_STRIP_SHARE = 0.4
+
+/**
+ * How wide the focus view's strip may be in a Session tab `width` wide, beside a pane `paneMin` wide, given what it was
+ * (`was`): at most TILE_STRIP_SHARE of the width, so it narrows to its least (`least`) before the pane does (#1050), and
+ * never so wide that the pane is narrower than `paneMin`; hidden (0) when even its least leaves too little, and shown
+ * again only `margin` past that, so a pixel either way doesn't toggle it (#1037).
+ */
+export function tileStripRoom(width: number, paneMin: number, least: number, was: number | null, margin: number): number {
+  const room = width - paneMin
+  if (room < least + (was === 0 ? margin : 0)) return 0
+  return Math.min(room, Math.max(least, Math.floor(width * TILE_STRIP_SHARE)))
+}
+
 /**
  * The layout shown for the one chosen when only `columns` panes fit side by side (#1037: narrower, a terminal can't be
  * fitted to its pane): it drops columns until they fit, down to one at a time. null: no limit.

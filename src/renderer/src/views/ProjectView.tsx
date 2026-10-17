@@ -12,8 +12,8 @@ import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, SessionToolbar, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
 import { terminalMinWidth } from '../components/TerminalView'
-import { AgentTiles, tileStripRoom, useTileStripWidth } from '../components/AgentTiles'
-import { paneColumnsFor, projectSessionView } from '@shared/defaults'
+import { AgentTiles, TILE_STRIP, useTileStripWidth } from '../components/AgentTiles'
+import { paneColumnsFor, projectSessionView, tileStripRoom } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
@@ -366,7 +366,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
     const min = terminalMinWidth()
     const was = useStore.getState()
     const paneColumns = paneColumnsFor(bodyWidth, min, was.paneColumns, FIT_MARGIN)
-    const stripRoom = tileStripRoom(bodyWidth, min, was.tileStripRoom, FIT_MARGIN)
+    const stripRoom = tileStripRoom(bodyWidth, min, TILE_STRIP.min, was.tileStripRoom, FIT_MARGIN)
     if (was.paneColumns !== paneColumns || was.tileStripRoom !== stripRoom) set({ paneColumns, tileStripRoom: stripRoom })
   }, [bodyWidth, appearance?.terminalFontSize, appearance?.terminalFontFamily])
   const layoutShows = usePanes(project)

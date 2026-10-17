@@ -296,22 +296,14 @@ function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { projec
 export const TILE_STRIP = { key: 'tileStrip', width: 200, min: 170, max: 420 } as const
 
 /**
- * The strip's width as shown: the one chosen (#1021), narrower when the agent's pane beside it would be too narrow for a
- * terminal, and 0 (hidden: the Tiles toggle and Esc still go back) when even its least width leaves too little (#1037).
+ * The strip's width as shown: the one chosen (#1021), narrower when short of room (`tileStripRoom`: the terminal beside it
+ * comes first, #1050), and 0 (hidden: the Tiles toggle and Esc still go back) when even its least width leaves too little
+ * for a terminal (#1037).
  */
 export function useTileStripWidth(): number {
   const chosen = usePaneSize(TILE_STRIP.key, TILE_STRIP.width)
   const room = useStore((s) => s.tileStripRoom)
   return room === null ? chosen : Math.min(chosen, room)
-}
-
-/**
- * How wide the strip may be in a Session tab `width` wide, beside a pane `paneMin` wide, given what it was (`was`):
- * hidden below its least width, and shown again only `margin` past it, so a pixel either way doesn't toggle it.
- */
-export function tileStripRoom(width: number, paneMin: number, was: number | null, margin: number): number {
-  const room = width - paneMin
-  return room < TILE_STRIP.min + (was === 0 ? margin : 0) ? 0 : room
 }
 
 /**

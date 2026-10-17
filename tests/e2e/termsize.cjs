@@ -252,6 +252,19 @@ function sizes(home) {
   await lib.fitWindow(app, page, { width: 900, height: 650 })
   check('focus, 900 px, no Progress: the strip narrower than chosen, the terminal fitted inside its pane', !!(await lib.until(async () => { const w = await stripWidth(); return w >= 170 && w < made && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-strip.png') })
+  // The terminal comes first (#1050): the strip takes at most 40% of the Session tab (never below its 170 px), so it is at
+  // its least before the terminal beside it is; the chosen width is kept.
+  const share = () => page.evaluate(() => {
+    const strip = document.querySelector('.tile-strip')
+    const tab = strip?.closest('.tab-body')
+    return strip && tab ? { strip: Math.round(strip.getBoundingClientRect().width), tab: Math.round(tab.getBoundingClientRect().width), pane: Math.round(document.querySelector('.agents-area.tile-focus').getBoundingClientRect().width) } : null
+  })
+  const shared = (w) => !!w && Math.abs(w.strip - Math.min(made, Math.max(170, Math.floor(w.tab * 0.4)))) <= 1 && w.pane > w.strip
+  check('focus, 900 px: the strip at most 40% of the tab, the terminal wider than it', !!(await lib.until(async () => shared(await share()), HUNG_MS)), JSON.stringify({ ...(await share()), made }))
+  await lib.fitWindow(app, page, { width: 760, height: 650 })
+  check('focus, 760 px: the strip at its least, the terminal still wider than its least', !!(await lib.until(async () => { const w = await share(); return w?.strip === 170 && shared(w) && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify(await share()))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-least.png') })
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
   await toggleProgress()
   check('focus, 900 px, Progress open: the strip gives way, the terminal inside', !!(await lib.until(async () => (await stripWidth()) === 0 && (await fitted()) && (await inside()), HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
   await lib.fitWindow(app, page, { width: 1400, height: 650 })
