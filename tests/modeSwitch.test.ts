@@ -338,5 +338,45 @@ describe("switching a running Codex agent's preset through its menu (#363)", () 
       expect(r.skipped).toHaveLength(6)
       expect(delivering().size).toBe(0)
     })
+
+    /** Seven agents to Full Access: six wait for their warnings' answers and the seventh waits for a free slot. */
+    async function queued() {
+      vi.useFakeTimers()
+      const list = running(Array(7).fill('full-access'))
+      const result = run(() => sessions.applyModeSettings())
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(list[6].typed()).toEqual([])
+      return { list, result }
+    }
+
+    it('a queued agent restarted before its turn: nothing typed into the new session, reported as not switched', async () => {
+      const { list, result } = await queued()
+      const seventh = list[6]
+      const restarted = { ...seventh.live, state: { ...seventh.state, runId: 'run-restarted', permissionMode: 'read-only', status: 'ready' }, screen: { text: () => IDLE } }
+      s.live.set(seventh.id, restarted)
+      // The six stopped: their slots free, the seventh's turn comes.
+      for (const a of list.slice(0, 6)) s.live.delete(a.id)
+      await vi.advanceTimersByTimeAsync(1000)
+      const r = await result
+      expect(seventh.typed()).toEqual([])
+      expect(restarted.state.permissionMode).toBe('read-only')
+      expect((restarted.state as { modeSwitching?: string }).modeSwitching).toBeUndefined()
+      expect(r.switched).toEqual([])
+      expect(r.skipped).toHaveLength(7)
+      expect(r.skipped[6]).toMatch(/session ended before Hive could switch it/)
+      expect(delivering().size).toBe(0)
+    })
+
+    it('a queued agent stopped before its turn: nothing typed, reported as not switched', async () => {
+      const { list, result } = await queued()
+      for (const a of list) s.live.delete(a.id)
+      await vi.advanceTimersByTimeAsync(1000)
+      const r = await result
+      expect(list[6].typed()).toEqual([])
+      expect(list[6].state.modeSwitching).toBeUndefined()
+      expect(r.skipped).toHaveLength(7)
+      expect(r.skipped[6]).toMatch(/session ended before Hive could switch it/)
+      expect(delivering().size).toBe(0)
+    })
   })
 })

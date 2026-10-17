@@ -2441,6 +2441,12 @@ class SessionManager {
     const one = async (i: number): Promise<void> => {
       const { l, mode } = todo[i]
       const st = l.state
+      // Queued, its session may have stopped or been replaced (a restart) meanwhile: the switch was for this session, and
+      // never goes into another. setPermissionMode takes the session it switches before its first await.
+      if (this.live.get(liveId(st.projectPath, st.agentId)) !== l) {
+        results[i] = { skipped: `${this.label(st)}: ${tr(M.switchEnded, { mode: permissionLabel(st.provider, mode, tr) })}` }
+        return
+      }
       try {
         const r = await this.setPermissionMode(st.projectPath, st.agentId, mode)
         results[i] = r.ok ? { switched: `${this.label(st)} → ${permissionLabel(st.provider, mode, tr)}` } : { skipped: `${this.label(st)}: ${r.message}` }
