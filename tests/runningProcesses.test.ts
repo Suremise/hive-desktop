@@ -72,7 +72,7 @@ describe.runIf(process.platform === 'win32')('what running agents had started, a
     expect(listed.every((p) => /^\d+$/.test(p.created ?? ''))).toBe(true)
 
     // Hive ends without quitting: its helper goes (its jobs close, ending nothing), and the CLI with its terminal.
-    mod.closeProcessTracking()
+    await mod.closeProcessTracking()
     proc.kill()
     await new Promise((r) => (proc.exitCode !== null ? r(null) : proc.once('exit', r)))
     expect(alive(a) && alive(b)).toBe(true)
@@ -100,7 +100,7 @@ describe.runIf(process.platform === 'win32')('what running agents had started, a
       expect(await mod.settleLeftovers(dir, 'a1', 'end')).toBe(1)
       expect(await until(() => !alive(b), 5000)).toBe(true)
     } finally {
-      mod.closeProcessTracking()
+      await mod.closeProcessTracking()
     }
   }, 60_000)
 })

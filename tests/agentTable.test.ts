@@ -2,6 +2,7 @@
 // order; then the rest as the project has them) and the "Waiting for" cell from a watch's label.
 import { describe, expect, it } from 'vitest'
 import { agentCardText, cardsText, laneOrder, waitingFor, type TableLane } from '../src/shared/agentTable'
+import { agentRowCards } from '../src/shared/tasks'
 import type { TaskCard } from '../src/shared/types'
 
 const agents = ['B1', 'B2', 'B3', 'R1', 'R2', 'R3', 'Solo'].map((id) => ({ id }))
@@ -52,5 +53,24 @@ describe("an agent's Card cell (#572: the confirms, the quit dialog and the stat
     expect(agentCardText(board, 'beta', 'b1')).toBe('#3 Elsewhere')
     expect(agentCardText(board, 'alpha', 'b3')).toBe('')
     expect(agentCardText(board, 'alpha', 'nobody')).toBe('')
+  })
+})
+
+describe("an agent's row in the focus view's strip (#1021: its card chip)", () => {
+  const card = (number: number, over: Partial<TaskCard>): TaskCard => ({ number, title: `Card ${number}`, description: '', project: 'alpha', agent: null, column: 'todo', order: number, labels: [], blocked: null, blockedBy: [], links: [], comments: [], history: [], archived: false, createdAt: '2026-10-17T00:00:00.000Z', createdBy: 'You', updatedAt: '2026-10-17T00:00:00.000Z', ...over })
+  const review = (agent: string) => ({ agent, agentName: agent, since: '2026-10-17T00:00:00.000Z' })
+  const rows = (cards: TaskCard[], agent: string): string => agentRowCards(cards, 'ALPHA', agent).map((r) => `${r.card.number}${r.reviewing ? 'r' : ''}`).join(',')
+
+  it('names what it works on, then reviews, then holds in Review, then in Passed', () => {
+    const board = [card(1, { agent: 'b1', column: 'passed' }), card(2, { agent: 'b1', column: 'review', review: review('r1') }), card(3, { agent: 'b2', column: 'review', review: review('b1') }), card(4, { agent: 'b1', column: 'doing' })]
+    expect(rows(board, 'b1')).toBe('4,3r,2,1')
+    expect(rows(board.slice(0, 3), 'b1')).toBe('3r,2,1')
+    expect(rows(board.slice(0, 2), 'b1')).toBe('2,1')
+    expect(rows(board, 'r1')).toBe('2r')
+  })
+
+  it('leaves out Todo, On Hold and Done, archived cards and other projects', () => {
+    const board = [card(1, { agent: 'b1', column: 'todo' }), card(2, { agent: 'b1', column: 'hold' }), card(3, { agent: 'b1', column: 'done' }), card(4, { agent: 'b1', column: 'passed', archived: true }), card(5, { agent: 'b1', column: 'doing', project: 'beta' })]
+    expect(rows(board, 'b1')).toBe('')
   })
 })

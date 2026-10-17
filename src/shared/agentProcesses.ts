@@ -10,6 +10,104 @@ export interface AgentProcess {
   label: string
   /** When it started (a Windows FILETIME, as text): with its pid, which process it is, kept across Hive's restart (#614). */
   created?: string
+  /** The process that started it, by id (#1008): a test run's tree is told as one. */
+  parent?: number
+  /** A hive-progress run's title, on the hive-progress process itself (#1008): what the run is, as the agent named it. */
+  run?: string
+}
+
+/**
+ * The title of a hive-progress run (#1008), from its process's command line (Hive's executable running hive-progress.js
+ * --title "<title>" -- <command>): its --title, else the command it runs. Undefined for any other process.
+ */
+export function progressRunTitle(commandLine: string): string | undefined {
+  const args = splitCommandLine(commandLine)
+  const at = args.findIndex((a) => /(^|[\\/])hive-progress\.js$/i.test(a))
+  if (at < 0) return undefined
+  const rest = args.slice(at + 1)
+  const dash = rest.indexOf('--')
+  const flag = rest.indexOf('--title')
+  const title = flag >= 0 && (dash < 0 || flag < dash) ? rest[flag + 1]?.trim() : ''
+  const command = (dash >= 0 ? rest.slice(dash + 1) : rest).map((a) => lastPart(a)).join(' ').trim()
+  const named = (title || command || 'hive-progress').replace(/\s+/g, ' ')
+  return named.length > MAX_LABEL ? `${named.slice(0, MAX_LABEL - 1)}…` : named
+}
+
+/** A hive-progress run among processes (#1008): its own process (root, the one with `run`) and all it started that are listed. */
+export interface ProgressRunGroup {
+  title: string
+  root: AgentProcess
+  /** What its whole tree is under: the shell that ran it through the hive-progress command (cmd /c "hive-progress …"), else root. */
+  top: AgentProcess
+  processes: AgentProcess[]
+}
+
+/**
+ * The processes in their hive-progress runs (#1008): each run's process with everything below it in the list, and the
+ * shell above it that ran the hive-progress command, by parent, each started after its parent (so a parent id a later
+ * process took is never followed); the rest apart.
+ */
+export function groupProgressRuns(processes: readonly AgentProcess[]): { runs: ProgressRunGroup[]; rest: AgentProcess[] } {
+  const byPid = new Map(processes.map((p) => [p.pid, p]))
+  const started = (p: AgentProcess): bigint => (p.created && /^\d+$/.test(p.created) ? BigInt(p.created) : 0n)
+  const parentOf = (p: AgentProcess): AgentProcess | undefined => {
+    const up = p.parent ? byPid.get(p.parent) : undefined
+    return up && up !== p && started(up) <= started(p) ? up : undefined
+  }
+  /** The hive-progress process p is under (itself included), if any. */
+  const runOf = (p: AgentProcess): AgentProcess | undefined => {
+    const seen = new Set<number>()
+    for (let at: AgentProcess | undefined = p; at && !seen.has(at.pid); at = parentOf(at)) {
+      if (at.run) return at
+      seen.add(at.pid)
+    }
+    return undefined
+  }
+  // The shells that ran a run's process through the hive-progress command: the run's too, the topmost its tree's top.
+  const shellOf = new Map<number, AgentProcess>()
+  const tops = new Map<number, AgentProcess>()
+  for (const r of processes.filter((p) => p.run)) {
+    let top = r
+    for (let s = parentOf(r); s && !s.run && /\bhive-progress\b/i.test(s.label) && !shellOf.has(s.pid); s = parentOf(s)) {
+      shellOf.set(s.pid, r)
+      top = s
+    }
+    tops.set(r.pid, top)
+  }
+  const runs = new Map<number, ProgressRunGroup>()
+  const rest: AgentProcess[] = []
+  for (const p of processes) {
+    const root = runOf(p) ?? shellOf.get(p.pid)
+    if (!root) {
+      rest.push(p)
+      continue
+    }
+    const g = runs.get(root.pid) ?? { title: root.run!, root, top: tops.get(root.pid) ?? root, processes: [] }
+    g.processes.push(p)
+    runs.set(root.pid, g)
+  }
+  return { runs: [...runs.values()], rest }
+}
+
+/**
+ * Of the processes still running, those in hive-progress runs and the rest (#1008), the runs found among all that were
+ * kept (running holds the same processes, as id and start time): a run whose own process has ended, with what it started
+ * still running, is still that run. Each run lists only its processes still running; runs with none are left out.
+ */
+export function progressRunsIn(running: readonly AgentProcess[], kept: readonly AgentProcess[] = running): { runs: ProgressRunGroup[]; rest: AgentProcess[] } {
+  const key = (p: AgentProcess): string => `${p.pid}:${p.created ?? ''}`
+  const live = new Set(running.map(key))
+  const seen = new Set<string>()
+  const all = [...kept, ...running].filter((p) => !seen.has(key(p)) && !!seen.add(key(p)))
+  const inRun = new Set<string>()
+  const runs: ProgressRunGroup[] = []
+  for (const g of groupProgressRuns(all).runs) {
+    const processes = g.processes.filter((p) => live.has(key(p)))
+    if (!processes.length) continue
+    runs.push({ ...g, processes })
+    for (const p of processes) inRun.add(key(p))
+  }
+  return { runs, rest: running.filter((p) => !inRun.has(key(p))) }
 }
 
 /** What an agent's stopped launches left running. No processes: nothing (any more). */

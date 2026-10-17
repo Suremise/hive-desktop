@@ -4,9 +4,12 @@
 // own pid and start time, lib.identify, never by name): the node keeps running, and the next start's "Hive closed
 // unexpectedly" notice says one process the agents started is still running, with Stop Them. Nothing is stopped on its
 // own; Stop Them ends exactly that node. A kept record whose pid names another process by then (a stranger's, with
-// another start time) is never listed, and the stranger is never ended. Fake Claude Code; dev build, throwaway profile
-// and workspace, quiet.
+// another start time) is never listed, and the stranger is never ended. #1008: a command left running through
+// hive-progress (fake-claude's "progress-linger": cmd → hive-progress → a node) is one item of the notice, named by its
+// title, and Stop Them ends its whole tree; the Agent API says whether the launch it was started in still runs (a test
+// run waiting for a slot asks it). Fake Claude Code; dev build, throwaway profile and workspace, quiet.
 const lib = require('./lib.cjs')
+const { processes, descendantsIn, endExactly, childrenFirst } = require('./folderProcesses.cjs')
 const { _electron } = require('playwright-core')
 const { spawn } = require('child_process')
 const fs = require('fs')
@@ -33,6 +36,7 @@ const marker = () => {
     return null
   }
 }
+const API_PORT = lib.port(47835)
 const pidsIn = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l).pid) : [])
 
 // Playwright loses its connection to a copy ended from outside: not this suite's failure.
@@ -47,7 +51,7 @@ let claudeEnv = null
 
 /** Starts a copy of Hive on the profile, with its workspace restored. */
 async function start() {
-  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47835), ...claudeEnv })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(API_PORT), ...claudeEnv })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
   identities.push(...lib.identify([app.process().pid]))
   const page = await app.firstWindow()
@@ -58,12 +62,30 @@ async function start() {
   return { app, page, inv }
 }
 
-/** Ends the copy from outside, as a crash or a kill would: its own process (by pid and start time) and what it started. */
-async function endFromOutside(app) {
+/** A GET of the copy's Agent API with the workspace's token: { status, body }. */
+async function apiGet(route) {
+  const token = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+  const r = await fetch(`http://127.0.0.1:${API_PORT}${route}`, { headers: { Authorization: `Bearer ${token}` } })
+  return { status: r.status, body: await r.json().catch(() => null) }
+}
+
+/**
+ * Ends the copy from outside, as a crash or a kill would: its own process (by pid and start time) and what it started,
+ * apart from the hive-progress run under `outlives` (its pid): from the shell that ran the hive-progress command down, it
+ * keeps going, as a test run did when Hive closed under it (#1008).
+ */
+async function endFromOutside(app, outlives) {
   const proc = app.process()
   const gone = new Promise((r) => (proc.exitCode !== null ? r(true) : proc.once('exit', () => r(true))))
   const id = identities.find((i) => i.pid === proc.pid)
-  const ended = id ? lib.endTreeExactly(id) : 0
+  const list = processes()
+  const root = id && list.find((p) => p.pid === id.pid && Math.abs(p.started - id.started) <= 1)
+  const byPid = new Map(list.map((p) => [p.pid, p]))
+  let top = byPid.get(outlives)
+  for (let up = top && byPid.get(top.parent); up && up.started <= top.started && /hive-progress/i.test(up.commandLine); up = byPid.get(up.parent)) top = up
+  const kept = new Set(top ? [top.pid, ...descendantsIn(list, top.pid).map((d) => d.pid)] : [])
+  const tree = root ? [{ pid: root.pid, started: root.started }, ...descendantsIn(list, root.pid)].filter((p) => !kept.has(p.pid)) : []
+  const ended = tree.length ? endExactly(childrenFirst(list, tree)) : 0
   const exited = await Promise.race([gone, new Promise((r) => setTimeout(() => r(false), HUNG_MS))])
   return ended > 0 && exited
 }
@@ -79,6 +101,7 @@ const notice = (page) => page.evaluate(() => [...document.querySelectorAll('.toa
   const cfgFile = path.join(userData, 'config.json')
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   // Someone else's process, whose pid a kept record will name with another start time: never listed or ended. It names
@@ -91,6 +114,8 @@ const notice = (page) => page.evaluate(() => [...document.querySelectorAll('.toa
   try {
     // --- 1. An agent whose command leaves a node running; the copy ended from outside while the agent runs.
     let node
+    let runId
+    let progressNode
     {
       current = await start()
       const { app, page, inv } = current
@@ -106,14 +131,32 @@ const notice = (page) => page.evaluate(() => [...document.querySelectorAll('.toa
       await lib.until(async () => pidsIn(lingerFile).length === 1 && (await live())?.status === 'finished', START_MS)
       ;[node] = pidsIn(lingerFile)
       check('the agent left a node running, and still runs', !!node && lib.processRunning(node) && !!(await live()), String(node))
+      // A command left running through hive-progress, as a test run is: cmd → hive-progress → a node.
+      const progressFile = path.join(home, 'fake-progress-linger.jsonl')
+      await lib.sendPrompt(inv, key, 'progress-linger', { submitted: async () => (await live())?.status === 'working' || pidsIn(progressFile).length > 0 })
+      await lib.until(async () => pidsIn(progressFile).length === 1 && (await live())?.status === 'finished', START_MS)
+      ;[progressNode] = pidsIn(progressFile)
+      check('…and a node through hive-progress', !!progressNode && lib.processRunning(progressNode), String(progressNode))
+      // The Agent API says whether a launch is still the agent's running one (#1008).
+      runId = (await live())?.runId
+      const launch = (run) => apiGet(`/v1/projects/site/agents/Website/launches/${encodeURIComponent(run)}`)
+      const now = await launch(runId)
+      const other = await launch('no-such-launch')
+      check("the Agent API says the agent's launch runs, and another doesn't", !!runId && now.body?.running === true && other.body?.running === false, JSON.stringify([now, other]))
+      const unknown = await apiGet('/v1/projects/site/agents/Nobody/launches/x')
+      check('…and an agent it has not is 404', unknown.status === 404, JSON.stringify(unknown))
       const kept = await lib.until(() => marker()?.processes?.some((l) => l.agentId === agent.id && l.processes.some((p) => p.pid === node && /^\d+$/.test(p.created))), HUNG_MS)
       check("the running marker keeps what the agent's launch started, each process with its start time", !!kept, JSON.stringify(marker()?.processes))
+      const keptRun = await lib.until(() => marker()?.processes?.some((l) => l.processes.some((p) => p.run === 'Left running' && p.parent > 0)) && marker()?.processes?.some((l) => l.processes.some((p) => p.pid === progressNode && p.parent > 0)), HUNG_MS)
+      check("…the hive-progress run's own process with its title, and each process with its parent", !!keptRun, JSON.stringify(marker()?.processes))
       // The window's workspace is remembered as it opens (config.json), so the next start opens it again.
       await lib.until(() => JSON.parse(fs.readFileSync(cfgFile, 'utf8')).windows?.some((w) => w.workspace?.toLowerCase() === ws.toLowerCase()), HUNG_MS)
-      check('the copy is ended from outside', await endFromOutside(app))
+      check('the copy is ended from outside', await endFromOutside(app, progressNode))
       current = null
     }
-    check('the node keeps running after it', lib.processRunning(node))
+    check('the node keeps running after it', lib.processRunning(node) && lib.processRunning(progressNode))
+    // The hive-progress run's processes as kept: all of them are stopped by Stop Them below, the run as a whole.
+    const runPids = marker().processes.flatMap((l) => l.processes).filter((p) => p.pid !== node).map((p) => p.pid)
     // A kept record whose pid names another process now: the stranger's, with another start time.
     const left = marker()
     left.processes.push({ projectPath: proj, agentId: 'gone', agentName: 'Gone', processes: [{ pid: stranger.pid, name: 'node.exe', label: 'node old-server.js', created: '116444736000000000' }] })
@@ -124,15 +167,21 @@ const notice = (page) => page.evaluate(() => [...document.querySelectorAll('.toa
       current = await start()
       const { page, inv } = current
       const text = await lib.until(() => notice(page), START_MS)
-      check('the notice says Hive closed unexpectedly, and that one process the agents started is still running', /One process the agents started is still running: node [^.]*linger/.test(text), text)
+      // The node, and the hive-progress run as one item named by its title (cmd, hive-progress and its node).
+      const said = /(\d+) processes the agents started are still running: ([^\n]*)/.exec(text)
+      check('the notice says Hive closed unexpectedly, and what the agents started that is still running', !!said && /node [^,]*linger/.test(said[2]), text)
+      check('…the hive-progress run as one item, named by its title, with how many of its processes run', !!said && /Left running \((\d+) processes\)/.test(said[2]) && Number(/Left running \((\d+)/.exec(said[2])[1]) >= 2 && !/hive-progress|cmd /.test(said[2]), text)
+      const launch = await apiGet(`/v1/projects/site/agents/Website/launches/${encodeURIComponent(runId)}`)
+      check('the Agent API says the launch the run was started in has ended', launch.body?.running === false, JSON.stringify(launch))
       check("…not the stranger's process, whose pid a record names with another start time", !!text && !/old-server/.test(text), text)
       check('…with Stop Them', /Stop Them/.test(text), text)
       await page.screenshot({ path: path.join(lib.WORK, 'unexpectedclose-leftovers-notice.png') })
-      check('Copy Diagnostics says how many the agents had started and how many still run', /the agents had started \d+ process\(es\), 1 still running now/.test(await inv('app:diagnostics')))
-      check('nothing is stopped on its own', lib.processRunning(node) && lib.processRunning(stranger.pid))
+      check('Copy Diagnostics says how many the agents had started and how many still run', /the agents had started \d+ process\(es\), \d+ still running now/.test(await inv('app:diagnostics')))
+      check('nothing is stopped on its own', lib.processRunning(node) && lib.processRunning(progressNode) && lib.processRunning(stranger.pid))
       await page.locator('.toast', { hasText: 'Hive closed unexpectedly' }).getByRole('button', { name: 'Stop Them' }).click()
       check('Stop Them ends the node', !!(await lib.until(() => !lib.processRunning(node), HUNG_MS)))
-      check('…and says so', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Stopped one process' }).count()) > 0, HUNG_MS)))
+      check("…and the hive-progress run's whole tree", !!(await lib.until(() => !runPids.some((p) => lib.processRunning(p)), HUNG_MS)), JSON.stringify(runPids.filter((p) => lib.processRunning(p))))
+      check('…and says so', !!(await lib.until(async () => (await page.locator('.toast', { hasText: /Stopped \d+ processes/ }).count()) > 0, HUNG_MS)))
       check("the stranger's process still runs", lib.processRunning(stranger.pid))
       const quitting = await lib.quitWatch(current.app)
       await inv('app:quit').catch(() => undefined)

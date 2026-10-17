@@ -4,7 +4,7 @@
  * ending the session removes it; one still there at the next start is a run that ended some other way (killed, a crash,
  * the power). The pure part: the marker's shape and reading it back.
  */
-import { leftoversSummary, type AgentProcess } from './agentProcesses'
+import { leftoversSummary, progressRunsIn, type AgentProcess } from './agentProcesses'
 import { formatDate, formatTime } from './dates'
 import { fmt, msg, tr } from './i18n'
 import type { ProviderId } from './types'
@@ -93,7 +93,9 @@ function parseLaunches(v: unknown): LaunchProcesses[] {
       const p = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
       if (!Number.isSafeInteger(p.pid) || (p.pid as number) <= 0 || !str(p.created, 30) || !/^\d+$/.test(p.created)) continue
       const name = str(p.name, 300) ? p.name : ''
-      processes.push({ pid: p.pid as number, name, label: str(p.label, 300) ? p.label : name, created: p.created })
+      const run = str(p.run, 300) && p.run ? { run: p.run } : {}
+      const parent = Number.isSafeInteger(p.parent) && (p.parent as number) > 0 ? { parent: p.parent as number } : {}
+      processes.push({ pid: p.pid as number, name, label: str(p.label, 300) ? p.label : name, created: p.created, ...parent, ...run })
     }
     if (processes.length) out.push({ projectPath: r.projectPath, agentId: r.agentId, agentName: str(r.agentName, 300) ? r.agentName : '', processes })
   }
@@ -126,19 +128,61 @@ export interface ResumeReport {
 export const resumeFailedLine = (r: ResumeReport): string =>
   tr(msg({ id: 'main.unexpectedClose.failed', defaultMessage: "{n, plural, one {One couldn't resume: {agents}.} other {# couldn't resume: {agents}.}}", description: 'In the notice that Hive closed unexpectedly, or the report of resuming its agents: the agents that failed to resume ({agents}: their names with why).' }), { n: r.failed.length, agents: fmt.list(r.failed.map((f) => `${f.name} (${f.error})`)) })
 
-/** The notice's line on what the agents started that still runs (#987): how many, and what. */
-export const stillRunningLine = (processes: readonly AgentProcess[]): string =>
-  tr(msg({ id: 'main.unexpectedClose.stillRunning', defaultMessage: '{n, plural, one {One process the agents started is still running: {processes}.} other {# processes the agents started are still running: {processes}.}}', description: 'The notice that Hive closed unexpectedly: processes the agents had started (test runs, servers) still run, checked to be the same ones. {n} is how many; {processes} lists them ("node serve.js, 2 × npm run e2e"). The notice has a Stop Them button.' }), { n: processes.length, processes: leftoversSummary({ processes: [...processes], more: 0 }, 4, { tr, list: fmt.list }) })
+/**
+ * The notice's line on what the agents started that still runs (#987): how many, and what. A hive-progress run, the test
+ * run's whole tree, is one item named by its title (#1008), found among all the marker kept (kept).
+ */
+export function stillRunningLine(processes: readonly AgentProcess[], kept: readonly AgentProcess[] = processes): string {
+  const { runs, rest } = progressRunsIn(processes, kept)
+  const items: AgentProcess[] = [
+    ...runs.map((g) => ({ pid: g.root.pid, name: '', label: tr(msg({ id: 'main.unexpectedClose.progressRun', defaultMessage: '{title} ({n, plural, one {# process} other {# processes}})', description: 'In the notice that Hive closed unexpectedly, a test run (or other command) an agent ran through hive-progress that still runs, as one item of the list of what still runs: its title as the agent gave it ({title}: "e2e: 196 suites in hb2") and how many of its processes still run ({n}).' }), { title: g.title, n: g.processes.length }) })),
+    ...rest
+  ]
+  return tr(msg({ id: 'main.unexpectedClose.stillRunning', defaultMessage: '{n, plural, one {One process the agents started is still running: {processes}.} other {# processes the agents started are still running: {processes}.}}', description: 'The notice that Hive closed unexpectedly: processes the agents had started (test runs, servers) still run, checked to be the same ones. {n} is how many; {processes} lists them ("node serve.js, 2 × npm run e2e"). The notice has a Stop Them button.' }), { n: processes.length, processes: leftoversSummary({ processes: items, more: 0 }, 4, { tr, list: fmt.list }) })
+}
+
+/** What Stop Them does with the processes (#987, #1008): passed in, so the unit tests give their own. */
+export interface StopProcesses {
+  /**
+   * Ends these with all they started that runs now: those that still run after it (failed), and how many of their
+   * children run that it could neither end nor check (unverified); null when it can't say.
+   */
+  endTrees(roots: readonly AgentProcess[]): Promise<{ failed: AgentProcess[]; unverified: number } | null>
+  /** Ends these, each only while it is still the same process. */
+  endExact(processes: readonly AgentProcess[]): Promise<unknown>
+  /** Which still run as the same processes (null: it can't say). */
+  stillRunning(processes: readonly AgentProcess[]): Promise<AgentProcess[] | null>
+}
+
+/**
+ * The notice's Stop Them (#987): ends what the agents had started that still runs (running), each only while it is still
+ * the same process. A hive-progress run goes whole (#1008): from its top (the shell that ran it, while it still runs) and
+ * each of its processes still running, all they started that runs now, listed or not (found among all the marker kept).
+ * Replies with how many of those listed were stopped, and what still runs as the same processes after it: those listed,
+ * and those of a run's tree it couldn't end, to report and to try again (all of them when it can't say); unverified, how
+ * many of a run's children still run that it could neither end nor check (reported, never counted as stopped).
+ */
+export async function stopStillRunning(running: readonly AgentProcess[], kept: readonly AgentProcess[], ops: StopProcesses): Promise<{ stopped: number; still: AgentProcess[]; unverified: number }> {
+  const trees = progressRunsIn(running, kept).runs.flatMap((g) => [g.top, ...g.processes])
+  const tree = trees.length ? await ops.endTrees(trees).catch(() => null) : { failed: [], unverified: 0 }
+  const treeFailed = tree ? tree.failed : trees
+  await ops.endExact(running)
+  const key = (p: AgentProcess): string => `${p.pid}:${p.created}`
+  const tried = [...new Map([...running, ...treeFailed].map((p) => [key(p), p])).values()]
+  const still = (await ops.stillRunning(tried).catch(() => null)) ?? tried
+  const listed = new Set(running.map(key))
+  return { stopped: running.length - new Set(still.map(key).filter((k) => listed.has(k))).size, still, unverified: tree?.unverified ?? 0 }
+}
 
 /** The notice's text: when, what was running, what became of it, what it started that still runs, a crash dump, merges left half done. */
-export function unexpectedCloseText(c: { lastSeen: string; agents: readonly RunningAgent[]; dump: boolean; merges: readonly LeftMerge[]; stillRunning?: readonly AgentProcess[] }, r: ResumeReport | null): string {
+export function unexpectedCloseText(c: { lastSeen: string; agents: readonly RunningAgent[]; dump: boolean; merges: readonly LeftMerge[]; stillRunning?: readonly AgentProcess[]; kept?: readonly AgentProcess[] }, r: ResumeReport | null): string {
   const lines = [tr(msg({ id: 'main.unexpectedClose.when', defaultMessage: 'Hive was last seen on {date} at {time}.', description: 'The notice at start that the last run of Hive ended without quitting (its title says so): when that run was last seen running ({date}, {time}).' }), { date: formatDate(c.lastSeen), time: formatTime(c.lastSeen) })]
   lines.push(tr(msg({ id: 'main.unexpectedClose.agents', defaultMessage: '{n, plural, =0 {No agents were running.} one {One agent was running in {projects}.} other {# agents were running in {projects}.}}', description: 'The notice that Hive closed unexpectedly: how many agents were running ({n}) and in which projects ({projects}: their names, listed).' }), { n: c.agents.length, projects: fmt.list(projectsOf(c.agents)) }))
   if (r) {
     lines.push(tr(msg({ id: 'main.unexpectedClose.resumed', defaultMessage: '{n, plural, =0 {None was resumed.} one {One was resumed, as Settings → Sessions says.} other {# were resumed, as Settings → Sessions says.}}', description: 'The notice that Hive closed unexpectedly, with "Resume agents after an unexpected close" on: how many of the agents Hive resumed ({n}).' }), { n: r.resumed.length }))
     if (r.failed.length) lines.push(resumeFailedLine(r))
   } else if (c.agents.length) lines.push(tr(msg({ id: 'main.unexpectedClose.notResumed', defaultMessage: 'Nothing was resumed.', description: 'The notice that Hive closed unexpectedly: Hive did not resume the agents that were running (the user chooses).' })))
-  if (c.stillRunning?.length) lines.push(stillRunningLine(c.stillRunning))
+  if (c.stillRunning?.length) lines.push(stillRunningLine(c.stillRunning, c.kept))
   if (c.dump) lines.push(tr(msg({ id: 'main.unexpectedClose.dump', defaultMessage: 'Hive kept a crash dump of it: Help → Copy Diagnostics names it.', description: 'The notice that Hive closed unexpectedly: a crash dump of that run was saved on this PC.' })))
   for (const m of c.merges) {
     const cards = fmt.list(m.cards.map((n) => `#${n}`))

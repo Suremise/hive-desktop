@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { msg, tr } from '@shared/i18n'
 import type { AgentInfo, ProjectInfo, TaskCard, TaskColumn } from '@shared/types'
-import { agentDoingCards, agentReviewCards, columnColor } from '@shared/tasks'
+import { agentDoingCards, agentReviewCards, agentRowCards, columnColor, columnName } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
 import { isAssistantPath, set, useStore } from '../store'
 import { cx } from '../util'
@@ -29,17 +29,20 @@ export function cardText(cards: TaskCard[]): string {
  * (Settings → Board), the eye for one in Review; a click opens the card. `more` adds "+n". The one chip for a card
  * everywhere: an agent's (CardChip), the Assistant's status line.
  */
-export function TaskChip({ number, column, title, short, more = 0, label, onOpen }: { number: number; column: TaskColumn | null; title?: string; short?: boolean; more?: number; label?: string; onOpen?: () => void }) {
+export function TaskChip({ number, column, title, short, more = 0, label, blocked, onOpen }: { number: number; column: TaskColumn | null; title?: string; short?: boolean; more?: number; label?: string; blocked?: boolean; onOpen?: () => void }) {
   const colored = useStore((s) => s.settings?.board.columnColors ?? true)
   const colors = useStore((s) => s.settings?.board.colors)
   const review = column === 'review'
   const open = (): void => (onOpen ? onOpen() : set({ taskOpen: number }))
+  // Blocked, the board's red whatever the column colours (a blocked card is red in any column, #1021).
+  const tint = blocked ? 'var(--error)' : colored && column ? columnColor(colors, column) : null
   return (
     <span
-      className={cx('card-chip', colored && column && 'colored', short && 'short', review && 'review')}
-      style={colored && column ? ({ '--col': columnColor(colors, column) } as React.CSSProperties) : undefined}
+      className={cx('card-chip', tint && 'colored', short && 'short', review && 'review', blocked && 'blocked')}
+      style={tint ? ({ '--col': tint } as React.CSSProperties) : undefined}
       data-task={number}
       data-column={column ?? undefined}
+      data-blocked={blocked || undefined}
       data-review={review || undefined}
       role="button"
       tabIndex={0}
@@ -86,4 +89,33 @@ export function CardChip({ project, a, short, tip = true }: { project: ProjectIn
     tr(msg({ id: 'board.chip.clickToOpen', defaultMessage: 'Click to open #{card}.', description: "The last line of the hover of an agent's card chip. {card} is the card's number." }), { card: first.number })
   ]
   return <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{lines.join('\n')}</span>}>{chip}</Tooltip>
+}
+
+/** The cards an agent's row in the focus view's strip names (agentRowCards), kept up to date with the board. */
+export function useRowCards(project: ProjectInfo, agentId: string): RowCard[] {
+  const tasks = useStore((s) => s.tasks)
+  return useMemo(() => (isAssistantPath(project.path) ? [] : agentRowCards(tasks, project.name, agentId)), [tasks, project.path, project.name, agentId])
+}
+
+type RowCard = ReturnType<typeof agentRowCards>[number]
+
+/**
+ * An agent's card on its row in the focus view's strip (#1021): `#n` with its icon, tinted with the column the card is in
+ * (Settings → Board; blocked, red), so the strip says where each agent's card is at a glance. The first of `cards` (what it
+ * works on, else what it reviews, else what it holds in Review or Passed); the others are in the hover. A click opens it.
+ * `space`: the same chip, unseen and out of the keyboard's and screen readers' way, holding its room on the name's line.
+ */
+export function RowCardChip({ cards, space }: { cards: RowCard[]; space?: boolean }) {
+  if (!cards.length) return null
+  const { card } = cards[0]
+  if (space) return <TaskChip number={card.number} column={card.column} blocked={!!card.blocked} short />
+  const column = columnName(card.column, tr)
+  const label = tr(msg({ id: 'panes.tiles.chipLabel', defaultMessage: 'Card #{card}, {column}{blocked, select, yes {, blocked} other {}}', description: "Accessible name of the card chip on an agent's row in the focus view's strip: the card's number ({card}), the board column it is in ({column}) and whether it is blocked (yes: add \", blocked\")." }), { card: card.number, column, blocked: card.blocked ? 'yes' : 'no' })
+  const line = ({ card: c, reviewing }: RowCard): string => tr(msg({ id: 'panes.tiles.chipLine', defaultMessage: '#{card} {title} ({role, select, reviewing {reviewing, } other {}}{column}{blocked, select, yes {, blocked} other {}})', description: "A card in the hover of the card chip on an agent's row in the focus view's strip: its number ({card}), title (the user's own words), whether the agent reviews it (reviewing: add \"reviewing, \"), the board column it is in ({column}) and whether it is blocked (yes: add \", blocked\")." }), { card: c.number, title: c.title, role: reviewing ? 'reviewing' : 'works', column: columnName(c.column, tr), blocked: c.blocked ? 'yes' : 'no' })
+  const tip = [...cards.map(line), tr(msg({ id: 'board.chip.clickToOpen', defaultMessage: 'Click to open #{card}.', description: "The last line of the hover of an agent's card chip. {card} is the card's number." }), { card: card.number })].join('\n')
+  return (
+    <Tooltip content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>} focus>
+      <TaskChip number={card.number} column={card.column} blocked={!!card.blocked} short label={label} />
+    </Tooltip>
+  )
 }

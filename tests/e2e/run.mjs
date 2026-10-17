@@ -3,9 +3,11 @@
 //                   CLI run one at a time in a lane of their own beside the others; those marked serial in suites.mjs
 //                   (and the installer's) run last, alone.
 //   --affected [B]  the suites the changes since branch B (default main) need, uncommitted ones included
-//                   (affected.mjs), plus any suites named. B is taken only if it isn't a suite name. The run before
-//                   a merge to main (#628): it picks every suite itself for shared code, test tooling or unknown files.
-//   --all           the full set, at checkpoints (each RC and release, on request; not with --affected): every suite
+//                   (affected.mjs), plus any suites named. B is taken only if it isn't a suite name. A tool for
+//                   picking suites (a review round's fixes), not a merge's gate: merges run focused checks (#1010). It
+//                   picks every suite itself for shared code, test tooling or unknown files.
+//   --all           the full set, at checkpoints (the integration branch when lanes are quiet, each RC and release,
+//                   on request; not with --affected): every suite
 //                   that starts no real CLI (the fake tier). The real-CLI suites (needs claude/codex in suites.mjs)
 //                   are listed as not run.
 //   --real          the real tier too: every suite that starts the real Claude Code or Codex (--all --real: everything).

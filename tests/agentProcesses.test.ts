@@ -132,7 +132,7 @@ else {
 
   afterAll(async () => {
     const { closeProcessTracking } = await import('../src/main/agentProcesses')
-    closeProcessTracking()
+    await closeProcessTracking()
     stopProcessesIn(dir, since)
   })
 
@@ -639,7 +639,7 @@ $r | ConvertTo-Json -Compress
 
     // Hive restarts: its tracker and its memory go (the processes keep running), the kept list stays.
     const restart = async (mod: typeof before): Promise<typeof before> => {
-      mod.closeProcessTracking()
+      await mod.closeProcessTracking()
       vi.resetModules()
       return import('../src/main/agentProcesses')
     }
@@ -669,7 +669,82 @@ $r | ConvertTo-Json -Compress
     expect(alive(stranger)).toBe(true)
     expect(after.leftoversOf(dir, 'a7').processes).toHaveLength(0)
     expect(await keptNow()).toEqual([])
-    after.closeProcessTracking()
+    await after.closeProcessTracking()
     await endHeld(strangerProc)
   }, 90000)
 })
+
+// Stop Them's whole tree (#1008): EndTree picks what to end by the parent ids of a snapshot, holding a handle on each
+// process it checked. Driven here with the OS's answers given (PickTree's open, absent, createdOf, running), so the
+// races are deterministic: an id another process took between the snapshot and the check, a root Hive can't open, a
+// root gone, a root whose id names another process now, a child that has exited, a child Hive can't open or read
+// (reported, never passed over). Nothing real is ended.
+describe.runIf(process.platform === 'win32')("what Stop Them ends of a test run's tree (#1008)", () => {
+  const dir = tempDir('hive-picktree-')
+
+  it('takes each root only while it is that process, and below it only children started after their parent and by the snapshot', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'pick.ps1')
+    writeFileSync(
+      probe,
+      `param($src)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+# A case: the snapshot's parent ids (parent = children), and each process as the check finds it (id = created, running,
+# open: whether Hive can open it to end it, peek: what a query-only look says of one it can't, the start time, 0 gone
+# or -1 unreadable); one not listed has gone (no process has its id). The snapshot is at 200.
+function Pick($roots, $tree, $now) {
+  $children = New-Object 'System.Collections.Generic.Dictionary[int,System.Collections.Generic.List[int]]'
+  foreach ($k in $tree.Keys) { $l = New-Object 'System.Collections.Generic.List[int]'; foreach ($c in $tree[$k]) { $l.Add([int]$c) }; $children[[int]$k] = $l }
+  $closed = New-Object 'System.Collections.Generic.List[int]'
+  $failed = New-Object 'System.Collections.Generic.List[string]'
+  $unverified = New-Object 'System.Collections.Generic.List[int]'
+  $open = [Func[int,IntPtr]]{ param($id) if ($now.ContainsKey($id) -and $now[$id].open -ne $false) { [IntPtr]$id } else { [IntPtr]::Zero } }
+  $absent = [Func[int,bool]]{ param($id) -not $now.ContainsKey($id) }
+  $created = [Func[IntPtr,long]]{ param($h) [long]$now[[int]$h].created }
+  $running = [Func[IntPtr,bool]]{ param($h) $now[[int]$h].running -ne $false }
+  $close = [Action[IntPtr]]{ param($h) $closed.Add([int]$h) }
+  $peek = [Func[int,long]]{ param($id) if ($now.ContainsKey($id)) { [long]$now[$id].peek } else { 0 } }
+  $picked = [HiveJobs]::PickTree($roots, $children, 200, $open, $absent, $created, $running, $close, $peek, $failed, $unverified)
+  [ordered]@{ picked = @($picked | ForEach-Object { '{0}:{1}' -f $_.pid, $_.created }); closed = @($closed); failed = @($failed); unverified = @($unverified) }
+}
+$r = [ordered]@{}
+# A run: 10 → 20 → 30; 40 names 10 as its parent but started before it (an id a later process took).
+$r.tree = Pick '10:100' @{ 10 = @(20, 40); 20 = @(30) } @{ 10 = @{ created = 100 }; 20 = @{ created = 150 }; 30 = @{ created = 160 }; 40 = @{ created = 50 } }
+# 20 ended after the snapshot and another process took its id before the check: started after the snapshot, not taken.
+$r.reused = Pick '10:100' @{ 10 = @(20) } @{ 10 = @{ created = 100 }; 20 = @{ created = 300 } }
+# The root runs but can't be opened: nothing below it followed, and it is reported (it still runs).
+$r.unreadable = Pick '10:100' @{ 10 = @(20) } @{ 10 = @{ created = 100; open = $false }; 20 = @{ created = 150 } }
+# The root has gone: nothing below it followed (what it started that was listed is a root of its own), nothing reported.
+$r.gone = Pick '10:100' @{ 10 = @(20) } @{ 20 = @{ created = 150 } }
+# The root's id names another process now: never taken or followed.
+$r.other = Pick '10:100' @{ 10 = @(20) } @{ 10 = @{ created = 999 }; 20 = @{ created = 1000 } }
+# A child that has exited (its id still held): not taken.
+$r.exited = Pick '10:100' @{ 10 = @(20) } @{ 10 = @{ created = 100 }; 20 = @{ created = 150; running = $false } }
+# Children that run and Hive can't open to end: one a query-only look shows is the run's (reported by its identity), one
+# it can't read at all (unverified), one that has gone by then, one whose id a later process took: never passed over in
+# silence, nor anything below them followed. A child opened whose start time can't be read, running: unverified too.
+$r.unopenable = Pick '10:100' @{ 10 = @(21, 22, 23, 24, 25) } @{ 10 = @{ created = 100 }; 21 = @{ created = 151; open = $false; peek = 151 }; 22 = @{ open = $false; peek = -1 }; 23 = @{ open = $false; peek = 0 }; 24 = @{ open = $false; peek = 300 }; 25 = @{ created = 0 } }
+# The root runs, but its start time can't be read: reported, not followed.
+$r.rootUnread = Pick '10:100' @{ 10 = @(20) } @{ 10 = @{ created = 0 }; 20 = @{ created = 150 } }
+# Two roots of one run, one below the other: each taken once.
+$r.twice = Pick '10:100,20:150' @{ 10 = @(20) } @{ 10 = @{ created = 100 }; 20 = @{ created = 150 } }
+$r | ConvertTo-Json -Compress -Depth 4
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src], { windowsHide: true, timeout: 120000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!) as Record<string, { picked: string[]; closed: number[]; failed: string[] }>
+    expect(r.tree).toEqual({ picked: ['10:100', '20:150', '30:160'], closed: [40], failed: [], unverified: [] })
+    expect(r.reused).toEqual({ picked: ['10:100'], closed: [20], failed: [], unverified: [] })
+    expect(r.unreadable).toEqual({ picked: [], closed: [], failed: ['10:100'], unverified: [] })
+    expect(r.gone).toEqual({ picked: [], closed: [], failed: [], unverified: [] })
+    expect(r.other).toEqual({ picked: [], closed: [10], failed: [], unverified: [] })
+    expect(r.exited).toEqual({ picked: ['10:100'], closed: [20], failed: [], unverified: [] })
+    expect(r.unopenable).toEqual({ picked: ['10:100'], closed: [25], failed: ['21:151'], unverified: [22, 25] })
+    expect(r.rootUnread).toEqual({ picked: [], closed: [10], failed: ['10:100'], unverified: [] })
+    expect(r.twice).toEqual({ picked: ['10:100', '20:150'], closed: [], failed: [], unverified: [] })
+  }, 120000)
+})
+

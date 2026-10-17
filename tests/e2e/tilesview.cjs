@@ -8,7 +8,11 @@
 // Ctrl+Alt+PageDown; the chip's list opens an agent's focus view; Panes leaves it. Reordering (#993), in the panes'
 // order: a tile dragged onto another swaps them, onto a page button goes to that page's end, and Move Agent Left/Right
 // (the keys, an override without modifiers, the tile's menu) move the tile the keyboard is on, other shortcuts and chords
-// still working there; the order is saved and the panes show it; By urgency, no tile drags. Throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
+// still working there; the order is saved and the panes show it; By urgency, no tile drags. The strip's card chips (#1021):
+// each agent's card (Doing, reviewing, held in Review or Passed) in its column's colour, blocked red, a long name cut
+// before its chip, the chips in line, the status without the chip's number, a click opening the card; its edge resizes
+// it (within its bounds, saved, kept after a restart, double-click resets). Throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -32,7 +36,7 @@ const check = (name, ok, extra = '') => {
   fs.mkdirSync(claudeHome, { recursive: true })
   lib.gitProject(alpha)
   lib.fakeClaude(userData, claudeHome, [alpha])
-  const { app, page, inv } = await lib.launch({ userData, env: { CLAUDE_CONFIG_DIR: claudeHome, HIVE_API_PORT: lib.port(47825) }, viewport: { width: 1500, height: 900 } })
+  let { app, page, inv } = await lib.launch({ userData, env: { CLAUDE_CONFIG_DIR: claudeHome, HIVE_API_PORT: lib.port(47825) }, viewport: { width: 1500, height: 900 } })
   try {
     page.on('pageerror', (e) => check('no page errors', false, e.message))
     await lib.openWorkspace(inv, page, ws)
@@ -255,6 +259,96 @@ const check = (name, ok, extra = '') => {
     // An arrow bound to nothing still moves between tiles, and moves no agent.
     await page.keyboard.press('ArrowRight')
     check('an unbound → still moves the keyboard to the next tile (E), the order unchanged', !!(await lib.until(async () => (await focusedTile()) === 'E', HUNG_MS)) && saved() === order(f6), `${await focusedTile()} / ${saved()}`)
+
+    // --- The strip's card chips (#1021): what each agent works on (Doing), reviews, or holds in Review or Passed, tinted
+    // with the column the card is in (blocked: red); a long name ends in an ellipsis before its chip, the chips in a
+    // column; the status drops the number the chip shows; a click opens the card.
+    const LONG = 'A builder with a really long name for the strip'
+    ids[LONG] = (await lib.addAgent(inv, alpha, { name: LONG })).id
+    const card = async (title, agent, column) => (await inv('tasks:create', { title, project: 'alpha', agent: ids[agent], column })).number
+    const doingCard = await card('Chip in Doing', LONG, 'doing')
+    const passedCard = await card('Chip in Passed', 'C', 'passed')
+    const reviewCard = await card('Chip in Review', 'D', 'review')
+    const blockedCard = await card('Chip blocked', 'E', 'doing')
+    await inv('tasks:update', blockedCard, { blocked: 'Waiting for an answer' })
+    // A reviews D's card with its own tool call, then watches it into Passed.
+    await prompts('A').type(`hive hive_update_task ${JSON.stringify({ number: reviewCard, review: 'start' })}`)
+    await lib.until(async () => (await inv('tasks:list')).find((c) => c.number === reviewCard)?.review?.agent === ids.A, HUNG_MS)
+    await prompts('A').type(`hive hive_wait_for_tasks ${JSON.stringify({ cards: [reviewCard], column: 'passed', changes: ['verdict', 'column'], wake: true })}`)
+    await lib.until(async () => (await live(ids.A))?.status === 'watching', HUNG_MS)
+    await page.locator('.session-toolbar .tile-pages button').nth(0).click()
+    await tile('A').click()
+    await lib.until(async () => inFocus('A'), HUNG_MS)
+    const row = (name) => page.locator('.tile-strip-row', { has: page.locator('.tile-strip-name', { hasText: new RegExp(`^${name}$`) }) })
+    const chipOf = (name) => row(name).locator('.tile-strip-chip .card-chip')
+    const chipInfo = (name) => chipOf(name).evaluate((el) => ({ text: el.textContent, column: el.dataset.column, col: el.style.getPropertyValue('--col'), blocked: !!el.dataset.blocked, review: !!el.dataset.review, label: el.getAttribute('aria-label') })).catch(() => null)
+    const chips = { [LONG]: [doingCard, 'doing', '#3b82f6'], C: [passedCard, 'passed', '#14b8a6'], A: [reviewCard, 'review', '#a371f7'], D: [reviewCard, 'review', '#a371f7'] }
+    check('the strip: a chip on each row with a card', !!(await lib.until(async () => (await page.locator('.tile-strip-chip .card-chip').count()) === 5, HUNG_MS)), String(await page.locator('.tile-strip-chip .card-chip').count()))
+    for (const [name, [n, column, col]] of Object.entries(chips)) {
+      const c = await chipInfo(name)
+      check(`…${name.length > 2 ? 'the long-named builder' : name}: #${n}, in its column's colour (${column})`, c?.text === `#${n}` && c.column === column && c.col === col, JSON.stringify(c))
+    }
+    check("…A's is the reviewer's chip (the eye)", (await chipInfo('A'))?.review && (await row('A').locator('.tile-strip-chip .codicon-eye').count()) === 1)
+    const blocked = await chipInfo('E')
+    check("…E's blocked card: red, and said so", blocked?.blocked && blocked.col === 'var(--error)' && blocked.label === `Card #${blockedCard}, Doing, blocked`, JSON.stringify(blocked))
+    check("…C's accessible name: the card and its column", (await chipInfo('C'))?.label === `Card #${passedCard}, Passed`, (await chipInfo('C'))?.label)
+    check('…no card, no chip (F)', (await row('F').locator('.card-chip').count()) === 0)
+    check("…A's status drops the number its chip shows: Waiting → Passed", (await row('A').locator('.tile-strip-status').innerText()) === 'Waiting → Passed', await row('A').locator('.tile-strip-status').innerText())
+    // The layout: the long name cut before its chip, never under it; the chips' right edges in a column.
+    const layout = () =>
+      page.locator('.tile-strip-row').evaluateAll((rows) =>
+        rows.map((r) => {
+          const name = r.querySelector('.tile-strip-name')
+          const chip = r.querySelector('.tile-strip-chip .card-chip')
+          return { cut: name.scrollWidth > name.clientWidth, nameRight: name.getBoundingClientRect().right, chipLeft: chip?.getBoundingClientRect().left ?? null, chipRight: chip?.getBoundingClientRect().right ?? null, rowRight: r.getBoundingClientRect().right }
+        })
+      )
+    const fits = (rows) => rows.every((r) => r.chipLeft === null || (r.nameRight <= r.chipLeft && r.chipRight <= r.rowRight)) && new Set(rows.filter((r) => r.chipRight !== null).map((r) => Math.round(r.chipRight))).size === 1
+    const longCut = async () => (await layout())[(await page.locator('.tile-strip-name').allInnerTexts()).indexOf(LONG)]?.cut
+    check('…the long name ends in an ellipsis before its chip; the chips line up', (await longCut()) && fits(await layout()), JSON.stringify(await layout()))
+    await page.screenshot({ path: path.join(lib.WORK, 'tilesview-chips.png') })
+    await chipOf('C').click()
+    const dialog = page.locator('.dialog', { hasText: `#${passedCard}` })
+    check("a click on C's chip opens its card, the focus view staying on A", !!(await lib.until(async () => (await dialog.count()) === 1, HUNG_MS)) && (await inFocus('A')))
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await dialog.count()) === 0, HUNG_MS)
+
+    // --- Resizing (#1021): the strip's edge drags like the other splitters, the pane beside it following; the width is
+    // saved, kept within its bounds, and double-click resets it.
+    const widths = () => page.evaluate(() => ({ strip: Math.round(document.querySelector('.tile-strip').getBoundingClientRect().width), left: Math.round(document.querySelector('.agents-area.tile-focus').getBoundingClientRect().left - document.querySelector('.tile-strip').getBoundingClientRect().left) }))
+    const dragEdge = async (dx) => {
+      const b = await page.locator('.tile-strip > .pane-resizer').boundingBox()
+      await page.mouse.move(b.x + b.width / 2, b.y + 300)
+      await page.mouse.down()
+      await page.mouse.move(b.x + b.width / 2 + dx, b.y + 300, { steps: 8 })
+      await page.mouse.up()
+    }
+    const savedWidth = async () => (await inv('ui:get')).panes?.tileStrip
+    await dragEdge(120)
+    check('dragging the edge 120 px right: the strip 320 px, the pane beside it, saved', !!(await lib.until(async () => (await widths()).strip === 320 && (await widths()).left === 320 && (await savedWidth()) === 320, HUNG_MS)), `${JSON.stringify(await widths())} saved ${await savedWidth()}`)
+    check('…the long name shows more of itself, the chips still in line', fits(await layout()), JSON.stringify(await layout()))
+    await page.screenshot({ path: path.join(lib.WORK, 'tilesview-strip-wide.png') })
+    await dragEdge(-400)
+    check('dragged far left: held at its narrowest (170 px)', !!(await lib.until(async () => (await widths()).strip === 170 && (await savedWidth()) === 170, HUNG_MS)), JSON.stringify(await widths()))
+    check('…the chips keep their place, no name under them', fits(await layout()), JSON.stringify(await layout()))
+    await page.screenshot({ path: path.join(lib.WORK, 'tilesview-strip-narrow.png') })
+    await dragEdge(150)
+    await lib.until(async () => (await savedWidth()) === 320, HUNG_MS)
+
+    // A restart keeps it.
+    await inv('session:stop', alpha).catch(() => undefined)
+    await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)
+    await app.close()
+    ;({ app, page, inv } = await lib.launch({ userData, env: { CLAUDE_CONFIG_DIR: claudeHome, HIVE_API_PORT: lib.port(47825) }, viewport: { width: 1500, height: 900 } }))
+    page.on('pageerror', (e) => check('no page errors (restarted)', false, e.message))
+    for (const w of app.windows().slice(1)) await w.close().catch(() => undefined)
+    await lib.openWorkspace(inv, page, ws)
+    await page.locator('.project-row', { hasText: 'alpha' }).first().click()
+    await lib.until(async () => (await tile('A').count()) === 1, HUNG_MS)
+    await tile('A').click()
+    check('after a restart: the strip as wide as it was left (320 px)', !!(await lib.until(async () => (await page.locator('.tile-strip').count()) === 1 && (await widths()).strip === 320, HUNG_MS)), JSON.stringify(await widths().catch(() => null)))
+    await page.locator('.tile-strip > .pane-resizer').dblclick()
+    check('double-click on the edge: back to 200 px, nothing saved', !!(await lib.until(async () => (await widths()).strip === 200 && (await widths()).left === 200 && (await savedWidth()) === undefined, HUNG_MS)), `${JSON.stringify(await widths())} saved ${await savedWidth()}`)
   } finally {
     await inv('session:stop', alpha).catch(() => undefined)
     await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)

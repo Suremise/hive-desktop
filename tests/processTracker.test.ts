@@ -52,10 +52,11 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     events.length = 0
     toasts.length = 0
   })
-  afterEach(() => {
-    mod?.closeProcessTracking()
+  afterEach(async () => {
+    await mod?.closeProcessTracking()
     delete process.env.HIVE_TEST_PROCESS_TRACKER
     delete process.env.HIVE_TEST_TRACKER_WAIT_MS
+    delete process.env.HIVE_TEST_TRACKER_HEARD
   })
   afterAll(() => {
     // Its own children, through their handles (not a pid Windows may have reused).
@@ -77,6 +78,60 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     mod.noteUntracked(mod.trackingProblem())
     expect(toasts).toHaveLength(1)
     expect(toasts[0].message).toMatch(/didn't start within 3 s/)
+  }, 30_000)
+
+  it('has its helper gone once closing resolves, and starts no other after (#1020)', async () => {
+    mod = await import('../src/main/agentProcesses')
+    const next = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
+    children.push(next)
+    expect(await mod.trackLaunch({ runId: 'closed1', projectPath: dir, agentId: 'a3', agentName: 'Closed' }, next.pid!)).toEqual({ tracked: true })
+    const helper = mod.trackerPid()!
+    // Its PowerShell works in the temp folder: gone when the close resolves, so a run's clean-up finds nothing held.
+    await mod.closeProcessTracking()
+    expect(alive(helper)).toBe(false)
+    // A later request (a refresh's next look) starts no helper in the folder.
+    expect(await mod.trackLaunch({ runId: 'closed2', projectPath: dir, agentId: 'a3', agentName: 'Closed' }, next.pid!)).toMatchObject({ tracked: false })
+    expect(await mod.trackingReady()).toBe(false)
+    expect(mod.trackerPid()).toBeNull()
+  }, 30_000)
+
+  it('answers a request on its way when closing, at once, and its next look starts no helper (#1020)', async () => {
+    // A helper that is ready but never answers: a request stays on its way for as long as the test needs, and its own
+    // reply wait (60 s) is longer than the test's limit, so only the close can answer it.
+    process.env.HIVE_TEST_PROCESS_TRACKER = 'mute'
+    process.env.HIVE_TEST_TRACKER_WAIT_MS = '60000'
+    const heard = join(dir, 'heard.txt')
+    process.env.HIVE_TEST_TRACKER_HEARD = heard
+    mod = await import('../src/main/agentProcesses')
+    const next = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
+    children.push(next)
+    expect(await mod.trackingReady()).toBe(true)
+    const helper = mod.trackerPid()!
+    const pending = mod.trackLaunch({ runId: 'held1', projectPath: dir, agentId: 'a4', agentName: 'Held' }, next.pid!)
+    // The helper has read it, and won't answer.
+    expect(await until(() => existsSync(heard) && readFileSync(heard, 'utf8').includes(' add held1 '), 10_000)).toBe(true)
+    const closed = mod.closeProcessTracking()
+    // Answered by the close (nothing else will within the test's limit): no answer, not tracked.
+    expect(await pending).toMatchObject({ tracked: false })
+    await closed
+    expect(alive(helper)).toBe(false)
+    // The caller's next look, as a refresh's after its unanswered one: no helper starts.
+    expect(await mod.trackLaunch({ runId: 'held2', projectPath: dir, agentId: 'a4', agentName: 'Held' }, next.pid!)).toMatchObject({ tracked: false })
+    expect(mod.trackerPid()).toBeNull()
+    expect(readFileSync(heard, 'utf8')).not.toContain('held2')
+  }, 30_000)
+
+  it('ends a helper not yet ready when closing, and the close waits for it', async () => {
+    process.env.HIVE_TEST_PROCESS_TRACKER = 'silent'
+    process.env.HIVE_TEST_TRACKER_WAIT_MS = '60000'
+    mod = await import('../src/main/agentProcesses')
+    const ready = mod.trackingReady()
+    expect(await until(() => mod!.trackerPid() !== null, 10_000)).toBe(true)
+    const helper = mod.trackerPid()!
+    // It never reads its input: ended rather than waited for, and whoever waited for it to start hears it won't.
+    await mod.closeProcessTracking()
+    expect(alive(helper)).toBe(false)
+    expect(await ready).toBe(false)
   }, 30_000)
 
   it('says at once when a running helper dies, keeps it for Diagnostics, ends nothing, and keeps what was listed by identity', async () => {

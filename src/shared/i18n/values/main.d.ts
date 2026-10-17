@@ -170,6 +170,7 @@ interface HiveMessageValues {
   'main.unexpectedClose.notResumed': undefined
   'main.unexpectedClose.notStopped': { n: number }
   'main.unexpectedClose.overview': undefined
+  'main.unexpectedClose.progressRun': { title: string | number; n: number }
   'main.unexpectedClose.resumeAll': undefined
   'main.unexpectedClose.resumeFailedTitle': undefined
   'main.unexpectedClose.resumed': { n: number }
