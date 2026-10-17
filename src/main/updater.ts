@@ -8,6 +8,7 @@ import { APP_NAME } from '../shared/appName'
 import { config } from './config'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
+import { exitBy } from './exitLog'
 
 const log = createLogger('updates')
 
@@ -132,11 +133,11 @@ export function restartAndInstall(): void {
 export function installNow(): void {
   if (testFeed()) {
     log.info(`Test mode: would install ${state.version} and restart`)
-    app.quit()
+    exitBy('app.quit', 'the update would be installed (test feed)', () => app.quit())
     return
   }
   log.info(`Installing ${state.version} and restarting`)
-  autoUpdater.quitAndInstall(true, true)
+  exitBy('autoUpdater.quitAndInstall', 'installing the update', () => autoUpdater.quitAndInstall(true, true))
 }
 
 export function initUpdater(opts: { restart: () => void }): void {

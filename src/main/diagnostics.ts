@@ -21,6 +21,7 @@ import { diagnosticRecording } from '../shared/consoleFixtures.mts'
 import { latestRecording, readRecordingText } from './consoleRecorder'
 import { advanced } from './advanced'
 import { gpuDiagnostics, gpuThisRun } from './gpu'
+import { crashDumpLines, crashDumps, crashDumpsDir } from './exitLog'
 
 /** How much of Hive's log a report carries. */
 const LOG_LINES = 50
@@ -134,7 +135,12 @@ export async function diagnostics(opts: { recording?: boolean } = {}): Promise<s
     `- Notifications: ${s.notifications.desktopNotifications ? 'on' : 'off'}; while Hive is focused: ${{ inApp: 'in Hive', nothing: 'nothing', windows: 'Windows notifications' }[s.notifications.whileFocused]}${s.notifications.whileFocused === 'inApp' ? ` (banners for ${{ all: 'all workspaces', workspace: 'this workspace', project: 'this project' }[s.notifications.bannerScope]}, ${s.notifications.bannerPosition}, ${s.notifications.bannerSeconds} s; waiting banners ${s.notifications.waitingBannerStays ? 'stay' : 'close too'})` : ''}; chime ${s.notifications.chimeEnabled ? 'on' : 'off'}`, // i18n-ignore: Copy Diagnostics' report: a bug report for the maintainer, in English (the design keeps diagnostics content English)
     `- Theme: ${s.appearance.theme}`,
     // Overrides of Hive's defaults (#367): how many and which, by Hive's names; never their values.
-    ...advanced.diagnostics(windows.map((w) => (w.ws.path ? (w.ws.config.advanced ?? null) : null)))
+    ...advanced.diagnostics(windows.map((w) => (w.ws.path ? (w.ws.config.advanced ?? null) : null))),
+    '',
+    // Crashes Hive kept a dump of (#985): named, never attached.
+    '### Crash dumps',
+    '',
+    ...crashDumpLines(crashDumps(), join(crashDumpsDir(), 'reports'))
   ].join('\n')
 
   // The log goes back further than what is open now: earlier workspaces and their projects are taken out too.

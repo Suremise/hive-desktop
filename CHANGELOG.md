@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Knowing why Hive stopped.** Hive now keeps a crash dump when it, its window or one of its helper processes crashes, in `%APPDATA%\Hive\Crashpad\reports` on your PC only: it never sends one. Help → Copy Diagnostics names the newest, for you to attach to an issue. Hive's log also says how every run ends (a quit and who asked for it, an update, Windows shutting down, sleep, a crash of its window or an error nothing caught), so a run whose log just stops was ended from outside.
 - **A quieter pane header.** Each agent's pane header now shows only its state, its name, its status and its card, with **Stop** (or **Resume** while it isn't running) and **⋯**. Everything else is in **⋯**, also a right-click on the header: Compact…, Hand Over to…, Review Changes and Merge… (with what is left to merge), the agent's settings and Remove. Processes it left running, unread messages and the files it is editing are at the top of that menu, with a dot on ⋯ when something needs a look. **Session → Agent Menu…** opens it from the keyboard. Hover the agent's name for its provider.
 
 ## 0.8.1 — 17 October 2026
