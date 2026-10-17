@@ -140,20 +140,18 @@ const check = (name, ok, extra = '') => {
   // Narrower: the actions turn to icons (named for screen readers and in their tooltips) and the title gives way; at the
   // narrowest window Hive supports (900 px, sidebar and rails open), every action is inside the header, on screen and
   // the thing under its own centre, in both themes. With the Assistant's panel open too, Agents ▾'s actions go into ⋯.
-  const actionsAt = async () => {
-    const buttons = await header.locator('button, label').all()
-    return (await Promise.all(
-      buttons.map((b) =>
-        b.evaluate((el) => {
+  // Every action read in one evaluation, so a refold between reads (the Assistant opening) can't leave a stale control.
+  const actionsAt = () =>
+    header.locator('button, label').evaluateAll((els) =>
+      els
+        .filter((el) => !(el.tagName === 'BUTTON' && el.closest('label')))
+        .map((el) => {
           const r = el.getBoundingClientRect()
           const h = el.closest('.project-header').getBoundingClientRect()
           const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-          if (el.tagName === 'BUTTON' && el.closest('label')) return null
           return { width: Math.round(h.width), name: el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent.trim(), inside: r.left >= h.left - 0.5 && r.right <= h.right + 0.5 && r.right <= window.innerWidth, hit: !!t && (t === el || el.contains(t)) }
         })
-      )
-    )).filter(Boolean)
-  }
+    )
   const allReachable = (list) => list.length > 0 && list.every((a) => a.inside && a.hit)
   await lib.fitWindow(app, page, { width: 1020, height: 900 })
   check('narrow (1020 px): every action is in the header and clickable', !!(await lib.until(async () => allReachable(await actionsAt()), 5000)), JSON.stringify(await actionsAt()))
