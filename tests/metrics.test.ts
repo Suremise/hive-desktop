@@ -555,8 +555,12 @@ describe('moved into the workspace database (#1019)', () => {
     now = T0
     metrics.queryMetrics(src, { scope: { kind: 'workspace' } })
     await metrics.flushMetrics()
-    // Its saved form, as metrics.json had it, with history evicted before it.
-    const data = { ...metricsSaved(srcPath)!, evictedThrough: hourOf(T0 - 14 * DAY) }
+    // Its saved form, as metrics.json had it, with everything else it holds: history evicted before it, a project rename
+    // applied, and measurements dropped (a project's and untracked owners'), each counted in the reports' losses.
+    const saved = metricsSaved(srcPath)!
+    const last = saved.buckets.length - 1
+    const buckets = saved.buckets.map((b, i) => (i === last ? { ...b, dropped: 5, droppedBy: { alpha: 3, ' untracked': 2 } } : b))
+    const data = { ...saved, buckets, evictedThrough: hourOf(T0 - 14 * DAY), renamesApplied: 4 }
     expect(new Set(data.buckets.map((b) => b.span))).toEqual(new Set(['hour', 'day']))
     expect(data.observed.length).toBeGreaterThan(1)
     await disposeWorkspaceService(src)
@@ -584,10 +588,12 @@ describe('moved into the workspace database (#1019)', () => {
     const ws = before['workspace month'] as Awaited<ReturnType<typeof metricsReport>>
     expect(sumApi(Object.values(ws.projects)).count).toBe(2 * 13 * 3)
     expect(ws.coverage.evictedThrough).toBe(new Date(data.evictedThrough).toISOString())
+    expect(JSON.stringify(before)).toMatch(/"dropped":[1-9]/)
     // Moved in by the save as it closes, then read from the database alone.
     await w.close()
     await metrics.flushMetrics()
-    expect(metricsSaved(path)!.buckets).toEqual(data.buckets)
+    // Everything metrics.json held, as it held it: buckets (series, skills, losses), observation, eviction, renames.
+    expect(metricsSaved(path)).toEqual(data)
     expect(existsSync(join(dirOf(path), 'metrics.json'))).toBe(false)
     expect(backups(path).length).toBe(1)
     await w.open(path)
