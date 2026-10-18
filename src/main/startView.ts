@@ -24,7 +24,7 @@ const PICK = { decisions: 6, decisionDays: 14, incidents: 3, incidentDays: 7, ca
 
 const DAY = 86_400_000
 
-const cardOf = (c: TaskCard): ViewCard => ({ number: c.number, title: c.title, column: c.column, project: c.project || '(workspace)', agent: c.agentName ?? c.agent, reviewer: c.review?.agentName ?? null, blocked: c.blocked })
+const cardOf = (c: TaskCard): ViewCard => ({ number: c.number, title: c.title, column: c.column, project: c.project || '(workspace)', agent: c.agentName ?? c.agent, reviewer: c.review?.agentName ?? null, blocked: c.blocked, labels: c.labels, updatedAt: c.updatedAt })
 const entryOf = (r: RecallRow): ViewEntry => ({ id: r.id, at: r.at, kind: r.kind, project: r.project, summary: r.summary, importance: r.importance })
 
 /** The view for a workspace's Assistant; null while its journal is off (or there is no workspace). */

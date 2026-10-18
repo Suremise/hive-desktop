@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **The Assistant's start view stays short on a big board.** What waits on you now shows at most ten lines; past that, agents asking now and cards blocked on a question first, then On Hold cards waiting on a decision of yours, before those waiting for a later version, then a count of the rest. The other sections are capped too, so a board with sixty On Hold cards no longer adds thousands of tokens to every new Assistant conversation (#1078).
+
 ## 0.9.0 — 18 October 2026
 
 - **The Assistant keeps a journal.** Each workspace's Assistant has a journal, its memory across sessions: decisions, plans, events, incidents and what it learned, each a line with optional detail and links to cards and commits, searchable and recalled a few lines at a time instead of a long handover. Hive adds facts as they happen (lanes started and ended, merges, cards into Done, an unexpected close). **Settings → Assistant → Journal** turns it off (keeping it), chooses what it may store (work only by default), how long everyday entries stay (90 days) and a size cap (50 MB), and deletes it. It is kept on this computer only, in `.hive/assistant/journal.db` (#1031).
