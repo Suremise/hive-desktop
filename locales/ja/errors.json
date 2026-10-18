@@ -8,6 +8,8 @@
   "errors.dialog.addSkill": "ファイルからスキルを追加",
   "errors.dialog.createWorkspace": "ワークスペースを作成",
   "errors.dialog.createWorkspaceTitle": "新しいワークスペースのフォルダーを選択または作成",
+  "errors.dialog.exportBoard": "ボードをJSONにエクスポート：フォルダーを選択",
+  "errors.dialog.exportBoardButton": "ここにエクスポート",
   "errors.dialog.exportMetrics": "パフォーマンス指標をエクスポート",
   "errors.dialog.exportTemplate": "テンプレートをエクスポート",
   "errors.dialog.exportTranscript": "トランスクリプトをMarkdownでエクスポート",

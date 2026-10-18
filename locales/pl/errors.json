@@ -8,6 +8,8 @@
   "errors.dialog.addSkill": "Dodaj umiejętność z pliku",
   "errors.dialog.createWorkspace": "Utwórz obszar roboczy",
   "errors.dialog.createWorkspaceTitle": "Wybierz lub utwórz folder dla nowego obszaru roboczego",
+  "errors.dialog.exportBoard": "Eksportuj tablicę do JSON: wybierz folder",
+  "errors.dialog.exportBoardButton": "Eksportuj tutaj",
   "errors.dialog.exportMetrics": "Eksportuj metryki wydajności",
   "errors.dialog.exportTemplate": "Eksportuj szablon",
   "errors.dialog.exportTranscript": "Eksportuj transkrypcję jako Markdown",

@@ -8,6 +8,8 @@
   "errors.dialog.addSkill": "Agregar una habilidad desde un archivo",
   "errors.dialog.createWorkspace": "Crear espacio de trabajo",
   "errors.dialog.createWorkspaceTitle": "Elige o crea una carpeta para el nuevo espacio de trabajo",
+  "errors.dialog.exportBoard": "Exportar el tablero a JSON: elige una carpeta",
+  "errors.dialog.exportBoardButton": "Exportar aquí",
   "errors.dialog.exportMetrics": "Exportar métricas de rendimiento",
   "errors.dialog.exportTemplate": "Exportar plantilla",
   "errors.dialog.exportTranscript": "Exportar la transcripción como Markdown",

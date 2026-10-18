@@ -8,6 +8,8 @@
   "errors.dialog.addSkill": "Add a skill from a file",
   "errors.dialog.createWorkspace": "Create Workspace",
   "errors.dialog.createWorkspaceTitle": "Choose or create a folder for the new workspace",
+  "errors.dialog.exportBoard": "Export Board to JSON: Choose a Folder",
+  "errors.dialog.exportBoardButton": "Export Here",
   "errors.dialog.exportMetrics": "Export Performance Metrics",
   "errors.dialog.exportTemplate": "Export Template",
   "errors.dialog.exportTranscript": "Export Transcript as Markdown",

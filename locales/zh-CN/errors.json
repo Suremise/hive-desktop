@@ -8,6 +8,8 @@
   "errors.dialog.addSkill": "从文件添加技能",
   "errors.dialog.createWorkspace": "创建工作区",
   "errors.dialog.createWorkspaceTitle": "为新工作区选择或创建文件夹",
+  "errors.dialog.exportBoard": "将看板导出为 JSON：选择文件夹",
+  "errors.dialog.exportBoardButton": "导出到此处",
   "errors.dialog.exportMetrics": "导出性能指标",
   "errors.dialog.exportTemplate": "导出模板",
   "errors.dialog.exportTranscript": "将会话记录导出为 Markdown",
