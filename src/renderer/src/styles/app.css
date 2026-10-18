@@ -1502,7 +1502,7 @@ textarea.input {
 /* The title gives way to the actions: it shrinks and its name is cut with "…", never pushing a button out (#216). */
 .project-header .project-title {
   /* Shrinks far ahead of the actions (and is clipped, badge too), so they only give way once it has; it keeps a little
-     of the name even then (#886), the actions wrapping onto another row first. */
+     of the name even then (#886), the actions folding into ⋯ first (#1051). */
   flex: 0 1000 auto;
   min-width: min(5em, 30%);
   overflow: hidden;
@@ -1552,10 +1552,8 @@ textarea.input {
   display: flex;
   gap: 6px;
   align-items: center;
-  /* Narrower than even its icons (a main area squeezed by both side panels), they wrap onto more rows, never off screen. */
-  flex: 0 1 auto;
-  min-width: 0;
-  flex-wrap: wrap;
+  /* One row at any width (#1051): short of room they fold into ⋯ (HEADER_FOLDS), never wrapping above the name. */
+  flex: 0 0 auto;
   justify-content: flex-end;
 }
 

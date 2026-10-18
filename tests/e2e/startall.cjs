@@ -2,7 +2,7 @@
 // Archive and Start New and Remove All for every agent in its Agents ▾ menu, each saying how many agents it acts on
 // ("Stop (2)", #275, also in the Session menu and the palette), the same agents its question lists, following agents as
 // they start and stop; the state line ("1 waiting · 2 working", #974); folding at narrow widths (icons, then Agents ▾'s
-// actions in ⋯); Explorer, Terminal and Project Settings in the ⋯ menu; the Session menu and the palette have both new
+// actions in ⋯, then Active, the status to one count, then Resume and Stop, one row at any width, #1051); Explorer, Terminal and Project Settings in the ⋯ menu; the Session menu and the palette have both new
 // actions; the Project menu lists every tab and Project Settings; the session toolbar's summary chip counts the agents. Three agents run the fake Claude Code (fake-claude/): one working, one idle,
 // one stopped. Start New (All) asks once (the working one flagged), Cancel changes nothing, and then every agent has a
 // new session with the old ones kept; Archive and Start New (All) archives each agent's session and starts fresh ones.
@@ -195,19 +195,47 @@ const check = (name, ok, extra = '') => {
   const narrowItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
   check('900 px: ⋯ opens with Explorer and Terminal first', JSON.stringify(narrowItems.slice(0, 2)) === JSON.stringify(['Explorer', 'Terminal']), JSON.stringify(narrowItems))
   await page.keyboard.press('Escape')
-  // The Assistant's panel open too: Agents ▾'s actions are in ⋯, and what stays in the header is all reachable.
+  // Squeezed further (#1051), the header stays one row: Agents ▾'s actions, then Active, go into ⋯ and the status keeps
+  // its most urgent count; narrowest, Resume and Stop go too, leaving the name, the status and ⋯. ⋯ lists what folded
+  // away first, in the header's order. Never a second row of controls above the name.
+  const menuNames = async () => {
+    await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
+    await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, 5000)
+    const names = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.split('\n')[0].trim())
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.menu').count()) === 0, 5000)
+    return names
+  }
+  const oneRow = () => page.locator('.project-header').evaluate((el) => el.getBoundingClientRect().height < 48)
+  const statusText = () => page.locator('.project-header .badge-text').innerText().catch(() => '')
+  const toggleProgress = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'menu-command', command: 'progress.toggle', args: [] }))
+  // The Progress panel open at 900 px: the header about 265 px.
   await page.evaluate(() => document.activeElement?.blur())
+  await toggleProgress()
+  // As far as this status needs (here "1 working · 1 idle · 1 stopped", so all the way): Active in ⋯, and Resume and
+  // Stop each in the header or in ⋯ (never both, never lost), ⋯ last in the row.
+  const RUN = ["Resume Stopped's last session", 'Stop all 2 running agents']
+  const at265 = (await lib.until(async () => {
+    const a = await actionsAt()
+    return a.at(-1)?.name === 'More actions' && !a.some((x) => x.name === 'Active') && allReachable(a) && (await oneRow()) ? a : null
+  }, 5000)) || (await actionsAt())
+  check('900 px with the Progress panel (~265 px): one row, Active gone from it, the rest and ⋯ reachable', at265.at(-1)?.name === 'More actions' && !at265.some((x) => x.name === 'Active') && allReachable(at265) && (await oneRow()), JSON.stringify(at265))
+  check('…the status its most urgent count only, the rest in its tooltip', !(await statusText()).includes('·') && (await statusText()).length > 0, await statusText())
+  const items265 = await menuNames()
+  const folded = RUN.filter((n) => !at265.some((x) => x.name === n))
+  check("…⋯ starts with Active, then what of Resume and Stop left the row, then Agents ▾'s actions", JSON.stringify(items265.slice(0, 4 + folded.length)) === JSON.stringify(['Active', ...folded, 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…']), JSON.stringify({ items265, row: at265.map((x) => x.name) }))
+  await page.screenshot({ path: path.join(lib.WORK, 'startall-header-265.png'), clip: { x: 0, y: 0, width: 900, height: 120 } })
+  await toggleProgress()
+  // The Assistant's panel open too (a main area of about a hundred pixels): only ⋯ is left beside the name.
   await page.keyboard.press('Control+Alt+I')
   const cramped = (await lib.until(async () => {
     const a = await actionsAt()
-    return !a.some((x) => x.name === 'Agents') && allReachable(a) ? a : null
+    return a.length === 1 && a[0].name === 'More actions' && allReachable(a) && (await oneRow()) ? a : null
   }, 5000)) || (await actionsAt())
-  check("900 px with the Assistant open (a squeezed main area): Agents ▾ leaves the header, the rest stays reachable (wrapping if it must)", !cramped.some((a) => a.name === 'Agents') && allReachable(cramped), JSON.stringify(cramped))
-  await page.locator('.project-header').getByRole('button', { name: 'More actions' }).click()
-  const crampedItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
-  check('…and its actions are at the top of ⋯', JSON.stringify(crampedItems.slice(0, 5)) === JSON.stringify(['Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…', 'Explorer', 'Terminal']), JSON.stringify(crampedItems))
+  check('900 px with the Assistant open (a squeezed main area): one row, only ⋯ beside the name, reachable', cramped.length === 1 && cramped[0].name === 'More actions' && allReachable(cramped) && (await oneRow()), JSON.stringify(cramped))
+  const crampedItems = await menuNames()
+  check("…⋯ starts with Active, Resume and Stop, then Agents ▾'s actions", JSON.stringify(crampedItems.slice(0, 6)) === JSON.stringify(['Active', "Resume Stopped's last session", 'Stop all 2 running agents', 'Start New (3)', 'Archive and Start New (3)', 'Remove All (3)…']), JSON.stringify(crampedItems))
   await page.screenshot({ path: path.join(lib.WORK, 'startall-header-cramped.png') })
-  await page.keyboard.press('Escape')
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+I')
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
