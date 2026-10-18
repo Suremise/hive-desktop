@@ -367,8 +367,15 @@ export function setAsideAdded(ws: WorkspaceService, file: string, text: string):
 
 /** A set-aside file whose card is on the board goes to the Recycle Bin (#1044 round 1): the older Hive's copy stays recoverable. */
 function removeAdded(dir: string, file: string): void {
-  trash(join(dir, file)).catch((e) => log.warn(`couldn't move ${file} from ${SET_ASIDE} to the Recycle Bin (its card is on the board): tried again later`, e))
+  const p = join(dir, file)
+  // Once: a listing while its move is under way leaves it to that move.
+  if (removing.has(p)) return
+  removing.add(p)
+  trash(p)
+    .catch((e) => log.warn(`couldn't move ${file} from ${SET_ASIDE} to the Recycle Bin (its card is on the board): tried again later`, e))
+    .finally(() => removing.delete(p))
 }
+const removing = new Set<string>()
 
 const hiveVersion = (): string => {
   try {

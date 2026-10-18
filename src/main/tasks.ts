@@ -460,20 +460,21 @@ export function addSetAsideCard(ws: WorkspaceService, file: string): Promise<Tas
     const n = hasCard(ws, was) ? await nextNumber(ws) : was
     const now = new Date().toISOString()
     const c = clean(raw, n, ids)
-    // The card as the older Hive stored it, every field kept (#1044 round 1: its own fields, past holds for its cost),
-    // but its number, place, history and date; a review under way there isn't one here (saveCard ends its reviewer's hold).
-    const { review: _review, ...stored } = raw
-    const history = Array.isArray(raw.history) ? (raw.history as TaskHistoryEntry[]) : []
+    // Every field the older Hive stored is kept (#1044 round 1: its own fields, past holds for its cost), Hive's own
+    // fields as read (round 2: one of the wrong type gets its safe default, as on any read, so it can't stop the card
+    // coming back; the original stays in the Recycle Bin): but its number, place, history and date. A review under way
+    // there isn't one here (saveCard ends its reviewer's hold).
+    const { review: _review, ...known } = c
+    // Hive's optional fields only as read: one left out as broken isn't kept from the stored card either.
+    const { agentName: _a, review: _r, archivedFor: _f, archivedBatch: _b, decisions: _d, held: _h, ...stored } = raw
     const card = {
       ...stored,
+      ...known,
       number: n,
-      title: c.title,
-      description: c.description,
-      project: c.project,
       order: orderIn(await boardPlaces(ws), c.column, null, null),
-      history: [...history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
+      history: [...c.history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
       updatedAt: now
-    } as unknown as TaskCard
+    } as TaskCard
     await saveCard(ws, n, card)
     setAsideAdded(ws, file, entry.text!)
     log.info(`#${n} added from ${SET_ASIDE} (made in an older Hive as #${was}): ${userText(card.title)}`)

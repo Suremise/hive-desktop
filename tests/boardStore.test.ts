@@ -2,7 +2,7 @@
 // files into it (once, checked, the folder kept as a backup and a stub left for older versions), cards an older Hive saved
 // meanwhile, Export Board to JSON (an export read back is the same board), and the window's board with archived cards in short.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DatabaseSync } from 'node:sqlite'
@@ -277,7 +277,7 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
   })
   const trashedFrom = (ws: string): string[] => {
     try {
-      return readFileSync(join(trashDir, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).from as string).filter((f) => f.startsWith(ws)).map((f) => f.slice(ws.length + 1))
+      return readFileSync(join(trashDir, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).from as string).filter((f) => f.startsWith(ws + sep)).map((f) => f.slice(ws.length + 1))
     } catch {
       return []
     }
@@ -366,6 +366,35 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     expect((doc.history as unknown[]).slice(0, -1)).toEqual(was.history)
     await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
     expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+  })
+
+  it('Add brings back a card whose own fields are of the wrong type, as any read would show it: a broken cost or history field never stops it (#1044 round 2)', async () => {
+    const goodHold = { agent: 'a-past', name: 'Past Builder', role: 'build', from: '2026-10-05T01:00:00.000Z', to: '2026-10-05T02:00:00.000Z' }
+    const files = {
+      // held not a list; held with broken entries beside a good one; history not a list, with no holds to work out from it.
+      '7.json': older(7, { title: 'Held not a list', held: 'not an array' }),
+      '8.json': older(8, { title: 'Broken holds', held: [null, 'x', { name: 'No role' }, goodHold], custom: 1 }),
+      '9.json': older(9, { title: 'History not a list', history: 'nope', column: 'doing', agent: 'a1' }),
+      '10.json': older(10, { title: 'Broken history entries', history: [null, { at: '2026-10-05T00:00:00.000Z' }, { at: '2026-10-05T00:00:00.000Z', by: 'You', what: 'Created in Todo', id: 'h1' }] }),
+      // A partial card: only a title and a field of its own.
+      '11.json': JSON.stringify({ title: 'Only a title', mine: { kept: true } })
+    }
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, files)
+    expect((await inWorkspace(w, () => tasks.setAsideCards(w))).map((c) => [c.number, c.readable])).toEqual([7, 8, 9, 10, 11].map((x) => [x, true]))
+    for (const f of Object.keys(files)) await inWorkspace(w, () => tasks.addSetAsideCard(w, f))
+    const got = async (x: number) => inWorkspace(w, () => tasks.getTask(x, w))
+    expect((await got(7)).title).toBe('Held not a list')
+    expect(store.cardDoc(w, 7)!.held).toBeUndefined()
+    expect(store.cardDoc(w, 8)!.held).toEqual([goodHold])
+    expect(store.cardDoc(w, 8)!.custom).toBe(1)
+    expect((await got(9)).history.map((h) => h.by)).toEqual(['Repair'])
+    expect((await got(10)).history.map((h) => h.what)).toEqual(['Created in Todo', 'Added from an older Hive, where it was made as #10'])
+    const partial = await got(11)
+    expect(partial).toMatchObject({ title: 'Only a title', description: '', column: 'todo', comments: [] })
+    expect(store.cardDoc(w, 11)!.mine).toEqual({ kept: true })
+    // Each original in the Recycle Bin, recoverable as it was.
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws).sort()).toEqual(Object.keys(files).map((f) => join('.hive', store.SET_ASIDE, f)).sort())
   })
 
   it('Discard moves the file to the trash, nothing on the board changes; a damaged file is refused by Add; names outside the folder are refused', async () => {
