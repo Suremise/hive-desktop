@@ -982,6 +982,43 @@ describe('card decisions', () => {
     }
   })
 
+  it('a decision line overtaken by a board change as its offer is saved is made again at once, not left for the tick (#1036)', async () => {
+    const deliveries = await import('../src/main/deliveries')
+    const writer = await import('../src/main/lineWriter')
+    const events = await import('../src/main/events')
+    const n = (await run(() => tasks.createTask({ title: 'Overtaken', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
+    await laterMs()
+    await run(() => tasks.updateTask(n, { decision: 'Amber.' }, assistant))
+    const sent: string[] = []
+    const spies = [
+      vi.spyOn(sessions, 'liveFor').mockImplementation((p, id) => (p === alpha && id === 'a1' ? ({ projectPath: alpha, agentId: 'a1', status: 'finished', runId: 'run-a1' } as never) : null)),
+      vi.spyOn(sessions, 'userMayBeTyping').mockImplementation(() => false),
+      vi.spyOn(sessions, 'lineWaiting').mockImplementation(() => false),
+      vi.spyOn(sessions, 'promptsTaken').mockImplementation((p, id) => (p === alpha && id === 'a1' ? { runId: 'run-a1', count: sent.length } : null)),
+      vi.spyOn(sessions, 'sendPrompt').mockImplementation(async (_p, _id, text, guard) => {
+        guard?.()
+        sent.push(text)
+      })
+    ]
+    writer.testHooks.takeMs = 20
+    // A board change from elsewhere (another agent's, or another process's seen by the board's poll) lands as the
+    // delivery and then its offer are saved, after the line was made, so the offer no longer holds once saved.
+    let saves = 0
+    deliveries.setBeforeSaveForTests(() => {
+      if (saves++ < 2) events.tellListeners({ type: 'tasks-changed', workspacePath: w.path! })
+    })
+    try {
+      await decisionWakes.tellNow(w, alpha, 'a1')
+      expect(saves).toBeGreaterThan(2)
+      expect(sent).toEqual([`[Hive] New in your inbox: 1 answer (#${n}) (m1). Call hive_inbox to read it.`])
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+      writer.testHooks.takeMs = undefined
+      for (const s of spies) s.mockRestore()
+      await writer.settled()
+    }
+  })
+
   it('a decision line stopped as it is typed is tried again by itself, and only while it is still true (#401)', async () => {
     const n = (await run(() => tasks.createTask({ title: 'Stopped lines', project: 'alpha', column: 'doing', agent: 'a1' }, user))).number
     await laterMs()

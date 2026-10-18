@@ -679,6 +679,10 @@
     "defaultMessage": "{agent} was merging {branch} ({cards}): check {folder} for a merge left half done (git status there) before the next merge.",
     "description": "The notice that Hive closed unexpectedly: an agent ({agent}) held the merge slot for a branch ({branch}) for cards ({cards}); {folder} is where the merge was (its worktree or the main checkout)."
   },
+  "main.unexpectedClose.notChecked": {
+    "defaultMessage": "{u, plural, one {A process started by a test run may still be running: Windows let Hive neither end nor check it, so Hive can't find it again. Look for process ID {ids} in Task Manager's Details.} other {# processes started by a test run may still be running: Windows let Hive neither end nor check them, so Hive can't find them again. Look for process IDs {ids} in Task Manager's Details.}}",
+    "description": "Stop Them (in the notice that Hive closed unexpectedly) ended what it could, but {u} processes a test run had started may still run: Windows let Hive neither end nor check them, and with what started them ended Hive can't tell them from other processes any more, so pressing Stop Them again won't reach them. {ids} lists their process IDs (\"4242, 4250\"), to look for in Task Manager's Details tab."
+  },
   "main.unexpectedClose.notResumed": {
     "defaultMessage": "Nothing was resumed.",
     "description": "The notice that Hive closed unexpectedly: Hive did not resume the agents that were running (the user chooses)."
@@ -686,6 +690,10 @@
   "main.unexpectedClose.notStopped": {
     "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.",
     "description": "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run; Stop Them is the notice's button."
+  },
+  "main.unexpectedClose.notStoppedNorChecked": {
+    "defaultMessage": "{n, plural, one {# process is still running: Windows didn't let Hive end it; Stop Them in the notice tries again.} other {# processes are still running: Windows didn't let Hive end them; Stop Them in the notice tries again.}} {u, plural, one {Another, started by a test run, may still be running: Windows let Hive neither end nor check it, so Hive can't find it again. Look for process ID {ids} in Task Manager's Details.} other {# others, started by a test run, may still be running: Windows let Hive neither end nor check them, so Hive can't find them again. Look for process IDs {ids} in Task Manager's Details.}}",
+    "description": "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run, which Stop Them (the notice's button) tries again; {u} is how many more, started by a test run, Windows let Hive neither end nor check, so Hive can't tell them from other processes any more: {ids} lists their process IDs (\"4242, 4250\"), to look for in Task Manager's Details tab."
   },
   "main.unexpectedClose.overview": {
     "defaultMessage": "Show Overview",

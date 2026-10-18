@@ -7033,20 +7033,53 @@ body.pane-resizing-v .monaco-editor {
   letter-spacing: 0;
   font-weight: normal;
 }
+/* An agent that needs you: the row opens it (its tooltip says so); a finished one's quiet × dismisses it without going
+   there (#1047), shown on hover and focus but always in the tab order. */
 .assistant-attention {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: 2px;
   margin-bottom: 4px;
   border-radius: 4px;
   background: var(--accent-soft);
   color: var(--fg-strong);
+}
+.assistant-attention > .tip-wrap:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-attention-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
   cursor: pointer;
 }
-.assistant-attention .codicon {
+.assistant-attention-open .codicon {
   color: var(--warning);
   margin-top: 1px;
+}
+.assistant-attention .assistant-attention-dismiss {
+  width: 20px;
+  height: 20px;
+  margin: 2px 2px 0 0;
+  color: var(--fg-muted);
+  opacity: 0;
+}
+.assistant-attention:hover .assistant-attention-dismiss,
+.assistant-attention:focus-within .assistant-attention-dismiss {
+  opacity: 1;
+}
+.assistant-attention .assistant-attention-dismiss:hover {
+  color: var(--fg);
 }
 /* A project on one line (#979): its name, its agents' state marks (they wrap in a narrow panel), how many run. */
 .assistant-project {

@@ -171,8 +171,10 @@ interface HiveMessageValues {
   'main.unexpectedClose.failed': { n: number; agents: string | number }
   'main.unexpectedClose.merge': { agent: string | number; branch: string | number; folder: string | number }
   'main.unexpectedClose.mergeCards': { agent: string | number; branch: string | number; cards: string | number; folder: string | number }
+  'main.unexpectedClose.notChecked': { u: number; ids: string | number }
   'main.unexpectedClose.notResumed': undefined
   'main.unexpectedClose.notStopped': { n: number }
+  'main.unexpectedClose.notStoppedNorChecked': { n: number; u: number; ids: string | number }
   'main.unexpectedClose.overview': undefined
   'main.unexpectedClose.progressRun': { title: string | number; n: number }
   'main.unexpectedClose.resumeAll': undefined

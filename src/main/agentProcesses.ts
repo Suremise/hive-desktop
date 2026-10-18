@@ -358,8 +358,8 @@ public static class HiveJobs {
   /**
    * Ends processes by id and start time ("pid:created,…") with all they started that runs now (#1008: a test run's
    * whole tree), as PickTree picks them, each through the handle it was checked with. JSON {"ended":n,"failed":n,
-   * "failedIds":["pid:created",…],"unverified":n}: those failed still run (one Hive couldn't open among them), to try
-   * again; unverified, how many of the run's children (as far as Hive can tell) run that it could neither end nor check.
+   * "failedIds":["pid:created",…],"unverified":[pid,…]}: those failed still run (one Hive couldn't open among them), to
+   * try again; unverified, the ids of the run's children (as far as Hive can tell) that run and it could neither end nor check.
    */
   public static string EndTree(string list) {
     var children = new Dictionary<int, List<int>>();
@@ -403,7 +403,9 @@ public static class HiveJobs {
     }
     var b = new StringBuilder("{\"ended\":" + ended + ",\"failed\":" + failed.Count + ",\"failedIds\":[");
     for (int i = 0; i < failed.Count; i++) b.Append(i > 0 ? "," : "").Append(Q(failed[i]));
-    return b.Append("],\"unverified\":" + unverified.Count + "}").ToString();
+    b.Append("],\"unverified\":[");
+    for (int i = 0; i < unverified.Count; i++) b.Append(i > 0 ? "," : "").Append(unverified[i]);
+    return b.Append("]}").ToString();
   }
   /** Exits gathered for the next Settle: each pid with the entry held for it as its exit was read (null: none). */
   static List<KeyValuePair<int, Held>> exits = new List<KeyValuePair<int, Held>>();
@@ -1302,12 +1304,13 @@ export async function endProcessesExactly(processes: readonly AgentProcess[]): P
  * Ends these processes with all they started that runs now (#1008: a hive-progress run's processes, so its whole test
  * run goes, what it started since Hive listed it too), each only while it is still the process it was checked to be
  * (EndTree). failed: those that still run after it, by id and start time (no label: Hive didn't list them), for the
- * caller to report and try again; unverified: how many of the runs' children still run that Hive could neither end nor
- * check. Null when the host can't say (none ended).
+ * caller to report and try again; unverified: the ids of the runs' children that still run and Hive could neither end
+ * nor check (#1028: once their parent has ended, nothing tells them from a process that later gets the id, so they are
+ * reported, never tried again). Null when the host can't say (none ended).
  */
-export async function endTreesExactly(roots: readonly AgentProcess[]): Promise<{ failed: AgentProcess[]; unverified: number } | null> {
+export async function endTreesExactly(roots: readonly AgentProcess[]): Promise<{ failed: AgentProcess[]; unverified: number[] } | null> {
   const list = identities([...roots])
-  if (!list) return { failed: [], unverified: 0 }
+  if (!list) return { failed: [], unverified: [] }
   if (!(await trackingReady()) || killFailsForTests()) return null
   const r = (await host.request('endtree', list)) as { failedIds?: unknown; unverified?: unknown } | null
   if (!r || typeof r !== 'object' || !Array.isArray(r.failedIds)) return null
@@ -1315,7 +1318,8 @@ export async function endTreesExactly(roots: readonly AgentProcess[]): Promise<{
     const [pid, created] = String(id).split(':')
     return Number(pid) > 0 && /^\d+$/.test(created ?? '') ? [{ pid: Number(pid), name: '', label: '', created }] : []
   })
-  return { failed, unverified: Math.max(0, Number(r.unverified) || 0) }
+  const unverified = Array.isArray(r.unverified) ? [...new Set(r.unverified.map(Number).filter((pid) => Number.isInteger(pid) && pid > 0))] : []
+  return { failed, unverified }
 }
 
 async function restore(): Promise<AgentLeftovers[]> {
