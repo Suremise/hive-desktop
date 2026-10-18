@@ -37,6 +37,7 @@
   "session.handOver.asking": "Agent {agent} fragt dich etwas, bevor die Übergabe geschrieben werden kann. Antworte und übergib dann erneut, ohne neue Übergabe.",
   "session.handOver.busy": "Agent {agent} ist beschäftigt. Übergib, sobald er fertig ist.",
   "session.handOver.didntStop": "Agent {agent} hat nicht angehalten. Stoppe ihn, starte ihn dann und bitte ihn, die Übergabe „{handover}“ zu lesen.",
+  "session.handOver.momentLost": "{agent} hat den Merge-Slot genommen, eine Karte begonnen oder sich geändert, während die Übergabe geschrieben wurde, daher wurde die Unterhaltung nicht beendet. Die Übergabe „{handover}“ bleibt erhalten.",
   "session.handOver.noTools": "Übergeben braucht die Tools von Hive in Sitzungen: Schalte „Hive-Tools für Sitzungen bereitstellen“ unter Einstellungen → Agent API ein.",
   "session.handOver.none": "Für das Projekt {project} gibt es noch keine Übergabe. Lass stattdessen eine neue schreiben.",
   "session.handOver.noneWritten": "Agent {agent} ist fertig, ohne eine Übergabe zu schreiben. Bitte ihn, eine zu schreiben, und übergib dann erneut, ohne neue Übergabe.",

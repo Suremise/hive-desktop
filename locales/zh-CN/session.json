@@ -37,6 +37,7 @@
   "session.handOver.asking": "{agent} 在写交接说明前有问题要问你。请先回答，然后再次交接（不新建交接说明）。",
   "session.handOver.busy": "{agent} 正忙。请在它完成后再交接。",
   "session.handOver.didntStop": "{agent} 没有停止。请停止它，然后启动它并让它阅读交接说明“{handover}”。",
+  "session.handOver.momentLost": "{agent} 在编写交接说明期间占用了合并槽位、开始了一张卡片或发生了变化，因此没有结束它的对话。交接说明“{handover}”已保留。",
   "session.handOver.noTools": "交接需要会话中有 Hive 工具：请在“设置”→“Agent API”中开启“为会话提供 Hive 工具”。",
   "session.handOver.none": "{project} 还没有交接说明。请让智能体写一份新的交接说明再交接。",
   "session.handOver.noneWritten": "{agent} 已结束，但没有写交接说明。请让它写一份，然后再次交接（不新建交接说明）。",

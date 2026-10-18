@@ -37,6 +37,7 @@
   "session.handOver.asking": "L’agent {agent} te pose une question avant de pouvoir écrire la passation. Réponds-lui, puis passe de nouveau le relais sans nouvelle passation.",
   "session.handOver.busy": "L’agent {agent} est occupé. Passe le relais une fois qu’il a terminé.",
   "session.handOver.didntStop": "L’agent {agent} ne s’est pas arrêté. Arrête-le, puis démarre-le et demande-lui de lire la passation « {handover} ».",
+  "session.handOver.momentLost": "L’agent {agent} a pris le créneau de fusion, commencé une carte ou changé pendant qu’il écrivait sa passation : sa conversation n’a donc pas été terminée. La passation « {handover} » est conservée.",
   "session.handOver.noTools": "Passer le relais nécessite les outils Hive dans les sessions : active « Fournir les outils Hive aux sessions » dans Paramètres → Agent API.",
   "session.handOver.none": "Il n’y a pas encore de passation pour le projet {project}. Passe plutôt le relais avec une nouvelle passation.",
   "session.handOver.noneWritten": "L’agent {agent} a terminé sans écrire de passation. Demande-lui d’en écrire une, puis passe de nouveau le relais sans nouvelle passation.",

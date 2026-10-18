@@ -220,6 +220,29 @@ const check = (name, ok, extra = '') => {
     const askedAt = await lib.until(async () => (await writing('Builder').count()) > 0, HUNG_MS, 200)
     const asked = await lib.until(async () => /through review/.test(lib.plainText(await inv('pty:buffer', lib.ptyKey(alpha, builder.id)).catch(() => ''))), HUNG_MS, 300)
     check('once it passes (the next card not begun), Hive asks it for a handover that says where the loop is', !!askedAt && !!asked)
+    // Round 3: the moment lost while it writes its handover. It takes the merge slot after Hive asked: the handover written
+    // then, its conversation is not ended, and the hand-over is queued again.
+    const asks = () => (hiveLog().match(/Builder\W*: handing over \(/g) ?? []).length
+    const lost = () => (hiveLog().match(/Builder\W*: the moment was lost while it wrote its handover/g) ?? []).length
+    check('(Hive has asked once)', asks() === 1, handOverLines())
+    const claim2 = await api(token, 'POST', '/v1/projects/alpha/merge-slot/claim', { cards: [n3], timeoutSeconds: 0 })
+    check('it takes the merge slot while it writes its handover', !!(await lib.until(async () => !!(await live(builder.id))?.mergeSlot, HUNG_MS, 200)), JSON.stringify(claim2))
+    writeHandover('Builder', builderFirst)
+    check('…so, the handover written, its conversation is not ended: the hand-over is queued again', !!(await lib.until(async () => lost() === 1 && !!(await live(builder.id))?.handOverAfter, HUNG_MS, 200)) && (await live(builder.id))?.sessionId === builderFirst, handOverLines())
+    check('…and the notice says so', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'while it wrote its handover' }).count()) > 0, HUNG_MS, 200)))
+    // The slot released, Hive asks again; this time the next card begins while it writes: not ended either.
+    await api(token, 'POST', '/v1/projects/alpha/merge-slot/release', {})
+    check('the slot released, Hive asks again', !!(await lib.until(async () => asks() === 2, HUNG_MS, 200)), handOverLines())
+    await inv('tasks:update', n3, { column: 'doing' })
+    check('the next card begins', !!(await lib.until(async () => (await laneNow())?.cards.find((c) => c.number === n3)?.column === 'doing', HUNG_MS, 200)))
+    writeHandover('Builder', builderFirst)
+    check('…so, the handover written, its conversation is not ended either', !!(await lib.until(async () => lost() === 2 && !!(await live(builder.id))?.handOverAfter, HUNG_MS, 200)) && (await live(builder.id))?.sessionId === builderFirst, handOverLines())
+    check('…and the queue now waits for that card', !!(await lib.until(async () => (await live(builder.id))?.handOverAfter?.card === n3, HUNG_MS, 200)), JSON.stringify((await live(builder.id))?.handOverAfter))
+    // Its card passed, the lane has no card left (its merge due): once the lane has ended, the hand-over goes ahead.
+    await inv('tasks:update', n3, { column: 'passed' })
+    check('every card passed: it waits for the lane to end', !!(await logged(/Builder\W*: queued hand-over waits \(lane-end/)), handOverLines())
+    await inv('lanes:end', started.body.lane.id)
+    check('the lane ended, Hive asks a third time', !!(await lib.until(async () => asks() === 3, HUNG_MS, 200)), handOverLines())
     writeHandover('Builder', builderFirst)
     const fresh = await lib.until(async () => {
       const s = await live(builder.id)

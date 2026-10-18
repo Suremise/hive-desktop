@@ -151,6 +151,10 @@
     "defaultMessage": "{agent} didn't stop. Stop it, then start it and ask it to read the handover \"{handover}\".",
     "description": "Handing over to the same agent failed: it didn't stop to start a new conversation. {agent} is its name, {handover} the handover's path in the shared notes."
   },
+  "session.handOver.momentLost": {
+    "defaultMessage": "{agent} took the merge slot, started a card or changed while it wrote its handover, so its conversation wasn't ended. The handover \"{handover}\" is kept.",
+    "description": "Handing an agent over to itself stopped before ending its conversation: while it wrote its handover it began merging (the merge slot), began a card loop's next card, joined a card loop or restarted. {agent} is its name, {handover} the handover's path in the shared notes."
+  },
   "session.handOver.noTools": {
     "defaultMessage": "Handing over needs Hive's tools in sessions: turn on \"Provide Hive tools to sessions\" in Settings → Agent API.",
     "description": "Hand Over to… is refused: agents need Hive's tools to write and read a handover. \"Provide Hive tools to sessions\" is a setting in Settings → Agent API: keep its name as Hive shows it."

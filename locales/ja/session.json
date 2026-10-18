@@ -37,6 +37,7 @@
   "session.handOver.asking": "{agent}が引き継ぎメモを書く前に質問しています。回答してから、新しい引き継ぎメモなしでもう一度引き継いでください。",
   "session.handOver.busy": "{agent}は作業中です。終わってから引き継いでください。",
   "session.handOver.didntStop": "{agent}が停止しませんでした。停止してから起動し、引き継ぎメモ「{handover}」を読むよう指示してください。",
+  "session.handOver.momentLost": "{agent}は引き継ぎメモを書いている間にマージ枠を取得したか、カードを開始したか、状態が変わったため、会話は終了しませんでした。引き継ぎメモ「{handover}」は保持されます。",
   "session.handOver.noTools": "引き継ぐには、セッションでHiveのツールが必要です。「設定」→「Agent API」で「セッションにHiveのツールを提供」をオンにしてください。",
   "session.handOver.none": "{project}にはまだ引き継ぎメモがありません。代わりに新しい引き継ぎメモを書いて引き継いでください。",
   "session.handOver.noneWritten": "{agent}は引き継ぎメモを書かずに終了しました。書くよう指示してから、新しい引き継ぎメモなしでもう一度引き継いでください。",

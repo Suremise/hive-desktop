@@ -16,7 +16,7 @@ import { HiveError, shownError } from './hiveError'
 import { getLane, laneOf, onLanesWritten } from './lanes'
 import { createLogger, userText } from './logger'
 import { readyFor } from './readiness'
-import { sessions } from './sessions'
+import { HandOverMomentLost, sessions } from './sessions'
 import { inWorkspace, workspaceOf } from './workspace'
 
 const log = createLogger('handover')
@@ -44,9 +44,10 @@ async function runningLane(projectPath: string, agentId: string): Promise<LaneIn
 }
 
 /** Whether a hand-over asked for now waits for a good moment (the notice's choice of button). */
-async function waits(projectPath: string, agentId: string): Promise<boolean> {
+async function waits(projectPath: string, agentId: string, turnOver = false): Promise<boolean> {
   const st = sessions.liveFor(projectPath, agentId)
-  return handOverWaits(st, !!(await runningLane(projectPath, agentId)))
+  // turnOver: as if its turn were over (a hand-over about to end its conversation): only the merge slot and the lane count.
+  return handOverWaits(turnOver && st ? { ...st, status: 'finished', backgroundTasks: 0 } : st, !!(await runningLane(projectPath, agentId)))
 }
 
 /**
@@ -131,8 +132,26 @@ async function check(projectPath: string, agentId: string): Promise<void> {
     log.info(`${userText(name)}: handing over (${moment})`)
     try {
       if (isAssistant(projectPath)) await inWorkspace(ws, () => sessions.startAfresh(projectPath, agentId))
-      else await inWorkspace(ws, () => sessions.handOver(projectPath, agentId, agentId, { handover: true }, moment))
+      else {
+        // Still the moment it was, just before its conversation ends (#1057 round 3): its launch, no merge slot, and its lane
+        // card through with the next not begun (readiness aside: it is told to stop once the handover is written).
+        const stillSafe = async (): Promise<boolean> => {
+          const cur = sessions.liveFor(projectPath, agentId)
+          if (!cur || cur.runId !== st.runId) return false
+          const l = (await runningLane(projectPath, agentId)) ?? (h.lane ? await getLane(ws, h.lane).catch(() => null) : null)
+          const still = handOverDecision({ ...cur, handOverAfter: h }, l, () => true)
+          return 'do' in still && still.do === moment
+        }
+        await inWorkspace(ws, () => sessions.handOver(projectPath, agentId, agentId, { handover: true }, moment, stillSafe))
+      }
     } catch (e) {
+      // The moment lost while it wrote its handover (the merge slot, the next card, a lane): queued again, and said so.
+      if (e instanceof HandOverMomentLost && sessions.liveFor(projectPath, agentId)?.runId === st.runId) {
+        sessions.setHandOverAfter(projectPath, agentId, st.runId, h)
+        log.info(`${userText(name)}: the moment was lost while it wrote its handover; queued again`)
+        toast('info', tr(HAND_OVER_TEXT.queued, { assistant: 'no', agent: name }), shownError(e), [{ label: tr(HAND_OVER_TEXT.cancel), command: 'session.cancelHandOverLater', args: [projectPath, agentId] }], projectPath)
+        return
+      }
       // Not given after all (it took a turn meanwhile, or is busy): queued again for its next good moment.
       if (e instanceof NotGiven || (e instanceof HiveError && e.kind === 'conflict' && sessions.liveFor(projectPath, agentId)?.runId === st.runId)) {
         sessions.setHandOverAfter(projectPath, agentId, st.runId, h)

@@ -37,6 +37,7 @@
   "session.handOver.asking": "{agent} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.",
   "session.handOver.busy": "{agent} is busy. Hand over once it has finished.",
   "session.handOver.didntStop": "{agent} didn't stop. Stop it, then start it and ask it to read the handover \"{handover}\".",
+  "session.handOver.momentLost": "{agent} took the merge slot, started a card or changed while it wrote its handover, so its conversation wasn't ended. The handover \"{handover}\" is kept.",
   "session.handOver.noTools": "Handing over needs Hive's tools in sessions: turn on \"Provide Hive tools to sessions\" in Settings → Agent API.",
   "session.handOver.none": "There is no handover for {project} yet. Hand over with a new handover instead.",
   "session.handOver.noneWritten": "{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.",

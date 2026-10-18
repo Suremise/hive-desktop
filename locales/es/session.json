@@ -37,6 +37,7 @@
   "session.handOver.asking": "El agente {agent} te pregunta algo antes de poder escribir el traspaso. Respóndele y vuelve a traspasar sin un traspaso nuevo.",
   "session.handOver.busy": "El agente {agent} está ocupado. Traspasa cuando haya terminado.",
   "session.handOver.didntStop": "El agente {agent} no se detuvo. Detenlo, inícialo y pídele que lea el traspaso “{handover}”.",
+  "session.handOver.momentLost": "El agente {agent} tomó el turno de fusión, empezó una tarjeta o cambió mientras escribía su traspaso, así que su conversación no se terminó. Se conserva el traspaso \"{handover}\".",
   "session.handOver.noTools": "Traspasar necesita las herramientas de Hive en las sesiones: activa “Dar las herramientas de Hive a las sesiones” en Configuración → Agent API.",
   "session.handOver.none": "Todavía no hay ningún traspaso para el proyecto {project}. Haz un traspaso nuevo.",
   "session.handOver.noneWritten": "El agente {agent} terminó sin escribir un traspaso. Pídele que escriba uno y vuelve a traspasar sin un traspaso nuevo.",

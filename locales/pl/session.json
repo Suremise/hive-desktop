@@ -37,6 +37,7 @@
   "session.handOver.asking": "Agent {agent} pyta Cię o coś, zanim napisze notatkę przekazania. Odpowiedz, a potem przekaż pracę ponownie bez nowej notatki przekazania.",
   "session.handOver.busy": "Agent {agent} jest zajęty. Przekaż pracę, gdy skończy.",
   "session.handOver.didntStop": "Agent {agent} się nie zatrzymał. Zatrzymaj go, uruchom ponownie i poproś o przeczytanie notatki przekazania „{handover}”.",
+  "session.handOver.momentLost": "Agent {agent} zajął kolejkę scalania, zaczął kartę lub zmienił się, gdy pisał przekazanie, więc jego rozmowa nie została zakończona. Przekazanie „{handover}” zostaje zachowane.",
   "session.handOver.noTools": "Przekazywanie pracy wymaga narzędzi Hive w sesjach: włącz „Udostępniaj sesjom narzędzia Hive” w sekcji Ustawienia → Agent API.",
   "session.handOver.none": "Projekt {project} nie ma jeszcze notatki przekazania. Przekaż pracę z nową notatką przekazania.",
   "session.handOver.noneWritten": "Agent {agent} skończył bez napisania notatki przekazania. Poproś go o nią, a potem przekaż pracę ponownie bez nowej notatki przekazania.",
