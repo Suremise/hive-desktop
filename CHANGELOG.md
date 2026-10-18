@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.9.0 — 18 October 2026
 
 - **The Assistant keeps a journal.** Each workspace's Assistant has a journal, its memory across sessions: decisions, plans, events, incidents and what it learned, each a line with optional detail and links to cards and commits, searchable and recalled a few lines at a time instead of a long handover. Hive adds facts as they happen (lanes started and ended, merges, cards into Done, an unexpected close). **Settings → Assistant → Journal** turns it off (keeping it), chooses what it may store (work only by default), how long everyday entries stay (90 days) and a size cap (50 MB), and deletes it. It is kept on this computer only, in `.hive/assistant/journal.db` (#1031).
 - **The Assistant picks up where it left off.** With its journal on, the Assistant gets a short view of where things stand each time it starts and after every compaction: what waits on you, the cards in hand, lanes and agents, and the few journal entries that matter now, kept to about two thousand tokens. It writes your decisions in your words as you make them, recalls before deciding from memory, and writes a weekly digest. Asked for a handover, it says one isn't needed and writes one only if you still want it; with the journal off it writes handovers as before and suggests the journal once (#1032).
