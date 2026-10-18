@@ -20,7 +20,7 @@ const HUNG_MS = 10000
 const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
 /** The bundled skills from before Hive kept track of them (an existing workspace without them deleted them), and the newer ones. */
 const EARLIER = ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note']
-const NEWER = ['card-loop', 'coordinate-agents', 'run-lanes', 'tune-settings', 'use-hive-api', 'work-on-card']
+const NEWER = ['card-loop', 'coordinate-agents', 'journal', 'run-lanes', 'tune-settings', 'use-hive-api', 'work-on-card']
 const BUNDLED = [...EARLIER, ...NEWER]
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -29,6 +29,9 @@ const check = (name, ok, extra = '') => {
 }
 
 ;(async () => {
+  // The lists above are every skill Hive ships: a new one in resources/skills goes in NEWER.
+  const shipped = fs.readdirSync(path.join(lib.ROOT, 'resources', 'skills')).filter((n) => fs.existsSync(path.join(lib.ROOT, 'resources', 'skills', n, 'SKILL.md'))).sort()
+  check('the bundled skills are EARLIER and NEWER', JSON.stringify(shipped) === JSON.stringify([...BUNDLED].sort()), `resources/skills: ${shipped.join(',')}`)
   for (const d of [userData, ws, oldWs, dump]) fs.rmSync(d, { recursive: true, force: true })
   fs.mkdirSync(proj, { recursive: true })
   fs.mkdirSync(path.join(oldWs, '.hive'), { recursive: true })
