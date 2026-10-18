@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AGENT_STATE_LABEL, AGENT_STATES, agentState, boardExtras, mostUrgent, projectAgentStates, projectStateSummary, stateCounts, stateSummary, type AgentState } from '../src/shared/agentState'
+import { AGENT_STATE_LABEL, AGENT_STATES, agentState, boardExtras, mostUrgent, projectAgentStates, projectStateShort, projectStateSummary, stateCounts, stateSummary, type AgentState } from '../src/shared/agentState'
 import { tr } from '../src/shared/i18n'
 import type { AgentInfo, LiveSessionState, SessionStatus, TaskCard } from '../src/shared/types'
 
@@ -102,5 +102,16 @@ describe('agent state marks (#973)', () => {
     const none = [agent('a1', null), agent('a2', null)]
     expect(projectStateSummary(none, projectAgentStates({ name: 'alpha', agents: none }, []))).toBe('2 stopped')
     expect(projectStateSummary([], [])).toBe('')
+  })
+
+  it("the project header's line at its narrowest: only the most urgent count (#1051)", () => {
+    const agents = [agent('a1', live('working')), agent('a2', live('finished')), agent('a3', null), agent('a4', null), agent('a5', live('ready'))]
+    const states = projectAgentStates({ name: 'alpha', agents }, [card('a3', 'doing')])
+    expect(projectStateShort(agents, states)).toBe('1 stalled')
+    const calm = [agent('a1', live('ready')), agent('a2', live('finished')), agent('a3', null)]
+    expect(projectStateShort(calm, projectAgentStates({ name: 'alpha', agents: calm }, []))).toBe('2 idle')
+    const none = [agent('a1', null), agent('a2', null)]
+    expect(projectStateShort(none, projectAgentStates({ name: 'alpha', agents: none }, []))).toBe('2 stopped')
+    expect(projectStateShort([], [])).toBe('')
   })
 })
