@@ -76,15 +76,16 @@ const check = (name, ok, extra = '') => {
   check("Tree's worktree folder removed", !!gone)
   await inv('workspace:refresh')
 
-  const button = page.locator('.project-header button', { hasText: 'Resume All' })
+  // Resume (2) since #1035: a quiet button, its colour on its icon.
+  const button = page.locator('.project-header .actions button.act-resume')
   check('Resume All shows while agents are stopped', !!(await until(async () => (await button.count()) === 1, 5000)))
   await page.screenshot({ path: path.join(lib.WORK, 'resumeall-1-header.png') })
-  // Its colours are a Resume action button's (#344: a probe beside it), in both themes and on hover; an agent's header
-  // has Resume as a quiet icon in the same colour (#977).
+  // Its colours are a quiet Resume action button's (#344, #1035: a probe beside it), in both themes and on hover; an
+  // agent's header has Resume as a quiet icon in the same colour as its icon (#977).
   await page.evaluate(() => {
     const b = document.createElement('button')
     b.id = 'resume-probe'
-    b.className = 'btn act-resume'
+    b.className = 'btn act-resume quiet'
     b.textContent = 'Resume'
     document.querySelector('.project-header').appendChild(b)
   })
@@ -99,7 +100,7 @@ const check = (name, ok, extra = '') => {
     const [all, one] = [await colours(button), await colours(agentResume)]
     seen.push(all)
     check(`${theme}: Resume All has the Resume button's colours`, all === one, `${all} vs ${one}`)
-    const [allInk, iconInk] = [await button.evaluate((el) => getComputedStyle(el).color), await headerResume.evaluate((el) => getComputedStyle(el).color)]
+    const [allInk, iconInk] = [await button.locator('.codicon').evaluate((el) => getComputedStyle(el).color), await headerResume.evaluate((el) => getComputedStyle(el).color)]
     check(`${theme}: an agent header's Resume icon has its colour`, allInk === iconInk, `${allInk} vs ${iconInk}`)
     await agentResume.hover()
     const oneHover = await colours(agentResume)
