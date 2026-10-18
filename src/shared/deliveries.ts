@@ -1,6 +1,6 @@
 /**
  * Deliveries (#647, plans/2026-10-12-messaging-redesign.md §3.1): everything Hive has for an agent to read is a record
- * with an id, its target, kind, sender, card, body and state, saved in its project's .hive/deliveries.json and offered
+ * with an id, its target, kind, sender, card, body and state, saved in its workspace's database (#1018: under its project) and offered
  * by one scheduler (main/deliveries.ts): every way into an agent makes one (#649). The agent collects them with
  * hive_inbox (received) and acknowledges them once it has acted on them (acked). This file is the pure part: the states and their moves, coalescing, the typed line and the
  * inbox's reply. No imports beyond shared files with none of their own: hive-mcp.js runs outside the app bundle.

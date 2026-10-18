@@ -37,6 +37,7 @@ import { HARDWARE_ACCELERATION_OFF, HEAP_SNAPSHOT_NEAR_LIMIT } from '../shared/a
 import { startHeapSnapshots, startMemoryLog } from './memory'
 import { recordLiveCardsSoon } from './cardSessions'
 import { closeAllBoards, onBoardNotice } from './boardStore'
+import { closeAllJournals } from './journal'
 import { registerIpc } from './ipc'
 import { watchRenderer } from './rendererWatch'
 import { startPowerWatch } from './power'
@@ -63,6 +64,7 @@ import { closedNotice, focusedHive, routeAppNotice, setFocusedHive, startNoticeR
 import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
+import { journalSettingsOf } from './journalService'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
@@ -860,6 +862,8 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_CONTROL: config.settings.assistant?.control ?? 'projects',
           // Its settings tool (hive_update_setting) is offered only with Change settings on: a change restarts it.
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
+          // Its journal's tools (#1031) only while the journal is on: a change is told to it, and applies at its next start.
+          HIVE_JOURNAL: journalSettingsOf(workspaceOf(projectPath)).enabled ? '1' : '0',
           // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
           HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
           ...mcpAdvancedEnv(),
@@ -1063,6 +1067,7 @@ app.on('will-quit', () => {
   destroyTray()
   // The boards' databases: checkpointed and closed, the stubs older versions read brought up to date (#1017).
   closeAllBoards()
+  closeAllJournals()
 })
 
 app.on('window-all-closed', () => {

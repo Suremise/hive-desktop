@@ -26,6 +26,11 @@ export interface OpenOptions {
   backupDir?: string
   /** The name its copies start with there (default: the file's name without `.db`), so databases sharing a folder keep their own three. */
   backupFamily?: string
+  /**
+   * Runs on each connection once it is set up, before any step: SQL functions the schema's triggers call (both
+   * connections), and settings only a new file can take (`isNew`: no schema yet, e.g. `auto_vacuum`).
+   */
+  setup?: (db: DatabaseSync, isNew: boolean) => void
 }
 
 /** An open database: a writer and a reader connection to one file. */
@@ -137,6 +142,7 @@ export function openDb(file: string, opts: OpenOptions): Db {
   let reader: DatabaseSync | null = null
   try {
     configure(writer)
+    opts.setup?.(writer, schemaVersion(writer) === 0)
     const known = Math.max(0, ...opts.migrations.map((m) => m.version))
     const found = schemaVersion(writer)
     const newer = found > known ? found : null
@@ -144,6 +150,7 @@ export function openDb(file: string, opts: OpenOptions): Db {
     else writer.exec('PRAGMA query_only = ON')
     reader = new DatabaseSync(file, { timeout: 5000 })
     configure(reader)
+    opts.setup?.(reader, false)
     reader.exec('PRAGMA query_only = ON')
     const r = reader
     return {

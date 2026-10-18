@@ -3,6 +3,7 @@ import { basename, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { closeBoard } from './boardStore'
+import { closeJournal } from './journal'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
@@ -283,6 +284,7 @@ export class WorkspaceService {
     this.rootWatcher?.close()
     this.rootWatcher = null
     if (closing) closeBoard(closing)
+    if (closing) closeJournal(join(closing, HIVE_DIR, ASSISTANT_DIR))
     await this.watcher?.close()
     this.watcher = null
     this.path = null

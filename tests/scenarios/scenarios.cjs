@@ -1778,9 +1778,8 @@ module.exports.SCENARIOS = [
     fake: (c) =>
       `skill card-loop then hive hive_lane ${JSON.stringify({ action: 'start', cards: [c.cards.a, c.cards.b], reviewer: 'Implementer', ...(v.said ? { rounds: v.rounds, waitMinutes: v.wait } : {}) })} then boardmove ${c.cards.a} doing then hive hive_wait_for_tasks ${JSON.stringify({ cards: [c.cards.a], changes: ['verdict', 'column'], column: 'passed', wake: true, limitMinutes: v.wait })} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
     expect: (o, c) => {
-      const file = require('path').join(c.ws, '.hive', 'lanes.json')
-      const lanes = require('fs').existsSync(file) ? JSON.parse(require('fs').readFileSync(file, 'utf8')) : []
-      const lane = (Array.isArray(lanes) ? lanes : (lanes.lanes ?? [])).find((l) => l.cards?.includes(c.cards.a))
+      // Its lanes as saved (#1018: the workspace's database).
+      const lane = require('../e2e/storeDocs.cjs').storeDocs(c.ws, 'lanes').find((l) => l.cards?.includes(c.cards.a))
       const waits = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => a.cards?.includes(c.cards.a))
       return [
         ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],

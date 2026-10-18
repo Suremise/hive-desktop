@@ -22,7 +22,11 @@ describe('loop wake lines (#405)', () => {
 describe('loop wakes (main/loopWakes.ts, #405)', async () => {
   const base = tempDir('hive-loopwakes-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  afterAll(async () => {
+    // The workspace database (#1018: deliveries are kept in it) is open until its board closes.
+    ;(await import('../src/main/boardStore')).closeAllBoards()
+    rmSync(base, { recursive: true, force: true })
+  })
   const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
   const tasks = await import('../src/main/tasks')
   const watches = await import('../src/main/watches')

@@ -136,6 +136,7 @@ interface HiveMessageValues {
   'shell.command.view.assistant': undefined
   'shell.command.view.assistantConversations': undefined
   'shell.command.view.assistantImages': undefined
+  'shell.command.view.assistantJournal': undefined
   'shell.command.view.board': undefined
   'shell.command.view.compactSidebar': undefined
   'shell.command.view.devTools': undefined

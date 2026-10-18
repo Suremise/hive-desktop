@@ -391,6 +391,59 @@ export function settingChangedText(c: { title: string; id: string; path: string;
   return `Changed ${c.path}${c.project ? ` in ${c.project}` : ''} (${c.id}): ${c.old} → ${c.new}. ${c.restart ? `It applies ${c.restart}.` : 'It applies now.'} The user can revert it in your panel's list.`
 }
 
+// The Assistant's journal (#1031): a recall is a line an entry; an entry in full on request.
+
+/** A recalled entry (POST /v1/journal/recall). */
+export interface JournalRow {
+  id: number
+  at: string
+  kind: string
+  project: string | null
+  summary: string
+  importance: number
+  source: string
+  supersededBy: number | null
+  hasDetail: boolean
+}
+
+/** hive_journal_recall: "#12 2026-10-18 decision · hive: summary [important, detail]", newest or best first. */
+export function journalRecallText(rows: JournalRow[], query?: string): string {
+  if (!rows.length) return query ? `No entries match "${query}".` : 'No entries.'
+  return rows
+    .map((r) => {
+      const marks = [r.importance >= 3 ? 'essential' : r.importance === 2 ? 'important' : '', r.source === 'hive' ? 'by Hive' : '', r.hasDetail ? 'detail' : '', r.supersededBy ? `superseded by #${r.supersededBy}` : ''].filter(Boolean)
+      return `#${r.id} ${r.at.slice(0, 10)} ${r.kind}${r.project ? ` · ${r.project}` : ''}: ${r.summary}${marks.length ? ` [${marks.join(', ')}]` : ''}`
+    })
+    .join('\n')
+}
+
+/** An entry in full (GET /v1/journal/{id}). */
+export interface JournalEntryDetail extends JournalRow {
+  detail: string | null
+  why: string | null
+  digestOf: string | null
+  updatedAt: string | null
+  links: { type: string; ref: string }[]
+  tags: string[]
+  supersedes: number[]
+}
+
+export function journalEntryText(e: JournalEntryDetail): string {
+  return [
+    `#${e.id} ${e.kind}${e.project ? ` · ${e.project}` : ''}, ${e.at}${e.source === 'hive' ? ', by Hive' : ''}, importance ${e.importance}${e.updatedAt ? `, changed ${e.updatedAt}` : ''}`,
+    e.summary,
+    e.why ? `Why: ${e.why}` : '',
+    e.detail ?? '',
+    e.digestOf ? `Digest of ${e.digestOf}.` : '',
+    e.links.length ? `Links: ${e.links.map((l) => `${l.type} ${l.ref}`).join(', ')}` : '',
+    e.tags.length ? `Tags: ${e.tags.join(', ')}` : '',
+    e.supersededBy ? `Superseded by #${e.supersededBy}.` : '',
+    e.supersedes.length ? `Supersedes ${e.supersedes.map((x) => `#${x}`).join(', ')}.` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 // The merge slot (#350): what an agent claiming, releasing or looking at it is told, in a line.
 
 type SlotHolder = MergeSlotInfo['holder']

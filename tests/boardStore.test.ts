@@ -319,7 +319,7 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #7' })
     // The older Hive's file goes to the Recycle Bin, recoverable.
     await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
-    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+    await vi.waitFor(() => expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')]), { timeout: HUNG_MS })
     expect(await inWorkspace(w, () => tasks.setAsideCards(w))).toEqual([])
     // The same file back (it couldn't leave the stub): set aside again at the next open, but never listed or added twice.
     await disposeWorkspaceService(w)
@@ -365,7 +365,7 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     for (const k of Object.keys(was).filter((f) => !['number', 'order', 'history', 'updatedAt', 'review', 'held'].includes(f))) expect([k, doc[k]]).toEqual([k, was[k]])
     expect((doc.history as unknown[]).slice(0, -1)).toEqual(was.history)
     await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
-    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+    await vi.waitFor(() => expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')]), { timeout: HUNG_MS })
   })
 
   it('Add brings back a card whose own fields are of the wrong type, as any read would show it: a broken cost or history field never stops it (#1044 round 2)', async () => {
@@ -394,7 +394,7 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     expect(store.cardDoc(w, 11)!.mine).toEqual({ kept: true })
     // Each original in the Recycle Bin, recoverable as it was.
     await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
-    expect(trashedFrom(ws).sort()).toEqual(Object.keys(files).map((f) => join('.hive', store.SET_ASIDE, f)).sort())
+    await vi.waitFor(() => expect(trashedFrom(ws).sort()).toEqual(Object.keys(files).map((f) => join('.hive', store.SET_ASIDE, f)).sort()), { timeout: HUNG_MS })
   })
 
   it('Discard moves the file to the trash, nothing on the board changes; a damaged file is refused by Add; names outside the folder are refused', async () => {
@@ -406,7 +406,7 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     await inWorkspace(w, () => tasks.discardSetAsideCard(w, '3.json'))
     await inWorkspace(w, () => tasks.discardSetAsideCard(w, '4.json'))
     expect(asideIn(ws)).toEqual([])
-    expect(trashedFrom(ws).sort()).toEqual([join('.hive', store.SET_ASIDE, '3.json'), join('.hive', store.SET_ASIDE, '4.json')])
+    await vi.waitFor(() => expect(trashedFrom(ws).sort()).toEqual([join('.hive', store.SET_ASIDE, '3.json'), join('.hive', store.SET_ASIDE, '4.json')]), { timeout: HUNG_MS })
     expect(await titlesOf(w)).toEqual(['#1 Card 1'])
   })
 })

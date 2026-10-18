@@ -1,5 +1,6 @@
 import type { AgentLeftovers } from './agentProcesses'
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
+import type { JournalEdit, JournalEntryView, JournalFilter, JournalForgetPreview, JournalForgetResult, JournalPage, JournalSettings } from './journal'
 import type {
   ArchiveBatch,
   SetAsideCard,
@@ -277,6 +278,18 @@ export interface HiveRequests {
   'tasks:list': (fullArchive?: boolean) => TaskCard[]
   /** Exports the board to a folder of JSON files the user picks (#1017); null when the user cancelled. */
   'tasks:export': () => { dir: string; cards: number } | null
+  /** The workspace's Assistant journal (#1031): its settings and size, a change of them, deleting it. */
+  'journal:status': () => { settings: JournalSettings; bytes: number; entries: number }
+  'journal:set': (patch: Partial<JournalSettings>) => JournalSettings
+  'journal:delete': () => void
+  /** The journal browser (#1033): a page of the timeline, the projects named, an entry, an edit, a delete, and Forget (previewed: a count and a token for that set; then deleted only while the set is unchanged). */
+  'journal:browse': (filter: JournalFilter, offset?: number, limit?: number) => JournalPage
+  'journal:projects': () => string[]
+  'journal:entry': (id: number) => JournalEntryView | null
+  'journal:edit': (id: number, edit: JournalEdit) => boolean
+  'journal:deleteEntry': (id: number) => boolean
+  'journal:forgetPreview': (filter: JournalFilter) => JournalForgetPreview
+  'journal:forget': (filter: JournalFilter, token: string) => JournalForgetResult
   /** Cards an older Hive saved, set aside for review (#1044): listed, added to the board, discarded (by file name). */
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard

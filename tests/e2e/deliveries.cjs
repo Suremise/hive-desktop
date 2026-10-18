@@ -1,6 +1,6 @@
 // Deliveries (#647): what the Assistant leaves for an agent is a saved record with an id and a state, on fake Claude Code
 // agents (fake-claude/) and the Assistant's hive tools (hive-mcp.js with its token). A message for a working agent is
-// queued and saved in the project's .hive/deliveries.json, its pane shows "✉ 1 unread"; the agent fetches it mid-turn with
+// queued and saved for the project (in the workspace's .hive/hive.db, #1018), its pane shows "✉ 1 unread"; the agent fetches it mid-turn with
 // hive_inbox (received, so it isn't typed after) and acks it (acked); one typed into it is offered, and received once its
 // CLI takes the line (#649), then acked; one not acked in time shows as overdue; hive_agent_activity gives each one's state
 // and times, so the Assistant sees them. A stop of the agent keeps what waits for it; once the Assistant's launch ends,
@@ -25,19 +25,14 @@ const claudeHome = path.join(lib.WORK, 'deliveries-claude-home')
 const alpha = path.join(ws, 'alpha')
 const PORT = Number(lib.port(47869))
 const API = `http://127.0.0.1:${PORT}`
-const file = path.join(alpha, '.hive', 'deliveries.json')
+const { deliveriesOf, deliveriesPlace, putStoreDoc, storeMeta } = require('./storeDocs.cjs')
 let failed = 0
 const check = (name, ok, extra = '') => {
   if (!ok) failed++
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
-const saved = () => {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8')).deliveries
-  } catch {
-    return []
-  }
-}
+// The project's deliveries as saved (#1018: in the workspace's database).
+const saved = () => deliveriesOf(alpha)
 
 /** Starts Hive on the suite's profile and workspace; its helpers. */
 async function start() {
@@ -125,7 +120,7 @@ async function start() {
   check('the builder works', !!(await until(async () => (await live(alpha, builder.id))?.status === 'working', HUNG_MS)))
   const left = tool('hive_message_agent', { project: 'alpha', agent: 'Builder', text: 'Rebase on main before the next card.' })
   check('a message for the working builder is queued, with its id', !left.isError && left.text.startsWith('Queued for Builder (m1, working)'), left.text)
-  check('…saved in the project, with its sender and launch (no token)', saved()[0]?.id === 'm1' && saved()[0]?.state === 'queued' && saved()[0]?.from?.kind === 'assistant' && !!saved()[0]?.from?.launch && !/token/i.test(fs.readFileSync(file, 'utf8')), JSON.stringify(saved()))
+  check('…saved in the project, with its sender and launch (no token)', saved()[0]?.id === 'm1' && saved()[0]?.state === 'queued' && saved()[0]?.from?.kind === 'assistant' && !!saved()[0]?.from?.launch && !/token/i.test(JSON.stringify(saved())), JSON.stringify(saved()))
   check("…its pane shows '1 unread'", !!(await until(async () => (await paneText()).trim().startsWith('1 unread'), HUNG_MS)), await paneText())
   check('…and its activity has it queued', delivery('m1')?.state === 'queued' && delivery('m1')?.from === 'the Assistant' && !!delivery('m1')?.created, JSON.stringify(delivery('m1')))
 
@@ -173,12 +168,11 @@ async function start() {
   await app.close()
   // A card event Hive was offering the builder when it stopped (a watch's wake, #649): typed into a launch that is gone, its
   // CLI never took it.
-  const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+  const place = deliveriesPlace(alpha)
+  const next = storeMeta(place.ws, 'deliveries', 'next', place.scope)
   const at = new Date().toISOString()
-  data.deliveries.push({ id: `m${data.next}`, seq: data.next, agentId: builder.id, agentName: 'Builder', conversation: sessionId, kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, card: 7, body: '[Hive] #7 is back in Review, round 2.', state: 'offered', created: at, offered: at, offers: 1, offerRun: 'a-launch-that-ended', expires: new Date(Date.now() + 3600_000).toISOString() })
-  const eventId = `m${data.next}`
-  data.next++
-  fs.writeFileSync(file, JSON.stringify(data, null, 2))
+  const eventId = `m${next}`
+  putStoreDoc(place.ws, 'deliveries', eventId, { id: eventId, seq: next, agentId: builder.id, agentName: 'Builder', conversation: sessionId, kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, card: 7, body: '[Hive] #7 is back in Review, round 2.', state: 'offered', created: at, offered: at, offers: 1, offerRun: 'a-launch-that-ended', expires: new Date(Date.now() + 3600_000).toISOString() }, { scope: place.scope, meta: { next: next + 1 } })
 
   ;({ app, page, inv, live } = await start())
   await page.getByText('alpha', { exact: true }).first().click()

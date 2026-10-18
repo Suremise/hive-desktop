@@ -18,10 +18,11 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { REPLY_MS, agentApiCall } from './agentApiCall'
-import { MAX_ROWS, agentWatchText, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, journalEntryText, journalRecallText, type JournalEntryDetail, type JournalRow, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 import { OVERDUE_MINUTES, ackText, inboxText, type InboxItem } from '../../shared/deliveries'
+import { ENTRY_LIMITS, JOURNAL_KINDS, LINK_TYPES } from '../../shared/journal'
 
 const VERSION = '1.0.0'
 const API = (process.env.HIVE_API_URL || 'http://127.0.0.1:47821').replace(/\/$/, '')
@@ -33,6 +34,8 @@ const ASSISTANT = process.env.HIVE_ROLE === 'assistant'
 const CONTROL = process.env.HIVE_ASSISTANT_CONTROL || 'projects'
 /** Settings → Assistant → Control → Change settings: hive_update_setting is offered only then. */
 const CHANGE_SETTINGS = process.env.HIVE_ASSISTANT_SETTINGS === '1'
+/** Settings → Assistant → Journal on (#1031): its journal's tools are offered only then. */
+const JOURNAL = process.env.HIVE_JOURNAL === '1'
 /** Settings → Agent API → Let agents read the developer console: hive_console is offered only then (#636). */
 const DEV_CONSOLE = process.env.HIVE_DEV_CONSOLE === '1'
 
@@ -636,6 +639,79 @@ const tools: Tool[] = [
     run: async (a) => settingChangedText((await api('PATCH', `/v1/settings/${enc(a.id)}`, { value: a.value, project: a.project })) as Parameters<typeof settingChangedText>[0])
   },
   {
+    name: 'hive_journal_write',
+    description:
+      "Write an entry in your journal (your memory across sessions, kept in Hive, local only): a one-line summary, and optionally detail, why it mattered, the project, importance (0 trivia, 1 everyday (default), 2 important, 3 essential: 2 and 3 outlive retention and the size cap), links (card, commit, note, artifact, session, agent, project, entry) and tags. kind: decision, plan, event, incident, insight, preference, moment, or digest (a summary of others; digestOf names the period, e.g. 2026-W42). The user's scope decides which kinds you may store: one outside it is refused, saying which are allowed. Replies with its id.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: [...JOURNAL_KINDS] },
+        summary: { type: 'string', description: `One line, at most ${ENTRY_LIMITS.summary} characters.` },
+        detail: { type: 'string' },
+        why: { type: 'string', description: 'Why it mattered.' },
+        project: { type: 'string', description: 'The project it is about; left out: the workspace.' },
+        importance: { type: 'number', enum: [0, 1, 2, 3] },
+        links: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: [...LINK_TYPES] }, ref: { type: 'string', description: 'A card number, commit, note path, entry id…' } }, required: ['type', 'ref'] } },
+        tags: { type: 'array', items: { type: 'string' } },
+        digestOf: { type: 'string' }
+      },
+      required: ['kind', 'summary']
+    },
+    run: async (a) => `Entry #${((await api('POST', '/v1/journal', a)) as { id: number }).id} written.`
+  },
+  {
+    name: 'hive_journal_recall',
+    description: `Recall from your journal: a line an entry (id, date, kind, project, summary), newest first, or best first for a query (words in summaries, details and whys; importance and recency count too). Narrow it with since/until (a date or ISO time), kinds, project, link ({ type, ref }: e.g. a card's history), tag. Superseded entries are left out unless superseded=true. At most limit (default ${ENTRY_LIMITS.recallDefault}, at most ${ENTRY_LIMITS.recallMax}). hive_journal_entry reads one in full. Check what you recall against the live state before acting on it.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        since: { type: 'string' },
+        until: { type: 'string' },
+        kinds: { type: 'array', items: { type: 'string', enum: [...JOURNAL_KINDS] } },
+        project: { type: 'string' },
+        link: { type: 'object', properties: { type: { type: 'string', enum: [...LINK_TYPES] }, ref: { type: 'string' } }, required: ['type', 'ref'] },
+        tag: { type: 'string' },
+        superseded: { type: 'boolean' },
+        limit: { type: 'number' }
+      }
+    },
+    run: async (a) => journalRecallText(((await api('POST', '/v1/journal/recall', a)) as { entries: JournalRow[] }).entries, a.query)
+  },
+  {
+    name: 'hive_journal_entry',
+    description: 'One journal entry in full: its detail, why, links, tags, and what supersedes it or it supersedes.',
+    inputSchema: { type: 'object', properties: { id: { type: 'number' } }, required: ['id'] },
+    run: async (a) => journalEntryText((await api('GET', `/v1/journal/${enc(String(a.id))}`)) as JournalEntryDetail)
+  },
+  {
+    name: 'hive_journal_update',
+    description: "Change a journal entry: correct its summary, detail or why, set its importance, mark it superseded by a newer entry (supersededBy: its id; null: current again), add links or tags. delete=true deletes it (its links and tags with it; entries it superseded are current again): for what is wrong or the user asks you to forget. Replies with what happened.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        summary: { type: 'string' },
+        detail: { type: ['string', 'null'] },
+        why: { type: ['string', 'null'] },
+        importance: { type: 'number', enum: [0, 1, 2, 3] },
+        supersededBy: { type: ['number', 'null'] },
+        addLinks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: [...LINK_TYPES] }, ref: { type: 'string' } }, required: ['type', 'ref'] } },
+        addTags: { type: 'array', items: { type: 'string' } },
+        delete: { type: 'boolean' }
+      },
+      required: ['id']
+    },
+    run: async ({ id, delete: del, ...patch }) => {
+      if (del) {
+        await api('DELETE', `/v1/journal/${enc(String(id))}`)
+        return `Entry #${id} deleted.`
+      }
+      await api('PATCH', `/v1/journal/${enc(String(id))}`, patch)
+      return `Entry #${id} updated.`
+    }
+  },
+  {
     name: 'hive_console',
     description: `Hive's developer console, read-only: what a CLI sent Hive (hooks, status lines, transcript records, terminal markers, lines Hive typed, its launch and exit, its hive tool calls), each next to what Hive made of it, redacted (no prompt or reply text, commands, tokens or sign-in details). ${ASSISTANT ? "You read any agent of your workspace (agent, project), your own session (source=assistant) and Hive's own events (source=hive: Agent API calls, merge slots, watches, Progress, refused hooks)." : 'You read your own session.'} Hive captures only while the user has the developer console open on a source; reading starts nothing, and the reply says when nothing is captured. read (default): a line per event, the newest 30 the first time, then since=<newest> carries on; kinds narrows them; seq gives up to 3 events in full (raw payload and what Hive made of it). sources lists what you can read, whether it is captured and the exact arguments that read it (50 a page, offset for more).`,
     inputSchema: {
@@ -662,7 +738,7 @@ const tools: Tool[] = [
 ]
 
 /** Agents get Hive's common tools; the Assistant also those its control level allows. */
-const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS))
+const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS, JOURNAL))
 const offered = tools.filter((t) => (t.name !== 'hive_console' || DEV_CONSOLE) && (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
 const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')

@@ -2,14 +2,15 @@
 // and the inbox's reply; saved records restored after a restart (offered → uncertain, the Assistant's from a launch that
 // has ended refused, and shown), permission worked out again at every step, hive_inbox (received) and ack (acked), cancel,
 // expiry and overdue. The sessions are stand-ins here (the e2e deliveries suite runs fake Claude Code agents).
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { join } from 'path'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { basename, join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DELIVERY_BODY_MAX_CHARS, DELIVERY_STATES, ackText, canMove, inboxItems, inboxSummary, inboxText, isOverdue, moved, offerLine, readDelivery, type DeliveryRecord, type DeliverySender } from '../src/shared/deliveries'
 import { taskPrompt } from '../src/shared/tasks'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
+import { putStoreDocs } from './storeDocs'
 
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
@@ -98,7 +99,11 @@ describe('delivery records (#647)', () => {
 describe('the delivery service (#647)', async () => {
   const base = tempDir('hive-deliveries-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  afterAll(async () => {
+    // The workspace database (#1018) is open until its board closes.
+    ;(await import('../src/main/boardStore')).closeAllBoards()
+    rmSync(base, { recursive: true, force: true })
+  })
   const deliveries = await import('../src/main/deliveries')
   const assistant = await import('../src/main/assistantControl')
   const { sessions } = await import('../src/main/sessions')
@@ -125,8 +130,9 @@ describe('the delivery service (#647)', async () => {
   const hive: DeliverySender = { kind: 'hive', name: 'Hive' }
   const make = (o: Partial<Parameters<typeof deliveries.createDelivery>[1]> = {}) => deliveries.createDelivery(alpha, { agentId: 'b1', agentName: 'B1', conversation: 's1', kind: 'rebrief', from: asst(), body: 'Rebase first.', ...o })
   const states = async (agentId = 'b1') => (await deliveries.deliveriesOf(alpha, agentId)).map((r) => `${r.id} ${r.state}${r.detail ? `: ${r.detail}` : ''}`)
-  const file = () => JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')) as { next: number; deliveries: DeliveryRecord[] }
-  /** A restart of Hive: memory forgotten, the file read again. */
+  /** What is saved of alpha's deliveries (#1018: in the workspace's database). */
+  const file = () => deliveries.savedForTests(alpha)
+  /** A restart of Hive: memory forgotten, the deliveries read again. */
   const restart = async () => {
     await deliveries.forgetDeliveriesForTests()
     await deliveries.load(alpha)
@@ -142,9 +148,9 @@ describe('the delivery service (#647)', async () => {
   it('saved as made, with short ids that go on across a restart', async () => {
     expect((await make()).id).toBe('m1')
     expect((await make({ body: 'Then #520.' })).id).toBe('m2')
-    expect(file()).toMatchObject({ next: 3, deliveries: [{ id: 'm1', state: 'queued', body: 'Rebase first.', from: { kind: 'assistant', launch: 'a1' }, conversation: 's1' }, { id: 'm2' }] })
+    expect(await file()).toMatchObject({ next: 3, deliveries: [{ id: 'm1', state: 'queued', body: 'Rebase first.', from: { kind: 'assistant', launch: 'a1' }, conversation: 's1' }, { id: 'm2' }] })
     // Nothing that can't be saved: no token, no function.
-    expect(JSON.stringify(file())).not.toMatch(/token/i)
+    expect(JSON.stringify(await file())).not.toMatch(/token/i)
     await restart()
     expect((await make({ from: hive, kind: 'card-event', card: 7, body: 'is in Review' })).id).toBe('m3')
   })
@@ -186,7 +192,7 @@ describe('the delivery service (#647)', async () => {
     expect(st.typed).toEqual(['[Hive] New in your inbox: 1 card event (#8) (m3). Call hive_inbox to read it.'])
   })
 
-  it('a damaged file is set aside, never overwritten, and Hive starts again with none', async () => {
+  it('a damaged file is set aside as it is moved in, never overwritten, and Hive starts again with none (#1018)', async () => {
     mkdirSync(join(alpha, '.hive'), { recursive: true })
     writeFileSync(join(alpha, '.hive', 'deliveries.json'), '{ not json')
     await deliveries.forgetDeliveriesForTests()
@@ -194,14 +200,14 @@ describe('the delivery service (#647)', async () => {
     expect(readdirSync(join(alpha, '.hive')).some((f) => f.startsWith('deliveries.json.damaged-'))).toBe(true)
     expect((await make()).id).toBe('m1')
     // Entries that aren't deliveries are left out; the rest are kept.
-    const saved = file()
-    writeFileSync(join(alpha, '.hive', 'deliveries.json'), JSON.stringify({ version: 1, next: 9, deliveries: [{ id: 'nope' }, ...saved.deliveries] }))
+    const saved = await file()
+    await putStoreDocs(base, 'deliveries', [{ id: 'nope' }, ...saved.deliveries], { scope: `folder:${basename(alpha)}`, meta: { next: 9 } })
     await restart()
     expect(await states()).toEqual(['m1 queued'])
     expect((await make()).id).toBe('m9')
-    // …and kept aside in the file as they were, not lost.
+    // …and kept aside as they were, not lost.
     await deliveries.settledForTests()
-    expect((JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')) as { invalid?: unknown[] }).invalid).toEqual([{ id: 'nope' }])
+    expect((await file()).invalid).toEqual([{ id: 'nope' }])
   })
 
   it('permission is worked out again at every step: refused at once when its sender may not; refused while it waits once Control is turned down', async () => {
@@ -502,7 +508,7 @@ describe('the delivery service (#647)', async () => {
       return { runId: 'r9' }
     })
     await vi.waitFor(() => expect(starting).toBe(true), { timeout: HUNG_MS })
-    expect(file().deliveries.map((r) => `${r.id} ${r.state}`)).toEqual(['m1 offered'])
+    expect((await file()).deliveries.map((r) => `${r.id} ${r.state}`)).toEqual(['m1 offered'])
     await deliveries.offerAllForTests()
     await deliveries.followAllForTests()
     expect(st.typed).toEqual([])
@@ -540,7 +546,7 @@ describe('the delivery service (#647)', async () => {
     const back = await deliveries.deliveriesOf(alpha, 'b1')
     expect(back.map((r) => `${r.id} ${r.state} ${r.body.length}`)).toEqual([`m1 queued ${long.length}`, `m2 queued ${back[1]?.body.length}`])
     expect(back[0].body).toBe(long)
-    expect(file()).not.toHaveProperty('invalid')
+    expect(await file()).not.toHaveProperty('invalid')
     // Over the limit: refused at once, nothing saved.
     await expect(deliveries.createDelivery(alpha, { agentId: 'b1', kind: 'task', from: hive, body: 'x'.repeat(DELIVERY_BODY_MAX_CHARS + 1) })).rejects.toThrow(/too long to give an agent/)
     expect(await states()).toEqual(['m1 queued', 'm2 queued'])
@@ -778,7 +784,7 @@ describe('the delivery service (#647)', async () => {
     expect(v).toMatchObject({ unread: 1, overdue: 0, more: 1, deliveries: [{ id: 'm2', state: 'received', receivedVia: 'inbox' }, { id: 'm3', state: 'queued', from: 'the Assistant' }] })
     expect(v.deliveries[1].text.length).toBeLessThanOrEqual(80)
     expect(v.deliveries[0].received).toBeTruthy()
-    expect(existsSync(join(alpha, '.hive', 'deliveries.json'))).toBe(true)
+    expect((await file()).deliveries.length).toBeGreaterThan(0)
   })
 
   it('ack checks what is unread as an offer would, in the same step: refused, expired or for another conversation is not acked; one received still is', async () => {
@@ -816,14 +822,16 @@ describe('the delivery service (#647)', async () => {
       }
     }
     expect(made).toBeGreaterThan(1)
-    expect(readFileSync(join(alpha, '.hive', 'deliveries.json')).length).toBeLessThanOrEqual(40_000)
+    const kept = await file()
+    expect(Buffer.byteLength(JSON.stringify({ version: 1, next: kept.next, deliveries: kept.deliveries }, null, 2) + '\n')).toBeLessThanOrEqual(40_000)
     // Ended ones' history makes room: one cancelled lets a new one in.
     await deliveries.cancelDeliveries(alpha, 'a0', 'the user')
     await make({ agentId: 'late', body: big })
     // Read back after a restart: every one of them, nothing set aside, and the ids go on.
     await restart()
-    expect(readdirSync(join(alpha, '.hive')).filter((f) => f.startsWith('deliveries.json.'))).toEqual([])
-    const all = file().deliveries
+    // Nothing in the host's folder at all (#1018: the workspace's database keeps them).
+    expect(existsSync(join(alpha, '.hive'))).toBe(false)
+    const all = (await file()).deliveries
     expect(all.filter((r) => r.state === 'queued').length).toBe(made)
     deliveries.setFileBudgetForTests(4 * 1024 * 1024)
     // (The one refused for room was never made: its id is free.)

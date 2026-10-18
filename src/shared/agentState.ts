@@ -111,3 +111,15 @@ export function projectStateSummary(agents: readonly Pick<AgentInfo, 'live'>[], 
   const n = states.filter(stopped).length
   return [stateSummary(states.filter((s, i) => !stopped(s, i)), true), n ? tr(STOPPED_COUNT, { n }) : ''].filter(Boolean).join(' · ')
 }
+
+/**
+ * The project header's summary at its narrowest (#1051): only its most urgent count ("1 waiting"; "2 stopped" when no
+ * agent runs), the rest in its tooltip.
+ */
+export function projectStateShort(agents: readonly Pick<AgentInfo, 'live'>[], states: readonly AgentState[]): string {
+  const stopped = (s: AgentState, i: number): boolean => s === 'idle' && !agents[i]?.live
+  const running = states.filter((s, i) => !stopped(s, i))
+  if (!running.length) return states.length ? tr(STOPPED_COUNT, { n: states.length }) : ''
+  const top = mostUrgent(running)
+  return tr(STATE_COUNT[top], { n: running.filter((s) => s === top).length })
+}

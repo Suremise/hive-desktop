@@ -1,9 +1,9 @@
-import { closeSync, existsSync, mkdirSync, openSync, readSync, writeFileSync } from 'original-fs'
+import { closeSync, existsSync, openSync, readSync, renameSync } from 'original-fs'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
 import { config } from './config'
-import { writeTextAtomic } from './fsutil'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
+import { keepAsBackup, readStore, saveStore } from './storeRows'
 import { englishText } from '../shared/advanced'
 import { msg } from '../shared/i18n'
 import { hiveError } from './hiveError'
@@ -35,8 +35,9 @@ import {
 /**
  * Hive's performance metrics, one store per open workspace (shared/metrics.ts has the contract). Recording is a few
  * map updates into the current hour's bucket; nothing is read from disk on the request path. Buckets are hourly for 7
- * days, then folded into days, kept 30 days, and saved (debounced) in `.hive/metrics/metrics.json`, which is git-ignored
- * and machine-local. Every dimension comes from a fixed set (route templates, Hive's tool names, provider ids), each
+ * days, then folded into days, kept 30 days, and saved (debounced) in the workspace's database (#1019: `.hive/hive.db`,
+ * a row a bucket through storeRows.ts, so a save writes the buckets that changed, the hour under way, and appends a new
+ * one; `.hive/metrics/metrics.json` before, moved in by the first save), which is git-ignored and machine-local. Every dimension comes from a fixed set (route templates, Hive's tool names, provider ids), each
  * bucket has caps on projects and series, the store has a cap on buckets whichever way the clock moves, and the file
  * has a size cap: what doesn't fit is dropped and counted. The saved file is untrusted input: size-checked before it
  * is read and checked field by field. Nothing stores a prompt, a body, a token, a URL or a path.
@@ -58,7 +59,7 @@ export const METRICS_LIMITS = {
   series: 2000,
   /** Buckets in a store: the hours of a week and the days of a month, with a little room. */
   buckets: 7 * 24 + 31 + 2,
-  /** The saved file: past this the oldest buckets go; a bigger file found on disk isn't read. */
+  /** What is saved (measured as metrics.json's text was): past this the oldest buckets go; a bigger metrics.json from before isn't read. */
   fileBytes: 2 * 1024 * 1024,
   /** How long changes wait before they are saved. */
   saveDelayMs: 30_000,
@@ -302,6 +303,26 @@ function readCappedSync(file: string, max: number): string | null {
   }
 }
 
+/** A metrics.json that isn't Hive's (too big, damaged) renamed `metrics.json.<why>-<time>`, kept as it was; false if Windows refused. */
+function setAside(file: string, why: 'too-big' | 'damaged'): boolean {
+  const to = `${file}.${why}-${Date.now()}`
+  for (let i = 0; i < 5; i++) {
+    try {
+      renameSync(file, to)
+      log.warn(`metrics.json was ${why === 'too-big' ? 'too big' : 'damaged'}: set aside as ${userText(to)}`)
+      return true
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+        log.warn('setting metrics.json aside', e)
+        return false
+      }
+    }
+  }
+  log.warn("couldn't set metrics.json aside (held open): tried again when the workspace opens next")
+  return false
+}
+
 /** Saved observation stretches: [start, end] pairs of finite times, in order, at most the cap (the newest kept). */
 function readStretches(v: unknown): [number, number][] {
   if (!Array.isArray(v)) return []
@@ -339,7 +360,14 @@ class Store {
   private timer: NodeJS.Timeout | null = null
   private dirty = false
   private saving: Promise<void> = Promise.resolve()
+  /** The workspace whose database keeps them (#1019). */
+  readonly workspace: string
+  /** Not moved in yet (loaded from metrics.json, or there was none): the next save moves it in with the mark (and keeps the file as a backup). */
+  private importing = false
+  /** What is saved couldn't be read (the database unavailable): nothing is saved over it. */
+  private unreadable = false
   constructor(readonly file: string) {
+    this.workspace = resolve(file, '..', '..', '..')
     this.load()
     const now = clock.now()
     if (this.roll(now)) this.changed()
@@ -391,26 +419,75 @@ class Store {
   }
 
   /**
-   * What was saved, if it is no bigger than the file's cap and parses as buckets. The read itself is capped (a file
-   * replaced or grown meanwhile can't make it read more).
+   * What was saved: the workspace database's rows (#1019), each bucket checked as the file's were. Before they were moved
+   * in, metrics.json, if it is no bigger than the file's cap and parses as buckets (the read itself capped: a file replaced
+   * or grown meanwhile can't make it read more); the next save moves it in. A metrics.json found after the move (an older
+   * Hive's) is kept as a backup, unread.
    */
   private load(): void {
     try {
-      if (!existsSync(this.file)) return
-      const text = readCappedSync(this.file, METRICS_LIMITS.fileBytes)
-      if (text === null) return
-      const data = obj(JSON.parse(text))
-      if (data?.version !== 1 || !Array.isArray(data.buckets)) return
-      for (const raw of data.buckets.slice(0, METRICS_LIMITS.buckets)) {
-        const b = readBucket(raw)
-        if (b) this.buckets.push(b)
+      const saved = readStore(this.workspace, 'metrics')
+      if (saved.meta.has('imported')) {
+        const num = (k: string): unknown => (saved.meta.has(k) ? JSON.parse(saved.meta.get(k)!) : undefined)
+        this.fromSaved({ buckets: saved.rows.map((r) => JSON.parse(r.doc) as unknown), observed: num('observed'), evictedThrough: num('evictedThrough'), renamesApplied: num('renamesApplied') })
+        if (existsSync(this.file)) {
+          log.warn("A metrics.json was found after the metrics moved into the workspace database (an older Hive's): kept as a backup, not read")
+          keepAsBackup(this.file)
+        }
+        return
       }
-      this.observed = readStretches(data.observed)
-      this.evictedThrough = count(data.evictedThrough) ?? 0
-      this.renamesApplied = count(data.renamesApplied) ?? 0
-    } catch {
-      // Unreadable: start again (only aggregates are lost).
+    } catch (e) {
+      // Not known to be empty: never saved over (a save would replace what the database has with nothing) until reopened.
+      log.warn('Could not read the performance metrics from the workspace database: they are not saved until the workspace is opened again', e)
+      this.unreadable = true
+      return
     }
+    // Not moved in yet: the next save moves in what it has (metrics.json's buckets, or none) and marks it (#1019).
+    let text: string | null
+    try {
+      text = readCappedSync(this.file, METRICS_LIMITS.fileBytes)
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.importing = true
+        return
+      }
+      // Can't be read now (held open, no permission; #1019 round 1): nothing is marked, moved or saved over, and the next
+      // open reads it again.
+      log.warn('Could not read metrics.json to move it into the workspace database: tried again when the workspace opens next; nothing is saved meanwhile', e)
+      this.unreadable = true
+      return
+    }
+    let data: Record<string, unknown> | null = null
+    try {
+      data = text === null ? null : obj(JSON.parse(text))
+    } catch {
+      data = null
+    }
+    if (!data || data.version !== 1 || !Array.isArray(data.buckets)) {
+      // Too big or not Hive's metrics: set aside as it is (renamed, never deleted), and the metrics start again; if it
+      // can't be set aside, nothing is saved over it, as above.
+      if (!setAside(this.file, text === null ? 'too-big' : 'damaged')) {
+        this.unreadable = true
+        return
+      }
+      this.importing = true
+      this.dirty = true
+      return
+    }
+    this.importing = true
+    this.dirty = true
+    this.fromSaved(data)
+  }
+
+  /** The buckets and observation as saved, each checked. */
+  private fromSaved(data: Record<string, unknown>): void {
+    for (const raw of (data.buckets as unknown[]).slice(0, METRICS_LIMITS.buckets)) {
+      const b = readBucket(raw)
+      if (b) this.buckets.push(b)
+    }
+    this.observed = readStretches(data.observed)
+    this.evictedThrough = count(data.evictedThrough) ?? 0
+    this.renamesApplied = count(data.renamesApplied) ?? 0
   }
 
   /** The bucket for now (wall clock): hourly. A clock set back lands in an older hour, if it is still kept. */
@@ -485,7 +562,7 @@ class Store {
   }
 
   private async write(): Promise<void> {
-    if (!this.dirty) return
+    if (!this.dirty || this.unreadable) return
     this.dirty = false
     this.roll(clock.now())
     try {
@@ -500,10 +577,26 @@ class Store {
         else this.observed.shift()
         text = json()
       }
-      mkdirSync(join(this.file, '..'), { recursive: true })
-      const ignore = join(this.file, '..', '.gitignore')
-      if (!existsSync(ignore)) writeFileSync(ignore, "# Hive's performance metrics: this machine's (added by Hive)\n*\n") // i18n-ignore: a .gitignore's comment (a file)
-      await writeTextAtomic(this.file, text)
+      // A row a bucket, placed by its start: one leaving the front moves no other (#1019).
+      const keys = new Set<string>()
+      const rows = this.buckets.map((b) => {
+        let key = `${b.span}:${b.start}`
+        while (keys.has(key)) key += '#'
+        keys.add(key)
+        return { key, ord: b.start, doc: JSON.stringify(b) }
+      })
+      const importing = this.importing
+      await saveStore(this.workspace, 'metrics', '', rows, {
+        observed: JSON.stringify(this.observed),
+        evictedThrough: this.evictedThrough ? String(this.evictedThrough) : null,
+        renamesApplied: this.renamesApplied ? String(this.renamesApplied) : null,
+        // The first save after metrics.json was read moves it in: marked in the same transaction, then the file kept.
+        ...(importing ? { imported: JSON.stringify({ at: new Date(now).toISOString(), rows: rows.length, file: this.file }) } : {})
+      })
+      if (importing) {
+        this.importing = false
+        if (existsSync(this.file)) keepAsBackup(this.file)
+      }
     } catch (e) {
       log.warn('Could not save the performance metrics', e)
     }

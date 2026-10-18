@@ -91,6 +91,7 @@ import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
 import { utf8Bytes } from '../shared/metrics'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
+import { journalSettingsOf } from './journalService'
 import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
@@ -309,6 +310,8 @@ interface LiveSession {
    * agent's note counts it once (Performance matches them the same way from the session's record: withScreenStops).
    */
   guardTurns?: GuardTurns
+  /** Looks at its transcript under way (backup), until each ends: what reads it after the session is gone. */
+  looks?: Set<Promise<void>>
   /** The safeguard read under way (readSafeguards: one at a time). */
   guardReading?: Promise<void>
   /** A screen check for the safeguard prompt is queued (one at a time, however much the CLI draws meanwhile). */
@@ -460,6 +463,25 @@ async function transcriptSize(path: string | null | undefined): Promise<number |
     return (await stat(path)).size
   } catch {
     return null
+  }
+}
+
+/**
+ * A live transcript's bytes from start up to size (its size at a stat just before), as text; null when it went since
+ * that stat (removed or moved: nothing to read, as when the stat finds none, #1034). A file removed while the CLI
+ * still holds it open is pending deletion on Windows, and its open is refused (EPERM) rather than not found: gone
+ * too, once nothing is at the path (#1064). Other errors are the caller's.
+ */
+async function readSpan(path: string, start: number, size: number): Promise<string | null> {
+  const gone = (e: NodeJS.ErrnoException): boolean => e.code === 'ENOENT' || ((e.code === 'EPERM' || e.code === 'EACCES') && !existsSync(path))
+  const fh = await open(path, 'r').catch((e: NodeJS.ErrnoException) => (gone(e) ? null : Promise.reject(e)))
+  if (!fh) return null
+  try {
+    const buf = Buffer.alloc(size - start)
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+    return buf.toString('utf8', 0, bytesRead)
+  } finally {
+    await fh.close()
   }
 }
 
@@ -1372,7 +1394,7 @@ class SessionManager {
       privateDir: hookAuth.dir,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: assistantText?.text,
-      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true) : undefined,
+      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true, journalSettingsOf(workspaceOf(projectPath)).enabled) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: withBinOnPath(childEnv({
@@ -2694,10 +2716,19 @@ class SessionManager {
     }
   }
 
-  /** Copies the live transcript into <project>/.hive/sessions so it survives the CLI's own cleanup. */
-  private async backup(projectPath: string, agentId: string, force = false, hooksBefore?: number): Promise<void> {
+  /** Copies the live transcript into <project>/.hive/sessions so it survives the CLI's own cleanup (backupNow), each look kept on the session until it ends (LiveSession.looks). */
+  private backup(projectPath: string, agentId: string, force = false, hooksBefore?: number): Promise<void> {
     const l = this.live.get(liveId(projectPath, agentId))
-    if (!l) return
+    if (!l) return Promise.resolve()
+    const run = this.backupNow(l, projectPath, agentId, force, hooksBefore)
+    const looks = (l.looks ??= new Set())
+    looks.add(run)
+    const done = (): void => void looks.delete(run)
+    void run.then(done, done)
+    return run
+  }
+
+  private async backupNow(l: LiveSession, projectPath: string, agentId: string, force: boolean, hooksBefore?: number): Promise<void> {
     // Tasks that expire or run past the limit end without a word in the transcript.
     this.settleBackground(l, false)
     const sessionId = l.state.sessionId
@@ -2818,21 +2849,15 @@ class SessionManager {
     }
     // The tail is enough: details only ever need the latest records.
     const start = Math.max(from, size - 4 * 1024 * 1024)
-    const fh = await open(path, 'r')
-    try {
-      const buf = Buffer.alloc(size - start)
-      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
-      const text = buf.toString('utf8', 0, bytesRead)
-      const end = text.lastIndexOf('\n')
-      if (end < 0) return
-      l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
-      const chunk = text.slice(0, end + 1)
-      const d = l.adapter.transcriptDetails(chunk, (l.detailsMemo ??= {}))
-      devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => transcriptEvent(l.state.provider, chunk, d))
-      this.applyDetails(l, d, hooks)
-    } finally {
-      await fh.close()
-    }
+    const text = await readSpan(path, start, size)
+    if (text === null) return
+    const end = text.lastIndexOf('\n')
+    if (end < 0) return
+    l.detailsOffset = start + Buffer.byteLength(text.slice(0, end + 1))
+    const chunk = text.slice(0, end + 1)
+    const d = l.adapter.transcriptDetails(chunk, (l.detailsMemo ??= {}))
+    devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => transcriptEvent(l.state.provider, chunk, d))
+    this.applyDetails(l, d, hooks)
   }
 
   /**
@@ -2850,15 +2875,8 @@ class SessionManager {
       return false
     }
     const start = Math.max(from, size - 4 * 1024 * 1024)
-    const fh = await open(path, 'r')
-    let text: string
-    try {
-      const buf = Buffer.alloc(size - start)
-      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
-      text = buf.toString('utf8', 0, bytesRead)
-    } finally {
-      await fh.close()
-    }
+    const text = await readSpan(path, start, size)
+    if (text === null) return false
     const end = text.lastIndexOf('\n')
     if (end < 0) return false
     l.tasksOffset = start + Buffer.byteLength(text.slice(0, end + 1))
@@ -2904,15 +2922,8 @@ class SessionManager {
     }
     // The tail is enough: a stop keeps only the last few tool calls before it.
     const start = Math.max(from, size - 4 * 1024 * 1024)
-    const fh = await open(path, 'r')
-    let text: string
-    try {
-      const buf = Buffer.alloc(size - start)
-      const { bytesRead } = await fh.read(buf, 0, buf.length, start)
-      text = buf.toString('utf8', 0, bytesRead)
-    } finally {
-      await fh.close()
-    }
+    const text = await readSpan(path, start, size)
+    if (text === null) return
     const end = text.lastIndexOf('\n')
     if (end < 0) return
     l.guardOffset = start + Buffer.byteLength(text.slice(0, end + 1))
@@ -4013,7 +4024,7 @@ class SessionManager {
         case 'turnEnded':
           // Not awaited: a prompt arriving meanwhile must not be overwritten by this older Stop.
           if (st.sessionId) void workspace.upsertSession(st.projectPath, { id: st.sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
-          void this.backup(st.projectPath, st.agentId, true)
+          void this.backup(st.projectPath, st.agentId, true).catch((e) => log.warn('transcript look failed', e))
           break
       }
     }

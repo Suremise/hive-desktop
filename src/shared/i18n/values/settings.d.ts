@@ -250,6 +250,9 @@ interface HiveMessageValues {
   'settings.assistant.enterEndsPause.desc': undefined
   'settings.assistant.enterEndsPause.tip': undefined
   'settings.assistant.enterEndsPause.title': undefined
+  'settings.assistant.journal.desc': undefined
+  'settings.assistant.journal.tip': undefined
+  'settings.assistant.journal.title': undefined
   'settings.assistant.panelSide.desc': undefined
   'settings.assistant.panelSide.option.left': undefined
   'settings.assistant.panelSide.option.right': undefined
@@ -376,6 +379,31 @@ interface HiveMessageValues {
   'settings.general.userName.placeholder': undefined
   'settings.general.userName.tip': undefined
   'settings.general.userName.title': undefined
+  'settings.journal.cap': undefined
+  'settings.journal.days': undefined
+  'settings.journal.delete': undefined
+  'settings.journal.deleteButton': undefined
+  'settings.journal.deleteMessage': { entries: number }
+  'settings.journal.deleteTitle': undefined
+  'settings.journal.deleted': undefined
+  'settings.journal.failed': undefined
+  'settings.journal.kind.decision': undefined
+  'settings.journal.kind.event': undefined
+  'settings.journal.kind.incident': undefined
+  'settings.journal.kind.insight': undefined
+  'settings.journal.kind.moment': undefined
+  'settings.journal.kind.plan': undefined
+  'settings.journal.kind.preference': undefined
+  'settings.journal.local': undefined
+  'settings.journal.mb': undefined
+  'settings.journal.noLimit': undefined
+  'settings.journal.noWorkspace': undefined
+  'settings.journal.none': undefined
+  'settings.journal.offKeeps': undefined
+  'settings.journal.on': undefined
+  'settings.journal.retention': undefined
+  'settings.journal.scope': undefined
+  'settings.journal.size': { size: string | number; entries: number }
   'settings.keybindings.editor.desc': undefined
   'settings.keybindings.editor.tip': undefined
   'settings.keybindings.editor.title': undefined

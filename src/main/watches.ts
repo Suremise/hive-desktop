@@ -1,18 +1,18 @@
 import { randomBytes } from 'crypto'
-import { link, mkdir, readFile, rename, rm, writeFile } from 'original-fs/promises'
+import { rename, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
 import { cardChange, carriedOver, changesBetween, changesSince, entryWithin, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
 import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
-import { keepBeforeIds } from './beforeIds'
 import type { LiveSessionState, StoredText, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
 import { HISTORY, storedText } from '../shared/taskHistory'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
+import { openStore, rowsOf, saveStore } from './storeRows'
 import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
@@ -143,9 +143,7 @@ interface Store {
   list: WatchRecord[]
   /** Saved entries that aren't valid watches: kept as they were in the file (never overwritten), never acted on. */
   invalid: unknown[]
-  /** The file's text as Hive last read or wrote it (null: no file): put back if a save lands after the workspace closed. */
-  saved: string | null
-  /** A save failed: the file is behind the list, and the tick saves again. */
+  /** A save failed: what is saved is behind the list, and the tick saves again. */
   dirty: boolean
   /** One change to the list at a time. */
   queue: Promise<unknown>
@@ -221,16 +219,13 @@ export async function settled(): Promise<void> {
 export const inFlightNow = (): boolean => inFlight.size > 0 || writerInFlight() || deliveriesInFlight()
 
 /**
- * Seams for unit tests: pauses that make races happen (after a watch's cards are read; after a watches file is read), and
- * the file system's rename and write, to make them fail.
+ * Seams for unit tests: pauses that make races happen (after a watch's cards are read; after the watches are read), and
+ * the file system's rename (a damaged watches.json set aside as it is moved in), to make it fail.
  */
 export const testHooks: {
   afterRead?: () => Promise<void>
   afterLoad?: () => Promise<void>
   rename?: (from: string, to: string) => Promise<void>
-  write?: (path: string, text: string) => Promise<void>
-  link?: (from: string, to: string) => Promise<void>
-  backupRename?: (from: string, to: string) => Promise<void>
   /** The settle before a fired line is typed (SETTLE_MS): 0 types it at once. */
   settleMs?: number
   /** Told each time a check reads a card from disk (#321: each card once a check). */
@@ -239,7 +234,6 @@ export const testHooks: {
 /** The same seams by their first name (round-one probes use it). */
 export const testPauses = testHooks
 const renameOnce = (from: string, to: string): Promise<void> => (testHooks.rename ?? rename)(from, to)
-const writeText = (path: string, text: string): Promise<void> => (testHooks.write ?? ((p: string, t: string) => writeFile(p, t, 'utf8')))(path, text)
 
 /**
  * At most this many watches a workspace (one per agent: up to 24 agents in each of many projects, #562), and this big a file. Both
@@ -266,7 +260,10 @@ interface OnCard {
 /** The watches of each open workspace, loaded on first need (by its path, case-folded). */
 const stores = new Map<string, Store>()
 const loading = new Map<string, Promise<Store>>()
-/** A workspace's watches file, by the folder it was loaded from (a window's service can open another workspace later). */
+/**
+ * A workspace's watches file before #1018, by the folder it was loaded from (a window's service can open another
+ * workspace later): moved into the workspace database the first time (storeRows.ts), then kept as a backup.
+ */
 const fileOf = (path: string): string => join(path, '.hive', 'watches.json')
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 const closedError = (): Error => new Error('The workspace was closed')
@@ -318,7 +315,7 @@ function load(ws: WorkspaceService): Promise<Store> {
   if (going) return going
   const open = (): boolean => !life.aborted && !!ws.path && same(ws.path, path)
   const p = (async () => {
-    const read = await readFileOf(path, open)
+    const read = await readSaved(path, open)
     await testHooks.afterLoad?.()
     if (!open()) throw closedError()
     // Only this workspace's agents, each with the view of the board its own token gives it. A watch handed over as a
@@ -337,8 +334,6 @@ function load(ws: WorkspaceService): Promise<Store> {
       if (r === 'gone') gone.add(rec)
       else if (r === 'changed') stamped = true
     }
-    // watches.json keeps what it was before the ids beside it, once.
-    if (stamped || gone.size) await keepBeforeIds(fileOf(path))
     for (const { rec, raw } of read.list) {
       if (gone.has(rec)) invalid.push(raw)
       else if (!hostedIn(ws, path, rec.projectPath) || (rec.agents && !rec.agents.agents.every((a) => mayWatch(ws, path, rec.projectPath, a.projectPath)))) invalid.push(raw)
@@ -356,7 +351,7 @@ function load(ws: WorkspaceService): Promise<Store> {
       }
     }
     // What was migrated is saved at the next tick.
-    const store: Store = { ws, path, life, list, invalid, saved: read.text, dirty: migrated || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeLanes: new Map(), wokeReplies: new Map() }
+    const store: Store = { ws, path, life, list, invalid, dirty: migrated || stamped || gone.size > 0, queue: Promise.resolve(), delivering: new Map(), woke: new Map(), wokeAgents: new Map(), wokeLanes: new Map(), wokeReplies: new Map() }
     // Read back too big for every watch to end (a hand edit, an older build): room is made, nothing is lost.
     if (budget(store, list) > MAX_FILE_BYTES) {
       const over: WatchRecord[] = []
@@ -397,24 +392,50 @@ function load(ws: WorkspaceService): Promise<Store> {
   return p
 }
 
-type FileRead = { list: { rec: WatchRecord; raw: unknown }[]; invalid: unknown[]; text: string | null }
+type FileRead = { list: { rec: WatchRecord; raw: unknown }[]; invalid: unknown[] }
+/** The watches as saved, before they are checked: each saved entry, and those kept aside as not valid. */
+type Saved = { watches: unknown[]; invalid: unknown[] }
 
 /**
- * Reads a workspace's watches file (at most MAX_FILE_BYTES). No file is no watches; a file that can't be read (locked,
- * no permission) is an error, never "none". A file too big to be Hive's, or one that isn't JSON, is set aside (renamed,
- * not deleted) so that saving can't overwrite it; if it can't be set aside, that is an error too and nothing is written.
- * Entries that aren't valid watches, and any over the limit, are kept aside in the file as they were.
+ * A workspace's watches as saved in its database (#1018), moved in from watches.json the first time. Entries that aren't
+ * valid watches, and any over the limit, are kept aside as they were.
  */
-async function readFileOf(path: string, open: () => boolean): Promise<FileRead> {
+async function readSaved(path: string, open: () => boolean): Promise<FileRead> {
+  const data = await openStore(path, 'watches', '', fileOf(path), async () => {
+    const got = await readFileOf(path, open)
+    if (!got) return null
+    const rows = rowsOf(got.watches)
+    const meta: Record<string, string> = got.invalid.length ? { invalid: JSON.stringify(got.invalid) } : {}
+    return { rows, meta }
+  })
+  const raw = data.rows.map((r) => JSON.parse(r.doc) as unknown)
+  const kept = data.meta.get('invalid')
+  const invalid: unknown[] = kept ? (JSON.parse(kept) as unknown[]) : []
+  const list: { rec: WatchRecord; raw: unknown }[] = []
+  for (const v of raw) {
+    const r = list.length < MAX_WATCHES ? readRecord(v) : null
+    if (r && !list.some((x) => same(x.rec.projectPath, r.projectPath) && x.rec.agentId === r.agentId)) list.push({ rec: r, raw: v })
+    else invalid.push(v)
+  }
+  if (invalid.length) log.warn(`${invalid.length} saved watch${invalid.length === 1 ? ' is' : 'es are'} not valid: kept aside, not used`)
+  return { list, invalid }
+}
+
+/**
+ * Reads a workspace's watches file from before #1018 (at most MAX_FILE_BYTES), to move it in. No file is null; a file
+ * that can't be read (locked, no permission) is an error, never "none". A file too big to be Hive's, or one that isn't
+ * JSON, is set aside (renamed, not deleted) and none are moved in; if it can't be set aside, that is an error too.
+ */
+async function readFileOf(path: string, open: () => boolean): Promise<Saved | null> {
   const file = fileOf(path)
   let got: { data: Buffer; more: boolean }
   try {
     got = await readCapped(file, MAX_FILE_BYTES)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { list: [], invalid: [], text: null }
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw new Error(`Could not read the card watches (${(e as Error).message})`, { cause: e })
   }
-  const aside = async (why: string): Promise<FileRead> => {
+  const aside = async (why: string): Promise<Saved> => {
     const to = `${file}.${why}-${Date.now()}`
     try {
       await renameRetrying(file, to, 20, () => {
@@ -424,7 +445,7 @@ async function readFileOf(path: string, open: () => boolean): Promise<FileRead> 
       throw new Error(`The card watches file is ${why} and couldn't be set aside (${(e as Error).message}): it was left as it is`, { cause: e })
     }
     log.warn(`The watches file was ${why}: set aside as ${userText(to)}`)
-    return { list: [], invalid: [], text: null }
+    return { watches: [], invalid: [] }
   }
   if (got.more) return aside('too-big')
   const text = got.data.toString('utf8')
@@ -436,16 +457,7 @@ async function readFileOf(path: string, open: () => boolean): Promise<FileRead> 
   }
   const obj = data && typeof data === 'object' && !Array.isArray(data) ? (data as { watches?: unknown; invalid?: unknown }) : null
   if (!obj) return aside('damaged')
-  const raw = Array.isArray(obj.watches) ? obj.watches : []
-  const invalid: unknown[] = Array.isArray(obj.invalid) ? [...obj.invalid] : []
-  const list: { rec: WatchRecord; raw: unknown }[] = []
-  for (const v of raw) {
-    const r = list.length < MAX_WATCHES ? readRecord(v) : null
-    if (r && !list.some((x) => same(x.rec.projectPath, r.projectPath) && x.rec.agentId === r.agentId)) list.push({ rec: r, raw: v })
-    else invalid.push(v)
-  }
-  if (invalid.length) log.warn(`${invalid.length} saved watch${invalid.length === 1 ? ' is' : 'es are'} not valid: kept aside in the file, not used`)
-  return { list, invalid, text }
+  return { watches: Array.isArray(obj.watches) ? obj.watches : [], invalid: Array.isArray(obj.invalid) ? [...obj.invalid] : [] }
 }
 
 /** A saved watch, checked in full (the file can be edited by hand) and rebuilt from what checks out; null if it isn't one. */
@@ -624,81 +636,17 @@ async function setAside(store: Store, watches: WatchRecord[] = []): Promise<bool
 }
 
 /**
- * Saves a workspace's watches (under its lock) to the folder they came from, only while that workspace is open there: a
- * temp file, then a rename checked against the workspace's lifetime before every try. A rename that was already under
- * way when it closed is undone (the file as it was is put back) and the save fails. Too big to read back: refused.
+ * Saves a workspace's watches (under its lock) to the workspace they came from, only while it is open there: one
+ * transaction in its database (#1018), whose rows are the watches, checked against the workspace's lifetime just before
+ * it, with nothing awaited between: a save can't land after the workspace closed. Too big: refused.
  */
 async function save(store: Store): Promise<void> {
   checkAlive(store)
   const text = fileText(store, store.list)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('Too many card watches to keep in this workspace')
-  const file = fileOf(store.path)
-  await mkdir(dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
-  try {
-    await writeText(tmp, text)
-    await renameRetrying(tmp, file, 20, () => checkAlive(store), renameOnce)
-  } catch (e) {
-    await rm(tmp, { force: true }).catch(() => undefined)
-    throw e
-  }
-  if (!alive(store)) {
-    // Landed after the workspace closed: the change didn't happen. Undone only while the file is still this write.
-    await undoLateSave(file, text, store.saved).catch((e) => log.warn('undoing a late save of the watches', e))
-    throw closedError()
-  }
-  store.saved = text
+  const rows = rowsOf(store.list.map(entryOf))
+  await saveStore(store.path, 'watches', '', rows, { invalid: store.invalid.length ? JSON.stringify(store.invalid) : null }, () => checkAlive(store))
   store.dirty = false
-}
-/**
- * Undoes a save that landed after its workspace closed, without losing anything written since: only if the file is still
- * exactly that save is it moved aside (renamed, not deleted), and the file as it was is put back only where nothing has
- * taken its place since (a link, which never replaces a file); otherwise the earlier text is kept next to it, under a name
- * of its own. A copy is only removed once another is confirmed: whatever fails, the earlier text is left in some file.
- */
-async function undoLateSave(file: string, ours: string, previous: string | null): Promise<void> {
-  if ((await readFile(file, 'utf8').catch(() => null)) !== ours) return
-  const aside = `${file}.after-close-${Date.now()}-${randomBytes(3).toString('hex')}`
-  await rename(file, aside)
-  if ((await readFile(aside, 'utf8').catch(() => null)) !== ours) {
-    // Something else was written in between: it goes back if the place is free, else it stays aside, kept.
-    await link(aside, file).then(() => rm(aside), () => undefined)
-    return
-  }
-  if (previous === null) {
-    await rm(aside, { force: true })
-    return
-  }
-  // The earlier text goes to a file of its own first (created new); only then does this save's copy go (it has the
-  // earlier watches too, so it is kept if that fails), and that file only once the text is back in place.
-  const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
-  await writeFile(tmp, previous, { encoding: 'utf8', flag: 'wx' })
-  await rm(aside, { force: true })
-  try {
-    if (testHooks.link) await testHooks.link(tmp, file)
-    else await link(tmp, file)
-    await rm(tmp, { force: true }).catch(() => undefined)
-    return
-  } catch {
-    // Taken meanwhile (or no links here): it is kept beside it instead, under a name of its own.
-  }
-  const backup = `${file}.before-close-${Date.now()}-${randomBytes(4).toString('hex')}`
-  for (let attempt = 0; ; attempt++) {
-    try {
-      if (testHooks.backupRename) await testHooks.backupRename(tmp, backup)
-      else await rename(tmp, backup)
-      log.warn(`The card watches as they were before a late save are kept in ${userText(backup)}`)
-      return
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code
-      if (attempt >= 10 || !(code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) {
-        // Still the staging file: kept as it is, never removed while it is the only copy.
-        log.warn(`The card watches as they were before a late save are kept in ${userText(tmp)}`, e)
-        return
-      }
-      await new Promise((r) => setTimeout(r, 15 + attempt * 10))
-    }
-  }
 }
 
 /** A save that may fail (a background one): the tick tries again. */
@@ -2260,10 +2208,7 @@ export async function moveOrphanWatches(ws: WorkspaceService, m: { from: string;
       r.projectId = projectId
       r.scope = scopeFor(ws, to)
     }
-    if (list.length) {
-      await keepBeforeIds(fileOf(store.path))
-      await saveQuietly(store)
-    }
+    if (list.length) await saveQuietly(store)
     return list
   })
   for (const r of moved) sessions.watchChanged(r.projectPath, r.agentId)

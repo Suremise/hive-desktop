@@ -10,6 +10,7 @@ import { agentBusy, agentEvent, agentLimitLine, agentPart, agentWakeLine, agentW
 import { WAKE_MAX_BYTES, cardChange, cardWakeLine, readCondition, userNameOf, wakeAbout, type WatchCondition } from '../src/shared/watch'
 import { agentWatchText } from '../src/shared/toolReplies'
 import { tempDir } from './tempDir'
+import { storeDocs } from './storeDocs'
 import { follow } from './followDoorbell'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
@@ -156,6 +157,9 @@ describe('agent watches (main/watches.ts)', async () => {
   watches.testHooks.settleMs = 0
   // A check reads what Hive did after `await watches.settled()`: deliveries run in the background (#570).
   const { sessions } = await import('../src/main/sessions')
+  /** The watches a workspace has saved (#1018: rows in its database, what watches.json's `watches` held). */
+  // oxlint-disable-next-line typescript/no-explicit-any -- saved entries read as JSON, as the file's were
+  const savedOf = (path: string): any[] => storeDocs(path, 'watches')
   let n = 0
   const open = async () => {
     const path = join(base, `ws-${++n}`)
@@ -230,9 +234,8 @@ describe('agent watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     move(st, alpha, 'a2', nowOf())
     await watches.registerAgentWatch(w, alpha, 'a1', { agents: [reviewer(alpha)], ignoreBackground: false })
-    const file = join(path, '.hive', 'watches.json')
     const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0].projectId).toBe(id)
+    expect(savedOf(path)[0].agents.agents[0].projectId).toBe(id)
     const gamma = join(path, 'gamma')
     renameSync(alpha, gamma)
     const st2 = fake(gamma)
@@ -241,7 +244,7 @@ describe('agent watches (main/watches.ts)', async () => {
     await watches.evaluateAgentWatches(w)
     await watches.settled()
     expect(st2.typed).toEqual([])
-    const saved = JSON.parse(readFileSync(file, 'utf8')).watches[0]
+    const saved = savedOf(path)[0]
     expect(saved).toMatchObject({ projectPath: gamma, projectId: id })
     expect(saved.agents.agents[0]).toMatchObject({ projectPath: gamma, project: 'gamma', projectId: id })
     expect(Object.keys(saved.agentMarks)).toEqual([`${gamma.toLowerCase()}#a2`])
@@ -277,7 +280,7 @@ describe('agent watches (main/watches.ts)', async () => {
     const w2 = createWorkspaceService()
     await w2.open(to)
     await watches.stampWatchProjects(w2)
-    const saved = JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches[0]
+    const saved = savedOf(to)[0]
     expect(saved.projectPath).toBe(alpha2)
     expect(saved.agents.agents.map((a: { projectPath: string }) => a.projectPath)).toEqual([alpha2, beta2])
     expect(Object.keys(saved.agentMarks).sort()).toEqual([`${alpha2.toLowerCase()}#a2`, `${beta2.toLowerCase()}#b1`].sort())
@@ -297,17 +300,16 @@ describe('agent watches (main/watches.ts)', async () => {
     Object.assign(sessions, { agentNow: other })
     await w.projectIds({ fresh: true })
     await watches.registerAgentWatch(w, alpha, 'a1', { agents: [{ projectPath: beta, agentId: 'b1', name: 'Other', project: 'beta' }], ignoreBackground: false })
-    const file = join(path, '.hive', 'watches.json')
-    const before = JSON.parse(readFileSync(file, 'utf8'))
+    const before = savedOf(path)
     // Replaced: another project at beta's folder, with b1 too.
     writeFileSync(join(beta, '.hive', 'project.json'), JSON.stringify({ version: 2, id: 'p-ffffffffffff', agents: [{ id: 'b1', name: 'Other' }] }))
     Object.assign(sessions, { agentNow: (p: string, id: string) => (p.toLowerCase() === beta.toLowerCase() && id === 'b1' ? { status: 'finished', runId: 'r9', prompts: 3, pending: false, statusMessage: null, backgroundTasks: 0, reply: 'NEW PROJECT REPLY' } : agentNow(p, id)) })
     watches.noteAgentStatus({ projectPath: beta, agentId: 'b1', status: 'finished', runId: 'r9' } as never)
-    // Read back from the file first (Hive reopened), then checked.
+    // Read back first (Hive reopened), then checked.
     watches.forgetWatches(w)
     await w.projectIds({ fresh: true })
     await watches.stampWatchProjects(w)
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].agents.agents[0]).toMatchObject({ projectId: before.watches[0].agents.agents[0].projectId, gone: true })
+    expect(savedOf(path)[0].agents.agents[0]).toMatchObject({ projectId: before[0].agents.agents[0].projectId, gone: true })
     await watches.evaluateAgentWatches(w)
     await watches.tick()
     await watches.settled()
