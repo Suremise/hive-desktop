@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **Start small, finish a block, start fresh.** The user guide's Getting started now says how to keep a plan's usage down: one agent to begin with, a lighter model for routine work on project agents (not the Assistant), work in blocks of a few hours, then start every session fresh. The Assistant suggests it once, in a line, when every lane has ended or an agent's card is done with nothing else running, and checks its journal holds what is still open before it does.
+
 ## 0.9.0 — 18 October 2026
 
 - **The Assistant keeps a journal.** Each workspace's Assistant has a journal, its memory across sessions: decisions, plans, events, incidents and what it learned, each a line with optional detail and links to cards and commits, searchable and recalled a few lines at a time instead of a long handover. Hive adds facts as they happen (lanes started and ended, merges, cards into Done, an unexpected close). **Settings → Assistant → Journal** turns it off (keeping it), chooses what it may store (work only by default), how long everyday entries stay (90 days) and a size cap (50 MB), and deletes it. It is kept on this computer only, in `.hive/assistant/journal.db` (#1031).
