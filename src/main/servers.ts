@@ -676,8 +676,8 @@ route('POST', '/v1/projects/:name/handover', async ({ params, body }) => {
   if (!handover && !(await sessions.latestHandover(p))) throw new HttpError(409, `There is no handover for ${basename(p)} yet. Hand over with a new handover (handover: true) instead.`)
   const names = projectAgents(await workspace.projectConfig(p))
   const name = (id: string): string => names.find((a) => a.id === id)?.name ?? id
-  // To itself it ends its conversation (#1057): not while it works, waits, merges or is on a running card loop's card.
-  if (from === to && (await sessions.handOverWaits(p, from))) throw new HttpError(409, `${name(from)} is working, waiting, merging or on a card loop's card: its conversation isn't ended now. Hand it over once it is idle and its card loop has ended.`)
+  // To itself it ends its conversation (#1057): not while it works, merges or is on a running card loop's card.
+  if (from === to && !(await sessions.handOverAllowed(p, from))) throw new HttpError(409, `${name(from)} is working, merging or on a card loop's card: its conversation isn't ended now. Hand it over when it has finished.`)
   const act: ActivityTarget = { kind: 'hand-over', project: basename(p), agent: { id: from, name: name(from) }, toAgent: { id: to, name: name(to) } }
   const start = async (): Promise<void> => {
     // It can take minutes (the handover is written first): answer now, report failures in Hive.

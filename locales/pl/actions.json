@@ -43,8 +43,6 @@
   "actions.duration.hoursMinutes": "{h, number} h {m} min",
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
-  "actions.handOverLater.cancelFailed": "Nie udało się anulować przekazania",
-  "actions.handOverLater.failed": "Nie udało się zaplanować przekazania",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

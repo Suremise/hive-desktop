@@ -135,6 +135,7 @@
   "assistant.panel.tellFailed": "Nie udało się przekazać Asystentowi jego trybu",
   "assistant.panel.theAssistant": "Asystent",
   "assistant.panel.title": "Asystent",
+  "assistant.panel.transcriptAdvice": "Zacznij nową rozmowę (⋯ → Nowa rozmowa), aby wszystko działało szybko.",
   "assistant.panel.watches": "<b>{name}</b> czuwa nad tym obszarem roboczym: zapytaj, co robią agenci, o dowolny projekt albo o plan lub recenzję.",
   "assistant.panel.workingOn": "Pracuje nad #{number} {title}",
   "assistant.panel.workspace": "Obszar roboczy",

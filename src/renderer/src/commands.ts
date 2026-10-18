@@ -275,32 +275,12 @@ const COMMAND_DEFS: CommandDef[] = [
   },
   {
     id: 'session.handOverLongConversation',
-    name: msg({ id: 'shell.command.session.handOverLongConversation', defaultMessage: 'Hand Over a Long Conversation', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It opens Hand Over to… for an idle agent, else queues a hand-over after its card." }),
+    name: msg({ id: 'shell.command.session.handOverLongConversation', defaultMessage: 'Hand Over a Long Conversation', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It opens Hand Over to… if the agent is idle and on no card loop's card." }),
     category: 'session',
-    // The long-conversation notice's Hand Over to…, which passes the agent: what fits is decided when it is clicked.
+    // The long-conversation notice's Hand Over to…, which passes the agent: checked again when it is clicked.
     internal: true,
     run: (projectPath?: unknown, agentId?: unknown) => {
       if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.handOverLongConversation(projectPath, agentId)
-    }
-  },
-  {
-    id: 'session.handOverLater',
-    name: msg({ id: 'shell.command.session.handOverLater', defaultMessage: 'Hand Over an Agent After Its Card', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It queues a hand-over to a new conversation, done once the agent's card is through or its turn is over." }),
-    category: 'session',
-    // From the long-conversation notification, which passes the agent.
-    internal: true,
-    run: (projectPath?: unknown, agentId?: unknown) => {
-      if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.handOverLater(projectPath, agentId)
-    }
-  },
-  {
-    id: 'session.cancelHandOverLater',
-    name: msg({ id: 'shell.command.session.cancelHandOverLater', defaultMessage: "Cancel an Agent's Queued Hand-Over", description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
-    category: 'session',
-    // From the notice that one is queued, which passes the agent.
-    internal: true,
-    run: (projectPath?: unknown, agentId?: unknown) => {
-      if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.cancelHandOverLater(projectPath, agentId)
     }
   },
   {

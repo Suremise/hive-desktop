@@ -152,8 +152,8 @@
     "description": "Handing over to the same agent failed: it didn't stop to start a new conversation. {agent} is its name, {handover} the handover's path in the shared notes."
   },
   "session.handOver.momentLost": {
-    "defaultMessage": "{agent} took the merge slot, started a card or changed while it wrote its handover, so its conversation wasn't ended. The handover \"{handover}\" is kept.",
-    "description": "Handing an agent over to itself stopped before ending its conversation: while it wrote its handover it began merging (the merge slot), began a card loop's next card, joined a card loop or restarted. {agent} is its name, {handover} the handover's path in the shared notes."
+    "defaultMessage": "{agent} took the merge slot, started other work or changed while it wrote its handover, so its conversation wasn't ended. The handover \"{handover}\" is kept.",
+    "description": "Handing an agent over to itself stopped before ending its conversation: while it wrote its handover it began merging (the merge slot), began other work (a task, a card loop's card) or restarted. {agent} is its name, {handover} the handover's path in the shared notes."
   },
   "session.handOver.noTools": {
     "defaultMessage": "Handing over needs Hive's tools in sessions: turn on \"Provide Hive tools to sessions\" in Settings → Agent API.",
@@ -168,8 +168,8 @@
     "description": "Hand Over to… failed: the agent finished its turn without writing a handover. {agent} is its name."
   },
   "session.handOver.notNow": {
-    "defaultMessage": "{agent} is working, waiting, merging or on a card loop's card, so its conversation isn't ended now. Use Hand Over After This Card: Hive hands it over at a good moment.",
-    "description": "Handing an agent over to itself (a new conversation) is refused: it is busy, merging or on a card of a running card loop. {agent} is its name. Hand Over After This Card is a command (a button and an agent menu item): use its translation."
+    "defaultMessage": "{agent} is working, merging or on a card loop's card, so its conversation isn't ended now. Hand it over to a new conversation when it has finished.",
+    "description": "Handing an agent over to itself (a new conversation) is refused: it is working, holds the merge slot or works on a card of a running card loop. {agent} is its name."
   },
   "session.handOver.notRunning": {
     "defaultMessage": "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.",
@@ -194,22 +194,6 @@
   "session.handOver.writing": {
     "defaultMessage": "{agent} is writing a handover",
     "description": "A notice's title: an agent writes a handover of its work (Hand Over to…). {agent} is its name."
-  },
-  "session.handOverLater.cancel": {
-    "defaultMessage": "Cancel Hand-Over",
-    "description": "A button (a notice's, and an item of an agent's ⋯ menu): cancels the hand-over Hive was to do after the agent's card."
-  },
-  "session.handOverLater.failed": {
-    "defaultMessage": "{agent}'s hand-over after its card failed",
-    "description": "A notice's title: the hand-over Hive did once the agent's ({agent}) card was through failed; the error follows."
-  },
-  "session.handOverLater.queued": {
-    "defaultMessage": "{assistant, select, yes {The Assistant starts a new conversation when it is idle} other {{agent} hands over after this card}}",
-    "description": "A notice's title: Hive will hand the agent's work ({agent}) over to a new conversation at a good moment; yes: it is the Hive Assistant, which starts a new conversation."
-  },
-  "session.handOverLater.queuedText": {
-    "defaultMessage": "{when, select, card {Once card #{card} is through review, Hive asks it for a handover and it carries on in a new conversation.} lane {Once its card loop has ended, Hive asks it for a handover and it carries on in a new conversation.} assistant {Once its turn is over, Hive starts its new conversation.} other {Once its turn is over, Hive asks it for a handover and it carries on in a new conversation.}} Never while it merges.",
-    "description": "Under the title of the notice that a hand-over is queued (#{card}: a card number): when Hive does it. card: after that card of its card loop; lane: once its card loop has ended; assistant: the Hive Assistant; other: an agent outside a card loop."
   },
   "session.inUse.attaching": {
     "defaultMessage": "It is running, and may attach more files. Stop it first.",
@@ -291,17 +275,17 @@
     "defaultMessage": "Hand Over to…",
     "description": "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)."
   },
-  "session.long.handOverLater": {
-    "defaultMessage": "Hand Over After This Card",
-    "description": "A button of the long-conversation notice, and an item of an agent's ⋯ menu: Hive hands the agent's work over to a new conversation once its card is through review, or its turn is over, never part-way through."
+  "session.long.notNow": {
+    "defaultMessage": "{agent} is busy",
+    "description": "A notice's title: Hand Over to… was clicked, but the agent ({agent}) is working, merging or on a card loop's card now."
   },
-  "session.long.newConversationLater": {
-    "defaultMessage": "New Conversation When Idle",
-    "description": "A button of the Assistant's long-conversation notice: Hive starts the Assistant's new conversation once its turn is over, never part-way through."
+  "session.long.notNowText": {
+    "defaultMessage": "It is working, merging or on a card loop's card, so its conversation isn't ended now. It can hand over to a new conversation when it has finished.",
+    "description": "Under the notice that Hand Over to… was clicked while the agent is busy: why nothing happened, and when it can."
   },
   "session.long.noticeText": {
-    "defaultMessage": "Its transcript is {size} (over {limit, number} MB): it may slow down. {when, select, now {It can hand over to a new conversation: Hand Over to… lets you choose.} assistant {It can start a new conversation once it is idle.} other {It can hand over to a new conversation at a good moment, after this card.}}",
-    "description": "The notice that an agent's conversation is long. {size}: its transcript's size (\"24 MB\"); {limit}: the size it is flagged over, in MB (Settings → Sessions). Then what can be done: now (it is idle: Hand Over to… is a command), assistant (the Hive Assistant: a new conversation once it is idle), other (it is busy or on a card loop's card: hand over after this card)."
+    "defaultMessage": "Its transcript is {size} (over {limit, number} MB): it may slow down. {when, select, now {It can hand over to a new conversation: Hand Over to… lets you choose.} assistant {It can start a new conversation (⋯ → New Conversation) once it is idle.} other {It can hand over to a new conversation when it has finished.}}",
+    "description": "The notice that an agent's conversation is long. {size}: its transcript's size (\"24 MB\"); {limit}: the size it is flagged over, in MB (Settings → Sessions). Then what can be done: now (it is idle: Hand Over to… is a command), assistant (the Hive Assistant: ⋯ → New Conversation is its menu command), other (it is working, merging or on a card loop's card)."
   },
   "session.mergeSlot.holding": {
     "defaultMessage": "Merging into {branch} (merge slot)",

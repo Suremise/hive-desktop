@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_PROJECT_CONFIG, ROLE_MAX, agentLimitText, effectiveModelLabel, mergeBlocked, projectAgents, slugify, transcriptWarnLimit } from '@shared/defaults'
-import { handOverWaits, onRunningLane } from '@shared/handOver'
+import { handOverNow, onRunningLane } from '@shared/handOver'
 import { useAgentLimit } from '../advanced'
 import { shownText as inLanguage } from '@shared/advanced'
 import { PROVIDERS, agentProvider, chosenDefaultProvider, defaultProviderPending, isProviderEnabled, modeCaveat, modeOption, offeredModes, projectDefaultProvider, projectProviderConfig, projectUse200k, providerDescriptor, providerName, providerSettings, shownText } from '@shared/providers'
@@ -918,9 +918,9 @@ export function HandOverDialog() {
 
   const idle = (a: { live?: { status: string } | null }): boolean => !a.live || a.live.status === 'ready' || a.live.status === 'finished'
   const fromReady = !!from?.live && idle(from)
-  // Ending its own conversation only at a good moment (#1057): not while it merges or is on a running lane's card.
+  // Ending its own conversation only while it may (#1057): not while it merges or is on a running lane's card.
   const lanes = useStore((s) => s.lanes)
-  const selfWaits = !!target && !!project && (!idle(from ?? {}) || handOverWaits(from?.live, onRunningLane(lanes, project.name, target.agentId)))
+  const selfOff = !!target && !!project && !!from && (!idle(from) || !handOverNow(from.live, onRunningLane(lanes, project.name, from.id)))
   useEffect(() => {
     if (!target || !project) return
     setHandover(fromReady)
@@ -929,12 +929,11 @@ export function HandOverDialog() {
     const mb = own?.live?.transcriptBytes ?? 0
     const limit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
     // A long conversation (from its footer or the notification) most likely wants a new one of its own.
-    const ownFirst = !!own && !selfWaits && limit > 0 && mb >= limit * 1024 * 1024
-    setTo(ownFirst ? target.agentId : (first?.id ?? (own && !selfWaits ? target.agentId : '')))
-    // Again when whether it may end its own conversation changes (#1057: the window learns of a lane joined or ended a
-    // moment after Hive does).
+    const ownFirst = !!own && !selfOff && limit > 0 && mb >= limit * 1024 * 1024
+    setTo(ownFirst ? target.agentId : (first?.id ?? (own && !selfOff ? target.agentId : '')))
+    // Again when whether it may end its own conversation changes (the window learns of a lane a moment after Hive does).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.project, target?.agentId, selfWaits])
+  }, [target?.project, target?.agentId, selfOff])
 
   if (!target || !project || !from) return null
   const close = (): void => set({ handOverFor: null })
@@ -978,8 +977,8 @@ export function HandOverDialog() {
         </div>
       )}
       <div className="choice-list">
-        <label className={cx('choice', self && 'selected', selfWaits && 'disabled')}>
-          <input type="radio" disabled={selfWaits} checked={self} onChange={() => setTo(from.id)} />
+        <label className={cx('choice', self && 'selected', selfOff && 'disabled')}>
+          <input type="radio" disabled={selfOff} checked={self} onChange={() => setTo(from.id)} />
           <div>
             <strong>
               <ProviderIcon provider={agentProviderOf(project, from)} /> {tr(msg({ id: 'agents.handOver.self', defaultMessage: '{agent}, in a new conversation', description: 'A choice in the Continue with… dialog: the agent itself ({agent}) carries on in a new conversation.' }), { agent: from.name })}
@@ -987,8 +986,8 @@ export function HandOverDialog() {
             <div className="faint">
               {!idle(from)
                 ? tr(BUSY_AGENT)
-                : selfWaits
-                  ? tr(msg({ id: 'agents.handOver.selfLater', defaultMessage: "It merges or is on a card loop's card: Hand Over After This Card (in its ⋯ menu) hands it over at a good moment.", description: "Under the agent's own choice (disabled) in the Continue with… dialog: it holds the merge slot or works on a running card loop's card. Hand Over After This Card is an agent menu item: use its translation; ⋯ is the menu's button." }))
+                : selfOff
+                  ? tr(msg({ id: 'agents.handOver.selfLater', defaultMessage: "It merges or is on a card loop's card: it can carry on in a new conversation when it has finished.", description: "Under the agent's own choice (disabled) in the Continue with… dialog: it holds the merge slot or works on a running card loop's card." }))
                   : tr(msg({ id: 'agents.handOver.selfNote', defaultMessage: 'Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}', description: "Under the agent's own choice in the Continue with… dialog; then how big its conversation's file is ({size}: \"6.1 MB\"; none: leave that branch empty)." }), { size: from.live?.transcriptBytes ? formatSize(from.live.transcriptBytes) : 'none' })}
             </div>
           </div>

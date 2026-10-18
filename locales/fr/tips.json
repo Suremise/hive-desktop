@@ -124,7 +124,7 @@
   "tips.group.files": "Fichiers",
   "tips.group.sessions": "Sessions",
   "tips.group.shortcuts": "Raccourcis",
-  "tips.handoverSelf.text": "Quand la taille de transcription d’un agent passe en orange, clique dessus : inactif, choisis l’agent lui-même dans Passer le relais à… ; occupé ou dans une boucle de cartes, il passe le relais après cette carte. Il écrit une passation, et une nouvelle conversation reprend, courte et rapide.",
+  "tips.handoverSelf.text": "Quand la taille de transcription d’un agent passe en orange, clique dessus et choisis l’agent lui-même : il écrit une passation, et une nouvelle conversation reprend à partir d’elle, de nouveau courte et rapide.",
   "tips.handoverSelf.title": "Une conversation trop longue ? Passer le relais à l’agent lui-même",
   "tips.hardwareAcceleration.text": "Si ton pilote graphique laisse la fenêtre de Hive vide, la fait clignoter ou planter, active Paramètres → Avancé → Désactiver l’accélération matérielle et redémarre Hive. Une fenêtre qui ne s’affiche pas du tout : démarre Hive une fois avec --disable-gpu.",
   "tips.hardwareAcceleration.title": "Une fenêtre vide ou qui clignote ?",

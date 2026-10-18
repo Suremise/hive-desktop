@@ -43,8 +43,6 @@
   "actions.duration.hoursMinutes": "{h, number}h {m}min",
   "actions.duration.minutes": "{m}min",
   "actions.duration.seconds": "{s}s",
-  "actions.handOverLater.cancelFailed": "Não foi possível cancelar a passagem",
-  "actions.handOverLater.failed": "Não foi possível agendar a passagem",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

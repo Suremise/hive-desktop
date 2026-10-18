@@ -1418,12 +1418,6 @@ export interface LiveSessionState {
   backgroundTasks?: number
   /** The running conversation's transcript size in bytes, once the provider has written one. */
   transcriptBytes?: number
-  /**
-   * A hand-over Hive does at a good moment (#1057): asked for while the agent was busy or on a lane's card, it waits until
-   * that card has left Doing and Review (or the lane has ended), or, outside a lane, until its turn is over, and never
-   * while it merges. `card` is the lane card it waits for (null: none); the Assistant starts a new conversation instead.
-   */
-  handOverAfter?: { card: number | null; lane: string | null; since: string }
   /** The start of its latest reply, as its last turn's end reported it (shared/tiles.ts replyStart): its tile's last lines (#976). */
   replyStart?: string
 }

@@ -124,7 +124,7 @@
   "tips.group.files": "文件",
   "tips.group.sessions": "会话",
   "tips.group.shortcuts": "快捷操作",
-  "tips.handoverSelf.text": "当智能体的会话记录大小变成橙色时，点击它：空闲时，在“交接给…”中选择该智能体自己；忙碌或在卡片循环中时，它会在这张卡片之后交接。它会写一份交接说明，由新对话接手，简短而快速。",
+  "tips.handoverSelf.text": "当智能体的会话记录大小变成橙色时，点击它并选择该智能体自己：它会写一份交接说明，由新对话从那里接手，再次变得简短而快速。",
   "tips.handoverSelf.title": "对话太长？交接给它自己",
   "tips.hardwareAcceleration.text": "如果显卡驱动导致 Hive 窗口空白、闪烁或崩溃，请开启“设置”→“高级”→“禁用硬件加速”，然后重启 Hive。如果窗口完全无法显示，请用 --disable-gpu 启动一次 Hive。",
   "tips.hardwareAcceleration.title": "窗口空白或闪烁？",

@@ -51,6 +51,7 @@ const M = {
   restartDetail: msg({ id: 'assistant.panel.restartDetail', defaultMessage: 'The whole conversation is cached again, which costs more than switching (switching keeps everything and only tells the Assistant the mode).', description: 'Confirmation before Restart in This Mode.' }),
   restart: msg({ id: 'assistant.panel.restart', defaultMessage: 'Restart', description: "Restart in This Mode's confirmation: its button." }),
   saveModeFailed: msg({ id: 'assistant.panel.saveModeFailed', defaultMessage: 'Could not save the mode', description: "An error notice: Restart in This Mode couldn't save the mode; the reason follows." }),
+  transcriptAdvice: msg({ id: 'assistant.panel.transcriptAdvice', defaultMessage: 'Start a new conversation (⋯ → New Conversation) to keep things quick.', description: "The Assistant's footer, in the tooltip of a long conversation's size. ⋯ is the More button; New Conversation its menu item." }),
   settingsName: msg({ id: 'assistant.panel.settingsName', defaultMessage: 'Assistant Settings', description: "The Assistant's footer: its settings button, and the Assistant Settings dialog's title." }),
   show: msg({ id: 'assistant.panel.show', defaultMessage: 'Show the Hive Assistant', description: "The hidden Assistant panel's strip, for screen readers." }),
   showTip: msg({ id: 'assistant.panel.showTip', defaultMessage: '{hasKey, select, yes {Show the Hive Assistant ({key})} other {Show the Hive Assistant}}', description: 'Tooltip on the hidden Assistant panel\'s strip, with its shortcut ({key}: "Ctrl+Alt+I").' }),
@@ -364,7 +365,8 @@ export function AssistantPanel() {
           a={agent}
           onSettings={() => set({ assistantSettingsOpen: true })}
           onContext={() => undefined}
-          assistant
+          onTranscript={() => undefined}
+          transcriptAdvice={tr(M.transcriptAdvice)}
           settingsName={tr(M.settingsName)}
         />
       </div>

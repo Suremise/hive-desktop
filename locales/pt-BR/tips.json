@@ -124,7 +124,7 @@
   "tips.group.files": "Arquivos",
   "tips.group.sessions": "Sessões",
   "tips.group.shortcuts": "Atalhos",
-  "tips.handoverSelf.text": "Quando o tamanho da transcrição de um agente fica âmbar, clique nele: ocioso, escolha o próprio agente em Passar para…; ocupado ou num loop de cartões, ele passa depois deste cartão. Ele escreve uma passagem de trabalho, e uma nova conversa continua dela, curta e rápida.",
+  "tips.handoverSelf.text": "Quando o tamanho da transcrição de um agente fica âmbar, clique nele e escolha o próprio agente: ele escreve uma passagem de trabalho, e uma nova conversa continua a partir dela, curta e rápida de novo.",
   "tips.handoverSelf.title": "Uma conversa longa? Passe-a para o próprio agente",
   "tips.hardwareAcceleration.text": "Se o seu driver de vídeo deixa a janela do Hive em branco, piscando ou travando, ative Configurações → Avançado → Desativar a aceleração de hardware e reinicie o Hive. Se a janela não mostra nada, inicie o Hive uma vez com --disable-gpu.",
   "tips.hardwareAcceleration.title": "Janela em branco ou piscando?",

@@ -96,7 +96,7 @@ export const SUITES = [
   { name: 'gitinit' },
   { name: 'gitmissing' },
   { name: 'gitview' },
-  { name: 'handoverlater' },
+  { name: 'handovernotice' },
   { name: 'hivevcs' },
   { name: 'hwaccel' },
   { name: 'i18nlive' },

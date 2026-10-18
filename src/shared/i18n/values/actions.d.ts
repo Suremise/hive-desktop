@@ -45,8 +45,6 @@ interface HiveMessageValues {
   'actions.duration.hoursMinutes': { h: number; m: string | number }
   'actions.duration.minutes': { m: string | number }
   'actions.duration.seconds': { s: string | number }
-  'actions.handOverLater.cancelFailed': undefined
-  'actions.handOverLater.failed': undefined
   'actions.keys.ctrl': undefined
   'actions.keys.delete': undefined
   'actions.keys.shift': undefined

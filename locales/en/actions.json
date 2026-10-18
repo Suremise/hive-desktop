@@ -175,14 +175,6 @@
     "defaultMessage": "{s}s",
     "description": "A very short duration in seconds (\"40s\"), as a compact figure. Keep it as short as possible."
   },
-  "actions.handOverLater.cancelFailed": {
-    "defaultMessage": "Couldn't cancel the hand-over",
-    "description": "An error's title: cancelling an agent's queued hand-over failed."
-  },
-  "actions.handOverLater.failed": {
-    "defaultMessage": "Couldn't queue the hand-over",
-    "description": "An error's title: queuing an agent's hand-over after its card (Hand Over After This Card) failed."
-  },
   "actions.keys.ctrl": {
     "defaultMessage": "Ctrl",
     "description": "The Ctrl key's name as shortcuts show it (\"Ctrl+B\"): as printed on keyboards in the language (German: Strg)."

@@ -552,8 +552,8 @@
     "description": "A choice in the Continue with… dialog: the agent itself ({agent}) carries on in a new conversation."
   },
   "agents.handOver.selfLater": {
-    "defaultMessage": "It merges or is on a card loop's card: Hand Over After This Card (in its ⋯ menu) hands it over at a good moment.",
-    "description": "Under the agent's own choice (disabled) in the Continue with… dialog: it holds the merge slot or works on a running card loop's card. Hand Over After This Card is an agent menu item: use its translation; ⋯ is the menu's button."
+    "defaultMessage": "It merges or is on a card loop's card: it can carry on in a new conversation when it has finished.",
+    "description": "Under the agent's own choice (disabled) in the Continue with… dialog: it holds the merge slot or works on a running card loop's card."
   },
   "agents.handOver.selfNote": {
     "defaultMessage": "Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}",

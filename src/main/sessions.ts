@@ -63,7 +63,7 @@ import { lastTitle } from './terminalTitle'
 import { asksYou } from '../shared/inbox'
 import type { DeliveryHooks, NewDelivery } from './deliveries'
 import { readyFor } from './readiness'
-import { HAND_OVER_TEXT, handOverWaits } from '../shared/handOver'
+import { HAND_OVER_TEXT, handOverNow } from '../shared/handOver'
 import { NOTICE_PREFIX } from '../shared/doorbell'
 import { FinishBatcher, finishedApiTitle, finishedNotice, noticeRoute, type FocusedHive, type NoticeRoute } from '../shared/bursts'
 import type { SlotNote } from './mergeSlots'
@@ -115,13 +115,12 @@ const M = {
   inUseElsewhere: msg({ id: 'session.error.inUseElsewhere', defaultMessage: 'Another program has its transcript open. Close it, then try again.', description: "Archiving or deleting a session is refused: another program holds its transcript file open." }),
   stopFirst: msg({ id: 'session.error.stopFirst', defaultMessage: '{action, select, archive {Stop the session before you archive it.} unarchive {Stop the session before you unarchive it.} other {Stop the session before you delete it.}}', description: 'Archiving, unarchiving or deleting a session is refused while it runs. {action} says which.' }),
   sessionRunning: msg({ id: 'session.error.running', defaultMessage: 'The session is running.', description: "Clean Up… is refused for a session: it is running." }),
-  handOverMomentLost: msg({ id: 'session.handOver.momentLost', defaultMessage: '{agent} took the merge slot, started a card or changed while it wrote its handover, so its conversation wasn\'t ended. The handover "{handover}" is kept.', description: 'Handing an agent over to itself stopped before ending its conversation: while it wrote its handover it began merging (the merge slot), began a card loop\'s next card, joined a card loop or restarted. {agent} is its name, {handover} the handover\'s path in the shared notes.' }),
-  handOverNotNow: msg({ id: 'session.handOver.notNow', defaultMessage: "{agent} is working, waiting, merging or on a card loop's card, so its conversation isn't ended now. Use Hand Over After This Card: Hive hands it over at a good moment.", description: 'Handing an agent over to itself (a new conversation) is refused: it is busy, merging or on a card of a running card loop. {agent} is its name. Hand Over After This Card is a command (a button and an agent menu item): use its translation.' }),
+  handOverNotNow: msg({ id: 'session.handOver.notNow', defaultMessage: "{agent} is working, merging or on a card loop's card, so its conversation isn't ended now. Hand it over to a new conversation when it has finished.", description: 'Handing an agent over to itself (a new conversation) is refused: it is working, holds the merge slot or works on a card of a running card loop. {agent} is its name.' }),
+  handOverMomentLost: msg({ id: 'session.handOver.momentLost', defaultMessage: '{agent} took the merge slot, started other work or changed while it wrote its handover, so its conversation wasn\'t ended. The handover "{handover}" is kept.', description: 'Handing an agent over to itself stopped before ending its conversation: while it wrote its handover it began merging (the merge slot), began other work (a task, a card loop\'s card) or restarted. {agent} is its name, {handover} the handover\'s path in the shared notes.' }),
   handOverBusy: msg({ id: 'session.handOver.busy', defaultMessage: '{agent} is busy. Hand over once it has finished.', description: "Hand Over to… is refused: the agent named is working. {agent} is the agent's name." }),
   switchEnded: msg({ id: 'session.mode.ended', defaultMessage: 'The session ended before Hive could switch it to {mode}.', description: "Switching a running agent's permission mode failed: its session ended. {mode} is the mode's name." }),
   needsInput: msg({ id: 'session.notice.needsInput', defaultMessage: '{agent} needs your input', description: "A notification's title: an agent waits for the user. {agent} is the agent (\"hive · B1\", or the project when it has one agent)." }),
   finished: msg({ id: 'session.notice.finished', defaultMessage: '{agent} finished', description: "A notification's title: an agent's turn has ended. {agent} is the agent (\"hive · B1\", or the project when it has one agent)." }),
-  newConversationDidntStop: msg({ id: 'session.newConversation.didntStop', defaultMessage: "It didn't stop, so no new conversation was started.", description: "Giving an agent a task in a new conversation failed: it didn't stop." }),
   longConversation: msg({ id: 'session.notice.longConversation', defaultMessage: '{agent}: long conversation', description: "A notice's title: an agent's transcript has grown past the size set in Settings → Sessions. {agent} is the agent." })
 }
 
@@ -316,6 +315,10 @@ interface LiveSession {
   guardChecking?: boolean
   /** The conversation already warned about for its transcript's size (once each). */
   sizeWarned?: string
+  /** When its latest turns began (as Hive saw each start), newest last: what a hand-over to itself checks (#1057). */
+  turnStarts?: number[]
+  /** The ledger's turn last seen, to tell a new one. */
+  turnSeen?: object
   /** This launch resumes a conversation (a failed start's Retry resumes it again). */
   resumed?: boolean
   /** The Hive Assistant's mode (a persona id) its conversation was last given, started in or told: recorded with it. */
@@ -522,13 +525,6 @@ const liveId = (projectPath: string, agentId: string): string => `${projectPath.
 const SESSION_WRITING_MS = 5000
 
 /** A session left alone by archive or delete, and why (SessionBulkResult's reasons). */
-/**
- * A hand-over to the agent itself stopped short of ending its conversation (#1057 round 3): while it wrote the handover
- * it took the merge slot, began a card loop's next card or joined a lane, or its launch changed. The handover is kept;
- * a queued hand-over waits for its next good moment.
- */
-export class HandOverMomentLost extends HiveError {}
-
 export class SessionInUse extends HiveError {
   constructor(
     readonly reason: SessionSkipReason,
@@ -2243,30 +2239,30 @@ class SessionManager {
    * Hands one agent's work over to another (any provider): the source writes a handover with Hive's
    * hive_create_handover tool, then the target starts and picks it up with hive_read_latest_handover.
    * Conversations can't move between providers; a handover carries the work instead. To itself, it ends the agent's
-   * conversation: refused (#1057) while the agent works, waits, merges or is on a running lane, unless `queued` says Hive
-   * found the moment for it (handOverLater.ts): `between` a card loop's steps (its card through review, the next not begun,
-   * its turn over and watching for the next step: its handover says where the loop is, and the new conversation carries
-   * the loop on), or `now` (its turn over, nothing waiting for it).
+   * conversation: only while it may (#1057, handOverCheck.ts: idle, not merging, on no running lane's card), checked as
+   * it is asked and again just before the conversation ends.
    */
-  async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }, queued?: 'now' | 'between', stillSafe?: () => Promise<boolean>): Promise<void> {
-    const between = queued === 'between'
+  async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }): Promise<void> {
     projectPath = workspace.assertProject(projectPath)
     // To itself: the agent carries on in a new conversation (a long transcript made short again).
     const self = fromAgentId === toAgentId
     if (!this.hiveMcp(projectPath)) throw hiveError(msg({ id: 'session.handOver.noTools', defaultMessage: 'Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.', description: 'Hand Over to… is refused: agents need Hive\'s tools to write and read a handover. "Provide Hive tools to sessions" is a setting in Settings → Agent API: keep its name as Hive shows it.' }))
     const { agent: to } = await this.agentDef(projectPath, toAgentId)
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
-    // Ending its conversation only at a good moment (#1057): what the notice, the footer and the dialog offer, checked here
+    // Ending its conversation only while it may (#1057): what the notice, the footer and the dialog offer, checked here
     // too, so a notice or dialog left open while the agent started work, joined a lane or took the merge slot can't.
-    if (self && !queued && (await this.handOverWaits(projectPath, fromAgentId).catch(() => true))) throw hiveError(M.handOverNotNow, { agent: from.name }, { kind: 'conflict' })
+    if (self && !(await this.handOverAllowed(projectPath, fromAgentId).catch(() => false))) throw hiveError(M.handOverNotNow, { agent: from.name }, { kind: 'conflict' })
     const source = this.live.get(liveId(projectPath, fromAgentId))?.state ?? null
     const fromSession = source?.sessionId || from.lastSessionId || ''
     // The handover the target reads, by name: a newer one appearing meanwhile isn't the one meant.
     let handover = ''
+    // When the handover was asked for, and written (its file's time): the turn the request began writes it; another turn
+    // begun since, or after it was written, is other work.
+    let askedAt = NaN
+    let writtenAt = NaN
     if (opts.handover) {
       if (!source) throw hiveError(msg({ id: 'session.handOver.notRunning', defaultMessage: "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.", description: "Hand Over to… with a new handover is refused: the agent handing over isn't running. {agent} is its name." }), { agent: from.name })
-      const turnOver = (st: LiveSessionState): boolean => st.status === 'ready' || st.status === 'finished' || (between && st.status === 'watching')
-      if (!turnOver(source)) throw hiveError(M.handOverBusy, { agent: from.name }, { kind: 'conflict' })
+      if (source.status !== 'ready' && source.status !== 'finished') throw hiveError(M.handOverBusy, { agent: from.name }, { kind: 'conflict' })
       // Proof, not status: the target starts only once a handover newer than this one exists, written in the
       // source's own conversation (its header's Session, which Hive writes), not by another agent meanwhile.
       // Among the newest few, since another agent may write one after the source does.
@@ -2282,21 +2278,17 @@ class SessionManager {
         undefined,
         projectPath
       )
-      // What it is asked to write: between a loop's steps (#1057), where the loop is too.
-      // i18n-ignore: typed to the agent (agent-facing text stays English)
-      const loopBody = 'Your card is through review, and your conversation is long, so Hive is moving you to a new conversation before the next step. Please write a handover with the hive_create_handover tool so that you can continue in it: the card loop you are in (your role, the other agent, its cards in order and which are passed, the next step, its rounds and wait), the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop: take no further step of the loop in this conversation; the new one carries it on from the handover.'
-      // i18n-ignore: typed to the agent (agent-facing text stays English)
-      const plainBody = `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`
       // A handover delivery (#649), given now or not at all.
+      askedAt = Date.now()
       await this.delivery().now(projectPath, {
         agentId: fromAgentId,
         agentName: from.name,
         conversation: source.sessionId || null,
         kind: 'handover',
         from: HIVE_SENDER,
-        body: between ? loopBody : plainBody,
-        // Between a loop's steps the agent watches, which a new task never reaches ('free'); its next step waits meanwhile.
-        need: between ? 'idle' : 'free'
+        // i18n-ignore: typed to the agent (agent-facing text stays English)
+        body: `Please write a handover of this work with the hive_create_handover tool, so that ${self ? 'you can continue it in a new conversation' : `another agent (${to.name}) can continue it`}: the goal, what is done, decisions made and why, the current state, open problems and the next steps. Then stop.`,
+        need: 'free'
       })
       const t0 = Date.now()
       let idleSince = 0
@@ -2305,13 +2297,14 @@ class SessionManager {
         const h = (await this.recentHandovers(projectPath, 10).catch(() => [] as HandoverRef[])).find(isNew)
         if (h) {
           handover = h.relPath
+          writtenAt = Date.parse(h.modified)
           break
         }
         const st = this.live.get(liveId(projectPath, fromAgentId))?.state
         if (!st) throw hiveError(msg({ id: 'session.handOver.stopped', defaultMessage: '{agent} stopped before writing a handover.', description: "Hand Over to… failed: the agent handing over stopped. {agent} is its name." }), { agent: from.name })
         if (st.status === 'waiting') throw hiveError(msg({ id: 'session.handOver.asking', defaultMessage: '{agent} is asking you something before it can write the handover. Answer it, then hand over again without a new handover.', description: "Hand Over to… stopped: the agent handing over waits for the user. {agent} is its name." }), { agent: from.name })
         // Finished without one (the file can land a moment after the turn ends): give it 20 seconds.
-        idleSince = turnOver(st) ? idleSince || Date.now() : 0
+        idleSince = st.status === 'finished' || st.status === 'ready' ? idleSince || Date.now() : 0
         if (idleSince && Date.now() - idleSince > 20_000 && Date.now() - t0 > 30_000) throw hiveError(msg({ id: 'session.handOver.noneWritten', defaultMessage: '{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.', description: "Hand Over to… failed: the agent finished its turn without writing a handover. {agent} is its name." }), { agent: from.name })
         if (Date.now() - t0 > 15 * 60_000) throw hiveError(msg({ id: 'session.handOver.slow', defaultMessage: "{agent} didn't write its handover in 15 minutes.", description: "Hand Over to… gave up waiting for the handover. {agent} is the agent's name." }), { agent: from.name })
       }
@@ -2320,15 +2313,24 @@ class SessionManager {
       handover = (await this.latestHandover(projectPath))?.relPath ?? ''
       if (!handover) throw hiveError(msg({ id: 'session.handOver.none', defaultMessage: 'There is no handover for {project} yet. Hand over with a new handover instead.', description: "Hand Over to… with the latest handover is refused: the project has none. {project} is its name." }), { project: basename(projectPath) }, { kind: 'conflict' })
     }
-    // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below. Only if the moment
-    // still holds (#1057 round 3): writing the handover takes minutes, in which the agent can take the merge slot, begin the
-    // loop's next card, join a lane or be restarted. `stillSafe` is the queue's own check (its lane card); otherwise the
-    // entry's, as if its turn were over (it is ending now: it was told to stop once the handover is written).
+    // To itself: its conversation ends here (it stays in the Sessions tab), and a new one starts below. Only if it still
+    // may (#1057): writing the handover takes minutes, in which it can take the merge slot, join a lane, be relaunched, or
+    // be given other work (a task typed in, a background task's wake): being told to stop once the handover is written is
+    // no proof it has. Only the turn that wrote it may still be running; with no new handover, no turn may run.
     if (self && this.live.has(liveId(projectPath, fromAgentId))) {
       const sameLaunch = (): boolean => !source || this.live.get(liveId(projectPath, fromAgentId))?.state.runId === source.runId
-      const safe = sameLaunch() && (stillSafe ? await stillSafe().catch(() => false) : !(await this.handOverWaits(projectPath, fromAgentId, true).catch(() => true)))
-      // And with nothing awaited between this and the stop, the slot and the launch once more.
-      if (!safe || !sameLaunch() || this.live.get(liveId(projectPath, fromAgentId))?.state.mergeSlot) throw new HandOverMomentLost(withValues(M.handOverMomentLost, { agent: from.name, handover }), { kind: 'conflict' })
+      const otherWork = (): boolean => {
+        const l = this.live.get(liveId(projectPath, fromAgentId))
+        if (!l) return false
+        const a = l.ledger?.active
+        if (tasksWillWake(l.state) || l.state.status === 'waiting' || !!l.state.mergeSlot) return true
+        if (Number.isNaN(writtenAt)) return a?.state === 'running' || l.state.status === 'working'
+        const starts = l.turnStarts ?? []
+        return starts.filter((t) => t >= askedAt).length > 1 || starts.some((t) => t > writtenAt) || (a?.state === 'running' && a.startedAt > writtenAt)
+      }
+      const allowed = sameLaunch() && !otherWork() && (await this.handOverAllowed(projectPath, fromAgentId, true).catch(() => false))
+      // And with nothing awaited between this and the stop, its launch and its work once more.
+      if (!allowed || !sameLaunch() || otherWork()) throw hiveError(M.handOverMomentLost, { agent: from.name, handover }, { kind: 'conflict' })
     }
     if (self && this.live.has(liveId(projectPath, fromAgentId)) && !(await this.endConversation(projectPath, fromAgentId))) throw hiveError(msg({ id: 'session.handOver.didntStop', defaultMessage: '{agent} didn\'t stop. Stop it, then start it and ask it to read the handover "{handover}".', description: "Handing over to the same agent failed: it didn't stop to start a new conversation. {agent} is its name, {handover} the handover's path in the shared notes." }), { agent: from.name, handover })
     // The target: given the message in its running session, or started with it as its launch's task (#782), as a task
@@ -2374,7 +2376,7 @@ class SessionManager {
     if (!now) throw hiveError(msg({ id: 'session.newConversation.notRunning', defaultMessage: "It isn't running.", description: 'Giving an agent a task in a new conversation is refused: it isn\'t running.' }))
     if (now.pending || this.delivering.has(this.key(projectPath, agentId))) throw hiveError(msg({ id: 'session.newConversation.pending', defaultMessage: 'It has just been given a prompt that its CLI has not taken yet.', description: "Giving an agent a task in a new conversation is refused: a prompt Hive typed hasn't been taken yet." }))
     allowed?.()
-    if (!(await this.endConversation(projectPath, agentId))) throw hiveError(M.newConversationDidntStop)
+    if (!(await this.endConversation(projectPath, agentId))) throw hiveError(msg({ id: 'session.newConversation.didntStop', defaultMessage: "It didn't stop, so no new conversation was started.", description: "Giving an agent a task in a new conversation failed: it didn't stop." }))
     allowed?.()
     return this.start(projectPath, { agentId, prompt, allowed })
   }
@@ -3150,43 +3152,20 @@ class SessionManager {
     const label = this.label(st)
     const assistant = workspace.isAssistantHome(st.projectPath)
     log.info(`${userText(label)}: transcript is ${(bytes / 1024 ** 2).toFixed(1)} MB, over ${limitMB} MB`)
-    // What it can do (#1057): told, not pushed. Hand Over to… only while it is idle and on no running lane's card; else a
-    // hand-over after this card, which Hive does at a good moment (handOverLater.ts), as the footer's warning offers.
-    void this.handOverWaits(st.projectPath, st.agentId)
-      .catch(() => true)
-      .then((waits) => {
-        const when = assistant ? 'assistant' : waits ? 'later' : 'now'
-        const values = { size: formatSize(bytes), limit: limitMB, when }
-        const action: ToastAction =
-          when === 'now'
-            ? { label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverLongConversation', args: [st.projectPath, st.agentId] }
-            : { label: tr(assistant ? HAND_OVER_TEXT.laterAssistant : HAND_OVER_TEXT.later), command: 'session.handOverLater', args: [st.projectPath, st.agentId] }
-        toast('warning', tr(M.longConversation, { agent: label }), tr(HAND_OVER_TEXT.notice, values), [action], st.projectPath)
-        this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(HAND_OVER_TEXT.notice, values), 'notice')
-      })
+    // What it can do (#1057): told, not pushed. Hand Over to… only while it may hand over now (checked again when it is
+    // clicked, and by the hand-over); else that it can when it has finished.
+    void (assistant ? Promise.resolve(false) : this.handOverAllowed(st.projectPath, st.agentId).catch(() => false)).then((now) => {
+      const values = { size: formatSize(bytes), limit: limitMB, when: assistant ? 'assistant' : now ? 'now' : 'other' }
+      const actions: ToastAction[] | undefined = now ? [{ label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverLongConversation', args: [st.projectPath, st.agentId] }] : undefined
+      toast('warning', tr(M.longConversation, { agent: label }), tr(HAND_OVER_TEXT.notice, values), actions, st.projectPath)
+      this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(HAND_OVER_TEXT.notice, values), 'notice')
+    })
   }
 
-  /** Whether a hand-over asked for now waits for a good moment (#1057): set by handOverLater.ts, which knows the lanes. */
-  handOverWaits: (projectPath: string, agentId: string, turnOver?: boolean) => Promise<boolean> = async (projectPath, agentId, turnOver) => {
+  /** Whether the agent may hand over to a new conversation of its own now (#1057): set by handOverCheck.ts, which knows the lanes. */
+  handOverAllowed: (projectPath: string, agentId: string, turnOver?: boolean) => Promise<boolean> = async (projectPath, agentId, turnOver) => {
     const st = this.liveFor(projectPath, agentId)
-    return handOverWaits(turnOver && st ? { ...st, status: 'finished', backgroundTasks: 0 } : st, false)
-  }
-
-  /** Sets or clears a running agent's queued hand-over (#1057): false when that launch (`runId`) isn't running. */
-  setHandOverAfter(projectPath: string, agentId: string, runId: string | null, after: LiveSessionState['handOverAfter'] | null): boolean {
-    const l = this.live.get(liveId(projectPath, agentId))
-    if (!l || (runId !== null && l.state.runId !== runId)) return false
-    if (!after && !l.state.handOverAfter) return true
-    l.state.handOverAfter = after ?? undefined
-    this.emitState(l.state)
-    return true
-  }
-
-  /** The Assistant's new conversation, as ⋯ → New Conversation starts it (a queued one, #1057): its turn is over. */
-  async startAfresh(projectPath: string, agentId: string): Promise<void> {
-    projectPath = workspace.assertSessionHost(projectPath)
-    if (!(await this.endConversation(projectPath, agentId))) throw hiveError(M.newConversationDidntStop)
-    await this.start(projectPath, { agentId })
+    return handOverNow(turnOver && st ? { ...st, status: 'finished', backgroundTasks: 0 } : st, false)
   }
 
   /**
@@ -3340,11 +3319,6 @@ class SessionManager {
     if (typeof sessionId !== 'string' || !sessionId) return null
     for (const e of this.live.entries()) if (e[1].state.sessionId === sessionId && !e[1].state.settingUp) return e
     return null
-  }
-
-  /** "hive" for a project with one agent, "hive · Agent 2" when it has several (the Assistant: its name). */
-  agentLabel(st: LiveSessionState): string {
-    return this.label(st)
   }
 
   /** "hive" for a project with one agent, "hive · Agent 2" when it has several. */
@@ -3819,6 +3793,11 @@ class SessionManager {
   private noteTurn(l: LiveSession, unknown?: { since: number }): void {
     const st = l.state
     const a = l.ledger?.active
+    // A new turn: when it began, kept for a hand-over to itself to tell work begun after its handover was written.
+    if (a && a !== l.turnSeen) {
+      l.turnSeen = a
+      l.turnStarts = [...(l.turnStarts ?? []), a.startedAt].slice(-20)
+    }
     const turn: LiveSessionState['turn'] = !a ? undefined : unknown ? { state: 'unknown', ...(a.id ? { id: a.id } : {}), silentSince: new Date(unknown.since).toISOString() } : { state: a.state === 'running' ? 'running' : 'over', ...(a.id ? { id: a.id } : {}) }
     if (JSON.stringify(turn) === JSON.stringify(st.turn)) return
     st.turn = turn

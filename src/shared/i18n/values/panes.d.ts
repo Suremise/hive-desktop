@@ -44,7 +44,6 @@ interface HiveMessageValues {
   'panes.footer.costEstimated': undefined
   'panes.footer.costReported': undefined
   'panes.footer.ctxValue': { value: string | number }
-  'panes.footer.handOverQueued': { when: string; card: string | number }
   'panes.footer.handOverWhen': { when: string }
   'panes.footer.modelTip': { chosenAs: string; model: string | number; provider: string | number; effort: string; live: string; reported: string; where: string | number }
   'panes.footer.reading': undefined
@@ -86,7 +85,6 @@ interface HiveMessageValues {
   'panes.menu.compact': undefined
   'panes.menu.discard': undefined
   'panes.menu.handOver': undefined
-  'panes.menu.handOverQueued': { when: string; card: string | number }
   'panes.menu.moveLeft': undefined
   'panes.menu.moveRight': undefined
   'panes.menu.remove': undefined

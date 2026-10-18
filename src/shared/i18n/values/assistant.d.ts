@@ -139,6 +139,7 @@ interface HiveMessageValues {
   'assistant.panel.tellFailed': undefined
   'assistant.panel.theAssistant': undefined
   'assistant.panel.title': undefined
+  'assistant.panel.transcriptAdvice': undefined
   'assistant.panel.watches': { name: string | number }
   'assistant.panel.workingOn': { number: string | number; title: string | number }
   'assistant.panel.workspace': undefined

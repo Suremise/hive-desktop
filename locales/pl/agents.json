@@ -137,7 +137,7 @@
   "agents.handOver.off": "{cli} jest wyłączony.",
   "agents.handOver.running": "Działa: dostanie wiadomość w bieżącej sesji.",
   "agents.handOver.self": "{agent}, w nowej rozmowie",
-  "agents.handOver.selfLater": "Scala lub jest na karcie pętli kart: Przekaż pracę po tej karcie (w jego menu ⋯) przekaże ją w dobrym momencie.",
+  "agents.handOver.selfLater": "Scala lub jest na karcie pętli kart: może kontynuować w nowej rozmowie, gdy skończy.",
   "agents.handOver.selfNote": "Jego rozmowa kończy się tutaj (zostaje w zakładce Sesje), a nowa kontynuuje od notatki przekazania.{size, select, none {} other { Jego transkrypcja ma {size}.}}",
   "agents.handOver.starts": "Rozpoczyna nową sesję {cli}.",
   "agents.handOver.stopped": "{who, select, self {Agent {from} nie działa, więc nowa rozmowa kontynuuje od ostatniej notatki przekazania.} other {Agent {from} nie działa, więc {other} kontynuuje od ostatniej notatki przekazania.} none {Agent {from} nie działa, więc drugi agent kontynuuje od ostatniej notatki przekazania.}} Najpierw wznów agenta {from}, żeby napisał nową.",
