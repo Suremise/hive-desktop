@@ -226,6 +226,8 @@ async function runScenario(sc, providerKey, opts = {}) {
   const mcpLog = path.join(root, 'mcp-calls.jsonl')
   // Each change to the merge slots, with its time (HIVE_TEST_MERGE_SLOT_LOG, #374): who held one and who waited, when.
   const slotLog = path.join(root, 'merge-slots.jsonl')
+  // Each state view Hive gave the Assistant at a session start (#1032), as Hive's development builds record them.
+  const startViewLog = path.join(root, 'start-views.jsonl')
   // What fake-copilot's stand-in model was sent (it starts just before the launch, below).
   const modelLog = path.join(root, 'copilot-api.jsonl')
   // Emptied first (with no evidence store: a caller of its own, like an e2e suite). Still in use (something an earlier
@@ -293,6 +295,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       HIVE_TEST_TIPS: 'off',
       HIVE_TEST_MCP_LOG: mcpLog,
       HIVE_TEST_MERGE_SLOT_LOG: slotLog,
+      HIVE_TEST_START_VIEW_LOG: startViewLog,
       CLAUDE_CONFIG_DIR: providerKey === 'claude-code' ? CLAUDE_TEST_HOME : fakeHome,
       CODEX_HOME: providerKey === 'fake-codex' ? fakeCodexHome : lib.CODEX_HOME,
       // The real Codex runs its commands in Windows PowerShell, not the Store's PowerShell 7 (#584, lib.cjs).
@@ -434,6 +437,10 @@ async function runScenario(sc, providerKey, opts = {}) {
       },
       /** The fake Claude Code's home (CLAUDE_CONFIG_DIR), where it reads its scripts and writes its logs. */
       fakeHome,
+      /** The provider under test (claude-code, codex, copilot), whichever of its fakes or the real CLI runs. */
+      provider: p.provider,
+      /** The state views Hive gave the Assistant (#1032), oldest first: { at, provider, source, text }. */
+      startViews: () => (fs.existsSync(startViewLog) ? fs.readFileSync(startViewLog, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
       /** An agent's deliveries (#647) as the Agent API gives them, newest last. */
       deliveries: async (key) => (await api('GET', `/v1/projects/alpha/agents/${encodeURIComponent(ctx.agents[key].name)}/deliveries?limit=50`)).body?.deliveries ?? []
     }
@@ -462,6 +469,8 @@ async function runScenario(sc, providerKey, opts = {}) {
     if (sc.beforeLaunch) await sc.beforeLaunch(ctx)
     await inv('session:start', host, { agentId })
     const key = lib.ptyKey(host, agentId)
+    /** Sends the session under test another prompt (a scenario's later step, from `during`): typed until it works. */
+    ctx.promptSubject = (text) => lib.sendPrompt(inv, key, text, { submitted: async () => ['working', 'background'].includes((await live())?.status), waitMs: 20000 })
     // Skipped for the environment (#302): no checks, no cost; the runner stops the provider's other trials.
     const skipFor = (why) => {
       result.environment = why

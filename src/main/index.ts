@@ -10,7 +10,7 @@ import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, 
 import { execFile } from 'child_process'
 import { appendFileSync, createReadStream, existsSync } from 'original-fs'
 import { basename, join, resolve, sep } from 'path'
-import { readFile, stat } from 'original-fs/promises'
+import { appendFile, readFile, stat } from 'original-fs/promises'
 import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, TaskCard, WindowState } from '../shared/types'
 import { providerService } from './providerService'
@@ -921,7 +921,13 @@ app.whenReady().then(async () => {
       return withLatestHandover(hiveInstructions(project, 'agent', wrapsLongCommands(config.settings.general)), latest?.relPath)
     })
   // The Assistant's state view at each start and after each compaction, while its journal is on (#1032).
-  sessions.startContext = async (state, source) => (workspace.isAssistantHome(state.projectPath) ? assistantStartView(workspaceOf(state.projectPath), sessions.liveStates(), source) : null)
+  sessions.startContext = async (state, source) => {
+    if (!workspace.isAssistantHome(state.projectPath)) return null
+    const view = await assistantStartView(workspaceOf(state.projectPath), sessions.liveStates(), source)
+    // Tests only (development builds): each view Hive gave, whatever the CLI does with it (tests/scenarios).
+    if (view && !app.isPackaged && process.env.HIVE_TEST_START_VIEW_LOG) await appendFile(process.env.HIVE_TEST_START_VIEW_LOG, JSON.stringify({ at: new Date().toISOString(), provider: state.provider, source, text: view }) + '\n').catch(() => undefined)
+    return view
+  }
   sessions.recentHandovers = (projectPath, count) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       const recent = (await handoversFor(workspace, basename(projectPath))).slice(0, count)

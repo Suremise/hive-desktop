@@ -79,11 +79,33 @@ describe('the state view as text', () => {
       })
     )
     expect(utf8Bytes(v)).toBeLessThanOrEqual(START_VIEW_MAX_BYTES)
-    // What matters most got room first, with a count of the rest.
+    // Every section is there (each gets its first lines before any gets more), with a count of the rest.
+    for (const title of ['Waiting on the user:', 'Cards in Doing and Review:', 'Lanes running:', 'Agents running:', 'Board:', 'Journal: recent decisions and plans:', 'Journal: on the cards in hand:', 'Journal: recent incidents:', 'Weekly digest:']) expect(v, title).toContain(`\n${title}\n`)
     expect(v).toMatch(/Waiting on the user:\n- #2000/)
     expect(v).toMatch(/- \(\d+ more: hive_list_tasks and hive_list_projects\)/)
     // Lines are whole: long text is clipped within its line.
-    for (const line of v.split('\n')) expect(line.length).toBeLessThan(400)
+    for (const line of v.split('\n')) expect(line.length).toBeLessThanOrEqual(300)
+  })
+
+  it("keeps the journal and the board when one section is crowded (#1032 round 2: 100 blocked cards left no memory)", () => {
+    const reason = 'r'.repeat(120)
+    const v = startView(
+      empty({
+        source: 'compact',
+        counts: [{ project: 'alpha', columns: { doing: 1, todo: 100 } }],
+        active: [card(1, { title: 'The one in hand' })],
+        blocked: Array.from({ length: 100 }, (_, i) => card(100 + i, { column: 'todo', agent: null, blocked: reason })),
+        journal: { decisions: [entry(5, { summary: 'Darren: "Welcome back!" is the greeting', importance: 2 })], incidents: [], onCards: [], digestDue: '2026-W41' }
+      })
+    )
+    expect(utf8Bytes(v)).toBeLessThanOrEqual(START_VIEW_MAX_BYTES)
+    expect(v).toContain('- #1 Doing · alpha · B1: The one in hand')
+    expect(v).toContain('Darren: "Welcome back!" is the greeting')
+    expect(v).toContain('2026-W41 has entries but no digest')
+    expect(v).toContain('Board:\n- alpha: 1 Doing, 100 Todo')
+    // The crowded section still gets what is left, and says how many it left out.
+    expect(v).toMatch(/- \(\d+ more: hive_list_tasks and hive_list_projects\)/)
+    expect((v.match(/blocked: r+/g) ?? []).length).toBeGreaterThan(10)
   })
 })
 
