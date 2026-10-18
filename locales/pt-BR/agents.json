@@ -137,6 +137,7 @@
   "agents.handOver.off": "{cli} está desativado.",
   "agents.handOver.running": "Em execução: recebe a mensagem na sessão atual.",
   "agents.handOver.self": "{agent}, em uma nova conversa",
+  "agents.handOver.selfLater": "Ele está fazendo merge ou num cartão de um loop de cartões: Passar depois deste cartão (no menu ⋯ dele) passa num bom momento.",
   "agents.handOver.selfNote": "A conversa termina aqui (ela continua na aba Sessões) e uma nova continua a partir da passagem.{size, select, none {} other { A transcrição tem {size}.}}",
   "agents.handOver.starts": "Inicia uma nova sessão do {cli}.",
   "agents.handOver.stopped": "{who, select, self {O agente {from} não está em execução, então uma nova conversa continua a partir da passagem mais recente.} other {O agente {from} não está em execução, então o agente {other} continua a partir da passagem mais recente.} none {O agente {from} não está em execução, então o outro agente continua a partir da passagem mais recente.}} Retome o agente {from} antes para que ele escreva uma nova.",

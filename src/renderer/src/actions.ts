@@ -20,9 +20,20 @@ import { AgentsDetail, batchAgentsData, projectAgentsData, tableText } from './c
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
+const HAND_OVER_LATER_FAILED = msg({ id: 'actions.handOverLater.failed', defaultMessage: "Couldn't queue the hand-over", description: "An error's title: queuing an agent's hand-over after its card (Hand Over After This Card) failed." })
+
 /** Queues an agent's hand-over to a new conversation after this card (#1057), which Hive does at a good moment. */
 export async function handOverLater(path: string, agentId: string): Promise<void> {
-  await attempt(tr(msg({ id: 'actions.handOverLater.failed', defaultMessage: "Couldn't queue the hand-over", description: "An error's title: queuing an agent's hand-over after its card (Hand Over After This Card) failed." })), () => call('session:handOverLater', path, agentId))
+  await attempt(tr(HAND_OVER_LATER_FAILED), () => call('session:handOverLater', path, agentId))
+}
+
+/**
+ * What the long-conversation notice and the footer's size do when clicked: Hand Over to… now, else after this card. Hive
+ * decides (it knows the lanes and merge slots as they are, the window may not yet): a stopped agent gets the dialog.
+ */
+export async function handOverLongConversation(path: string, agentId: string): Promise<void> {
+  const r = await attempt(tr(HAND_OVER_LATER_FAILED), () => call('session:handOverLongConversation', path, agentId))
+  if (r === 'dialog' || r === null) set({ handOverFor: { project: path, agentId } })
 }
 
 /** Cancels an agent's queued hand-over. */

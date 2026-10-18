@@ -42,6 +42,7 @@ interface HiveMessageValues {
   'session.handOver.noTools': undefined
   'session.handOver.none': { project: string | number }
   'session.handOver.noneWritten': { agent: string | number }
+  'session.handOver.notNow': { agent: string | number }
   'session.handOver.notRunning': { agent: string | number }
   'session.handOver.other': { agent: string | number }
   'session.handOver.self': undefined

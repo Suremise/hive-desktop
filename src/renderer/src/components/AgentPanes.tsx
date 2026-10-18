@@ -16,8 +16,7 @@ import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
-import { HAND_OVER_TEXT, handOverWaits, handOverWhen } from '@shared/handOver'
-import { laneRunning } from '@shared/laneBar'
+import { HAND_OVER_TEXT, handOverWaits, handOverWhen, onRunningLane } from '@shared/handOver'
 import { call, errorMessage } from '../api'
 import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
@@ -1392,14 +1391,13 @@ export function PaneFooter({
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
   const tasks = live?.backgroundTasks ?? 0
-  const inLane = useStore((s) => !assistant && s.lanes.some((l) => laneRunning(l.state) && l.project.toLowerCase() === project.name.toLowerCase() && (l.builder.id === a.id || l.reviewer?.id === a.id)))
+  const inLane = useStore((s) => !assistant && onRunningLane(s.lanes, project.name, a.id))
   const queued = live?.handOverAfter
   // What a click on the size does, as the notice offers (#1057): Hand Over to… (now), or a hand-over at a good moment.
   const when = assistant ? 'assistant' : handOverWaits(live, inLane) ? 'later' : 'now'
   const transcriptClick = (): void => {
     if (queued) void actions.cancelHandOverLater(project.path, a.id)
-    else if (when === 'now') set({ handOverFor: { project: project.path, agentId: a.id } })
-    else void actions.handOverLater(project.path, a.id)
+    else void actions.handOverLongConversation(project.path, a.id)
   }
   // The first time either turns amber: the tip about what to do.
   useEffect(() => void (long && offerTip('transcript-long')), [long])

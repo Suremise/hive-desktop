@@ -103,6 +103,7 @@
   "shell.command.session.compact": "压缩对话…",
   "shell.command.session.focusTerminal": "聚焦会话终端",
   "shell.command.session.handOverLater": "在卡片之后交接智能体",
+  "shell.command.session.handOverLongConversation": "交接过长的对话",
   "shell.command.session.handOverTo": "交接智能体的工作",
   "shell.command.session.new": "新建会话",
   "shell.command.session.permissionMode": "切换权限模式…",

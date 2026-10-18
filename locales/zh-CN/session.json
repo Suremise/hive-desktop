@@ -40,6 +40,7 @@
   "session.handOver.noTools": "交接需要会话中有 Hive 工具：请在“设置”→“Agent API”中开启“为会话提供 Hive 工具”。",
   "session.handOver.none": "{project} 还没有交接说明。请让智能体写一份新的交接说明再交接。",
   "session.handOver.noneWritten": "{agent} 已结束，但没有写交接说明。请让它写一份，然后再次交接（不新建交接说明）。",
+  "session.handOver.notNow": "{agent} 正在工作、等待、合并，或在卡片循环的卡片上，因此现在不会结束它的对话。请使用“这张卡片之后交接”：Hive 会在合适的时机交接。",
   "session.handOver.notRunning": "{agent} 未在运行。请恢复它来写交接说明，或交接最新的交接说明。",
   "session.handOver.other": "写完后，{agent} 将据此继续工作。",
   "session.handOver.self": "写完后，它将在新对话中据此继续工作。",

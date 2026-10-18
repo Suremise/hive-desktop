@@ -103,6 +103,7 @@
   "shell.command.session.compact": "Compactar la conversación…",
   "shell.command.session.focusTerminal": "Ir a la terminal de la sesión",
   "shell.command.session.handOverLater": "Traspasar un agente después de su tarjeta",
+  "shell.command.session.handOverLongConversation": "Traspasar una conversación larga",
   "shell.command.session.handOverTo": "Traspasar el trabajo de un agente",
   "shell.command.session.new": "Nueva sesión",
   "shell.command.session.permissionMode": "Cambiar el modo de permisos…",

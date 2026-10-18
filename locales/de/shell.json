@@ -103,6 +103,7 @@
   "shell.command.session.compact": "Unterhaltung komprimieren…",
   "shell.command.session.focusTerminal": "Terminal der Sitzung fokussieren",
   "shell.command.session.handOverLater": "Agent nach seiner Karte übergeben",
+  "shell.command.session.handOverLongConversation": "Lange Unterhaltung übergeben",
   "shell.command.session.handOverTo": "Arbeit eines Agenten übergeben",
   "shell.command.session.new": "Neue Sitzung",
   "shell.command.session.permissionMode": "Berechtigungsmodus wechseln…",

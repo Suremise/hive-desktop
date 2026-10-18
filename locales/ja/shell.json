@@ -103,6 +103,7 @@
   "shell.command.session.compact": "会話をコンパクト化…",
   "shell.command.session.focusTerminal": "セッションのターミナルにフォーカス",
   "shell.command.session.handOverLater": "エージェントをカードの後で引き継ぐ",
+  "shell.command.session.handOverLongConversation": "長い会話を引き継ぐ",
   "shell.command.session.handOverTo": "エージェントの作業を引き継ぐ",
   "shell.command.session.new": "新しいセッション",
   "shell.command.session.permissionMode": "権限モードを切り替え…",

@@ -40,6 +40,7 @@
   "session.handOver.noTools": "Passer le relais nécessite les outils Hive dans les sessions : active « Fournir les outils Hive aux sessions » dans Paramètres → Agent API.",
   "session.handOver.none": "Il n’y a pas encore de passation pour le projet {project}. Passe plutôt le relais avec une nouvelle passation.",
   "session.handOver.noneWritten": "L’agent {agent} a terminé sans écrire de passation. Demande-lui d’en écrire une, puis passe de nouveau le relais sans nouvelle passation.",
+  "session.handOver.notNow": "L’agent {agent} travaille, attend, fusionne ou est sur une carte d’une boucle de cartes : sa conversation n’est donc pas terminée maintenant. Utilise Passer le relais après cette carte : Hive le fait au bon moment.",
   "session.handOver.notRunning": "L’agent {agent} ne tourne pas. Reprends-le pour qu’il écrive une passation, ou passe le relais avec la dernière passation.",
   "session.handOver.other": "L’agent {agent} prendra la suite une fois la passation écrite.",
   "session.handOver.self": "L’agent prendra la suite dans une nouvelle conversation une fois la passation écrite.",

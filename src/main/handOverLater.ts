@@ -74,6 +74,15 @@ export async function queueHandOver(projectPath: string, agentId: string): Promi
   return after
 }
 
+/**
+ * A long conversation's hand-over as the notice and the footer offer it, decided when clicked: Hand Over to… (`dialog`,
+ * for the window to open) while the agent is idle and on no running lane, else queued (`queued`). Null: not running.
+ */
+export async function handOverLongConversation(projectPath: string, agentId: string): Promise<'dialog' | 'queued' | null> {
+  if (!isAssistant(projectPath) && !(await waits(projectPath, agentId))) return 'dialog'
+  return (await queueHandOver(projectPath, agentId)) ? 'queued' : null
+}
+
 /** Cancels a queued hand-over (one being done already carries on). */
 export function cancelHandOver(projectPath: string, agentId: string): void {
   const st = sessions.liveFor(projectPath, agentId)
@@ -95,12 +104,18 @@ async function check(projectPath: string, agentId: string): Promise<void> {
   if (!st || !h) return
   doing.add(key)
   try {
-    const lane = h.lane ? await getLane(workspaceOf(projectPath), h.lane).catch(() => null) : null
+    // The lane it is on now (one it joined since counts), else the one it was queued on, as it is now.
+    const lane = (await runningLane(projectPath, agentId)) ?? (h.lane ? await getLane(workspaceOf(projectPath), h.lane).catch(() => null) : null)
     // Again after the await: what it was queued on may have changed meanwhile.
     const now = sessions.liveFor(projectPath, agentId)
     if (now?.runId !== st.runId || !now.handOverAfter) return
     const d = handOverDecision(now, lane, (need) => readyFor(now, need))
     if ('wait' in d) {
+      // Waiting for another card now: kept on the queue, so the notice's and the footer's words follow it.
+      if (d.follow && (now.handOverAfter.lane !== d.follow.lane || now.handOverAfter.card !== d.follow.card)) {
+        sessions.setHandOverAfter(projectPath, agentId, st.runId, { ...now.handOverAfter, ...d.follow })
+        log.info(`${userText(sessions.agentLabel(now))}: queued hand-over now after card ${d.follow.card} (lane ${d.follow.lane})`)
+      }
       // With the lane's card, so a move of the lane under the same reason is a line too.
       // i18n-ignore: a log line (English)
       const why = `${d.wait}${lane ? `, lane on #${lane.current ?? 'none'}` : ''}`
@@ -116,7 +131,7 @@ async function check(projectPath: string, agentId: string): Promise<void> {
     log.info(`${userText(name)}: handing over (${moment})`)
     try {
       if (isAssistant(projectPath)) await inWorkspace(ws, () => sessions.startAfresh(projectPath, agentId))
-      else await inWorkspace(ws, () => sessions.handOver(projectPath, agentId, agentId, { handover: true }, moment === 'between'))
+      else await inWorkspace(ws, () => sessions.handOver(projectPath, agentId, agentId, { handover: true }, moment))
     } catch (e) {
       // Not given after all (it took a turn meanwhile, or is busy): queued again for its next good moment.
       if (e instanceof NotGiven || (e instanceof HiveError && e.kind === 'conflict' && sessions.liveFor(projectPath, agentId)?.runId === st.runId)) {

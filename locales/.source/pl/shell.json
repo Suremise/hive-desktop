@@ -103,6 +103,7 @@
   "shell.command.session.compact": "Compact Conversation…",
   "shell.command.session.focusTerminal": "Focus Session Terminal",
   "shell.command.session.handOverLater": "Hand Over an Agent After Its Card",
+  "shell.command.session.handOverLongConversation": "Hand Over a Long Conversation",
   "shell.command.session.handOverTo": "Hand Over an Agent's Work",
   "shell.command.session.new": "New Session",
   "shell.command.session.permissionMode": "Switch Permission Mode…",

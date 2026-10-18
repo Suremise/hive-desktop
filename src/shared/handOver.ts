@@ -13,6 +13,10 @@ import type { LaneInfo, LiveSessionState } from './types'
 
 type Live = Pick<LiveSessionState, 'status' | 'provider' | 'backgroundTasks' | 'mergeSlot' | 'handOverAfter'>
 
+/** Whether an agent is the builder or reviewer of a running lane of its project (`project`: the folder's name). */
+export const onRunningLane = (lanes: readonly LaneInfo[], project: string, agentId: string): boolean =>
+  lanes.some((l) => laneRunning(l.state) && l.project.toLowerCase() === project.toLowerCase() && (l.builder.id === agentId || l.reviewer?.id === agentId))
+
 /**
  * Whether a hand-over asked for now should wait for a good moment rather than happen at once: the agent works, waits
  * for the user or for its background tasks, merges, or is on a running lane. Not running: no (Hand Over to… hands over
@@ -23,25 +27,35 @@ export function handOverWaits(st: Live | null | undefined, inLane: boolean): boo
   return inLane || !(st.status === 'ready' || st.status === 'finished') || tasksWillWake(st) || !!st.mergeSlot
 }
 
-/** Why a queued hand-over waits, or what to do now (see handOverMoment). */
-export type HandOverDecision = { do: 'now' | 'between' } | { wait: 'merging' | 'card' | 'lane-end' | 'turn' | 'none' }
+/**
+ * Why a queued hand-over waits, or what to do now (see handOverMoment). `follow`: the lane card it now waits for, to keep
+ * on the queue (a lane joined since, or a next card begun before its turn was over).
+ */
+export type HandOverDecision = { do: 'now' | 'between' } | { wait: 'merging' | 'card' | 'lane-end' | 'turn' | 'none'; follow?: { lane: string; card: number } }
+
+const begun = (c: { column: string } | undefined): boolean => !!c && (c.column === 'doing' || c.column === 'review')
 
 /**
  * A queued hand-over: wait (and why), hand over now (its turn is over and nothing waits for it), or hand over between a
- * loop's steps (its lane card is through review, it watches for the next step). `lane` is the queued lane as it is now
- * (null: gone); `ready` the readiness check for a line of that need (main's readyFor).
+ * loop's steps (its lane card is through review, the next not begun, and it watches for the next step). `lane` is the
+ * running lane the agent is on now, else the queued one as it is now (null: none, or gone); `ready` the readiness check
+ * for a line of that need (main's readyFor).
  */
 export function handOverDecision(st: Live | null | undefined, lane: LaneInfo | null, ready: (need: DeliveryNeed) => boolean): HandOverDecision {
   const h = st?.handOverAfter
   if (!st || !h) return { wait: 'none' }
   // Never during a merge: holding the merge slot, or in line for it.
   if (st.mergeSlot) return { wait: 'merging' }
-  if (h.lane && lane && laneRunning(lane.state)) {
-    // Asked for while its lane merged (no card left), or every card passed since (its merge due): once the lane has ended.
-    if (h.card === null || !lane.current) return { wait: 'lane-end' }
+  if (lane && laneRunning(lane.state)) {
+    // Every card passed (its merge due): once the lane has ended.
+    if (!lane.current) return { wait: 'lane-end' }
+    // A lane it is on since it was queued (or queued while its lane had no card left): after that lane's current card.
+    if (h.lane !== lane.id || h.card === null) return { wait: 'card', follow: { lane: lane.id, card: lane.current } }
     const card = lane.cards.find((c) => c.number === h.card)
     const through = !card || card.column === 'passed' || card.column === 'done' || card.column === 'gone'
     if (!through || lane.current === h.card) return { wait: 'card' }
+    // The next card begun already (its turn ran on into it): that card's end is the next boundary, never part-way.
+    if (begun(lane.cards.find((c) => c.number === lane.current))) return { wait: 'card', follow: { lane: lane.id, card: lane.current } }
     return ready('idle') ? { do: 'between' } : { wait: 'turn' }
   }
   return ready('free') ? { do: 'now' } : { wait: 'turn' }

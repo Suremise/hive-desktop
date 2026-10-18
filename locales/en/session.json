@@ -163,6 +163,10 @@
     "defaultMessage": "{agent} finished without writing a handover. Ask it to write one, then hand over again without a new handover.",
     "description": "Hand Over to… failed: the agent finished its turn without writing a handover. {agent} is its name."
   },
+  "session.handOver.notNow": {
+    "defaultMessage": "{agent} is working, waiting, merging or on a card loop's card, so its conversation isn't ended now. Use Hand Over After This Card: Hive hands it over at a good moment.",
+    "description": "Handing an agent over to itself (a new conversation) is refused: it is busy, merging or on a card of a running card loop. {agent} is its name. Hand Over After This Card is a command (a button and an agent menu item): use its translation."
+  },
   "session.handOver.notRunning": {
     "defaultMessage": "{agent} isn't running. Resume it to write a handover, or hand over the latest handover.",
     "description": "Hand Over to… with a new handover is refused: the agent handing over isn't running. {agent} is its name."

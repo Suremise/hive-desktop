@@ -137,6 +137,7 @@
   "agents.handOver.off": "{cli} ist ausgeschaltet.",
   "agents.handOver.running": "Läuft: erhält die Nachricht in der aktuellen Sitzung.",
   "agents.handOver.self": "{agent}, in einer neuen Unterhaltung",
+  "agents.handOver.selfLater": "Der Agent mergt oder ist auf einer Karte einer Kartenschleife: Nach dieser Karte übergeben (in seinem ⋯-Menü) übergibt zu einem passenden Zeitpunkt.",
   "agents.handOver.selfNote": "Die Unterhaltung endet hier (sie bleibt im Tab „Sitzungen“), und eine neue macht ab der Übergabe weiter.{size, select, none {} other { Das Transkript ist {size} groß.}}",
   "agents.handOver.starts": "Startet eine neue Sitzung von {cli}.",
   "agents.handOver.stopped": "{who, select, self {{from} läuft nicht, daher macht eine neue Unterhaltung ab der letzten Übergabe weiter.} other {{from} läuft nicht, daher macht {other} ab der letzten Übergabe weiter.} none {{from} läuft nicht, daher macht der andere Agent ab der letzten Übergabe weiter.}} Setze {from} zuerst fort, um eine neue schreiben zu lassen.",

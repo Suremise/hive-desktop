@@ -95,7 +95,7 @@ describe('handOverMoment', () => {
   it('in a lane: between its steps once the card is through and the lane is on another, its turn over', () => {
     const st = live('watching', { handOverAfter: queued(7) })
     expect(handOverMoment(st, lane('active', [card(7, 'passed'), card(8, 'todo')]), readiness(st))).toBe('between')
-    expect(handOverMoment(st, lane('active', [card(7, 'gone'), card(8, 'doing')]), readiness(st))).toBe('between')
+    expect(handOverMoment(st, lane('active', [card(7, 'gone'), card(8, 'todo')]), readiness(st))).toBe('between')
     const working = live('working', { handOverAfter: queued(7) })
     expect(handOverMoment(working, lane('active', [card(7, 'passed'), card(8, 'doing')]), readiness(working))).toBe('wait')
   })
@@ -127,6 +127,29 @@ describe('handOverDecision', () => {
     const working = live('working', { handOverAfter: queued(null, null) })
     expect(handOverDecision(working, null, readiness(working))).toEqual({ wait: 'turn' })
     expect(handOverDecision(live('ready'), null, readiness(live('ready')))).toEqual({ wait: 'none' })
+  })
+})
+
+describe('a queued hand-over follows the lane (round 2)', () => {
+  it('never once the next card has begun: that card is the one it waits for now', () => {
+    const st = live('watching', { handOverAfter: queued(7) })
+    expect(handOverDecision(st, lane('active', [card(7, 'passed'), card(8, 'review'), card(9, 'todo')]), readiness(st))).toEqual({ wait: 'card', follow: { lane: 'lane-1', card: 8 } })
+    expect(handOverDecision(st, lane('active', [card(7, 'passed'), card(8, 'doing')]), readiness(st))).toEqual({ wait: 'card', follow: { lane: 'lane-1', card: 8 } })
+    // Followed, it goes ahead once that card has passed and the one after hasn't begun.
+    const next = live('watching', { handOverAfter: queued(8) })
+    expect(handOverMoment(next, lane('active', [card(7, 'passed'), card(8, 'passed'), card(9, 'todo')]), readiness(next))).toBe('between')
+  })
+
+  it("a lane joined after it was queued: after that lane's current card", () => {
+    const st = live('finished', { handOverAfter: queued(null, null) })
+    expect(handOverDecision(st, lane('active', [card(4, 'review')]), readiness(st))).toEqual({ wait: 'card', follow: { lane: 'lane-1', card: 4 } })
+    const other = live('finished', { handOverAfter: queued(2, 'lane-0') })
+    expect(handOverDecision(other, lane('active', [card(4, 'review')]), readiness(other))).toEqual({ wait: 'card', follow: { lane: 'lane-1', card: 4 } })
+  })
+
+  it('queued while its lane merged, and a card added since: after that card', () => {
+    const st = live('finished', { handOverAfter: queued(null) })
+    expect(handOverDecision(st, lane('active', [card(7, 'passed'), card(8, 'todo')]), readiness(st))).toEqual({ wait: 'card', follow: { lane: 'lane-1', card: 8 } })
   })
 })
 

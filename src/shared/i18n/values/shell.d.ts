@@ -105,6 +105,7 @@ interface HiveMessageValues {
   'shell.command.session.compact': undefined
   'shell.command.session.focusTerminal': undefined
   'shell.command.session.handOverLater': undefined
+  'shell.command.session.handOverLongConversation': undefined
   'shell.command.session.handOverTo': undefined
   'shell.command.session.new': undefined
   'shell.command.session.permissionMode': undefined

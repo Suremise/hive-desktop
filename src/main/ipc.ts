@@ -65,7 +65,7 @@ import * as projectAgents from './projectAgents'
 import * as templates from './templates'
 import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
-import { cancelHandOver, queueHandOver } from './handOverLater'
+import { cancelHandOver, handOverLongConversation, queueHandOver } from './handOverLater'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
@@ -705,6 +705,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, { handover: !!opts?.handover }),
     'session:handOverLater': (p, agentId) => queueHandOver(workspace.assertSessionHost(p), String(agentId)),
+    'session:handOverLongConversation': (p, agentId) => handOverLongConversation(workspace.assertSessionHost(p), String(agentId)),
     'session:cancelHandOverLater': (p, agentId) => cancelHandOver(workspace.assertSessionHost(p), String(agentId)),
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),

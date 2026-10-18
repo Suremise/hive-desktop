@@ -139,6 +139,7 @@ interface HiveMessageValues {
   'agents.handOver.off': { cli: string | number }
   'agents.handOver.running': undefined
   'agents.handOver.self': { agent: string | number }
+  'agents.handOver.selfLater': undefined
   'agents.handOver.selfNote': { size: string }
   'agents.handOver.starts': { cli: string | number }
   'agents.handOver.stopped': { who: string; from: string | number; other: string | number }

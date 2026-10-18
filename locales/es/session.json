@@ -40,6 +40,7 @@
   "session.handOver.noTools": "Traspasar necesita las herramientas de Hive en las sesiones: activa “Dar las herramientas de Hive a las sesiones” en Configuración → Agent API.",
   "session.handOver.none": "Todavía no hay ningún traspaso para el proyecto {project}. Haz un traspaso nuevo.",
   "session.handOver.noneWritten": "El agente {agent} terminó sin escribir un traspaso. Pídele que escriba uno y vuelve a traspasar sin un traspaso nuevo.",
+  "session.handOver.notNow": "El agente {agent} está trabajando, esperando, fusionando o en una tarjeta de un bucle de tarjetas, así que su conversación no se termina ahora. Usa Traspasar después de esta tarjeta: Hive lo traspasa en un buen momento.",
   "session.handOver.notRunning": "El agente {agent} no está en ejecución. Reanúdalo para que escriba un traspaso, o traspasa el último traspaso.",
   "session.handOver.other": "El agente {agent} continúa a partir del traspaso cuando esté listo.",
   "session.handOver.self": "Continúa a partir del traspaso en una conversación nueva cuando esté listo.",

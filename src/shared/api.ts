@@ -357,6 +357,11 @@ export interface HiveRequests {
   'session:handOver': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
   /** Queues a running agent's hand-over to a new conversation after this card (#1057): done by Hive at a good moment; null: not running. */
   'session:handOverLater': (projectPath: string, agentId: string) => LiveSessionState['handOverAfter'] | null
+  /**
+   * A long conversation's hand-over (the notice's button, the footer's size), decided now by Hive, which knows the lanes
+   * and the merge slots (#1057): `dialog` (idle, on no running lane: Hand Over to… is for the window to open) or `queued`.
+   */
+  'session:handOverLongConversation': (projectPath: string, agentId: string) => 'dialog' | 'queued' | null
   /** Cancels an agent's queued hand-over. */
   'session:cancelHandOverLater': (projectPath: string, agentId: string) => void
   /** Turns Plan mode on or off in a running agent, for providers where it is a toggle (Codex). */

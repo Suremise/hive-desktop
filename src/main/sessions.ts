@@ -115,6 +115,7 @@ const M = {
   inUseElsewhere: msg({ id: 'session.error.inUseElsewhere', defaultMessage: 'Another program has its transcript open. Close it, then try again.', description: "Archiving or deleting a session is refused: another program holds its transcript file open." }),
   stopFirst: msg({ id: 'session.error.stopFirst', defaultMessage: '{action, select, archive {Stop the session before you archive it.} unarchive {Stop the session before you unarchive it.} other {Stop the session before you delete it.}}', description: 'Archiving, unarchiving or deleting a session is refused while it runs. {action} says which.' }),
   sessionRunning: msg({ id: 'session.error.running', defaultMessage: 'The session is running.', description: "Clean Up… is refused for a session: it is running." }),
+  handOverNotNow: msg({ id: 'session.handOver.notNow', defaultMessage: "{agent} is working, waiting, merging or on a card loop's card, so its conversation isn't ended now. Use Hand Over After This Card: Hive hands it over at a good moment.", description: 'Handing an agent over to itself (a new conversation) is refused: it is busy, merging or on a card of a running card loop. {agent} is its name. Hand Over After This Card is a command (a button and an agent menu item): use its translation.' }),
   handOverBusy: msg({ id: 'session.handOver.busy', defaultMessage: '{agent} is busy. Hand over once it has finished.', description: "Hand Over to… is refused: the agent named is working. {agent} is the agent's name." }),
   switchEnded: msg({ id: 'session.mode.ended', defaultMessage: 'The session ended before Hive could switch it to {mode}.', description: "Switching a running agent's permission mode failed: its session ended. {mode} is the mode's name." }),
   needsInput: msg({ id: 'session.notice.needsInput', defaultMessage: '{agent} needs your input', description: "A notification's title: an agent waits for the user. {agent} is the agent (\"hive · B1\", or the project when it has one agent)." }),
@@ -2233,17 +2234,23 @@ class SessionManager {
   /**
    * Hands one agent's work over to another (any provider): the source writes a handover with Hive's
    * hive_create_handover tool, then the target starts and picks it up with hive_read_latest_handover.
-   * Conversations can't move between providers; a handover carries the work instead. `between` (#1057, to itself only):
-   * a queued hand-over of a card loop's agent whose card is through review, asked while its turn is over and it watches
-   * for the loop's next step; its handover says where the loop is, and the new conversation carries the loop on.
+   * Conversations can't move between providers; a handover carries the work instead. To itself, it ends the agent's
+   * conversation: refused (#1057) while the agent works, waits, merges or is on a running lane, unless `queued` says Hive
+   * found the moment for it (handOverLater.ts): `between` a card loop's steps (its card through review, the next not begun,
+   * its turn over and watching for the next step: its handover says where the loop is, and the new conversation carries
+   * the loop on), or `now` (its turn over, nothing waiting for it).
    */
-  async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }, between = false): Promise<void> {
+  async handOver(projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }, queued?: 'now' | 'between'): Promise<void> {
+    const between = queued === 'between'
     projectPath = workspace.assertProject(projectPath)
     // To itself: the agent carries on in a new conversation (a long transcript made short again).
     const self = fromAgentId === toAgentId
     if (!this.hiveMcp(projectPath)) throw hiveError(msg({ id: 'session.handOver.noTools', defaultMessage: 'Handing over needs Hive\'s tools in sessions: turn on "Provide Hive tools to sessions" in Settings → Agent API.', description: 'Hand Over to… is refused: agents need Hive\'s tools to write and read a handover. "Provide Hive tools to sessions" is a setting in Settings → Agent API: keep its name as Hive shows it.' }))
     const { agent: to } = await this.agentDef(projectPath, toAgentId)
     const { agent: from } = await this.agentDef(projectPath, fromAgentId)
+    // Ending its conversation only at a good moment (#1057): what the notice, the footer and the dialog offer, checked here
+    // too, so a notice or dialog left open while the agent started work, joined a lane or took the merge slot can't.
+    if (self && !queued && (await this.handOverWaits(projectPath, fromAgentId).catch(() => true))) throw hiveError(M.handOverNotNow, { agent: from.name }, { kind: 'conflict' })
     const source = this.live.get(liveId(projectPath, fromAgentId))?.state ?? null
     const fromSession = source?.sessionId || from.lastSessionId || ''
     // The handover the target reads, by name: a newer one appearing meanwhile isn't the one meant.
@@ -3135,7 +3142,7 @@ class SessionManager {
         const values = { size: formatSize(bytes), limit: limitMB, when }
         const action: ToastAction =
           when === 'now'
-            ? { label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverTo', args: [st.projectPath, st.agentId] }
+            ? { label: tr(msg({ id: 'session.long.handOver', defaultMessage: 'Hand Over to…', description: "A notice's button: hands the agent's work over to a new conversation (the Hand Over to… command)." })), command: 'session.handOverLongConversation', args: [st.projectPath, st.agentId] }
             : { label: tr(assistant ? HAND_OVER_TEXT.laterAssistant : HAND_OVER_TEXT.later), command: 'session.handOverLater', args: [st.projectPath, st.agentId] }
         toast('warning', tr(M.longConversation, { agent: label }), tr(HAND_OVER_TEXT.notice, values), [action], st.projectPath)
         this.notify(st.projectPath, withValues(M.longConversation, { agent: label }), withValues(HAND_OVER_TEXT.notice, values), 'notice')
