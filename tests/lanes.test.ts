@@ -2,13 +2,14 @@
 // board (its current card, paused while that is blocked, rounds), which are listed, what is kept, and the service:
 // start, update, join (either order), end, an agent's removal, and following the board (all Done ends it). An ended or
 // abandoned lane keeps its cards as it left them, and a lane is on the card being worked (#512).
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import type { HiveEvent, TaskCard } from '../src/shared/types'
 import { allDone, keptLanes, laneLine, laneView, listedLanes, loopDefaults, readLane, readLanes, laneCards, laneNumber, laneName, LANE_LINGER_MS, LANE_KEEP_MS, MAX_LANES, type LaneRecord } from '../src/shared/lanes'
 import { tempDir } from './tempDir'
+import { storeDocs } from './storeDocs'
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
@@ -19,6 +20,7 @@ const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await i
 const tasks = await import('../src/main/tasks')
 const lanes = await import('../src/main/lanes')
 const { onHiveEvent } = await import('../src/main/events')
+const { saveStore } = await import('../src/main/storeRows')
 
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -323,14 +325,13 @@ describe('the lanes service', () => {
     const after = await lanes.getLane(w, l.id)
     expect([after.state, after.cards.map((c) => c.column)]).toEqual(['abandoned', ['doing', 'todo']])
     expect((await lanes.getLane(w, next.id)).cards.map((c) => c.column)).toEqual(['review', 'doing'])
-    // Kept in the file, so it reads the same after a restart.
-    const file = join(wsPath, '.hive', 'lanes.json')
-    const data = JSON.parse(readFileSync(file, 'utf8')) as { lanes: LaneRecord[] }
-    const kept = data.lanes.find((x) => x.id === l.id)
+    // Kept in the workspace database (#1018), so it reads the same after a restart.
+    const data = storeDocs<LaneRecord>(wsPath, 'lanes')
+    const kept = data.find((x) => x.id === l.id)
     expect(kept?.frozen?.map((c) => c.column)).toEqual(['doing', 'todo'])
     // Without that record (a lane ended before #512, or the record damaged): not recorded, never the board's now.
     delete kept!.frozen
-    writeFileSync(file, JSON.stringify(data))
+    await saveStore(wsPath, 'lanes', '', data.map((x) => ({ key: x.id, doc: JSON.stringify(x) })))
     await run(() => tasks.updateTask(c1.number, { column: 'done' }, user))
     const legacy = await lanes.getLane(w, l.id)
     expect([legacy.state, legacy.current, legacy.cards.map((c) => [c.title, c.column])]).toEqual(['abandoned', null, [['Z1', 'unrecorded'], ['Z2', 'unrecorded']]])

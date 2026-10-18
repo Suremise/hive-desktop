@@ -14,6 +14,7 @@ import { taskWaitText } from '../src/shared/toolReplies'
 import { hookStep } from '../src/main/hookStatus'
 import type { TaskCard } from '../src/shared/types'
 import { tempDir } from './tempDir'
+import { putStoreDocs, storeDocs, storeMeta } from './storeDocs'
 import { follow, toldOf } from './followDoorbell'
 
 // The longest a test waits for what it is waiting on: a bound for a hung run, never how long it should take.
@@ -365,6 +366,12 @@ describe('watches (main/watches.ts)', async () => {
     await watches.settled()
   }
   const { sessions } = await import('../src/main/sessions')
+  const { storeTestHooks } = await import('../src/main/storeRows')
+  /** The watches a workspace has saved (#1018: rows in its database, what watches.json's `watches` held). */
+  // oxlint-disable-next-line typescript/no-explicit-any -- saved entries read as JSON, as the file's were
+  const savedOf = (path: string): any[] => storeDocs(path, 'watches')
+  /** Saves a workspace's watches as Hive would have (what writing watches.json by hand was). */
+  const putSaved = (path: string, list: unknown[], invalid?: unknown[]): Promise<void> => putStoreDocs(path, 'watches', list, invalid ? { meta: { invalid } } : {})
   const user = { kind: 'user' } as const
   let n = 0
   const open = async () => {
@@ -680,8 +687,7 @@ describe('watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] }, 30)
-    const file = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8'))
-    expect(file.watches[0]).toMatchObject({ agentId: 'a1', limitMinutes: 30, cond: { cards: [c.number], changes: ['verdict'] } })
+    expect(savedOf(path)[0]).toMatchObject({ agentId: 'a1', limitMinutes: 30, cond: { cards: [c.number], changes: ['verdict'] } })
     // Read back after the workspace's watches are forgotten (Hive restarted): the same watch.
     watches.forgetWatches(w)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
@@ -970,10 +976,9 @@ describe('watches (main/watches.ts)', async () => {
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     // A scope written into the file by hand is ignored: the agent's own project decides.
-    const file = join(path, '.hive', 'watches.json')
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    saved.watches[0].scope = null
-    writeFileSync(file, JSON.stringify(saved))
+    const saved = savedOf(path)
+    saved[0].scope = null
+    await putSaved(path, saved)
     watches.forgetWatches(w)
     await inWorkspace(w, () => tasks.updateTask(c.number, { project: 'beta' }, user))
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Private beta information', user))
@@ -1257,12 +1262,12 @@ describe('watches (main/watches.ts)', async () => {
       const c = await inWorkspace(w, () => tasks.createTask({ title: 'Laned', project: 'alpha', agent: 'a1', column: 'doing' }, user))
       const lane = (await lanes.startLane(w, { project: 'alpha', builder: 'a1', reviewer: 'a2', cards: [c.number], by: 'Builder (alpha)' })).lane
       await watches.registerLaneWatch(w, alpha, 'a1', { ids: [lane.id], events: ['failed', 'blocked', 'stalled', 'merge-due', 'ended', 'abandoned'] })
-      const marksBefore = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0].laneMarks
+      const marksBefore = savedOf(path)[0].laneMarks
       await lanes.endLane(w, lane.id, { abandoned: true })
       await evaluated(w)
       expect(st.typed).toHaveLength(1)
       // Handed over, not received: the watch's own marks haven't moved; the line's are pending with it, saved.
-      const saved = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0]
+      const saved = savedOf(path)[0]
       expect(saved.laneMarks).toEqual(marksBefore)
       expect(saved.fired.laneMarks[lane.id].state).toBe('abandoned')
       // Cancelled without a receipt: the watch fires again on the same event.
@@ -1275,7 +1280,7 @@ describe('watches (main/watches.ts)', async () => {
       watches.forgetWatches(w)
       await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
       await watches.settled()
-      const back = JSON.parse(readFileSync(join(path, '.hive', 'watches.json'), 'utf8')).watches[0]
+      const back = savedOf(path)[0]
       expect(back.laneMarks).toEqual(marksBefore)
       expect(back.fired.laneMarks[lane.id].state).toBe('abandoned')
     } finally {
@@ -1292,10 +1297,9 @@ describe('watches (main/watches.ts)', async () => {
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     await watches.settled()
     // The file as a build from before #649 left it, typing when Hive stopped.
-    const file = join(path, '.hive', 'watches.json')
-    const data = JSON.parse(readFileSync(file, 'utf8'))
-    data.watches[0].fired = { line: `[Hive] #${c.number} has news. Your card watch has ended: carry on.`, at: new Date().toISOString(), cards: [c.number], sending: new Date().toISOString() }
-    writeFileSync(file, JSON.stringify(data))
+    const data = savedOf(path)
+    data[0].fired = { line: `[Hive] #${c.number} has news. Your card watch has ended: carry on.`, at: new Date().toISOString(), cards: [c.number], sending: new Date().toISOString() }
+    await putSaved(path, data)
     watches.forgetWatches(w)
     // Read back (as its agent's state asks for it), handed over and typed.
     watches.watchFor(alpha, 'a1')
@@ -1347,35 +1351,49 @@ describe('watches (main/watches.ts)', async () => {
     }
   })
 
-  it('a saved watch that is not valid is kept aside and never stops the others; a damaged file is set aside', async () => {
+  it("a watches file at a workspace's first load is moved in (#1018): entries that aren't valid are kept aside and never stop the others; the file is kept as a backup, one found later never read", async () => {
+    // A workspace whose watches file is from before #1018 (made from a watch saved in another, with this one's folder).
+    const t = await open()
+    fake(t.alpha)
+    const tc = await inWorkspace(t.w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
+    await watches.registerWatch(t.w, t.alpha, 'a1', { cards: [tc.number], changes: ['comment'] })
+    const json = (x: unknown) => JSON.stringify(x).slice(1, -1)
+    const { projectId: _id, ...template } = JSON.parse(JSON.stringify(savedOf(t.path)[0]).split(json(t.alpha)).join(json(join(base, `ws-${n + 1}`, 'alpha'))))
+    await disposeWorkspaceService(t.w)
     const { w, path, alpha } = await open()
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
-    await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
+    expect(c.number).toBe(tc.number)
+    expect(template.projectPath).toBe(alpha)
     const file = join(path, '.hive', 'watches.json')
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
     const bad = { id: 'bad', projectPath: alpha, agentId: 'a2', cond: { cards: [c.number], changes: ['column'] }, limitAt: new Date(Date.now() + 100000).toISOString() }
     // In another folder, saved before ids or with an id no project of this workspace has (#508: one with alpha's id is alpha's).
-    const { projectId: _id, ...legacy } = saved.watches[0]
-    const elsewhere = { ...legacy, id: 'far', agentId: 'a3', projectPath: join(path, '..', 'not-here', 'alpha') }
-    const stranger = { ...saved.watches[0], id: 'stranger', agentId: 'a4', projectId: 'p-000000000000', projectPath: join(path, '..', 'not-here', 'alpha') }
-    writeFileSync(file, JSON.stringify({ version: 1, watches: [bad, elsewhere, stranger, ...saved.watches] }))
-    watches.forgetWatches(w)
-    // Read back from the file (in the background) before the change it waits for.
+    const elsewhere = { ...template, id: 'far', agentId: 'a3', projectPath: join(path, '..', 'not-here', 'alpha') }
+    const stranger = { ...template, id: 'stranger', agentId: 'a4', projectId: 'p-000000000000', projectPath: join(path, '..', 'not-here', 'alpha') }
+    // One the file kept aside already.
+    const earlier = { id: 'earlier', junk: true }
+    const text = JSON.stringify({ version: 1, watches: [bad, elsewhere, stranger, template], invalid: [earlier] })
+    writeFileSync(file, text)
+    // Moved in (in the background) before the change it waits for.
     await vi.waitFor(() => expect(watches.watchFor(alpha, 'a1')).not.toBeNull(), { timeout: HUNG_MS })
+    const backups = () => readdirSync(join(path, '.hive')).filter((f) => f.startsWith('watches.json.imported-'))
+    expect(existsSync(file)).toBe(false)
+    expect(backups().map((f) => readFileSync(join(path, '.hive', f), 'utf8'))).toEqual([text])
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await expect(watches.evaluateWatches(w)).resolves.toBeUndefined()
     await watches.settled()
     expect(st.typed).toHaveLength(1)
-    // The entries that aren't valid are still in the file, as they were.
-    const after = JSON.parse(readFileSync(file, 'utf8'))
-    expect(after.invalid).toEqual([bad, elsewhere, stranger])
-    expect(after.watches).toEqual([])
-    // A file that isn't JSON is renamed, not overwritten.
+    // The entries that aren't valid are still kept, as they were.
+    expect(storeMeta(path, 'watches', 'invalid')).toEqual([earlier, bad, elsewhere, stranger])
+    expect(savedOf(path)).toEqual([])
+    // A watches file found after that (an older Hive's) is kept as a backup too, never read, even one that isn't JSON.
     writeFileSync(file, '{ not json')
     watches.forgetWatches(w)
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    expect(readdirSync(join(path, '.hive')).some((f) => f.startsWith('watches.json.damaged-'))).toBe(true)
+    expect(existsSync(file)).toBe(false)
+    expect(readdirSync(join(path, '.hive')).some((f) => f.startsWith('watches.json.damaged-'))).toBe(false)
+    expect(backups().map((f) => readFileSync(join(path, '.hive', f), 'utf8')).sort()).toEqual([text, '{ not json'].sort())
+    expect(savedOf(path)).toHaveLength(1)
     await disposeWorkspaceService(w)
   })
 
@@ -1386,20 +1404,18 @@ describe('watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
+    const saved = savedOf(path)
     const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
-    expect(saved.watches[0].projectId).toBe(id)
+    expect(saved[0].projectId).toBe(id)
     const foreign = join(path, '..', 'not-here', 'alpha')
-    writeFileSync(file, JSON.stringify({ version: 1, watches: [{ ...saved.watches[0], projectPath: foreign }] }))
+    await putSaved(path, [{ ...saved[0], projectPath: foreign }])
     watches.forgetWatches(w)
     await watches.stampWatchProjects(w)
     // alpha's, at alpha's folder: it sees alpha's cards and wakes alpha's agent, nothing of the foreign folder's.
     expect(watches.watchFor(alpha, 'a1')?.cards).toEqual([c.number])
     expect(watches.watchFor(foreign, 'a1')).toBeNull()
-    const after = JSON.parse(readFileSync(file, 'utf8'))
-    expect(after.watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([[alpha, id]])
-    expect(after.invalid ?? []).toEqual([])
+    expect(savedOf(path).map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([[alpha, id]])
+    expect(storeMeta(path, 'watches', 'invalid') ?? []).toEqual([])
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     await evaluated(w)
     expect(st.told).toEqual([expect.stringContaining('Ready')])
@@ -1411,9 +1427,8 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
     const id = JSON.parse(readFileSync(join(alpha, '.hive', 'project.json'), 'utf8')).id
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].projectId).toBe(id)
+    expect(savedOf(path)[0].projectId).toBe(id)
     // Renamed while Hive was closed: read back, the watch is the project's under its new name.
     await disposeWorkspaceService(w)
     const gamma = join(path, 'gamma')
@@ -1424,14 +1439,14 @@ describe('watches (main/watches.ts)', async () => {
     await evaluated(w2)
     expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
     // A watch from before ids gets its project's id.
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    delete saved.watches[0].projectId
-    saved.watches[0].projectPath = gamma
-    writeFileSync(file, JSON.stringify(saved))
+    const saved = savedOf(path)
+    delete saved[0].projectId
+    saved[0].projectPath = gamma
+    await putSaved(path, saved)
     watches.forgetWatches(w2)
     await evaluated(w2)
     await watches.registerWatch(w2, gamma, 'a2', { cards: [c.number], changes: ['column'] })
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([
+    expect(savedOf(path).map((x: { projectPath: string; projectId?: string }) => [x.projectPath, x.projectId])).toEqual([
       [gamma, id],
       [gamma, id]
     ])
@@ -1443,8 +1458,7 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const before = readFileSync(file, 'utf8')
+    const before = savedOf(path)[0]
     await disposeWorkspaceService(w)
     // alpha leaves the workspace, and a new alpha comes, with an agent of the same id.
     renameSync(alpha, join(path, '..', `${basename(path)}-alpha-elsewhere`))
@@ -1456,9 +1470,7 @@ describe('watches (main/watches.ts)', async () => {
     await evaluated(w2)
     expect(watches.watchFor(alpha, 'a1')).toBeNull()
     await watches.stampWatchProjects(w2)
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    expect(saved.invalid).toEqual([JSON.parse(before).watches[0]])
-    expect(readFileSync(`${file}.before-ids.bak`, 'utf8')).toBe(before)
+    expect(storeMeta(path, 'watches', 'invalid')).toEqual([before])
     await disposeWorkspaceService(w2)
   })
 
@@ -1467,10 +1479,9 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    delete saved.watches[0].projectId
-    writeFileSync(file, JSON.stringify(saved))
+    const saved = savedOf(path)
+    delete saved[0].projectId
+    await putSaved(path, saved)
     await disposeWorkspaceService(w)
     const gamma = join(path, 'gamma')
     renameSync(alpha, gamma)
@@ -1484,7 +1495,7 @@ describe('watches (main/watches.ts)', async () => {
     expect(report.failed).toEqual([])
     expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
     const id = JSON.parse(readFileSync(join(gamma, '.hive', 'project.json'), 'utf8')).id
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches[0]).toMatchObject({ projectPath: gamma, projectId: id })
+    expect(savedOf(path)[0]).toMatchObject({ projectPath: gamma, projectId: id })
     await disposeWorkspaceService(w2)
   })
 
@@ -1495,9 +1506,8 @@ describe('watches (main/watches.ts)', async () => {
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     // One saved before ids too, by the Assistant's folder.
-    const file = join(path, '.hive', 'watches.json')
     await watches.registerWatch(w, w.assistantHome, 'assistant', { cards: [c.number], changes: ['comment'] })
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches.map((x: { projectId?: string }) => !!x.projectId)).toEqual([true, false])
+    expect(savedOf(path).map((x: { projectId?: string }) => !!x.projectId)).toEqual([true, false])
     await disposeWorkspaceService(w)
     const to = `${path}-moved`
     // Tried again while Windows holds it a moment (#555): the board's database was just written and closed (#1017).
@@ -1509,7 +1519,7 @@ describe('watches (main/watches.ts)', async () => {
     await watches.stampWatchProjects(w2)
     expect(watches.watchFor(gamma, 'a1')?.cards).toEqual([c.number])
     expect(watches.watchFor(w2.assistantHome, 'assistant')?.cards).toEqual([c.number])
-    expect(JSON.parse(readFileSync(join(to, '.hive', 'watches.json'), 'utf8')).watches.map((x: { projectPath: string }) => x.projectPath)).toEqual([gamma, w2.assistantHome])
+    expect(savedOf(to).map((x: { projectPath: string }) => x.projectPath)).toEqual([gamma, w2.assistantHome])
     await inWorkspace(w2, () => tasks.commentTask(c.number, 'Moved and ready', user))
     await evaluated(w2)
     expect(st.told).toEqual([expect.stringContaining('Moved and ready')])
@@ -1537,24 +1547,20 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const before = readFileSync(file, 'utf8')
-    // A full disk: every save fails, at once (an error that isn't tried again, so the test takes no retry backoff).
+    const before = savedOf(path)
+    // A full disk: every save of the watches fails.
     let tries = 0
-    watches.testHooks.rename = async (_from, to) => {
-      if (to === file) tries++
-      throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })
-    }
+    storeTestHooks.failSave = (store) => store === 'watches' && ++tries > 0
     try {
       await expect(watches.cancelWatch(w, alpha, 'a1')).rejects.toThrow(/Could not cancel/)
       expect(watches.watchFor(alpha, 'a1')).not.toBeNull()
       await expect(watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })).rejects.toThrow(/Could not save/)
       expect(watches.watchFor(alpha, 'a1')?.changes).toEqual(['comment'])
-      // Both were saves of the file that failed, and it is as it was.
+      // Both were saves that failed, and what is saved is as it was.
       expect(tries).toBe(2)
-      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(savedOf(path)).toEqual(before)
     } finally {
-      watches.testHooks.rename = undefined
+      storeTestHooks.failSave = null
     }
     await disposeWorkspaceService(w)
   })
@@ -1566,57 +1572,24 @@ describe('watches (main/watches.ts)', async () => {
     const ready = new Promise<void>((r) => (entered = r))
     return { release: () => release(), ready, wait: async () => (entered(), await opened) }
   }
-  const realRename = (from: string, to: string) => import('fs/promises').then((f) => f.rename(from, to))
 
-  it('a save whose rename is refused while the workspace closes is not tried again there: the watch fails, the file stays as it was', async () => {
+  it('a save under way when the workspace closes fails with nothing saved: the watch fails, what was saved is as it was (#1018)', async () => {
     const { w, path, alpha } = await open()
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
-    const other = join(path, '..', `commit-${n}`)
-    mkdirSync(other, { recursive: true })
-    const g = gate()
-    let held = false
-    watches.testHooks.rename = async (from, to) => {
-      if (to.endsWith('watches.json') && !held) {
-        held = true
-        await g.wait()
-        throw Object.assign(new Error('injected sharing refusal'), { code: 'EPERM' })
-      }
-      return realRename(from, to)
-    }
-    try {
-      const registering = watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-      await g.ready
-      await w.open(other)
-      g.release()
-      await expect(registering).rejects.toThrow(/closed/)
-      expect(existsSync(join(path, '.hive', 'watches.json'))).toBe(false)
-      expect(readdirSync(join(path, '.hive')).filter((f) => f.endsWith('.tmp'))).toEqual([])
-    } finally {
-      g.release()
-      watches.testHooks.rename = undefined
-      await disposeWorkspaceService(w)
-    }
-  })
-
-  it('a save whose rename lands after the workspace closed is undone: the file as it was is put back and the watch fails', async () => {
-    const { w, path, alpha } = await open()
-    fake(alpha)
-    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
-    // A first watch saved normally, so the file has something to put back.
+    // A first watch saved normally, so there is something saved to keep.
     await watches.registerWatch(w, alpha, 'a2', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const before = readFileSync(file, 'utf8')
-    const other = join(path, '..', `landed-${n}`)
+    const before = savedOf(path)
+    expect(before).toHaveLength(1)
+    const other = join(path, '..', `closed-${n}`)
     mkdirSync(other, { recursive: true })
     const g = gate()
     let held = false
-    watches.testHooks.rename = async (from, to) => {
-      if (to.endsWith('watches.json') && !held) {
-        held = true
-        await g.wait()
-      }
-      return realRename(from, to)
+    // The change waits after reading its card, before it is saved; the workspace closes meanwhile.
+    watches.testHooks.afterRead = async () => {
+      if (held) return
+      held = true
+      await g.wait()
     }
     try {
       const registering = watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })
@@ -1624,10 +1597,11 @@ describe('watches (main/watches.ts)', async () => {
       await w.open(other)
       g.release()
       await expect(registering).rejects.toThrow(/closed/)
-      expect(readFileSync(file, 'utf8')).toBe(before)
+      expect(savedOf(path)).toEqual(before)
+      expect(existsSync(join(path, '.hive', 'watches.json'))).toBe(false)
     } finally {
       g.release()
-      watches.testHooks.rename = undefined
+      watches.testHooks.afterRead = undefined
       await disposeWorkspaceService(w)
     }
   })
@@ -1668,7 +1642,7 @@ describe('watches (main/watches.ts)', async () => {
     writeFileSync(file, `{"version":1,"watches":[],"invalid":["${'x'.repeat(1024 * 1024)}"]}`)
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     expect(readdirSync(join(path, '.hive')).some((f) => f.startsWith('watches.json.too-big-'))).toBe(true)
-    expect(JSON.parse(readFileSync(file, 'utf8')).watches).toHaveLength(1)
+    expect(savedOf(path)).toHaveLength(1)
     await disposeWorkspaceService(w)
   })
 
@@ -1677,17 +1651,15 @@ describe('watches (main/watches.ts)', async () => {
     fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const one = JSON.parse(readFileSync(file, 'utf8')).watches[0]
+    const one = savedOf(path)[0]
     // 501 saved (a hand edit, or an older build): 500 are used, the 501st is kept aside as it was.
     const many = Array.from({ length: 501 }, (_, i) => ({ ...one, id: `w${i}`, agentId: `a${i + 1}` }))
-    writeFileSync(file, JSON.stringify({ version: 1, watches: many }))
+    await putSaved(path, many)
     watches.forgetWatches(w)
     await expect(watches.registerWatch(w, alpha, 'new', { cards: [c.number], changes: ['comment'] })).rejects.toThrow(/500 card watches/)
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    expect(saved.watches).toHaveLength(500)
-    expect(saved.invalid).toEqual([many[500]])
+    expect(savedOf(path)).toHaveLength(500)
+    expect(storeMeta(path, 'watches', 'invalid')).toEqual([many[500]])
     await disposeWorkspaceService(w)
   })
 
@@ -1703,20 +1675,17 @@ describe('watches (main/watches.ts)', async () => {
       st.typed.push(text)
       st.prompts++
       st.status = 'working'
-      st.told.push(await follow(alpha, 'a1', text))
+      // From the moment it is typed: its agent reads it at once, and the save of the watch's end (in the background) fails.
       failing = true
+      st.told.push(await follow(alpha, 'a1', text))
     }
-    watches.testHooks.write = async (p, t) => {
-      if (failing) throw new Error('disk write failed')
-      writeFileSync(p, t)
-    }
+    storeTestHooks.failSave = (store) => failing && store === 'watches'
     try {
       await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
       await evaluated(w)
       expect(st.typed).toHaveLength(1)
-      // The file still has the watch, with the delivery it was handed over as: received, so read back it has ended.
-      const file = join(path, '.hive', 'watches.json')
-      expect(JSON.parse(readFileSync(file, 'utf8')).watches[0].fired.delivery).toBe('m1')
+      // What is saved still has the watch, with the delivery it was handed over as: received, so read back it has ended.
+      expect(savedOf(path)[0].fired.delivery).toBe('m1')
       expect((await deliveries.deliveriesOf(alpha, 'a1')).map((r) => r.state)).toEqual(['received'])
       watches.forgetWatches(w)
       st.status = 'watching'
@@ -1725,12 +1694,12 @@ describe('watches (main/watches.ts)', async () => {
       await watches.tick()
       expect(st.typed).toHaveLength(1)
       expect(watches.watchFor(alpha, 'a1')).toBeNull()
-      // Saving works again: the tick writes the file without it.
+      // Saving works again: the tick saves the watches without it.
       failing = false
       await watches.tick()
-      expect(JSON.parse(readFileSync(file, 'utf8')).watches).toEqual([])
+      expect(savedOf(path)).toEqual([])
     } finally {
-      watches.testHooks.write = undefined
+      storeTestHooks.failSave = null
       await disposeWorkspaceService(w)
     }
   })
@@ -1742,10 +1711,8 @@ describe('watches (main/watches.ts)', async () => {
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     await inWorkspace(w, () => tasks.commentTask(c.number, 'Ready', user))
     let fail = false
-    watches.testHooks.write = async (p, t) => {
-      if (fail && t.includes('"delivery"')) throw new Error('disk write failed')
-      writeFileSync(p, t)
-    }
+    // Saving the delivery fails (every save of the watches, while it does).
+    storeTestHooks.failSave = (store) => fail && store === 'watches'
     try {
       st.status = 'working'
       await evaluated(w)
@@ -1758,7 +1725,7 @@ describe('watches (main/watches.ts)', async () => {
       await watches.tick()
       expect(st.typed).toHaveLength(1)
     } finally {
-      watches.testHooks.write = undefined
+      storeTestHooks.failSave = null
       await disposeWorkspaceService(w)
     }
   })
@@ -1769,14 +1736,12 @@ describe('watches (main/watches.ts)', async () => {
     const st = fake(alpha)
     const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
     await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    // The file 20 bytes under the limit, most of it an entry kept aside (not a watch).
-    const seed = JSON.parse(readFileSync(file, 'utf8'))
-    seed.invalid = ['']
+    // The watches 20 bytes under the limit (measured as their file's text), most of it an entry kept aside (not a watch).
+    const seed = { version: 1, watches: savedOf(path), invalid: [''] }
     const seedBytes = Buffer.byteLength(JSON.stringify(seed, null, 2) + '\n')
     seed.invalid[0] = 'x'.repeat(1024 * 1024 - 20 - seedBytes)
-    const seeded = JSON.stringify(seed, null, 2) + '\n'
-    writeFileSync(file, seeded)
+    expect(watches.savedFileBytes(seed.watches, seed.invalid)).toBe(1024 * 1024 - 20)
+    await putSaved(path, seed.watches, seed.invalid)
     watches.forgetWatches(w)
     const answer = await watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
     expect(answer).toHaveProperty('watching')
@@ -1803,13 +1768,12 @@ describe('watches (main/watches.ts)', async () => {
     const cards: number[] = []
     for (let i = 0; i < 20; i++) cards.push((await inWorkspace(w, () => tasks.createTask({ title: `C${i}`, project: 'alpha' }, user))).number)
     await watches.registerWatch(w, alpha, 'a1', { cards, changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const one = JSON.parse(readFileSync(file, 'utf8')).watches[0]
+    const one = savedOf(path)[0]
     // As many watches on 20 cards each as fit in 1 MB as saved (the most Hive reads), but not at their longest (fired,
     // being typed): about 1 KB more each.
     const count = Math.floor((1024 * 1024 - 1024) / (Buffer.byteLength(JSON.stringify(one)) + 16))
     const many = Array.from({ length: count }, (_, i) => ({ ...one, id: `w${i}`, agentId: `b${String(i).padStart(3, '0')}` }))
-    writeFileSync(file, JSON.stringify({ version: 1, watches: many }))
+    await putSaved(path, many)
     watches.forgetWatches(w)
     // The refusal is cheap (#321): every watch measured once (not the whole file's text again for each one set aside),
     // and each card read once for all the watches on it (not 20 cards for each of the 400). Counted (what JSON.stringify
@@ -1836,16 +1800,16 @@ describe('watches (main/watches.ts)', async () => {
     expect(written).toBeLessThan(8 * 1024 * 1024)
     // A few reads a card (the registration, each check of the watches), not one for each of the 400 watches on it.
     for (const c of cards) expect(reads.filter((x) => x === c).length, `#${c} read`).toBeLessThanOrEqual(6)
-    // The file itself is rewritten without them by the tick.
+    // The saved watches are rewritten without them by the tick.
     await watches.tick()
-    const kept = JSON.parse(readFileSync(file, 'utf8')).watches
+    const kept = savedOf(path)
     const aside = keptAside(path)
     expect(aside).toHaveLength(1)
     const moved = JSON.parse(readFileSync(join(path, '.hive', aside[0]), 'utf8')).watches
     // Nothing lost: every watch is in one file or the other, the last ones moved.
     expect(kept.length + moved.length).toBe(count)
     expect(moved.at(-1).agentId).toBe(`b${String(count - 1).padStart(3, '0')}`)
-    expect(Buffer.byteLength(readFileSync(file, 'utf8'))).toBeLessThanOrEqual(1024 * 1024)
+    expect(watches.savedFileBytes(kept, storeMeta<unknown[]>(path, 'watches', 'invalid') ?? [])).toBeLessThanOrEqual(1024 * 1024)
     // Replacing one of them is still fine.
     await watches.registerWatch(w, alpha, kept[0].agentId, { cards, changes: ['verdict'] })
     await disposeWorkspaceService(w)
@@ -1859,120 +1823,6 @@ describe('watches (main/watches.ts)', async () => {
       for (const invalid of [[], [{ junk: true }, 'text', 42]]) expect(watches.savedFileBytes(ws, invalid), `${ws.length} watches, ${invalid.length} invalid`).toBe(text(ws, invalid))
   })
 
-  it('a save that landed after the workspace closed is undone only while the file is still that save: a newer edit is kept', async () => {
-    const { w, path, alpha } = await open()
-    fake(alpha)
-    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
-    const other = join(path, '..', `newer-${n}`)
-    mkdirSync(other, { recursive: true })
-    const file = join(path, '.hive', 'watches.json')
-    const g = gate()
-    let held = false
-    // The rename itself happens; its result comes back only after the workspace closed and someone edited the file.
-    watches.testHooks.rename = async (from, to) => {
-      await realRename(from, to)
-      if (to === file && !held) {
-        held = true
-        await g.wait()
-      }
-    }
-    try {
-      const registering = watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['comment'] })
-      await g.ready
-      await w.open(other)
-      const newer = JSON.stringify({ version: 1, watches: [], manual: 'newer user data' })
-      writeFileSync(file, newer)
-      g.release()
-      await expect(registering).rejects.toThrow(/closed/)
-      expect(readFileSync(file, 'utf8')).toBe(newer)
-    } finally {
-      g.release()
-      watches.testHooks.rename = undefined
-      await disposeWorkspaceService(w)
-    }
-  })
-  /**
-   * A save that lands after its workspace closed, undone while the restore fails in the ways given: `link` (no links, or
-   * `competing` text put at the file's place first) and `backup` (refused for good). Returns the folder's watches files.
-   */
-  const lateUndo = async (opts: { competing?: string; noLinks?: boolean; refuseBackup?: boolean }) => {
-    const { w, path, alpha } = await open()
-    fake(alpha)
-    const c = await inWorkspace(w, () => tasks.createTask({ title: 'A', project: 'alpha' }, user))
-    await watches.registerWatch(w, alpha, 'a2', { cards: [c.number], changes: ['comment'] })
-    const file = join(path, '.hive', 'watches.json')
-    const before = readFileSync(file, 'utf8')
-    const other = join(path, '..', `undo-${n}`)
-    mkdirSync(other, { recursive: true })
-    const g = gate()
-    let held = false
-    const failed: string[] = []
-    watches.testHooks.rename = async (from, to) => {
-      await realRename(from, to)
-      if (to === file && !held) {
-        held = true
-        await g.wait()
-      }
-    }
-    watches.testHooks.link = async (from, to) => {
-      if (opts.competing !== undefined) writeFileSync(to, opts.competing)
-      if (opts.noLinks) {
-        failed.push('link')
-        throw Object.assign(new Error('links unavailable'), { code: 'EPERM' })
-      }
-      await import('fs/promises').then((f) => f.link(from, to))
-    }
-    watches.testHooks.backupRename = async (from, to) => {
-      if (opts.refuseBackup) {
-        failed.push('backup')
-        throw Object.assign(new Error('backup rename refused'), { code: 'EACCES' })
-      }
-      await realRename(from, to)
-    }
-    try {
-      const registering = watches.registerWatch(w, alpha, 'a1', { cards: [c.number], changes: ['verdict'] })
-      await g.ready
-      await w.open(other)
-      g.release()
-      await expect(registering).rejects.toThrow(/closed/)
-      const files = readdirSync(join(path, '.hive'))
-        .filter((f) => f.startsWith('watches.json'))
-        .map((f) => ({ name: f, text: readFileSync(join(path, '.hive', f), 'utf8') }))
-      return { before, files, failed }
-    } finally {
-      g.release()
-      watches.testHooks.rename = undefined
-      watches.testHooks.link = undefined
-      watches.testHooks.backupRename = undefined
-      await disposeWorkspaceService(w)
-    }
-  }
-
-  it('undoing a late save where links are unavailable: the earlier watches are kept beside it', async () => {
-    const r = await lateUndo({ noLinks: true })
-    expect(r.failed).toEqual(['link'])
-    expect(r.files.find((f) => f.name.startsWith('watches.json.before-close-'))?.text).toBe(r.before)
-    expect(r.files.some((f) => f.name === 'watches.json')).toBe(false)
-  })
-
-  it('undoing a late save where links are unavailable and the backup is refused: the staging copy is kept, never removed', async () => {
-    const r = await lateUndo({ noLinks: true, refuseBackup: true })
-    expect(r.failed.filter((x) => x === 'link')).toHaveLength(1)
-    expect(r.failed.filter((x) => x === 'backup').length).toBeGreaterThan(1)
-    expect(r.files.find((f) => f.name.endsWith('.tmp'))?.text).toBe(r.before)
-  })
-
-  it('undoing a late save where another file took its place: that file stays, the earlier watches are kept beside it', async () => {
-    const r = await lateUndo({ competing: 'newer file' })
-    expect(r.files.find((f) => f.name === 'watches.json')?.text).toBe('newer file')
-    expect(r.files.find((f) => f.name.startsWith('watches.json.before-close-'))?.text).toBe(r.before)
-  })
-
-  it('undoing a late save where another file took its place and the backup is refused: both are kept', async () => {
-    const r = await lateUndo({ competing: 'newer file', refuseBackup: true })
-    expect(r.files.find((f) => f.name === 'watches.json')?.text).toBe('newer file')
-    expect(r.files.find((f) => f.name.endsWith('.tmp'))?.text).toBe(r.before)
-  })
   it('a watcher keeps "Quit when agents finish" waiting only while another agent works on a card it watches', async () => {
     const { w, alpha } = await open()
     fake(alpha)

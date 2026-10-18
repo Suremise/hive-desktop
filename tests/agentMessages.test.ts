@@ -5,7 +5,7 @@
 // bounded; each kept to its sender's permission (refused, never typed, once it is gone); cancelled by the user or the
 // Assistant; kept across the agent's stops; the reply says what became of it. The sessions are stand-ins here (the e2e
 // agentmessage and deliveries suites run fake Claude Code agents).
-import { readdirSync, readFileSync, rmSync } from 'fs'
+import { rmSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -17,9 +17,14 @@ const HUNG_MS = 10000
 describe('messages left for agents (#530, #647)', async () => {
   const base = tempDir('hive-messages-')
   ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-  afterAll(() => rmSync(base, { recursive: true, force: true }))
+  afterAll(async () => {
+    // The workspace database (#1018) is open until its board closes.
+    ;(await import('../src/main/boardStore')).closeAllBoards()
+    rmSync(base, { recursive: true, force: true })
+  })
   const messages = await import('../src/main/agentMessages')
   const deliveries = await import('../src/main/deliveries')
+  const { storeTestHooks } = await import('../src/main/storeRows')
   const writer = await import('../src/main/lineWriter')
   const { sessions } = await import('../src/main/sessions')
   let n = 0
@@ -411,9 +416,9 @@ describe('messages left for agents (#530, #647)', async () => {
     }
   })
 
-  it('a save that fails changes nothing, on disk or in memory, and a restart restores what was saved (inbox and ack; its write or its rename failing)', async () => {
+  it('a save that fails changes nothing, on disk or in memory, and a restart restores what was saved (inbox and ack; its write or its commit failing)', async () => {
     for (const how of ['inbox', 'ack'] as const) {
-      for (const at of ['write', 'rename'] as const) {
+      for (const at of ['write', 'commit'] as const) {
         alpha = join(base, `alpha-failed-${how}-${at}`)
         st.status = 'working'
         await leave('Never received.')
@@ -424,18 +429,17 @@ describe('messages left for agents (#530, #647)', async () => {
           throw new Error('EIO: i/o error')
         }
         if (at === 'write') deliveries.setBeforeSaveForTests(fail)
-        else deliveries.setBeforeRenameForTests(fail)
+        else storeTestHooks.failSave = (s) => s === 'deliveries'
         try {
           const call = how === 'inbox' ? deliveries.readInbox(alpha, 'b1') : deliveries.ackDeliveries(alpha, 'b1', ['m1'])
-          await expect(call).rejects.toThrow(/couldn't save the deliveries \(EIO.*nothing changed/)
+          await expect(call).rejects.toThrow(at === 'write' ? /couldn't save the deliveries \(EIO.*nothing changed/ : /couldn't save the deliveries \(SQLITE_FULL.*nothing changed/)
         } finally {
           deliveries.setBeforeSaveForTests(null)
-          deliveries.setBeforeRenameForTests(null)
+          storeTestHooks.failSave = null
         }
         expect(await states()).toEqual([was])
-        const dir = join(alpha, '.hive')
-        expect(JSON.parse(readFileSync(join(dir, 'deliveries.json'), 'utf8')).deliveries.map((r: { id: string; state: string }) => `${r.id} ${r.state}`)).toEqual([was])
-        expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
+        // As saved (#1018: its workspace's database), the change undone whole.
+        expect((await deliveries.savedForTests(alpha)).deliveries.map((r) => `${r.id} ${r.state}`)).toEqual([was])
         await deliveries.forgetDeliveriesForTests()
         expect(await states()).toEqual([was])
       }
@@ -588,7 +592,7 @@ describe('messages left for agents (#530, #647)', async () => {
       card.column = 'doing'
       expect(await tied('Round 1: also cover the empty case.')).toEqual({ id: 'm1', fate: 'queued', queued: 1, round: 1 })
       expect((await deliveries.deliveriesOf(alpha, 'b1'))[0]).toMatchObject({ card: 7, round: 1 })
-      expect(JSON.parse(readFileSync(join(alpha, '.hive', 'deliveries.json'), 'utf8')).deliveries[0]).toMatchObject({ card: 7, round: 1 })
+      expect((await deliveries.savedForTests(alpha)).deliveries[0]).toMatchObject({ card: 7, round: 1 })
       // Its first hand-in (into Review, round 1 still): still relevant.
       card.column = 'review'
       await deliveries.sweepStaleForTests()

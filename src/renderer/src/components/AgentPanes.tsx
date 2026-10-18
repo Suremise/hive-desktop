@@ -725,9 +725,11 @@ const shownName = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.shown
 
 /**
  * How far the toolbar's controls fold when short of room (#886): the layouts become one button with a menu; then the page
- * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
+ * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾; then
+ * + Add is only its + (#1046); then Panes | Tiles are their icons. Past that, the summary chip's counts are cut, down to
+ * its mark.
  */
-const TOOLBAR_FOLDS = 3
+const TOOLBAR_FOLDS = 5
 
 /** The width the session toolbar needs: its controls on one row, the summary chip whole (`useFolds`, #886). */
 function toolbarNeed(el: HTMLElement): number | null {
@@ -741,6 +743,8 @@ function toolbarNeed(el: HTMLElement): number | null {
 
 /** The Session tab's views, in the toggle's order. */
 const SESSION_VIEWS: readonly SessionView[] = ['panes', 'tiles']
+/** Each view's icon on the toggle, folded to icons (#1046). */
+const VIEW_ICON: Record<SessionView, string> = { panes: 'terminal', tiles: 'table' }
 
 const VIEW_NAME = msg({ id: 'panes.view.name', defaultMessage: '{view, select, tiles {Tiles} other {Panes}}', description: "The Session tab's two views, on its Panes | Tiles toggle: Panes shows the agents' terminals, Tiles a small tile per agent. Keep them short." })
 const ADD = msg({ id: 'panes.add.menu', defaultMessage: 'Add', description: "The session toolbar's + Add ▾ button: adds agents (the dialog, a quick add, from a template) and saves or loads templates. Keep it short." })
@@ -965,6 +969,9 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   // The compact pager for more pages than buttons, or (folded, #886) for any pages in a toolbar short of room.
   const compactPager = pages > PAGE_BUTTONS_MAX || (pages > 1 && folds >= 2)
   const bare = folds >= 3
+  // Shorter still (#1046): + Add is only its +, then Panes | Tiles their icons.
+  const addIcon = folds >= 4
+  const viewIcons = folds >= 5
   // Every other page's most urgent agent, for the compact pager's menu button.
   const elsewhere = compactPager ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
   const pageMenu = (el: Element, keyboard: boolean): void => {
@@ -987,7 +994,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
       {/* A radio group (#975): one tab stop, on the chosen view; the arrow keys (round, Home, End) move to the other and choose it. */}
       <div
-        className="segmented view-switch"
+        className={cx('segmented', 'view-switch', viewIcons && 'icons')}
         role="radiogroup"
         // Busy while the choice saves (it shows meanwhile; a failed save goes back to the saved view).
         aria-busy={chosen?.path === project.path || undefined}
@@ -1002,19 +1009,22 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         }}
       >
         {SESSION_VIEWS.map((v, i) => (
-          <button
-            key={v}
-            ref={(el) => void (viewButtons.current[i] = el)}
-            role="radio"
-            aria-checked={shownView === v}
-            tabIndex={shownView === v ? 0 : -1}
-            className={cx(shownView === v && 'active')}
-            data-view={v}
-            // Tiles again, from an agent's focus view (#976): back to the grid.
-            onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
-          >
-            {tr(VIEW_NAME, { view: v })}
-          </button>
+          // Folded to its icon (#1046): its name on hover and for screen readers.
+          <Tooltip key={v} content={viewIcons ? tr(VIEW_NAME, { view: v }) : null}>
+            <button
+              ref={(el) => void (viewButtons.current[i] = el)}
+              role="radio"
+              aria-checked={shownView === v}
+              tabIndex={shownView === v ? 0 : -1}
+              className={cx(shownView === v && 'active')}
+              data-view={v}
+              // Tiles again, from an agent's focus view (#976): back to the grid.
+              onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
+              aria-label={viewIcons ? tr(VIEW_NAME, { view: v }) : undefined}
+            >
+              {viewIcons ? <Icon name={VIEW_ICON[v]} /> : tr(VIEW_NAME, { view: v })}
+            </button>
+          </Tooltip>
         ))}
       </div>
       {project.agents.length > 0 && (
@@ -1076,8 +1086,9 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         </div>
       )}
       <Tooltip content={full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.menuTip', defaultMessage: 'Add an agent (Add Agent…: choose its provider, where it works and its settings), or save and load templates', description: "Tooltip of the session toolbar's + Add ▾ button. \"Add Agent…\" is its first menu item: use its translation." }))}>
-        <button ref={add} className="btn subtle small add-menu" aria-haspopup="menu" aria-expanded={addMenu.shown} onClick={(e) => openAdd(e.detail === 0)}>
-          <Icon name="add" /> {tr(ADD)}
+        <button ref={add} className="btn subtle small add-menu" aria-haspopup="menu" aria-expanded={addMenu.shown} aria-label={addIcon ? tr(ADD) : undefined} onClick={(e) => openAdd(e.detail === 0)}>
+          <Icon name="add" />
+          {!addIcon && ` ${tr(ADD)}`}
           {!bare && <Icon name="chevron-down" />}
         </button>
       </Tooltip>

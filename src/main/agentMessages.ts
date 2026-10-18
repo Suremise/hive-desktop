@@ -4,7 +4,7 @@ import { sessions } from './sessions'
 
 /**
  * Messages left for an agent (#530: hive_message_agent), now deliveries (#647, deliveries.ts): a re-brief for the work it
- * is on, saved in its project's .hive/deliveries.json and given by the delivery service like everything else (#650): a
+ * is on, saved in its workspace's database (#1018: its project's deliveries) and given by the delivery service like everything else (#650): a
  * busy agent is told of it at its next tool call or before its turn ends, an idle or watching one by the doorbell (a
  * watching agent is woken by it, and its watch carries on), and it reads it with hive_inbox, labelled with its sender,
  * then acks it. On 10 Oct the user pasted about ten of the Assistant's messages into agents' panes because

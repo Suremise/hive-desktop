@@ -16,7 +16,7 @@ export interface LaneAgent {
   name: string
 }
 
-/** A lane as kept (`.hive/lanes.json`). Paused isn't kept: it is read from the board (the current card is blocked). */
+/** A lane as kept (a row of the workspace's database, #1018; `.hive/lanes.json` before). Paused isn't kept: it is read from the board (the current card is blocked). */
 export interface LaneRecord {
   id: string
   project: string

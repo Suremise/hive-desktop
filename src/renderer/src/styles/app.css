@@ -1502,7 +1502,7 @@ textarea.input {
 /* The title gives way to the actions: it shrinks and its name is cut with "…", never pushing a button out (#216). */
 .project-header .project-title {
   /* Shrinks far ahead of the actions (and is clipped, badge too), so they only give way once it has; it keeps a little
-     of the name even then (#886), the actions wrapping onto another row first. */
+     of the name even then (#886), the actions folding into ⋯ first (#1051). */
   flex: 0 1000 auto;
   min-width: min(5em, 30%);
   overflow: hidden;
@@ -1552,10 +1552,8 @@ textarea.input {
   display: flex;
   gap: 6px;
   align-items: center;
-  /* Narrower than even its icons (a main area squeezed by both side panels), they wrap onto more rows, never off screen. */
-  flex: 0 1 auto;
-  min-width: 0;
-  flex-wrap: wrap;
+  /* One row at any width (#1051): short of room they fold into ⋯ (HEADER_FOLDS), never wrapping above the name. */
+  flex: 0 0 auto;
   justify-content: flex-end;
 }
 
@@ -4797,6 +4795,13 @@ body.pane-resizing .monaco-editor {
 .view-switch button {
   padding: 0 10px;
 }
+/* Folded to icons (#1046): each in a tooltip, so the line between them is drawn on the second's button. */
+.view-switch.icons button {
+  padding: 0 7px;
+}
+.view-switch.icons .tip-wrap + .tip-wrap > button {
+  border-left: 1px solid var(--border);
+}
 /* The summary chip: the most urgent state's mark, then the counts ("1 waiting · 2 working · 3 idle"); ▾ lists the agents. */
 .summary-chip {
   display: inline-flex;
@@ -4811,6 +4816,14 @@ body.pane-resizing .monaco-editor {
   color: var(--fg);
   font-size: 12px;
   cursor: pointer;
+}
+/* The chip gives way last (#1046): its tooltip's wrapper, the toolbar's item, may narrow, so its counts are cut. */
+.session-toolbar > .tip-wrap:has(> .summary-chip) {
+  display: flex;
+  min-width: 0;
+}
+.summary-chip {
+  max-width: 100%;
 }
 .summary-chip:hover {
   background: var(--bg-hover);

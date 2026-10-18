@@ -243,7 +243,12 @@ else {
       return false
     }
   })()
+  // The two tests that start it run only when asked (#1027): run from a Store PowerShell (every Codex agent's shell),
+  // they can end that shell and every other Store PowerShell on the PC, other agents' commands included. Why is #1056.
+  const storePwshWanted = process.env.HIVE_TEST_STORE_PWSH === '1'
+  const STORE_PWSH_OFF = "starts the Store's PowerShell, which can end other agents' Store PowerShells (#1027, why: #1056): HIVE_TEST_STORE_PWSH=1 runs it"
   it.runIf(hasStorePwsh)("adopts the Store's PowerShell and what it runs, left running by a CLI that has exited", async (ctx) => {
+    if (!storePwshWanted) ctx.skip(STORE_PWSH_OFF)
     const { launchEnded, settleLeftovers, trackLaunch } = await import('../src/main/agentProcesses')
     const out = join(dir, 'run6.txt')
     const cli = spawn(process.execPath, [script, 'storepwsh', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true, env: { ...process.env, STORE_PWSH: storePwsh } })
@@ -329,6 +334,7 @@ $r | ConvertTo-Json -Compress
   // so it tries again until it caught one in no job. It ends only what it started, by handles it started them with or
   // checked by start time against the snapshot that saw them (a process an id names by now is never kept).
   it.runIf(hasStorePwsh)("follows a packaged app's process caught before it joins its package's job, never nesting that job (#678)", async (ctx) => {
+    if (!storePwshWanted) ctx.skip(STORE_PWSH_OFF)
     const { HOST_SOURCE } = await import('../src/main/agentProcesses')
     const src = join(dir, 'catch.cs')
     writeFileSync(

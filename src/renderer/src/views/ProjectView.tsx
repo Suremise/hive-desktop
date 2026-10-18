@@ -4,7 +4,7 @@ import { agentLaunchSettings, defaultProviderWarning, isProviderEnabled, modeOpt
 import { agentsToResume, stalledOnSignIn } from '@shared/resumeAll'
 import { batchCounts } from '@shared/startAll'
 import { MAIN_TABS, MORE_TABS, tabCommand } from '@shared/projectTabs'
-import { mostUrgent, projectAgentStates, projectStateSummary } from '@shared/agentState'
+import { mostUrgent, projectAgentStates, projectStateShort, projectStateSummary } from '@shared/agentState'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import hexUrl from '../assets/icon.svg'
 import * as actions from '../actions'
@@ -115,12 +115,13 @@ const TITLE_MIN = 96
 /** How far past the width a terminal needs the panes give back a column, or the focus view its strip (#1037). */
 const FIT_MARGIN = 24
 /** How far the header's actions can fold: every label; Resume, Stop, Active and Agents ▾ as icons; Agents ▾'s actions in ⋯. */
-const HEADER_FOLDS = 2
+const HEADER_FOLDS = 5
 
 /**
  * The width the project header's title (its least room) and actions (all of them, on one row) need side by side, for
  * `useFolds` (#886): 0 shows every label; 1 shows Resume, Stop, Active and Agents ▾ as icons; 2 moves Agents ▾'s
- * actions into ⋯.
+ * actions into ⋯; at the narrowest (#1051, the header one row whatever its width) 3 moves Active into ⋯, 4 shortens the
+ * status to its most urgent count, and 5 moves Resume and Stop into ⋯ too, leaving the name, the status and ⋯.
  */
 function headerNeed(el: HTMLElement): number | null {
   const title = el.querySelector<HTMLElement>('.project-title')
@@ -391,6 +392,9 @@ export function ProjectView({ visible }: { visible: boolean }) {
   const folds = useFolds(header, headerWidth, headerContent, HEADER_FOLDS, headerNeed)
   const tight = folds >= 1
   const cramped = folds >= 2
+  const activeInMenu = folds >= 3
+  const shortState = folds >= 4
+  const runInMenu = folds >= 5
   // The status badge's table as text, for its accessible description (#529).
   const agentsDescription = useAgentsText(project)
   const cards = useStore((s) => s.tasks)
@@ -482,19 +486,21 @@ export function ProjectView({ visible }: { visible: boolean }) {
             <Tooltip content={<ProjectAgentsTable project={project} />} className="agents-tip" focus>
               <span tabIndex={0} aria-description={agentsDescription || undefined} className="badge project-state">
                 <StateMark state={mostUrgent(states)} decorative />
-                <span className="badge-text">{projectStateSummary(project.agents, states)}</span>
+                <span className="badge-text">{shortState ? projectStateShort(project.agents, states) : projectStateSummary(project.agents, states)}</span>
               </span>
             </Tooltip>
           )}
         </div>
         <div className="actions">
-          <Tooltip content={tr(project.active ? M.workingOn : M.notWorkingOn)}>
-            <label className="flex muted" style={{ cursor: 'pointer', marginRight: tight ? 0 : 6 }} aria-label={tight ? tr(M.active) : undefined}>
-              <Switch checked={project.active} onChange={(v) => void actions.setProjectActive(project.path, v)} />
-              {!tight && ` ${tr(M.active)}`}
-            </label>
-          </Tooltip>
-          {resumable.length > 0 && (
+          {!activeInMenu && (
+            <Tooltip content={tr(project.active ? M.workingOn : M.notWorkingOn)}>
+              <label className="flex muted" style={{ cursor: 'pointer', marginRight: tight ? 0 : 6 }} aria-label={tight ? tr(M.active) : undefined}>
+                <Switch checked={project.active} onChange={(v) => void actions.setProjectActive(project.path, v)} />
+                {!tight && ` ${tr(M.active)}`}
+              </label>
+            </Tooltip>
+          )}
+          {resumable.length > 0 && !runInMenu && (
             <Tooltip content={resumeTip}>
               <button className="btn act-resume quiet" disabled={resuming} aria-busy={resuming || undefined} aria-label={resumeTip} onClick={() => void actions.resumeAllAgents(project.path)}>
                 <Icon name={resuming ? 'loading' : 'debug-continue'} spin={resuming} />
@@ -503,7 +509,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
               </button>
             </Tooltip>
           )}
-          {running.length > 0 && (
+          {running.length > 0 && !runInMenu && (
             <Tooltip content={stopTip}>
               <button className="btn act-stop quiet" aria-label={stopTip} onClick={() => void actions.stopAllAgents(project.path)}>
                 <Icon name="stop-circle" />
@@ -528,6 +534,11 @@ export function ProjectView({ visible }: { visible: boolean }) {
             action="project-menu"
             onClick={(e) =>
               menu.open(e, [
+                // At the narrowest (#1051), what folded away, in the header's order: Active, Resume, Stop, Agents ▾'s.
+                ...(activeInMenu ? [{ label: tr(M.active), icon: project.active ? 'check' : undefined, detail: tr(project.active ? M.workingOn : M.notWorkingOn), onClick: () => void actions.setProjectActive(project.path, !project.active) }] : []),
+                ...(runInMenu && resumable.length ? [{ label: resumeTip, icon: 'debug-continue', action: 'resume' as const, disabled: resuming, onClick: () => void actions.resumeAllAgents(project.path) }] : []),
+                ...(runInMenu && running.length ? [{ label: stopTip, icon: 'stop-circle', action: 'stop' as const, onClick: () => void actions.stopAllAgents(project.path) }] : []),
+                ...(activeInMenu ? [{ separator: true as const }] : []),
                 ...(cramped && batch.length ? [...batch, { separator: true as const }] : []),
                 { label: tr(M.explorer), icon: 'folder-opened', onClick: () => void call('project:openInExplorer', project.path) },
                 { label: tr(M.terminal), icon: 'terminal', onClick: () => void call('project:openTerminal', project.path) },

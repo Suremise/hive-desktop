@@ -1,5 +1,5 @@
-import { basename, join } from 'path'
-import { mkdir, rename, rm, writeFile } from 'original-fs/promises'
+import { basename, dirname, join, resolve } from 'path'
+import { writeFile } from 'original-fs/promises'
 import { randomBytes } from 'crypto'
 import { app } from 'electron'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
@@ -32,7 +32,8 @@ import type { TaskCard } from '../shared/types'
 import * as assistant from './assistantControl'
 import { config } from './config'
 import { onHiveEvent } from './events'
-import { readCapped, renameRetrying } from './fsutil'
+import { readCapped, readJson, renameRetrying } from './fsutil'
+import { openStore, readStore, rowsOf, saveStore } from './storeRows'
 import { canTypeLine, typeLine, whyNoLine } from './lineWriter'
 import { createLogger, userText } from './logger'
 import { readyFor } from './readiness'
@@ -133,6 +134,8 @@ const AGAIN_LAUNCH = 'its session ended or restarted before it was read'
 
 interface Store {
   host: string
+  /** Where its deliveries are kept (#1018): its workspace's database, under its host's scope (hostPlace). */
+  place: { workspace: string; scope: string }
   /** What is published: saved, and what every read sees. Never changed in place: a transaction replaces it. */
   records: readonly DeliveryRecord[]
   next: number
@@ -171,7 +174,23 @@ interface Draft {
 const stores = new Map<string, Store>()
 const loading = new Map<string, Promise<Store>>()
 const keyOf = (host: string): string => host.toLowerCase()
+/** A host's deliveries file before #1018: moved into its workspace's database the first time, then kept as a backup. */
 const fileOf = (host: string): string => join(host, HIVE_DIR, 'deliveries.json')
+
+/**
+ * Where a host's deliveries are kept (#1018): its workspace's database (a project's workspace is its parent folder; the
+ * Assistant's home is the workspace's `.hive/assistant`), under the project's stable id (#508), so they follow a rename
+ * as its folder's file did; the Assistant's under `assistant`, and a folder with no id yet under its name.
+ */
+async function hostPlace(host: string): Promise<{ workspace: string; scope: string }> {
+  const h = resolve(host)
+  const parent = dirname(h)
+  if (basename(h).toLowerCase() === 'assistant' && basename(parent).toLowerCase() === HIVE_DIR) return { workspace: dirname(parent), scope: 'assistant' }
+  const ws = workspaceFor(h)
+  const known = ws ? (await ws.projectIds().catch(() => null))?.byPath.get(h.toLowerCase()) : undefined
+  const saved = known ?? (await readJson<{ id?: unknown } | null>(join(h, HIVE_DIR, 'project.json'), null))?.id
+  return { workspace: parent, scope: typeof saved === 'string' && saved ? saved : `folder:${basename(h).toLowerCase()}` }
+}
 const nowIso = (): string => new Date().toISOString()
 
 /** Hive couldn't save a change, so it wasn't made. */
@@ -300,9 +319,10 @@ export function load(host: string): Promise<Store> {
   const going = loading.get(k)
   if (going) return going
   const p = (async () => {
-    const read = await readFileOf(host)
+    const place = await hostPlace(host)
+    const read = await readSaved(host, place)
     if (stores.has(k)) return stores.get(k)!
-    const store: Store = { host, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), rungAgain: new Set(), launches: new Map(), hooks: new Map() }
+    const store: Store = { host, place, records: read.records, next: read.next, invalid: read.invalid, lock: Promise.resolve(), offering: new Set(), confirming: new Map(), rungAgain: new Set(), launches: new Map(), hooks: new Map() }
     // Restored before anything else sees it (a second load waits for this one).
     await transact(store, (d) => {
       for (const r of [...d.records]) if (r.state === 'offered') set(store, d, r, 'uncertain', 'may not have reached it: Hive stopped while offering it', undefined, { again: AGAIN_RESTART })
@@ -321,13 +341,46 @@ export function load(host: string): Promise<Store> {
   return p
 }
 
-async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; next: number; invalid: unknown[] }> {
+/**
+ * A host's deliveries as saved in its workspace's database (#1018), moved in from its deliveries.json the first time:
+ * each checked as it is read back; one that isn't valid is kept aside, not used.
+ */
+async function readSaved(host: string, place: Store['place']): Promise<{ records: DeliveryRecord[]; next: number; invalid: unknown[] }> {
+  const file = fileOf(host)
+  const data = await openStore(place.workspace, 'deliveries', place.scope, file, async () => {
+    const got = await readFileOf(host)
+    if (!got) return null
+    const rows = rowsOf(got.deliveries)
+    const meta: Record<string, string> = { ...(got.next !== undefined ? { next: JSON.stringify(got.next) } : {}), ...(got.invalid.length ? { invalid: JSON.stringify(got.invalid) } : {}) }
+    return { rows, meta }
+  })
+  const raw = data.rows.map((r) => JSON.parse(r.doc) as unknown)
+  const kept = data.meta.get('invalid')
+  const savedNext = data.meta.has('next') ? (JSON.parse(data.meta.get('next')!) as unknown) : undefined
+  const records: DeliveryRecord[] = []
+  const invalid: unknown[] = kept ? [...(JSON.parse(kept) as unknown[])] : []
+  for (const v of raw) {
+    const r = readDelivery(v)
+    if (r && !records.some((x) => x.id === r.id)) records.push(r)
+    else invalid.push(v)
+  }
+  if (records.length < raw.length) log.warn(`${raw.length - records.length} saved deliver${raw.length - records.length === 1 ? 'y is' : 'ies are'} not valid: kept aside, not used`)
+  const top = records.reduce((m, r) => Math.max(m, r.seq), 0)
+  const next = Number.isInteger(savedNext) && (savedNext as number) > top ? (savedNext as number) : top + 1
+  return { records, next, invalid }
+}
+
+/**
+ * A host's deliveries.json from before #1018, read to move it in: null when there is none. One too big to be Hive's, or
+ * damaged, is set aside (renamed, never overwritten) and nothing is moved in.
+ */
+async function readFileOf(host: string): Promise<{ deliveries: unknown[]; next: unknown; invalid: unknown[] } | null> {
   const file = fileOf(host)
   let got: { data: Buffer; more: boolean }
   try {
     got = await readCapped(file, MAX_FILE_BYTES)
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { records: [], next: 1, invalid: [] }
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw new Error(`Could not read the deliveries (${(e as Error).message})`, { cause: e })
   }
   let data: { next?: unknown; deliveries?: unknown; invalid?: unknown } | null = null
@@ -341,20 +394,9 @@ async function readFileOf(host: string): Promise<{ records: DeliveryRecord[]; ne
     const to = `${file}.${got.more ? 'too-big' : 'damaged'}-${Date.now()}`
     await renameRetrying(file, to)
     log.warn(`The deliveries file was ${got.more ? 'too big' : 'damaged'}: set aside as ${userText(to)}`)
-    return { records: [], next: 1, invalid: [] }
+    return { deliveries: [], next: undefined, invalid: [] }
   }
-  const raw = Array.isArray(data.deliveries) ? data.deliveries : []
-  const records: DeliveryRecord[] = []
-  const invalid: unknown[] = Array.isArray(data.invalid) ? [...data.invalid] : []
-  for (const v of raw) {
-    const r = readDelivery(v)
-    if (r && !records.some((x) => x.id === r.id)) records.push(r)
-    else invalid.push(v)
-  }
-  if (records.length < raw.length) log.warn(`${raw.length - records.length} saved deliver${raw.length - records.length === 1 ? 'y is' : 'ies are'} not valid: kept aside in the file, not used`)
-  const top = records.reduce((m, r) => Math.max(m, r.seq), 0)
-  const next = Number.isInteger(data.next) && (data.next as number) > top ? (data.next as number) : top + 1
-  return { records, next, invalid }
+  return { deliveries: Array.isArray(data.deliveries) ? data.deliveries : [], next: data.next, invalid: Array.isArray(data.invalid) ? [...data.invalid] : [] }
 }
 
 /** The file's text for a draft. */
@@ -383,12 +425,14 @@ export const setBeforeSaveForTests = (fn: (() => Promise<void> | void) | null): 
   beforeSave = fn
 }
 
-/** Saves a draft as the host's deliveries file: atomic (a temp file beside it, then a rename), so a failure leaves it as it was. */
+/**
+ * Saves a draft as the host's deliveries: one transaction in its workspace's database (#1018), writing the deliveries
+ * that changed, so a failure leaves them as they were. Its size is still bounded as the file's was.
+ */
 async function save(store: Store, d: Draft): Promise<void> {
   await beforeSave?.()
   prune(store, d)
   const file = fileOf(store.host)
-  await mkdir(join(store.host, HIVE_DIR), { recursive: true })
   // Entries kept aside that would push it over: moved to a file of their own (never lost), not kept in this one.
   if (!makeRoom(d) && d.invalid.length) {
     const aside = `${file}.kept-aside-${Date.now()}-${randomBytes(3).toString('hex')}`
@@ -401,21 +445,8 @@ async function save(store: Store, d: Draft): Promise<void> {
   for (const r of d.records) if (!readDelivery(JSON.parse(JSON.stringify(r)))) throw new Error(`delivery ${r.id} isn't one Hive could read back`)
   const text = fileText(d)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('too many deliveries to keep in this project')
-  const tmp = `${file}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`
-  try {
-    await writeFile(tmp, text, 'utf8')
-    await beforeRename?.()
-    await renameRetrying(tmp, file, 20, undefined, rename)
-  } catch (e) {
-    await rm(tmp, { force: true }).catch(() => undefined)
-    throw e
-  }
-}
-
-/** For tests: run between writing the temp file and its rename (to fail the rename). */
-let beforeRename: (() => Promise<void> | void) | null = null
-export const setBeforeRenameForTests = (fn: (() => Promise<void> | void) | null): void => {
-  beforeRename = fn
+  const rows = rowsOf(d.records)
+  await saveStore(store.place.workspace, 'deliveries', store.place.scope, rows, { next: JSON.stringify(d.next), invalid: d.invalid.length ? JSON.stringify(d.invalid) : null })
 }
 
 /** Ended deliveries beyond what is kept (per agent, by age) go; received ones never acked expire after a week. */
@@ -1384,6 +1415,14 @@ export async function settledForTests(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.all([...stores.values()].map((s) => s.lock))
 }
 /** For tests: forgets every host in memory, as a restart of Hive does (transactions finish first); what is on disk stays. */
+/** For tests: a host's deliveries as saved (#1018: its workspace's database), with what is kept beside them. */
+export async function savedForTests(host: string): Promise<{ next: number | undefined; deliveries: DeliveryRecord[]; invalid?: unknown[] }> {
+  const place = await hostPlace(host)
+  const { rows, meta } = readStore(place.workspace, 'deliveries', place.scope)
+  const invalid = meta.get('invalid')
+  return { next: meta.has('next') ? (JSON.parse(meta.get('next')!) as number) : undefined, deliveries: rows.map((r) => JSON.parse(r.doc) as DeliveryRecord), ...(invalid ? { invalid: JSON.parse(invalid) as unknown[] } : {}) }
+}
+
 export async function forgetDeliveriesForTests(): Promise<void> {
   await settledForTests()
   for (const t of retrying.values()) clearTimeout(t)
