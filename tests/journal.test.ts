@@ -239,6 +239,21 @@ describe('the size cap, as little as it takes (#1031 round 1)', () => {
     expect(j.journalSize(h)!.entries).toBe(3099)
   })
 
+  it('what an entry frees is measured, not guessed: a short entry with many long links that frees enough is the only one to go (#1031 round 3)', () => {
+    const h = home()
+    const free = { ...all, capMB: null }
+    for (let i = 0; i < 3000; i++) write(h, { summary: `Important ${i}`, importance: 2 }, free)
+    const linked = write(h, { summary: 'Oldest linked', links: Array.from({ length: 40 }, (_, i) => ({ type: 'artifact', ref: `${i}-${'x'.repeat(296)}` })) }, free)
+    const newer: number[] = []
+    for (let i = 0; i < 99; i++) newer.push(write(h, { summary: `Newer ${i}` }, free))
+    age(h, linked, new Date(Date.now() - 30 * 86_400_000).toISOString())
+    const cap = (j.journalSize(h)!.bytes - 4096) / (1024 * 1024)
+    expect(j.pruneJournal(h, { ...all, capMB: cap })).toBe(1)
+    expect(j.readEntry(h, linked)).toBeNull()
+    for (const id of newer) expect(j.readEntry(h, id)).not.toBeNull()
+    expect(j.journalSize(h)!.bytes).toBeLessThanOrEqual(cap * 1024 * 1024)
+  })
+
   it('an entry made bigger by an update is held to the cap too; its retention applies once its importance drops', () => {
     const h = home()
     const settings = { ...all, capMB: 5 }
