@@ -107,6 +107,7 @@ export const SUITES = [
   { name: 'inboxnotices' },
   { name: 'installdir' },
   { name: 'isolation' },
+  { name: 'journal' },
   { name: 'keys' },
   { name: 'lanewatch' },
   { name: 'launchrace' },

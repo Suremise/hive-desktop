@@ -14,6 +14,7 @@ import { keepBeforeIds } from './beforeIds'
 import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { getTask, inScope } from './tasks'
+import { journalFact } from './journalService'
 import { openWorkspaces, type WorkspaceService } from './workspace'
 
 const log = createLogger('lanes')
@@ -179,6 +180,20 @@ async function mutate<T>(ws: WorkspaceService, fn: (lanes: LaneRecord[]) => T | 
 const now = (): string => new Date().toISOString()
 const newId = (): string => `lane-${randomBytes(3).toString('hex')}`
 
+/** A lane's start or end as a fact in the Assistant's journal (#1031): who, which cards, how it ended, its merge. */
+function laneFact(ws: WorkspaceService, l: LaneRecord): void {
+  const who = `${l.builder.name}${l.reviewer ? ` / ${l.reviewer.name}` : ''}`
+  const cards = l.cards.map((n) => `#${n}`).join(', ')
+  const what = l.state === 'active' ? 'started' : l.state === 'ended' ? (l.mergeCommit ? `ended, merged at ${l.mergeCommit}` : 'ended') : 'abandoned' // i18n-ignore: a journal fact (the Assistant's, English)
+  journalFact(ws, {
+    summary: `Lane ${l.name ? `"${l.name}" ` : ''}${what}: ${who}, ${cards}`, // i18n-ignore: a journal fact (the Assistant's, English)
+    project: l.project,
+    importance: l.mergeCommit ? 2 : 1,
+    links: [...l.cards.map((n) => ({ type: 'card' as const, ref: String(n) })), ...(l.mergeCommit ? [{ type: 'commit' as const, ref: l.mergeCommit }] : [])].slice(0, 40),
+    tags: ['lane']
+  })
+}
+
 /**
  * Ends a lane: ended when all its cards are merged (or `merged` says so), else abandoned. `cards`: its cards as they read
  * just now, kept as it was left (#512), when they are still its list (a start may have changed it meanwhile).
@@ -308,6 +323,8 @@ export async function startLane(ws: WorkspaceService, s: StartLane): Promise<Lan
   })
   const [lane, replaced] = await views(ws, [r.rec, ...(r.replaced ? [r.replaced] : [])])
   log.info(`Lane ${r.rec.id} ${r.did} for ${userText(builder.name)} in ${userText(s.project)}: ${s.cards.map((n) => `#${n}`).join(', ')}`)
+  if (r.replaced) laneFact(ws, r.replaced)
+  if (r.did === 'started') laneFact(ws, r.rec)
   return { lane, did: r.did, replaced: replaced ?? null }
 }
 
@@ -343,15 +360,22 @@ export async function joinLane(ws: WorkspaceService, j: { project: string; build
  * `abandoned`. `agent`: a project agent ending it, which must be its builder or reviewer.
  */
 export async function endLane(ws: WorkspaceService, id: string, o: { abandoned?: boolean; mergeCommit?: string | null; project?: string; agent?: string }): Promise<LaneInfo> {
+  let ended = false
   const rec = await mutate(ws, async (lanes) => {
     const l = lanes.find((x) => x.id === id && (!o.project || same(x.project, o.project)))
     if (!l) throw new LaneError(404, withValues(M.unknown, { id }))
     if (o.agent && l.builder.id !== o.agent && l.reviewer?.id !== o.agent) throw new LaneError(403, "Only a lane's builder or reviewer ends it (or the user, or the Assistant)") // i18n-ignore: hive_lane's refusal, which only a project agent gets
-    if (running(l)) close(l, o.abandoned ? 'abandoned' : 'ended', (await views(ws, [l]))[0].cards, o.mergeCommit)
-    else if (o.mergeCommit && !l.mergeCommit) l.mergeCommit = o.mergeCommit
+    if (running(l)) {
+      close(l, o.abandoned ? 'abandoned' : 'ended', (await views(ws, [l]))[0].cards, o.mergeCommit)
+      ended = true
+    } else if (o.mergeCommit && !l.mergeCommit) {
+      l.mergeCommit = o.mergeCommit
+      ended = true
+    }
     return l
   })
   log.info(`Lane ${id} ${rec.state}`)
+  if (ended) laneFact(ws, rec)
   return (await views(ws, [rec]))[0]
 }
 
@@ -433,6 +457,8 @@ export async function refresh(ws: WorkspaceService): Promise<void> {
           if (!running(l)) continue
           if (done.some((d) => d.id === l.id)) close(l, 'ended', cardsNow.get(l.id))
           else if (orphan.some((d) => d.id === l.id)) close(l, 'abandoned', cardsNow.get(l.id))
+          else continue
+          laneFact(ws, l)
         }
         await write(ws, kept)
       })

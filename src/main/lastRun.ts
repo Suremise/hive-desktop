@@ -10,6 +10,7 @@ import { endProcessesExactly, endTreesExactly, runningProcesses, stillRunningOf 
 import { assistantHome } from './assistantControl'
 import { config } from './config'
 import { createDelivery } from './deliveries'
+import { journalFactAt } from './journalService'
 import { emit, onHiveEvent, toast } from './events'
 import { crashDumps, type CrashDump } from './exitLog'
 import { hiveError } from './hiveError'
@@ -246,6 +247,8 @@ async function tellAssistants(c: UnexpectedClose, r: ResumeReport | null, still:
   const homes = new Set([...c.workspaces, ...c.agents.map((a) => a.workspace)].filter(Boolean).map((w) => w.toLowerCase()))
   for (const ws of homes) {
     const home = assistantHome(ws)
+    // A fact for its journal (#1031), Assistant or not.
+    await journalFactAt(ws, { summary: `Hive closed unexpectedly (last seen ${c.lastSeen}); ${c.agents.filter((a) => a.workspace.toLowerCase() === ws).length} agent(s) of this workspace were running`, importance: 2, tags: ['incident', 'unexpected-close'] }) // i18n-ignore: a journal fact (the Assistant's, English)
     // A session host's own config is in its .hive folder: none, the workspace has no Assistant to tell.
     if (!existsSync(join(home, '.hive', 'project.json'))) continue
     await createDelivery(home, { agentId: ASSISTANT_AGENT_ID, kind: 'control', from: HIVE, body: assistantLine(c, r, still) }).catch((e) => log.warn('telling the Assistant Hive closed unexpectedly', e))

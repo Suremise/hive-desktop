@@ -89,6 +89,7 @@ import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
 import { utf8Bytes } from '../shared/metrics'
 import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
+import { journalSettingsOf } from './journalService'
 import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
 import { beingRead, viewingWindows } from './transcriptReads'
@@ -1364,7 +1365,7 @@ class SessionManager {
       privateDir: hookAuth.dir,
       guidance: await this.hiveGuidance(projectPath).catch(() => ''),
       instructions: assistantText?.text,
-      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true) : undefined,
+      trustedHiveTools: workspace.isAssistantHome(projectPath) ? assistantTools(config.settings.assistant?.control, config.settings.assistant?.changeSettings === true, journalSettingsOf(workspaceOf(projectPath)).enabled) : undefined,
       initialPrompt: l.initialPrompt,
       allowBackgroundSessions: providerSettings(config.settings, adapter.id).allowBackgroundSessions,
       env: withBinOnPath(childEnv({

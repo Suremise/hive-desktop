@@ -26,6 +26,9 @@ import { settingChangeTexts, settingPath, type SettingEntry, type SettingScope }
 import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
+import { deleteEntry, JournalError, readEntry, recall, updateEntry, writeEntry } from './journal'
+import { journalSettingsOf } from './journalService'
+import type { JournalSettings } from '../shared/journal'
 import { emit, onHiveEvent, toast } from './events'
 import { msg, tr } from '../shared/i18n'
 import { cancelWatch, encodeSince, registerAgentWatch, registerLaneWatch, registerWatch, scopedCard } from './watches'
@@ -1090,6 +1093,56 @@ function callerSender(): DeliverySender {
 /** Starts an agent on a task (#649): a task delivery its launch carries as its prompt, received once its CLI takes it. */
 const startOnTask = (p: string, agentId: string, agentName: string, prompt: string, start: (line: string) => Promise<LiveSessionState>): Promise<LiveSessionState> =>
   launchWith(p, { agentId, agentName, kind: 'task', from: callerSender(), body: prompt }, start).then((x) => x.launched)
+
+// The Assistant's journal (#1031): its tools (hive_journal_*) only, only while it is on (Settings → Assistant → Journal).
+// The tools come and go with the Assistant's start; each call checks again, so one turned off meanwhile is refused.
+function journalHome(): { home: string; settings: JournalSettings } {
+  if (!assistantCaller()) throw new HttpError(403, "Only the Hive Assistant keeps a journal.")
+  const ws = requireWorkspace()
+  const settings = journalSettingsOf(ws)
+  if (!settings.enabled) throw new HttpError(409, 'The journal is off (Settings → Assistant → Journal): nothing is written or recalled. Its entries are kept.')
+  return { home: ws.assistantHome, settings }
+}
+/** A journal call: the caller's mistakes are 400s, said plainly. */
+function journalCall<T>(fn: () => T): T {
+  try {
+    return fn()
+  } catch (e) {
+    if (e instanceof JournalError) throw new HttpError(400, e.message)
+    throw e
+  }
+}
+const entryId = (raw: string): number => {
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < 1) throw new HttpError(400, 'An entry id is a whole number.')
+  return n
+}
+route('POST', '/v1/journal', async ({ body }) => {
+  const { home, settings } = journalHome()
+  return { id: journalCall(() => writeEntry(home, settings, body ?? {}, 'assistant')) }
+})
+route('POST', '/v1/journal/recall', async ({ body }) => {
+  const { home } = journalHome()
+  return { entries: journalCall(() => recall(home, body ?? {})) }
+})
+route('GET', '/v1/journal/:id', async ({ params }) => {
+  const { home } = journalHome()
+  const e = readEntry(home, entryId(params[0]))
+  if (!e) throw new HttpError(404, `There is no entry ${params[0]}.`)
+  return e
+})
+route('PATCH', '/v1/journal/:id', async ({ params, body }) => {
+  const { home } = journalHome()
+  const id = entryId(params[0])
+  if (!journalCall(() => updateEntry(home, id, body ?? {}))) throw new HttpError(404, `There is no entry ${id}.`)
+  return { id, updated: true }
+})
+route('DELETE', '/v1/journal/:id', async ({ params }) => {
+  const { home } = journalHome()
+  const id = entryId(params[0])
+  if (!deleteEntry(home, id)) throw new HttpError(404, `There is no entry ${id}.`)
+  return { id, deleted: true }
+})
 
 /** Who is calling hive_inbox: a project agent (its own), or the Assistant (its home's). */
 function inboxOwner(): { host: string; agentId: string } {

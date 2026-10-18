@@ -1604,6 +1604,32 @@ textarea.input {
 .moved-banner .btn + .icon-btn {
   flex-shrink: 0;
 }
+/* Settings → Assistant → Journal (#1031). */
+.journal-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.journal-settings .flex {
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.journal-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  align-items: center;
+}
+.journal-scope .s-title {
+  flex-basis: 100%;
+}
+.journal-settings input[type='number'] {
+  width: 80px;
+}
+.journal-settings .btn {
+  align-self: flex-start;
+}
 /* Cards made by an older Hive, set aside (#1044). */
 .set-aside-list {
   list-style: none;

@@ -1,3 +1,4 @@
+import { JournalSettingsPanel } from '../components/JournalSettings'
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn, WorkspaceConfig } from '@shared/types'
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor, columnName } from '@shared/tasks'
@@ -57,6 +58,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   'board.colors': () => <ColumnColors />,
   'assistant.provider': () => <AssistantProviderPicker />,
   'assistant.persona': () => <AssistantPersonaPicker />,
+  'assistant.journal': () => <JournalSettingsPanel />,
   ...Object.fromEntries(PROVIDERS.map((p) => [`assistant.provider:${p.id}`, () => <AssistantProviderDefaults provider={p.id} />])),
   'agentApi.status': () => <ApiStatus />,
   'agentApi.token': () => <ApiToken />,

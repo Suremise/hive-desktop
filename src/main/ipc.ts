@@ -87,6 +87,7 @@ import { isRecordingName, latestRecording, recordingOf, recordingsDir, startReco
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 import { capturedText, HiveError, hiveError, windowError } from './hiveError'
+import { deleteWorkspaceJournal, journalStatus, setJournalSettings } from './journalService'
 import { msg, tr } from '../shared/i18n'
 
 /**
@@ -610,6 +611,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'tasks:unarchiveBatch': (id) => tasks.unarchiveBatch(id, { kind: 'user' }),
     'tasks:archiveBatches': () => tasks.archiveBatches(),
+    'journal:status': () => journalStatus(currentWorkspace()),
+    'journal:set': (patch) => setJournalSettings(currentWorkspace(), patch ?? {}),
+    'journal:delete': () => deleteWorkspaceJournal(currentWorkspace()),
     'tasks:setAside': () => tasks.setAsideCards(currentWorkspace()),
     'tasks:addSetAside': (file) => tasks.addSetAsideCard(currentWorkspace(), file),
     'tasks:discardSetAside': (file) => tasks.discardSetAsideCard(currentWorkspace(), file),

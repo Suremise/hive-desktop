@@ -267,6 +267,16 @@ The changes below are the Assistant's only: other callers get `403`.
 | `POST /v1/projects/{name}/handover` | Control agents | Hand Over to… (below), without needing *Allow sending input to sessions*. `409` at once when the project's agents lack Hive's tools, the user has just typed in either agent's terminal, or (without a new handover) the project has no handover; later failures are listed in its actions |
 | `POST /v1/tasks/{n}/start` | Control agents | Starts a card on an agent (see [Task board](#task-board)) |
 
+**Its journal** (#1031): the Assistant's only (other callers `403`), while Settings → Assistant → Journal is on (else `409`). Its tools call these.
+
+| Call | What it does |
+|---|---|
+| `POST /v1/journal` `{ "kind", "summary", "detail"?, "why"?, "project"?, "importance"?, "links"?, "tags"?, "digestOf"? }` | Writes an entry; `{ "id" }`. A kind outside the user's scope is `400`, saying which are allowed |
+| `POST /v1/journal/recall` `{ "query"?, "since"?, "until"?, "kinds"?, "project"?, "link"?, "tag"?, "superseded"?, "limit"? }` | `{ "entries": [{ id, at, kind, project, summary, importance, source, supersededBy, hasDetail }] }`, newest or best first, 10 by default (50 at most) |
+| `GET /v1/journal/{id}` | The entry in full: also `detail`, `why`, `digestOf`, `updatedAt`, `links`, `tags`, `supersedes` |
+| `PATCH /v1/journal/{id}` `{ "summary"?, "detail"?, "why"?, "importance"?, "supersededBy"?, "addLinks"?, "addTags"? }` | Changes it; `404` when there is none |
+| `DELETE /v1/journal/{id}` | Deletes it (its links and tags too) |
+
 Changing the task board (`POST /v1/tasks`, `PATCH /v1/tasks/{n}`, comments) is open to other callers too; for the Assistant it needs Control agents and counts as a change.
 
 With **Look and advise** these return `403`. The Assistant can make 30 changes for each message from the user; then `429`. A batch of cards is one change, however many cards it has. Every change, and every refusal, is listed in the Assistant's panel and in `hive.log`. There is no call to remove agents, discard worktrees, archive or delete cards, or remove projects. For the Assistant, `POST /v1/projects/{name}/sessions`, `/stop` and `/input` answer `400` (it uses the calls above), and `/deactivate` needs Control agents.

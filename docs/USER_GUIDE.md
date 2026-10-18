@@ -698,6 +698,20 @@ It never removes agents, discards worktrees, archives or deletes cards, or remov
 
 When an agent's CLI asks whether to trust a new folder before it starts, the agent shows as **waiting** for you: answer in its terminal.
 
+### The Assistant's journal
+
+The Assistant keeps a **journal** in each workspace: its memory across sessions. Instead of reading a long handover after a restart or a compaction, it recalls a few lines at a time: what was decided and why, plans, what happened, incidents, what it learned. Each entry is a one-line summary with optional detail, a project, an importance, and links to cards, commits, notes and other entries; newer entries can supersede older ones. Hive adds its own facts as they happen: a lane started and ended (with its merge), a card moved to Done, Hive closing unexpectedly.
+
+It is in **Settings → Assistant → Journal**, for the workspace you have open:
+
+- **Keep a journal** (on by default). Off, nothing is written and the Assistant's journal tools go at its next start; the entries are kept for when you turn it on again.
+- **What it may store**: decisions, plans, events, incidents and insights by default. **Your preferences** (how you like things done) and **Moments** (memorable moments of working together) are off until you turn them on. The Assistant can't store a kind you leave out, and it is told when you change them.
+- **Keep everyday entries for** 90 days by default. Important entries and the weekly digests the Assistant writes are kept longer.
+- **Size cap**, 50 MB by default, or **No limit**. Past it, the oldest everyday entries go first. The journal's size and number of entries show below.
+- **Delete Journal…** asks first, then moves the journal to the Recycle Bin; the Assistant starts again with an empty one.
+
+The journal is a file in the workspace, `.hive/assistant/journal.db`, kept on this computer only and never sent anywhere (it stays out of git with the Assistant's other files). Long entries are kept compressed, and a search finds words in summaries, details and reasons.
+
 ### The Assistant and Hive's settings
 
 Hive has a lot of settings. Ask the Assistant what one does (*"what does Warn when a transcript is over do?"*) or how to make Hive behave differently (*"the chime is driving me mad"*), and it finds the setting, explains it and says where it is. It reads the same descriptions Settings shows. When it notices something a setting would help with, such as a transcript growing very large or several agents editing the same files, it suggests that setting in a line, and changes nothing unless you agree.
