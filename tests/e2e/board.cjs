@@ -209,7 +209,7 @@ const check = (name, ok, extra = '') => {
   check('Start adds an agent to the project', !!agent)
   const live = async () => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === agent.id)
   const ran = !!(await until(async () => (await live())?.status === 'finished', 30000))
-  check('and runs the card', ran, `${(await live())?.status}: ${String(await inv('pty:buffer', lib.ptyKey(alpha, agent.id))).replace(/\[[0-9;?]*[ -/]*[@-~]/g, ' ').slice(-600)}`)
+  check('and runs the card', ran, `${(await live())?.status}: ${String(await inv('pty:buffer', lib.ptyKey(alpha, agent.id))).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, ' ').slice(-600)}`)
   const c1b = await card(1)
   check('the card is in Doing, given to the agent', c1b.column === 'doing' && c1b.agent === agent.id, JSON.stringify({ column: c1b.column, agent: c1b.agent }))
   const tr = fs.readdirSync(path.join(claudeHome, 'projects'), { recursive: true }).filter((f) => String(f).endsWith('.jsonl'))
