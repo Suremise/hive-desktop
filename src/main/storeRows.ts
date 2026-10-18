@@ -1,6 +1,6 @@
 import { existsSync, renameSync } from 'original-fs'
 import { resolve } from 'path'
-import { boardLock, inBoardWrite, workspaceDb } from './boardStore'
+import { boardLock, boardOpen, closeBoard, inBoardWrite, workspaceDb } from './boardStore'
 import { transaction } from './db'
 import { withFileLock } from './fsutil'
 import { createLogger, userText } from './logger'
@@ -18,7 +18,18 @@ const log = createLogger('stores')
  * host); '' where it has one.
  */
 
-export type StoreName = 'lanes' | 'watches' | 'deliveries'
+export type StoreName = 'lanes' | 'watches' | 'deliveries' | 'metrics'
+
+/**
+ * A row to save: its key, its JSON document, and its place (`ord`: by default its place in the list; a store whose
+ * entries have a place of their own, metrics' buckets by their start, gives it, so an entry leaving the front doesn't
+ * move every other row).
+ */
+export interface StoreRow {
+  key: string
+  doc: string
+  ord?: number
+}
 
 /** A store's entries in order, each its key and its JSON document, with its values. */
 export interface StoreData {
@@ -53,13 +64,14 @@ function assertUnique(store: StoreName, rows: readonly { key: string }[]): void 
   if (new Set(rows.map((r) => r.key)).size !== rows.length) throw new Error(`Two of the ${store} have the same key: nothing was saved`) // i18n-ignore: a mistake in Hive's code, logged
 }
 
-/** For tests: a save that fails as it is written (a full disk). */
-export const storeTestHooks: { failSave: ((store: StoreName, scope: string) => boolean) | null } = { failSave: null }
+/** For tests: a save that fails as it is written (a full disk); a save held before it takes the lock (to race it); a read that fails. */
+export const storeTestHooks: { failSave: ((store: StoreName, scope: string) => boolean) | null; beforeSave: ((store: StoreName, scope: string) => Promise<void>) | null; failRead: ((store: StoreName) => boolean) | null } = { failSave: null, beforeSave: null, failRead: null }
 
 /** A store's entries and values as last committed. */
 export function readStore(workspacePath: string, store: StoreName, scope = ''): StoreData {
+  if (storeTestHooks.failRead?.(store)) throw new Error(`SQLITE_IOERR: disk I/O error (test, ${store})`) // i18n-ignore: a test's stand-in for SQLite's error
   const db = workspaceDb(resolve(workspacePath)).reader
-  const rows = db.prepare('SELECT key, doc FROM store_rows WHERE store = ? AND scope = ? ORDER BY ord').all(store, scope) as { key: string; doc: string }[] // i18n-ignore: SQL
+  const rows = db.prepare('SELECT key, doc FROM store_rows WHERE store = ? AND scope = ? ORDER BY ord, key').all(store, scope) as { key: string; doc: string }[] // i18n-ignore: SQL
   const meta = new Map((db.prepare('SELECT key, value FROM store_meta WHERE store = ? AND scope = ?').all(store, scope) as { key: string; value: string }[]).map((r) => [r.key, r.value])) // i18n-ignore: SQL
   return { rows: rows.map((r) => ({ key: r.key, doc: r.doc })), meta }
 }
@@ -70,28 +82,41 @@ export function readStore(workspacePath: string, store: StoreName, scope = ''): 
  * the transaction, with nothing awaited between them: a store whose owner went away meanwhile (a closed workspace)
  * throws there, and nothing is written.
  */
-export async function saveStore(workspacePath: string, store: StoreName, scope: string, rows: { key: string; doc: string }[], meta: Record<string, string | null> = {}, guard?: () => void): Promise<void> {
+export async function saveStore(workspacePath: string, store: StoreName, scope: string, rows: StoreRow[], meta: Record<string, string | null> = {}, guard?: () => void): Promise<void> {
   const path = resolve(workspacePath)
   // Its lock is the board's: inside a board change it would wait for itself.
   if (inBoardWrite(path)) throw new Error(`The ${store} were saved inside a change of the board`) // i18n-ignore: a mistake in Hive's code, never shown
   assertUnique(store, rows)
+  await storeTestHooks.beforeSave?.(store, scope)
   await withFileLock(boardLock(path), async () => {
     guard?.()
+    // A workspace closed meanwhile (a store's last save as it closes): its database is opened for the save, then closed again.
+    const wasOpen = boardOpen(path)
     const db = workspaceDb(path).writer
-    transaction(db, () => {
-      const had = new Map((db.prepare('SELECT key, ord, doc FROM store_rows WHERE store = ? AND scope = ?').all(store, scope) as { key: string; ord: number; doc: string }[]).map((r) => [r.key, r])) // i18n-ignore: SQL
-      const put = db.prepare('INSERT INTO store_rows (store, scope, key, ord, doc) VALUES (?, ?, ?, ?, ?) ON CONFLICT(store, scope, key) DO UPDATE SET ord = excluded.ord, doc = excluded.doc') // i18n-ignore: SQL
-      const keys = new Set<string>()
-      rows.forEach((r, i) => {
-        keys.add(r.key)
-        const was = had.get(r.key)
-        if (!was || was.ord !== i || was.doc !== r.doc) put.run(store, scope, r.key, i, r.doc)
-      })
-      const del = db.prepare('DELETE FROM store_rows WHERE store = ? AND scope = ? AND key = ?') // i18n-ignore: SQL
-      for (const k of had.keys()) if (!keys.has(k)) del.run(store, scope, k)
-      for (const [k, v] of Object.entries(meta)) setMeta(db, store, scope, k, v)
-      if (storeTestHooks.failSave?.(store, scope)) throw new Error(`SQLITE_FULL: database or disk is full (test, ${store})`) // i18n-ignore: a test's stand-in for SQLite's error
+    try {
+      saveRows(db, store, scope, rows, meta)
+    } finally {
+      if (!wasOpen) closeBoard(path)
+    }
+  })
+}
+
+/** saveStore's transaction. */
+function saveRows(db: ReturnType<typeof workspaceDb>['writer'], store: StoreName, scope: string, rows: StoreRow[], meta: Record<string, string | null>): void {
+  transaction(db, () => {
+    const had = new Map((db.prepare('SELECT key, ord, doc FROM store_rows WHERE store = ? AND scope = ?').all(store, scope) as { key: string; ord: number; doc: string }[]).map((r) => [r.key, r])) // i18n-ignore: SQL
+    const put = db.prepare('INSERT INTO store_rows (store, scope, key, ord, doc) VALUES (?, ?, ?, ?, ?) ON CONFLICT(store, scope, key) DO UPDATE SET ord = excluded.ord, doc = excluded.doc') // i18n-ignore: SQL
+    const keys = new Set<string>()
+    rows.forEach((r, i) => {
+      keys.add(r.key)
+      const ord = r.ord ?? i
+      const was = had.get(r.key)
+      if (!was || was.ord !== ord || was.doc !== r.doc) put.run(store, scope, r.key, ord, r.doc)
     })
+    const del = db.prepare('DELETE FROM store_rows WHERE store = ? AND scope = ? AND key = ?') // i18n-ignore: SQL
+    for (const k of had.keys()) if (!keys.has(k)) del.run(store, scope, k)
+    for (const [k, v] of Object.entries(meta)) setMeta(db, store, scope, k, v)
+    if (storeTestHooks.failSave?.(store, scope)) throw new Error(`SQLITE_FULL: database or disk is full (test, ${store})`) // i18n-ignore: a test's stand-in for SQLite's error
   })
 }
 
@@ -103,7 +128,7 @@ function setMeta(db: ReturnType<typeof workspaceDb>['writer'], store: StoreName,
 const stamp = (): string => new Date().toISOString().replace(/[:.]/g, '-')
 
 /** A store's file renamed to its backup name, `<file>.imported-<time>`; false when Windows refused (tried again at the next open). */
-function keepAsBackup(file: string): boolean {
+export function keepAsBackup(file: string): boolean {
   const to = `${file}.imported-${stamp()}`
   for (let i = 0; i < 5; i++) {
     try {

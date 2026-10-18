@@ -1,22 +1,29 @@
 // Hive's performance metrics (src/main/metrics.ts): exact units, hourly buckets on a fake clock (folded into days after
 // a week, gone after 30 days), per-workspace stores that never mix, project parts that add up to the workspace's totals
 // with the workspace's own work kept apart, caps that drop and count rather than grow, malformed bridge reports refused,
-// recording off, the saved file (git-ignored, size-capped, reset; read as untrusted input), work started in a workspace
+// recording off, what is saved (in the workspace database, #1019: moved in from metrics.json once, its totals unchanged;
+// size-capped, reset; read as untrusted input), work started in a workspace
 // that has since closed or switched (dropped, never moved), retention applied however long Hive was idle and whichever
 // way the clock moved, the launch's skill sizes measured on the copies delivered, and what recording costs. MEASURE=1 prints the overhead numbers (docs/ARCHITECTURE.md records them).
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
 import { LATENCY_BOUNDS_MS, percentile, utf8Bytes, type MetricsPart } from '../src/shared/metrics'
 import { tempDir } from './tempDir'
+import { metricsSaved, putMetrics } from './storeDocs'
 
 const base = tempDir('hive-metrics-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
-afterAll(() => rmSync(base, { recursive: true, force: true }))
 
 const { createWorkspaceService, disposeWorkspaceService } = await import('../src/main/workspace')
 const metrics = await import('../src/main/metrics')
+const { storeTestHooks } = await import('../src/main/storeRows')
+const { closeAllBoards } = await import('../src/main/boardStore')
+afterAll(() => {
+  closeAllBoards()
+  rmSync(base, { recursive: true, force: true })
+})
 const { config } = await import('../src/main/config')
 type WS = ReturnType<typeof createWorkspaceService>
 
@@ -42,6 +49,9 @@ async function open(): Promise<{ w: WS; path: string }> {
 }
 
 const api = (route = '/v1/tasks', extra: Partial<Parameters<typeof metrics.recordApi>[2]> = {}) => ({ route, method: 'GET', role: 'agent' as const, outcome: 'ok' as const, requestBytes: 10, responseBytes: 100, ms: 7, ...extra })
+/** What is saved, as metrics.json's text was (what the size cap measures). */
+const savedText = (path: string) => JSON.stringify(metricsSaved(path))
+const savedBytes = (path: string) => Buffer.byteLength(savedText(path), 'utf8')
 const sumApi = (parts: MetricsPart[]) => parts.flatMap((p) => p.api).reduce((a, s) => ({ count: a.count + s.count, bytes: a.bytes + s.responseBytes }), { count: 0, bytes: 0 })
 
 describe('units', () => {
@@ -201,17 +211,19 @@ describe('recording off', () => {
 })
 
 describe('saving', () => {
-  it('saved git-ignored in .hive/metrics, read back when the workspace opens again, and cleared by reset', async () => {
+  it('saved in the workspace database (git-ignored with it), read back when the workspace opens again, and cleared by reset', async () => {
     const { w, path } = await open()
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
     metrics.recordLaunch(metrics.metricsHandle(w), 'alpha', { provider: 'codex', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: 1, skillsUnmeasured: 0 })
     await w.close()
     await metrics.flushMetrics()
-    const file = join(path, '.hive', 'metrics', 'metrics.json')
-    expect(existsSync(file)).toBe(true)
-    expect(readFileSync(join(path, '.hive', 'metrics', '.gitignore'), 'utf8')).toContain('*')
+    expect(metricsSaved(path)).not.toBeNull()
+    // No file of their own, nor a .gitignore for one: the database is git-ignored by .hive's.
+    expect(existsSync(join(path, '.hive', 'metrics', 'metrics.json'))).toBe(false)
+    expect(existsSync(join(path, '.hive', 'metrics', '.gitignore'))).toBe(false)
+    expect(readFileSync(join(path, '.hive', '.gitignore'), 'utf8')).toMatch(/^hive\.db$/m)
     // Only aggregates: no project path, no route asked for.
-    expect(readFileSync(file, 'utf8')).not.toContain(path.replace(/\\/g, '\\\\'))
+    expect(savedText(path)).not.toContain(path.replace(/\\/g, '\\\\'))
     await w.open(path)
     const again = metrics.queryMetrics(w, { scope: { kind: 'project', project: 'alpha' } }).projects.alpha
     expect(again.api[0].count).toBe(1)
@@ -219,11 +231,11 @@ describe('saving', () => {
     metrics.resetMetrics(w)
     expect(metrics.queryMetrics(w, { scope: { kind: 'project', project: 'alpha' } }).projects.alpha.api).toEqual([])
     await metrics.flushMetrics()
-    expect(JSON.parse(readFileSync(file, 'utf8')).buckets).toEqual([])
+    expect(metricsSaved(path)!.buckets).toEqual([])
     await disposeWorkspaceService(w)
   })
 
-  it('the file stays under its cap: the oldest buckets go first', async () => {
+  it('what is saved stays under its cap: the oldest buckets go first', async () => {
     const { w, path } = await open()
     const saved = { ...metrics.METRICS_LIMITS }
     try {
@@ -233,9 +245,8 @@ describe('saving', () => {
         for (let p = 0; p < 5; p++) metrics.recordApi(metrics.metricsHandle(w), `p${p}`, api())
       }
       await metrics.flushMetrics()
-      const file = join(path, '.hive', 'metrics', 'metrics.json')
-      expect(statSync(file).size).toBeLessThanOrEqual(20_000)
-      const kept = JSON.parse(readFileSync(file, 'utf8')).buckets as { start: number }[]
+      expect(savedBytes(path)).toBeLessThanOrEqual(20_000)
+      const kept = metricsSaved(path)!.buckets as { start: number }[]
       expect(Math.max(...kept.map((b) => b.start))).toBe(T0 + 99 * HOUR - ((T0 + 99 * HOUR) % HOUR))
     } finally {
       Object.assign(metrics.METRICS_LIMITS, saved)
@@ -264,8 +275,8 @@ describe('switching and the skill service', () => {
     metrics.recordApi(metrics.metricsHandle(w), 'beta', api())
     await metrics.flushMetrics()
     expect(Object.keys(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }).projects)).toEqual(['beta'])
-    expect(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8')).toContain('"alpha"')
-    expect(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8')).not.toContain('"beta"')
+    expect(savedText(path)).toContain('"alpha"')
+    expect(savedText(path)).not.toContain('"beta"')
     await disposeWorkspaceService(w)
   })
 
@@ -308,7 +319,7 @@ describe('lifetime', () => {
     expect(Object.keys(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }).projects)).toEqual([])
     expect(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }).skills!.hits).toBe(0)
     await metrics.flushMetrics()
-    expect(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8')).not.toContain('cancelled')
+    expect(savedText(path)).not.toContain('cancelled')
     await disposeWorkspaceService(w)
   })
 
@@ -405,15 +416,142 @@ describe('the saved file is untrusted', () => {
   })
 
   it('a file over the size cap is not read at all; one that is not JSON is ignored', async () => {
+    // Each found at a workspace's first metrics load (the move in, #1019): one found after it isn't read at all.
     const { w, path } = await open()
     await w.close()
     write(path, ' '.repeat(metrics.METRICS_LIMITS.fileBytes + 1))
     await w.open(path)
     expect(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }).projects).toEqual({})
-    await w.close()
-    write(path, '{"version":1,"buckets":[')
+    await disposeWorkspaceService(w)
+    const other = await open()
+    await other.w.close()
+    write(other.path, '{"version":1,"buckets":[')
+    await other.w.open(other.path)
+    expect(metrics.queryMetrics(other.w, { scope: { kind: 'workspace' } }).projects).toEqual({})
+    await disposeWorkspaceService(other.w)
+  })
+})
+
+describe('moved into the workspace database (#1019)', () => {
+  const hourOf = (t: number) => Math.floor(t / HOUR) * HOUR
+  const dirOf = (path: string) => join(path, '.hive', 'metrics')
+  const backups = (path: string) => readdirSync(dirOf(path)).filter((f) => f.startsWith('metrics.json.imported-'))
+  /** A workspace folder never opened, with its metrics folder (an older Hive's). */
+  const fresh = () => {
+    const path = join(base, `ws-${++n}`)
+    mkdirSync(dirOf(path), { recursive: true })
+    return path
+  }
+  const histogram = (count: number) => Array.from({ length: LATENCY_BOUNDS_MS.length + 1 }, (_, i) => (i === LATENCY_BOUNDS_MS.length ? count : 0))
+  const whole = (w: WS) => metrics.queryMetrics(w, { scope: { kind: 'workspace' }, from: new Date(T0 - 30 * DAY).toISOString(), trend: true })
+
+  it("metrics whose saved rows can't be read are never saved over, however much is recorded (a save would replace them with nothing)", async () => {
+    const path = fresh()
+    const series = { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', count: 3, totalMs: 9, maxMs: 4, histogram: histogram(3), requestBytes: 30, responseBytes: 300 }
+    await putMetrics(path, { buckets: [{ start: hourOf(T0) - HOUR, span: 'hour', projects: { alpha: { api: { 'GET /v1/tasks agent ok': series } } } } as never], observed: [[T0 - 2 * HOUR, T0 - HOUR]] })
+    const saved = metricsSaved(path)
+    storeTestHooks.failRead = (store) => store === 'metrics'
+    const w = createWorkspaceService()
+    try {
+      await w.open(path)
+      metrics.recordApi(metrics.metricsHandle(w), 'beta', { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', requestBytes: 1, responseBytes: 2, ms: 3 })
+      await metrics.flushMetrics()
+    } finally {
+      storeTestHooks.failRead = null
+    }
+    expect(metricsSaved(path)).toEqual(saved)
+    await disposeWorkspaceService(w)
+  })
+
+  it('a metrics.json there at the first open is read, moved in by the first save and kept as a backup, unchanged; one found later is kept, unread', async () => {
+    const path = fresh()
+    const series = { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', count: 3, totalMs: 9, maxMs: 4, histogram: histogram(3), requestBytes: 30, responseBytes: 300 }
+    const text = JSON.stringify({ version: 1, buckets: [{ start: hourOf(T0) - HOUR, span: 'hour', projects: { alpha: { api: { 'GET /v1/tasks agent ok': series } } } }], observed: [[T0 - 2 * HOUR, T0 - HOUR]], evictedThrough: T0 - 3 * HOUR })
+    writeFileSync(join(dirOf(path), 'metrics.json'), text)
+    const w = createWorkspaceService()
     await w.open(path)
-    expect(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }).projects).toEqual({})
+    const before = whole(w)
+    expect([before.projects.alpha.api[0].count, before.coverage.evictedThrough]).toEqual([3, new Date(T0 - 3 * HOUR).toISOString()])
+    expect(metricsSaved(path)).toBeNull()
+    // The first save moves it in, then keeps the file under its backup name, as it was.
+    await metrics.flushMetrics()
+    expect(metricsSaved(path)).toMatchObject({ evictedThrough: T0 - 3 * HOUR, buckets: [{ start: hourOf(T0) - HOUR, span: 'hour' }] })
+    expect(existsSync(join(dirOf(path), 'metrics.json'))).toBe(false)
+    expect(backups(path).map((f) => readFileSync(join(dirOf(path), f), 'utf8'))).toEqual([text])
+    expect(whole(w)).toEqual(before)
+    await w.close()
+    await metrics.flushMetrics()
+    // An older Hive's metrics.json written after the move: kept as a backup too, never read.
+    const later = JSON.stringify({ version: 1, buckets: [{ start: hourOf(T0), span: 'hour', projects: { beta: { api: { 'GET /v1/tasks agent ok': series } } } }] })
+    writeFileSync(join(dirOf(path), 'metrics.json'), later)
+    await w.open(path)
+    const after = whole(w)
+    expect(Object.keys(after.projects)).toEqual(['alpha'])
+    expect(after.projects).toEqual(before.projects)
+    expect(existsSync(join(dirOf(path), 'metrics.json'))).toBe(false)
+    expect(backups(path).map((f) => readFileSync(join(dirOf(path), f), 'utf8')).sort()).toEqual([text, later].sort())
+    await disposeWorkspaceService(w)
+  })
+
+  it("a migrated workspace's metrics report the same numbers (#1019)", async () => {
+    const { metricsReport } = await import('../src/main/metricsUsage')
+    // Recorded as Hive records them, over 13 days (hours for the last week, days before it): projects, the workspace's
+    // own work, API, MCP, catalog, guidance and skill-service series, observed in stretches.
+    const { w: src, path: srcPath } = await open()
+    for (let d = 12; d >= 0; d--) {
+      for (const h of [9, 5, 1]) {
+        now = T0 - d * DAY - h * HOUR
+        const handle = metrics.metricsHandle(src)
+        metrics.recordApi(handle, 'alpha', api('/v1/tasks', { ms: d + h }))
+        metrics.recordApi(handle, 'beta', api('/v1/tasks/:n', { outcome: d % 3 ? 'ok' : 'server-error', ms: 40 * h, responseBytes: 1000 + d }))
+        metrics.recordApi(handle, null, api('/v1/tasks', { role: 'assistant' }))
+        metrics.recordMcp(handle, 'alpha', 'agent', { tool: 'hive_list_tasks', mode: 'compact', ok: true, chars: 50 * h, bytes: 60 * h, ms: 3 })
+        metrics.recordMcp(handle, null, 'assistant', { tool: 'hive_read_task', mode: 'detail', ok: d % 2 === 0, chars: 500, bytes: 520, ms: 12 })
+        metrics.recordCatalog(handle, 'beta', 'agent', { tools: 30, toolsBytes: 9000 + d })
+        metrics.recordLaunch(handle, d % 2 ? 'alpha' : 'beta', { provider: d % 2 ? 'codex' : 'claude-code', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 10 * d, customChars: 10 * d, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: d % 2, skillsUnmeasured: 0 })
+        metrics.recordSkills(handle, { hits: 2, misses: 1, scanMs: 4, files: 3, bytes: 900 })
+      }
+    }
+    now = T0
+    metrics.queryMetrics(src, { scope: { kind: 'workspace' } })
+    await metrics.flushMetrics()
+    // Its saved form, as metrics.json had it, with history evicted before it.
+    const data = { ...metricsSaved(srcPath)!, evictedThrough: hourOf(T0 - 14 * DAY) }
+    expect(new Set(data.buckets.map((b) => b.span))).toEqual(new Set(['hour', 'day']))
+    expect(data.observed.length).toBeGreaterThan(1)
+    await disposeWorkspaceService(src)
+
+    // An older Hive's workspace with that metrics.json: the reports the Overview and Performance show, the whole range
+    // and the last two days (hourly), for the workspace and each project.
+    // Recording off while it is opened and reopened: a reopen is a new stretch of observation otherwise (a close is a
+    // gap), the one difference that isn't the move's.
+    config.settings.sessions.recordPerformance = false
+    const path = fresh()
+    writeFileSync(join(dirOf(path), 'metrics.json'), JSON.stringify(data))
+    const w = createWorkspaceService()
+    await w.open(path)
+    const reports = async () => {
+      const out: Record<string, unknown> = {}
+      for (const [name, scope] of [['workspace', { kind: 'workspace' }], ['alpha', { kind: 'project', project: 'alpha' }], ['beta', { kind: 'project', project: 'beta' }]] as const) {
+        out[`${name} month`] = await metricsReport(w, { scope, from: new Date(T0 - 30 * DAY).toISOString(), trend: true })
+        out[`${name} 2 days`] = await metricsReport(w, { scope, from: new Date(T0 - 2 * DAY).toISOString(), trend: true })
+      }
+      return out
+    }
+    const before = await reports()
+    // Read from the file: nothing saved yet.
+    expect(metricsSaved(path)).toBeNull()
+    const ws = before['workspace month'] as Awaited<ReturnType<typeof metricsReport>>
+    expect(sumApi(Object.values(ws.projects)).count).toBe(2 * 13 * 3)
+    expect(ws.coverage.evictedThrough).toBe(new Date(data.evictedThrough).toISOString())
+    // Moved in by the save as it closes, then read from the database alone.
+    await w.close()
+    await metrics.flushMetrics()
+    expect(metricsSaved(path)!.buckets).toEqual(data.buckets)
+    expect(existsSync(join(dirOf(path), 'metrics.json'))).toBe(false)
+    expect(backups(path).length).toBe(1)
+    await w.open(path)
+    expect(await reports()).toEqual(before)
     await disposeWorkspaceService(w)
   })
 })
@@ -458,7 +596,7 @@ describe('cost', () => {
     expect(kept).toBe(metrics.METRICS_LIMITS.series)
     expect(full.dropped).toBeGreaterThan(0)
     await metrics.flushMetrics()
-    const size = statSync(join(path, '.hive', 'metrics', 'metrics.json')).size
+    const size = savedBytes(path)
     const heap = Buffer.byteLength(JSON.stringify(metrics.metricsHandle(w)!.store.buckets))
     if (process.env.MEASURE) console.log(`recordApi: ${perCallUs.toFixed(2)} µs a call; a bucket at its ${metrics.METRICS_LIMITS.series}-series cap: ${(size / 1024).toFixed(0)} KB on disk, ${(heap / 1024).toFixed(0)} KB as JSON in memory`)
     expect(perCallUs).toBeLessThan(50)
@@ -510,27 +648,32 @@ describe('round 3: names, drops, saved expiry, byte cap, unmeasured copies', () 
     await disposeWorkspaceService(w)
   })
 
-  it('what expires is gone from the file too, even with nothing new recorded; a query that changes nothing writes nothing', async () => {
+  it('what expires is gone from what is saved too, even with nothing new recorded; a query that changes nothing writes nothing', async () => {
     const { w, path } = await open()
-    const file = join(path, '.hive', 'metrics', 'metrics.json')
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
     await metrics.flushMetrics()
-    const written = statSync(file).mtimeMs
-    metrics.queryMetrics(w, { scope: { kind: 'workspace' } })
-    await metrics.flushMetrics()
-    expect(statSync(file).mtimeMs).toBe(written)
+    let saves = 0
+    storeTestHooks.beforeSave = async (store) => {
+      if (store === 'metrics') saves++
+    }
+    try {
+      metrics.queryMetrics(w, { scope: { kind: 'workspace' } })
+      await metrics.flushMetrics()
+      expect(saves).toBe(0)
+    } finally {
+      storeTestHooks.beforeSave = null
+    }
     config.settings.sessions.recordPerformance = false
     now = T0 + 31 * DAY
     metrics.queryMetrics(w, { scope: { kind: 'workspace' } })
     await w.close()
     await metrics.flushMetrics()
-    expect(JSON.parse(readFileSync(file, 'utf8')).buckets).toEqual([])
+    expect(metricsSaved(path)!.buckets).toEqual([])
     await disposeWorkspaceService(w)
   })
 
-  it('the file cap is in UTF-8 bytes, a lone bucket over it included, so Hive never writes a file it would refuse', async () => {
+  it('the size cap is in UTF-8 bytes, a lone bucket over it included, so Hive never saves more than it would read', async () => {
     const { w, path } = await open()
-    const file = join(path, '.hive', 'metrics', 'metrics.json')
     const saved = { ...metrics.METRICS_LIMITS }
     try {
       metrics.METRICS_LIMITS.fileBytes = 4600
@@ -539,12 +682,12 @@ describe('round 3: names, drops, saved expiry, byte cap, unmeasured copies', () 
         for (let p = 0; p < 4; p++) metrics.recordApi(metrics.metricsHandle(w), `日本語プロジェクト-${p}`, api())
       }
       await metrics.flushMetrics()
-      expect(statSync(file).size).toBeLessThanOrEqual(4600)
+      expect(savedBytes(path)).toBeLessThanOrEqual(4600)
       // One bucket bigger than the whole cap: nothing is kept rather than an over-cap file.
       metrics.METRICS_LIMITS.fileBytes = 200
       metrics.recordApi(metrics.metricsHandle(w), '🐝🐝🐝', api())
       await metrics.flushMetrics()
-      expect(statSync(file).size).toBeLessThanOrEqual(200)
+      expect(savedBytes(path)).toBeLessThanOrEqual(200)
       await w.close()
       await w.open(path)
       expect(() => metrics.queryMetrics(w, { scope: { kind: 'workspace' } })).not.toThrow()
@@ -591,9 +734,10 @@ describe('round 4: bounded loss owners, unreadable copied headers', () => {
       // Saved and loaded: still bounded.
       await w.close()
       await metrics.flushMetrics()
-      const raw = JSON.parse(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8'))
-      for (let i = 0; i < 1000; i++) raw.buckets[0].droppedBy[`extra-${i}`] = 1
-      writeFileSync(join(path, '.hive', 'metrics', 'metrics.json'), JSON.stringify(raw))
+      const raw = metricsSaved(path)!
+      const droppedBy = (raw.buckets[0] as { droppedBy: Record<string, number> }).droppedBy
+      for (let i = 0; i < 1000; i++) droppedBy[`extra-${i}`] = 1
+      await putMetrics(path, raw as never)
       await w.open(path)
       expect(Object.keys(metrics.metricsHandle(w)!.store.buckets[0].droppedBy).length).toBeLessThanOrEqual(metrics.METRICS_LIMITS.projects + 2)
     } finally {
@@ -637,7 +781,7 @@ describe('round 5: closing, and project-scoped losses', () => {
     metrics.recordApi(late, 'alpha', api())
     await inWorkspace(w, () => revisionOf(join(path, 'nowhere')).catch(() => undefined))
     await metrics.flushMetrics()
-    expect(JSON.parse(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8')).buckets[0].projects.alpha.api['GET /v1/tasks agent ok'].count).toBe(1)
+    expect((metricsSaved(path)!.buckets[0] as { projects: Record<string, { api: Record<string, { count: number }> }> }).projects.alpha.api['GET /v1/tasks agent ok'].count).toBe(1)
     await w.open(path)
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
     expect(metrics.queryMetrics(w, { scope: { kind: 'project', project: 'alpha' } }).projects.alpha.api[0].count).toBe(2)
@@ -918,7 +1062,7 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     // Saved and read back.
     await w.close()
     await metrics.flushMetrics()
-    expect(JSON.parse(readFileSync(join(path, '.hive', 'metrics', 'metrics.json'), 'utf8')).observed.length).toBeGreaterThan(0)
+    expect(metricsSaved(path)!.observed.length).toBeGreaterThan(0)
     await w.open(path)
     expect(metrics.queryMetrics(w, { scope: { kind: 'workspace' }, from: new Date(T0 - 20 * HOUR).toISOString() }).coverage.observedMs).toBe(HOUR)
     // A reset: observed from the reset only.
@@ -929,7 +1073,7 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     await disposeWorkspaceService(w)
   })
 
-  it('a long gap is a gap; a saved file with bad stretches keeps only the valid ones', async () => {
+  it('a long gap is a gap; saved bad stretches: only the valid ones are kept', async () => {
     const { w, path } = await open()
     metrics.recordApi(metrics.metricsHandle(w), null, api())
     now = T0 + metrics.METRICS_LIMITS.touchMs
@@ -940,10 +1084,7 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     expect([r.coverage.stretches, r.coverage.observedMs]).toEqual([2, metrics.METRICS_LIMITS.touchMs])
     await w.close()
     await metrics.flushMetrics()
-    const file = join(path, '.hive', 'metrics', 'metrics.json')
-    const saved = JSON.parse(readFileSync(file, 'utf8'))
-    saved.observed = [[T0 - HOUR, T0 - HOUR + 1000], 'x', [5, 1], [T0, T0 + 1000], [T0 - 2 * HOUR, T0 - HOUR], [-1, 3]]
-    writeFileSync(file, JSON.stringify(saved))
+    await putMetrics(path, { ...(metricsSaved(path) as never as { buckets: { span: string; start: number }[] }), observed: [[T0 - HOUR, T0 - HOUR + 1000], 'x', [5, 1], [T0, T0 + 1000], [T0 - 2 * HOUR, T0 - HOUR], [-1, 3]] })
     now = T0 + 3 * HOUR
     await w.open(path)
     const back = metrics.queryMetrics(w, { scope: { kind: 'workspace' }, from: new Date(T0 - 2 * HOUR).toISOString() })

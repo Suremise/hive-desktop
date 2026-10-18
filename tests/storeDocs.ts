@@ -19,3 +19,17 @@ export async function putStoreDocs(workspacePath: string, store: StoreName, docs
   for (const [k, v] of Object.entries(o.meta ?? {})) meta[k] = v === null ? null : JSON.stringify(v)
   await saveStore(workspacePath, store, o.scope ?? '', docs.map((d, i) => ({ key: key(d, i), doc: JSON.stringify(d) })), meta)
 }
+
+/** The performance metrics as saved (#1019: rows of the workspace database), in the form metrics.json had; null before any save. */
+export function metricsSaved(workspacePath: string): { version: 1; buckets: Record<string, unknown>[]; observed: [number, number][]; evictedThrough?: number; renamesApplied?: number } | null {
+  const { rows, meta } = readStore(workspacePath, 'metrics')
+  if (!meta.has('imported')) return null
+  const num = (k: string): number | undefined => (meta.has(k) ? Number(JSON.parse(meta.get(k)!)) : undefined)
+  return { version: 1, buckets: rows.map((r) => JSON.parse(r.doc) as Record<string, unknown>), observed: meta.has('observed') ? (JSON.parse(meta.get('observed')!) as [number, number][]) : [], ...(num('evictedThrough') ? { evictedThrough: num('evictedThrough') } : {}), ...(num('renamesApplied') ? { renamesApplied: num('renamesApplied') } : {}) }
+}
+
+/** Saves performance metrics as Hive would (a test's stand-in for writing metrics.json by hand), in its form. */
+export async function putMetrics(workspacePath: string, data: { buckets: { span: string; start: number }[]; observed?: unknown; evictedThrough?: number; renamesApplied?: number }): Promise<void> {
+  const rows = data.buckets.map((b, i) => ({ key: `${b.span}:${b.start}${'#'.repeat(data.buckets.slice(0, i).filter((x) => x.span === b.span && x.start === b.start).length)}`, ord: b.start, doc: JSON.stringify(b) }))
+  await saveStore(workspacePath, 'metrics', '', rows, { imported: JSON.stringify({ at: new Date().toISOString(), rows: rows.length, file: null }), observed: JSON.stringify(data.observed ?? []), evictedThrough: data.evictedThrough ? String(data.evictedThrough) : null, renamesApplied: data.renamesApplied ? String(data.renamesApplied) : null })
+}
