@@ -26,7 +26,7 @@ import { settingChangeTexts, settingPath, type SettingEntry, type SettingScope }
 import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
-import { deleteEntry, JournalError, readEntry, recall, updateEntry, writeEntry } from './journal'
+import { deleteEntry, JournalBusy, JournalError, readEntry, recall, updateEntry, writeEntry } from './journal'
 import { journalSettingsOf } from './journalService'
 import type { JournalSettings } from '../shared/journal'
 import { emit, onHiveEvent, toast } from './events'
@@ -1103,11 +1103,12 @@ function journalHome(): { home: string; settings: JournalSettings } {
   if (!settings.enabled) throw new HttpError(409, 'The journal is off (Settings → Assistant → Journal): nothing is written or recalled. Its entries are kept.')
   return { home: ws.assistantHome, settings }
 }
-/** A journal call: the caller's mistakes are 400s, said plainly. */
+/** A journal call: the caller's mistakes are 400s, said plainly; one while the journal is being deleted, 409. */
 function journalCall<T>(fn: () => T): T {
   try {
     return fn()
   } catch (e) {
+    if (e instanceof JournalBusy) throw new HttpError(409, e.message)
     if (e instanceof JournalError) throw new HttpError(400, e.message)
     throw e
   }
@@ -1127,20 +1128,20 @@ route('POST', '/v1/journal/recall', async ({ body }) => {
 })
 route('GET', '/v1/journal/:id', async ({ params }) => {
   const { home } = journalHome()
-  const e = readEntry(home, entryId(params[0]))
+  const e = journalCall(() => readEntry(home, entryId(params[0])))
   if (!e) throw new HttpError(404, `There is no entry ${params[0]}.`)
   return e
 })
 route('PATCH', '/v1/journal/:id', async ({ params, body }) => {
-  const { home } = journalHome()
+  const { home, settings } = journalHome()
   const id = entryId(params[0])
-  if (!journalCall(() => updateEntry(home, id, body ?? {}))) throw new HttpError(404, `There is no entry ${id}.`)
+  if (!journalCall(() => updateEntry(home, settings, id, body ?? {}))) throw new HttpError(404, `There is no entry ${id}.`)
   return { id, updated: true }
 })
 route('DELETE', '/v1/journal/:id', async ({ params }) => {
   const { home } = journalHome()
   const id = entryId(params[0])
-  if (!deleteEntry(home, id)) throw new HttpError(404, `There is no entry ${id}.`)
+  if (!journalCall(() => deleteEntry(home, id))) throw new HttpError(404, `There is no entry ${id}.`)
   return { id, deleted: true }
 })
 

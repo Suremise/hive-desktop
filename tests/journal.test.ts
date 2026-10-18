@@ -100,10 +100,10 @@ describe('the full-text index, kept by triggers', () => {
     // A prefix finds it too.
     expect(j.recall(h, { query: 'giraf' }).map((r) => r.id)).toEqual([a])
     // Corrected: the old words go from the index, the new ones come.
-    j.updateEntry(h, a, { why: 'Darren wanted the okapi fixed' })
+    j.updateEntry(h, all, a, { why: 'Darren wanted the okapi fixed' })
     expect(j.recall(h, { query: 'giraffe' })).toEqual([])
     expect(j.recall(h, { query: 'okapi' }).map((r) => r.id)).toEqual([a])
-    j.updateEntry(h, b, { detail: 'Short now: a lion' })
+    j.updateEntry(h, all, b, { detail: 'Short now: a lion' })
     expect(j.recall(h, { query: 'zebra' })).toEqual([])
     expect(j.recall(h, { query: 'lion' }).map((r) => r.id)).toEqual([b])
     expect(j.deleteEntry(h, b)).toBe(true)
@@ -140,17 +140,17 @@ describe('recall', () => {
     age(h, old, new Date(Date.now() - 200 * 86_400_000).toISOString())
     expect(j.recall(h, { query: 'release installer' }).map((r) => r.id)).toEqual([recent, old])
     // Essential, the old one still comes second to an everyday one from today; first to a trivial one.
-    j.updateEntry(h, old, { importance: 3 })
+    j.updateEntry(h, all, old, { importance: 3 })
     const important = write(h, { summary: 'Unrelated', kind: 'plan' })
     expect(j.recall(h, { query: 'release installer' }).map((r) => r.id)[0]).toBe(recent)
-    j.updateEntry(h, recent, { importance: 0 })
+    j.updateEntry(h, all, recent, { importance: 0 })
     expect(j.recall(h, { query: 'release installer' }).map((r) => r.id)).toEqual([old, recent])
     // Superseded: out by default, in when asked; the newer one says what it supersedes.
-    j.updateEntry(h, old, { supersededBy: important })
+    j.updateEntry(h, all, old, { supersededBy: important })
     expect(j.recall(h, { query: 'release installer' }).map((r) => r.id)).toEqual([recent])
     expect(j.recall(h, { query: 'release installer', superseded: true }).map((r) => r.id)).toContain(old)
     expect(j.readEntry(h, important)!.supersedes).toEqual([old])
-    expect(() => j.updateEntry(h, old, { supersededBy: 999 })).toThrow(/no entry 999/)
+    expect(() => j.updateEntry(h, all, old, { supersededBy: 999 })).toThrow(/no entry 999/)
     // Deleting the newer one makes the old current again.
     j.deleteEntry(h, important)
     expect(j.readEntry(h, old)!.supersededBy).toBeNull()
@@ -159,11 +159,11 @@ describe('recall', () => {
   it('an entry in full: detail, why, links, tags; updates add links and tags', () => {
     const h = home()
     const a = write(h, { summary: 'Chose node:sqlite', why: 'No native module', detail: 'Over better-sqlite3.', links: [{ type: 'card', ref: '990' }], tags: ['storage'], importance: 2 })
-    j.updateEntry(h, a, { addLinks: [{ type: 'commit', ref: '2f95998d' }], addTags: ['Storage', 'db'] })
+    j.updateEntry(h, all, a, { addLinks: [{ type: 'commit', ref: '2f95998d' }], addTags: ['Storage', 'db'] })
     expect(j.readEntry(h, a)).toMatchObject({ id: a, summary: 'Chose node:sqlite', why: 'No native module', detail: 'Over better-sqlite3.', importance: 2, links: [{ type: 'card', ref: '990' }, { type: 'commit', ref: '2f95998d' }], tags: ['db', 'storage'], updatedAt: expect.any(String) })
     expect(j.readEntry(h, 999)).toBeNull()
-    expect(j.updateEntry(h, 999, { importance: 1 })).toBe(false)
-    expect(() => j.updateEntry(h, a, {})).toThrow(/Nothing to change/)
+    expect(j.updateEntry(h, all, 999, { importance: 1 })).toBe(false)
+    expect(() => j.updateEntry(h, all, a, {})).toThrow(/Nothing to change/)
   })
 })
 
@@ -204,6 +204,40 @@ describe('retention and the size cap', () => {
   })
 })
 
+describe('the size cap, as little as it takes (#1031 round 1)', () => {
+  const noise = (bytes: number): string => randomBytes(bytes).toString('base64')
+  it('a little over the cap: only the oldest few everyday entries go, the newer ones stay', () => {
+    const h = home()
+    const ids: number[] = []
+    for (let i = 0; i < 100; i++) ids.push(write(h, { summary: `Everyday ${i}`, detail: noise(60_000) }, { ...all, capMB: null }))
+    const used = j.journalSize(h)!.bytes
+    // A cap a little under its size: about two entries' worth over.
+    const capMB = (used - 150_000) / (1024 * 1024)
+    const gone = j.pruneJournal(h, { ...all, capMB: Math.floor(capMB * 1000) / 1000 })
+    expect(gone).toBeGreaterThan(0)
+    expect(gone).toBeLessThanOrEqual(6)
+    // The newest 90 are all there.
+    for (const id of ids.slice(10)) expect(j.readEntry(h, id)).not.toBeNull()
+    expect(j.readEntry(h, ids[0])).toBeNull()
+  })
+
+  it('an entry made bigger by an update is held to the cap too; its retention applies once its importance drops', () => {
+    const h = home()
+    const settings = { ...all, capMB: 5 }
+    const ids: number[] = []
+    for (let i = 0; i < 100; i++) ids.push(write(h, { summary: `Short ${i}` }, settings))
+    for (const id of ids) j.updateEntry(h, settings, id, { detail: noise(70_000) })
+    expect(j.journalSize(h)!.bytes).toBeLessThanOrEqual(5 * 1024 * 1024)
+    // The newest stay, with their new detail.
+    expect(j.readEntry(h, ids.at(-1)!)!.detail!.length).toBeGreaterThan(90_000)
+    // An important old entry made everyday again goes with the retention.
+    const old = write(h, { summary: 'Was important', importance: 2 }, settings)
+    age(h, old, new Date(Date.now() - 200 * 86_400_000).toISOString())
+    j.updateEntry(h, settings, old, { importance: 1 })
+    expect(j.readEntry(h, old)).toBeNull()
+  })
+})
+
 describe('deleting the journal', () => {
   const trashDir = join(base, 'trash')
   beforeAll(() => {
@@ -221,6 +255,20 @@ describe('deleting the journal', () => {
     expect(moved).toContain(j.journalFile(h))
     expect(moved.every((f) => f.startsWith(h + sep))).toBe(true)
     expect(j.journalSize(h)).toBeNull()
+    write(h, { summary: 'After' })
+    expect(j.recall(h, {}).map((r) => r.summary)).toEqual(['After'])
+  })
+
+  it('nothing opens it while it is being deleted: a write or a recall is refused, its size unknown, until its files have gone (#1031 round 1)', async () => {
+    const h = home()
+    write(h, { summary: 'Before' })
+    const deleting = j.deleteJournal(h)
+    expect(() => write(h, { summary: 'Meanwhile' })).toThrow(j.JournalBusy)
+    expect(() => j.recall(h, {})).toThrow(/being deleted/)
+    expect(j.journalSize(h)).toBeNull()
+    await expect(j.deleteJournal(h)).rejects.toThrow(/already being deleted/)
+    await deleting
+    expect(existsSync(j.journalFile(h))).toBe(false)
     write(h, { summary: 'After' })
     expect(j.recall(h, {}).map((r) => r.summary)).toEqual(['After'])
   })

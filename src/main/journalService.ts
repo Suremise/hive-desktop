@@ -34,17 +34,27 @@ export function journalStatus(ws: WorkspaceService): { settings: JournalSettings
   return { settings, bytes: journalFileBytes(home), entries }
 }
 
-/** Changes the settings; the Assistant is told what changed (its tools follow a turn on or off at its next start). */
+/** Changes the settings; the Assistant is told what changed (its tools follow a turn on or off at its next start, Darren's decision on #1031). */
 export async function setJournalSettings(ws: WorkspaceService, patch: Partial<JournalSettings>): Promise<JournalSettings> {
-  const was = journalSettingsOf(ws)
-  const next = journalSettings({ ...was, ...patch })
-  await ws.saveWorkspaceConfigWith(() => ({ journal: next }))
+  // Worked out in the save's turn, from the settings as they are then (#1031 round 1): changes made at once (two
+  // windows) each keep the other's fields, and what is told is what this save changed.
+  let was: JournalSettings | null = null
+  let next: JournalSettings = journalSettingsOf(ws)
+  await ws.saveWorkspaceConfigWith((c) => {
+    const now = journalSettings(c.journal)
+    was ??= now
+    next = journalSettings({ ...now, ...patch })
+    return { journal: next }
+  })
+  // Set in the save's callback (TypeScript can't see it there).
+  const before = was as JournalSettings | null
+  if (!before) return next
   const said: string[] = []
-  if (was.enabled !== next.enabled) said.push(next.enabled ? 'The journal is on again; its tools come with your next start (ask the user to restart you to use them now).' : 'The journal is off: nothing is written and its tools stop working (they leave at your next start). Its entries are kept.')
-  if (next.enabled && was.scope.join() !== next.scope.join()) said.push(`The journal's scope changed: store only ${next.scope.length ? next.scope.join(', ') : 'digests'} entries from now on.`)
+  if (before.enabled !== next.enabled) said.push(next.enabled ? 'The journal is on again; its tools come with your next start (ask the user to restart you to use them now).' : 'The journal is off: nothing is written and its tools stop working (they leave at your next start). Its entries are kept.')
+  if (next.enabled && before.scope.join() !== next.scope.join()) said.push(`The journal's scope changed: store only ${next.scope.length ? next.scope.join(', ') : 'digests'} entries from now on.`)
   if (said.length) await tellAssistant(ws, said.join(' '))
   // A tighter retention or cap applies now.
-  if (next.enabled && (next.retentionDays < was.retentionDays || (next.capMB ?? Infinity) < (was.capMB ?? Infinity))) pruneNow(ws, next)
+  if (next.enabled && (next.retentionDays < before.retentionDays || (next.capMB ?? Infinity) < (before.capMB ?? Infinity))) pruneNow(ws, next)
   return next
 }
 
@@ -106,13 +116,15 @@ export async function journalFactAt(workspacePath: string, fact: Fact): Promise<
  * Records a fact in the workspace's journal: only while it is on and its scope has events; never fails what it records
  * (a fact that can't be written is logged).
  */
-export function journalFact(ws: WorkspaceService | null | undefined, fact: Fact): void {
-  if (!ws?.path) return
+export function journalFact(ws: WorkspaceService | null | undefined, fact: Fact): boolean {
+  if (!ws?.path) return false
   const s = journalSettingsOf(ws)
-  if (!s.enabled || !inScope(s, 'event')) return
+  if (!s.enabled || !inScope(s, 'event')) return false
   try {
     writeEntry(ws.assistantHome, s, { kind: 'event', ...fact, tags: ['hive', ...(fact.tags ?? [])] }, 'hive')
+    return true
   } catch (e) {
     log.warn('recording a fact in the journal', e)
+    return false
   }
 }

@@ -64,6 +64,19 @@ describe('the journal in a workspace', () => {
     expect((await told()).at(-1)).toMatch(/scope changed: store only decision, event, preference entries/)
   })
 
+  it('two changes at once each keep the other: off and no cap together leave it off with no cap (#1031 round 1)', async () => {
+    const before = service.journalSettingsOf(w)
+    const [a, b] = await Promise.all([service.setJournalSettings(w, { enabled: false }), service.setJournalSettings(w, { capMB: 20 })])
+    expect(a.enabled).toBe(false)
+    expect(b).toMatchObject({ enabled: false, capMB: 20 })
+    expect(service.journalSettingsOf(w)).toEqual({ ...before, enabled: false, capMB: 20 })
+    expect(JSON.parse(readFileSync(join(wsPath, '.hive', 'workspace.json'), 'utf8')).journal).toMatchObject({ enabled: false, capMB: 20 })
+    // Told once that it went off (the cap's save changed nothing it tells).
+    expect((await told()).filter((t) => /journal is off/.test(t))).toHaveLength(1)
+    await Promise.all([service.setJournalSettings(w, { enabled: true }), service.setJournalSettings(w, { scope: before.scope, capMB: before.capMB })])
+    expect(service.journalSettingsOf(w)).toEqual(before)
+  })
+
   it("records Hive's facts: a lane started and ended with its merge, a card into Done", async () => {
     const [c1, c2] = [await run(() => tasks.createTask({ title: 'One', project: 'alpha' }, user)), await run(() => tasks.createTask({ title: 'Two', project: 'alpha' }, user))]
     const l = await run(() => lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [c1.number, c2.number], name: 'storage', by: 'B1 (alpha)' }))

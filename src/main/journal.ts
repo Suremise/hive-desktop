@@ -113,10 +113,14 @@ const keyOf = (file: string): string => file.toLowerCase()
 /** The journal file of an Assistant home (`<workspace>/.hive/assistant`). */
 export const journalFile = (home: string): string => join(home, JOURNAL_FILE)
 
-/** The journal of an Assistant home, opened (and made) when first used. */
+/** Journals being deleted (#1031 round 1): nothing opens them meanwhile, so the file can go. */
+const deleting = new Set<string>()
+
+/** The journal of an Assistant home, opened (and made) when first used; refused while it is being deleted. */
 function journalOf(home: string): Db {
   const file = journalFile(home)
   const k = keyOf(file)
+  if (deleting.has(k)) throw new JournalBusy('The journal is being deleted: try again in a moment.')
   const was = open.get(k)
   if (was) return was
   const db = openDb(file, { migrations: JOURNAL_MIGRATIONS, hiveVersion: hiveVersion(), backupDir: join(home, 'backups'), setup })
@@ -140,6 +144,8 @@ export function closeAllJournals(): void {
 
 /** An error the tools return as their reply: the caller's mistake, said plainly. */
 export class JournalError extends Error {}
+/** The journal is being deleted (a moment): nothing reads or writes it meanwhile. */
+export class JournalBusy extends JournalError {}
 
 const fail = (text: string): never => {
   throw new JournalError(text)
@@ -359,8 +365,8 @@ export interface EntryPatch {
   addTags?: string[]
 }
 
-/** Changes an entry; false when there is none. */
-export function updateEntry(home: string, id: number, patch: EntryPatch): boolean {
+/** Changes an entry; false when there is none. Retention and the cap apply after it (a longer detail, a lower importance). */
+export function updateEntry(home: string, settings: JournalSettings, id: number, patch: EntryPatch): boolean {
   const sets: string[] = []
   const args: (string | number | Uint8Array | null)[] = []
   const set = (clause: string, value: string | number | null): void => {
@@ -384,7 +390,7 @@ export function updateEntry(home: string, id: number, patch: EntryPatch): boolea
   const tags = checkTags(patch.addTags)
   if (!sets.length && !links.length && !tags.length) fail('Nothing to change: give summary, detail, why, importance, supersededBy, addLinks or addTags.')
   const { writer: w } = journalOf(home)
-  return transaction(w, () => {
+  const changed = transaction(w, () => {
     if (!w.prepare('SELECT 1 FROM entries WHERE id = ?').get(id)) return false
     if (patch.supersededBy != null && !w.prepare('SELECT 1 FROM entries WHERE id = ?').get(patch.supersededBy)) fail(`There is no entry ${patch.supersededBy}.`)
     w.prepare(`UPDATE entries SET ${[...sets, 'updated_at = ?'].join(', ')} WHERE id = ?`).run(...args, new Date().toISOString(), id)
@@ -394,6 +400,8 @@ export function updateEntry(home: string, id: number, patch: EntryPatch): boolea
     for (const t of tags) tag.run(id, t)
     return true
   })
+  if (changed) pruneJournal(home, settings)
+  return changed
 }
 
 /** Deletes an entry (its links and tags with it; entries it superseded are current again); false when there is none. */
@@ -404,9 +412,10 @@ export function deleteEntry(home: string, id: number): boolean {
   return gone
 }
 
-/** How big the journal is (bytes, its pages in use) and how many entries it has; null when there is none yet. */
+/** How big the journal is (bytes, its pages in use) and how many entries it has; null when there is none yet (or it is being deleted). */
 export function journalSize(home: string): { bytes: number; entries: number } | null {
-  if (!open.has(keyOf(journalFile(home))) && !existsSync(journalFile(home))) return null
+  const k = keyOf(journalFile(home))
+  if (deleting.has(k) || (!open.has(k) && !existsSync(journalFile(home)))) return null
   const { reader } = journalOf(home)
   const pages = (reader.prepare('PRAGMA page_count').get() as { page_count: number }).page_count
   const free = (reader.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count
@@ -417,8 +426,9 @@ export function journalSize(home: string): { bytes: number; entries: number } | 
 
 /**
  * Retention and the size cap: everyday entries (importance under 2, not digests) older than the retention go; past the
- * cap, the oldest everyday entries go first, a few hundred at a time, until it fits or none is left (digests and
- * important entries are never pruned). Space freed is given back to the file. Returns how many went.
+ * cap, the oldest everyday entries go first, as many as the excess needs by their average size (at least one), the size
+ * read again after each step, until it fits or none is left (digests and important entries are never pruned). Space
+ * freed is given back to the file. Returns how many went.
  */
 export function pruneJournal(home: string, settings: JournalSettings, now = new Date()): number {
   const { writer: w } = journalOf(home)
@@ -432,8 +442,11 @@ export function pruneJournal(home: string, settings: JournalSettings, now = new 
       const free = (w.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count
       return (pages - free) * (w.prepare('PRAGMA page_size').get() as { page_size: number }).page_size
     }
-    while (used() > cap) {
-      const n = transaction(w, () => Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT id FROM entries WHERE ${everyday} ORDER BY at, id LIMIT 200)`).run().changes))
+    for (let over = used() - cap; over > 0; over = used() - cap) {
+      const count = (w.prepare('SELECT count(*) AS n FROM entries').get() as { n: number }).n
+      // As many of the oldest as the excess is worth at the average entry's size, at least one.
+      const take = Math.max(1, Math.ceil(over / Math.max(1, used() / Math.max(1, count))))
+      const n = transaction(w, () => Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT id FROM entries WHERE ${everyday} ORDER BY at, id LIMIT ?)`).run(take).changes))
       if (!n) break
       gone += n
     }
@@ -459,11 +472,24 @@ function pruneSoon(home: string, settings: JournalSettings): void {
   }
 }
 
-/** Deletes the journal (Settings → Assistant → Delete Journal…): closed, its files to the Recycle Bin. */
+/**
+ * Deletes the journal (Settings → Assistant → Delete Journal…): closed, its files to the Recycle Bin. Nothing opens it
+ * meanwhile (a write, a recall, a fact or the size is refused or skipped until its files have gone), so it is never
+ * opened again under the move.
+ */
 export async function deleteJournal(home: string): Promise<void> {
-  closeJournal(home)
   const file = journalFile(home)
-  for (const f of [file, `${file}-wal`, `${file}-shm`]) if (existsSync(f)) await trash(f)
+  const k = keyOf(file)
+  if (deleting.has(k)) throw new JournalBusy('The journal is already being deleted.')
+  deleting.add(k)
+  try {
+    const db = open.get(k)
+    open.delete(k)
+    db?.close()
+    for (const f of [file, `${file}-wal`, `${file}-shm`]) if (existsSync(f)) await trash(f)
+  } finally {
+    deleting.delete(k)
+  }
   log.info(`deleted the journal in ${userText(home)}`)
 }
 
