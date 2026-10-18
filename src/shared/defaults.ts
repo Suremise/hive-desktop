@@ -311,14 +311,15 @@ export const TILE_STRIP_SHARE = 0.4
 
 /**
  * How wide the focus view's strip may be in a Session tab `width` wide, beside a pane `paneMin` wide, given what it was
- * (`was`): at most TILE_STRIP_SHARE of the width, so it narrows to its least (`least`) before the pane does (#1050), and
- * never so wide that the pane is narrower than `paneMin`; hidden (0) when even its least leaves too little, and shown
- * again only `margin` past that, so a pixel either way doesn't toggle it (#1037).
+ * (`was`). The terminal comes first (#1050): the strip takes at most TILE_STRIP_SHARE of the width, and of the room above
+ * both least widths (its `least` and `paneMin`) at most half, past `margin`, so it is at its least while the pane still
+ * has `margin` over its own, whatever the terminal's font. Hidden (0) when even its least leaves the pane too little, and
+ * shown again only `margin` past that, so a pixel either way doesn't toggle it (#1037).
  */
 export function tileStripRoom(width: number, paneMin: number, least: number, was: number | null, margin: number): number {
-  const room = width - paneMin
-  if (room < least + (was === 0 ? margin : 0)) return 0
-  return Math.min(room, Math.max(least, Math.floor(width * TILE_STRIP_SHARE)))
+  const spare = width - paneMin - least
+  if (spare < (was === 0 ? margin : 0)) return 0
+  return least + Math.max(0, Math.min(Math.floor(width * TILE_STRIP_SHARE) - least, Math.floor((spare - margin) / 2)))
 }
 
 /**

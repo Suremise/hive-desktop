@@ -150,7 +150,7 @@ describe("the focus view's strip gives way to the terminal beside it (#1037, #10
   // A terminal's least 200 px, the strip's 170.
   const room = (width: number, was: number | null = null) => tileStripRoom(width, 200, 170, was, 24)
 
-  it('at most 40% of the width, so the strip is at its least before the terminal is', () => {
+  it('at most 40% of the width, so the strip is at its least before the terminal is (a 13 px font)', () => {
     // Wide: 40% (the chosen width, up to 420, is shown when it is less).
     expect(room(1200)).toBe(480)
     expect(room(700)).toBe(280)
@@ -160,6 +160,22 @@ describe("the focus view's strip gives way to the terminal beside it (#1037, #10
     // Then the terminal narrows to its least, and the strip hides.
     expect(room(370)).toBe(170)
     expect(room(369)).toBe(0)
+  })
+
+  it('whatever the terminal font: the strip at its least while the terminal still has the margin over its own', () => {
+    // A 24 px font (HR4's case): the terminal's least is 342 px.
+    expect(tileStripRoom(566, 342, 170, 170, 24)).toBe(185)
+    expect(tileStripRoom(516, 342, 170, 170, 24)).toBe(170)
+    for (const paneMin of [200, 260, 342, 500]) {
+      let was: number | null = null
+      for (let width = 1600; width >= 300; width--) {
+        const strip = tileStripRoom(width, paneMin, 170, was, 24)
+        if (strip > 170) expect(width - strip, `${paneMin} at ${width}`).toBeGreaterThanOrEqual(paneMin + 24)
+        if (strip > 0) expect(width - strip, `${paneMin} at ${width}`).toBeGreaterThanOrEqual(paneMin)
+        expect(strip, `${paneMin} at ${width}`).toBeLessThanOrEqual(Math.max(170, width * 0.4))
+        was = strip
+      }
+    }
   })
 
   it('a pixel at a time across where it hides: shown again only past the margin', () => {
