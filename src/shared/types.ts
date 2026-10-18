@@ -660,6 +660,11 @@ export interface TaskCard {
   createdAt: string
   createdBy: string
   updatedAt: string
+  /**
+   * An archived card as the window's board has it until it needs it in full (#1017): its title, place, agent, labels and
+   * dates, with no description, comments, history or decisions. Never in what agents read.
+   */
+  summary?: true
 }
 
 /**
@@ -676,6 +681,29 @@ export interface ArchiveBatch {
   cards: number[]
   /** Each column the cards left: its cards, top to bottom, as it was then (the batch's and those that stayed). */
   columns: Partial<Record<TaskColumn, number[]>>
+}
+
+/**
+ * A card an older Hive saved after the board moved to its database (#1017), set aside in `.hive/tasks.set-aside` for the
+ * user to review (#1044): added as a new card or discarded. Its fields are as the older Hive saved them.
+ */
+export interface SetAsideCard {
+  /** Its file's name in the set-aside folder: what Add and Discard name. */
+  file: string
+  /** The number the older Hive gave it (from the file's name), or null. */
+  number: number | null
+  /** Whether that number is free on the board: Add keeps it, else gives the next free one. */
+  free: boolean
+  /** False when the file isn't a card (not JSON): it can only be discarded. */
+  readable: boolean
+  title: string
+  /** The start of its description, cut short. */
+  preview: string
+  project: string
+  column: TaskColumn
+  createdBy: string
+  createdAt: string
+  comments: number
 }
 
 /** What the user asked Archive All for (#351): main checks it again on each card as it is when it is archived. */

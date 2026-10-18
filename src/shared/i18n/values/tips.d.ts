@@ -63,12 +63,16 @@ interface HiveMessageValues {
   'tips.boardDoing.title': undefined
   'tips.boardDone.text': undefined
   'tips.boardDone.title': undefined
+  'tips.boardExport.text': undefined
+  'tips.boardExport.title': undefined
   'tips.boardFold.text': undefined
   'tips.boardFold.title': undefined
   'tips.boardOrder.text': undefined
   'tips.boardOrder.title': undefined
   'tips.boardReview.text': undefined
   'tips.boardReview.title': undefined
+  'tips.boardSetAside.text': undefined
+  'tips.boardSetAside.title': undefined
   'tips.cardCost.text': { example: string | number }
   'tips.cardCost.title': undefined
   'tips.cardDecisions.text': undefined
@@ -210,6 +214,8 @@ interface HiveMessageValues {
   'tips.projectCards.title': undefined
   'tips.projectTabs.text': undefined
   'tips.projectTabs.title': undefined
+  'tips.projectTabsKeys.text': undefined
+  'tips.projectTabsKeys.title': undefined
   'tips.quitWhenDone.text': undefined
   'tips.quitWhenDone.title': undefined
   'tips.recentWorkspaces.text': undefined

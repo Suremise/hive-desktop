@@ -52,6 +52,7 @@ export const HISTORY = {
   restored: msg({ id: 'tasks.history.restored', defaultMessage: 'Brought back: {project} was restored', description: "A line in a card's history: the card came back onto the board because the user restored its project {project} (its folder name)." }),
   imported: msg({ id: 'tasks.history.imported', defaultMessage: 'Brought back with {project} (it was #{was})', description: "A line in a card's history: the card came back with its removed project {project} (its folder name), under a new number; {was} was its number before." }),
   repaired: msg({ id: 'tasks.history.repaired', defaultMessage: 'Project: {from} → {to} (renamed or moved)', description: "A line in a card's history, by Repair: the card was given to the project {to}, the new name of its project {from} (folder names), which was renamed or moved." }),
+  fromOlder: msg({ id: 'tasks.history.fromOlder', defaultMessage: 'Added from an older Hive, where it was made as #{was}', description: "A line in a card's history, by Repair: the card was made in an older version of Hive (which saved it after the board moved to its database), set aside, and the user added it to the board from Review…; {was} is the number it had there (it keeps it when no card here has it)." }),
   // Lines and a comment Hive writes from outside the board service (#866): the same English as before, word for word.
   loopWake: msg({ id: 'tasks.history.loopWake', defaultMessage: 'Woke {agent} {kind, select, review {to review it} other {with its verdict}} (a loop wake)', description: "A line in a card's history: in a card loop, Hive woke the agent {agent} (its name), as the card arrived in Review for it to review (review), or with its review's verdict (other). \"Card loop\" and \"loop wake\" are Hive's terms." }),
   decisionsTold: msg({ id: 'tasks.history.decisionsTold', defaultMessage: 'Told {agent} of {count, plural, one {# new decision} other {# new decisions}}', description: "A line in a card's history: Hive told the agent {agent} (its name) of {count} decisions the user recorded on the card since it last read them." }),
@@ -66,7 +67,7 @@ export const HISTORY = {
 export const BY_TEXT: Record<string, Msg> = {
   You: msg({ id: 'tasks.by.you', defaultMessage: 'You', description: "Who made a change or wrote a comment on a card (beside a history line or a comment): the user. Short." }),
   Assistant: msg({ id: 'tasks.by.assistant', defaultMessage: 'Assistant', description: "Who made a change or wrote a comment on a card (beside a history line or a comment): the Hive Assistant. Short." }),
-  Repair: msg({ id: 'tasks.by.repair', defaultMessage: 'Repair', description: "Who made a change on a card (beside a history line): Hive's Repair, which gave cards of a renamed or moved project back to it. Short." })
+  Repair: msg({ id: 'tasks.by.repair', defaultMessage: 'Repair', description: "Who made a change on a card (beside a history line): Hive's Repair, which gave cards of a renamed or moved project back to it, or added a card an older Hive made. Short." })
 }
 
 /** Why Archive All leaves a card on the board (#351): who is on it now. The window's text only (the board's dialog and main's check). */

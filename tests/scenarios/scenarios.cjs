@@ -98,11 +98,11 @@ const cardReads = (o, n) => ran(o, 'hive_read_task').filter((x) => field(x.args,
  * reviewer session to give one.
  */
 const giveVerdict = (c, n, result, by = 'Implementer (alpha)') => {
-  const file = require('path').join(c.ws, '.hive', 'tasks', `${n}.json`)
-  const card = JSON.parse(require('fs').readFileSync(file, 'utf8'))
+  const lib = require('../e2e/lib.cjs')
+  const card = lib.readCard(c.ws, n)
   const at = new Date().toISOString()
   card.history.push({ at, by, what: 'Started reviewing' }, { at, by, what: `Review ${result}` })
-  require('fs').writeFileSync(file, JSON.stringify(card, null, 2))
+  lib.writeCard(c.ws, n, card)
 }
 const reviewMoves = (card) => history(card).filter((w) => /^Moved to (the (top|bottom) of )?Review\b/.test(w)).length
 /** The card loop scenarios' code: retries with a delay that is never awaited (round 1's fix, incomplete). */

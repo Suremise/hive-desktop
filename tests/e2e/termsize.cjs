@@ -4,7 +4,8 @@
 // its terminal is hidden, coming back gives the same size as before (or one new size after a font change), no
 // in-between size while the view settles (a smaller window, 125% zoom), and a terminal that was scrolled to the bottom
 // is still at the bottom well after (xterm syncs its scroll position late), while one scrolled up to read stays on its
-// line. At the end, at the narrowest window with the Progress panel open, what a terminal shows re-wraps (#896). A
+// line. At the end, at the narrowest window with the Progress panel open, what a terminal shows re-wraps (#896), and two
+// columns there show one at a time, with two again once there is room (#1037). A
 // Claude Code agent and a Codex agent (the fakes).
 // Dev build, throwaway profile, workspace, CLAUDE_CONFIG_DIR and CODEX_HOME.
 const lib = require('./lib.cjs')
@@ -211,6 +212,124 @@ function sizes(home) {
   check('reflow: the terminal narrows', !!(await lib.until(async () => (await state(writer.key)).cols < wide && (await fitted()), HUNG_MS)), JSON.stringify({ wide, now: await state(writer.key) }))
   check('reflow: the wide line and the exit line are whole after narrowing', !!(await lib.until(async () => { const t = await drawn(); return t.includes(marker) && t.includes('[process exited with code') }, HUNG_MS)), JSON.stringify({ wide, cols: (await state(writer.key)).cols, drawn: await drawn() }))
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-reflow.png') })
+
+  // Two columns chosen there are narrower than a terminal can be fitted to: the layout shows one at a time instead
+  // (#1037), the button still the one chosen, and goes back to two once there is room: the Progress panel closed, or the
+  // window wider. Tiles and its focus view (the pane beside the strip) and back keep to what fits.
+  const panes = () => page.locator('.agent-pane').count()
+  const layoutButton = () => page.evaluate(() => [...document.querySelectorAll('.layout-switch button.active, .layout-switch button.layout-menu')].map((b) => b.getAttribute('aria-label')).join())
+  // Fitted, and drawn inside its pane: one too small to fit counts as fitted, so its screen is measured too.
+  const inside = () => page.evaluate(() => window.__hiveTerminalsInside())
+  const fewer = (n) => lib.until(async () => (await panes()) === n && (await fitted()) && (await inside()), HUNG_MS)
+  const toggleProgress = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'menu-command', command: 'progress.toggle', args: [] }))
+  // At this width the toolbar folds the layouts into one button with a menu (#886).
+  await page.locator('.layout-switch button.layout-menu').click()
+  await page.getByRole('menuitem', { name: 'Two columns' }).click()
+  // Chosen (the layout button says so), it is shown as one at a time.
+  check('narrow: the layout button is Two columns', !!(await lib.until(async () => (await layoutButton()) === 'Two columns', HUNG_MS)), await layoutButton())
+  check('narrow: two columns chosen show one pane, its terminal fitted', !!(await fewer(1)), JSON.stringify({ panes: await panes(), fitted: await fitted(), inside: await inside() }))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-narrow.png') })
+  await page.locator('.view-switch [data-view="tiles"]').click()
+  await lib.until(async () => (await page.locator('.tile-grid').count()) === 1, HUNG_MS)
+  await page.locator('.agent-tile', { has: page.locator('.tile-name', { hasText: /^Checker$/ }) }).click()
+  // No room for the strip beside a terminal: it gives way, and the agent's pane takes the width.
+  check('narrow: the focus view shows its agent fitted, the strip giving way', !!(await lib.until(async () => (await page.locator('.tile-strip').count()) === 0 && (await panes()) === 1 && (await fitted()) && (await inside()), HUNG_MS)), JSON.stringify({ strip: await page.locator('.tile-strip').count(), panes: await panes(), inside: await inside() }))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-narrow.png') })
+  // Wide, the strip widened by its edge (#1021: as far as the pane beside it leaves room for); narrower, it narrows so the pane keeps a terminal's
+  // width, then gives way altogether; wide again, it is as wide as it was made. The Progress panel closed, for the room to
+  // widen it (the strip takes at most 40% of the Session tab, #1050).
+  const stripWidth = () => page.evaluate(() => Math.round(document.querySelector('.tile-strip')?.getBoundingClientRect().width ?? 0))
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) === 0, HUNG_MS)
+  await lib.fitWindow(app, page, { width: 1400, height: 650 })
+  await lib.until(async () => (await stripWidth()) === 200, HUNG_MS)
+  const edge = await page.locator('.tile-strip > .pane-resizer').boundingBox()
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(edge.x + edge.width / 2 + 300, edge.y + 200, { steps: 8 })
+  await page.mouse.up()
+  check('focus: the strip widened', !!(await lib.until(async () => (await stripWidth()) >= 380, HUNG_MS)), String(await stripWidth()))
+  const made = await stripWidth()
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
+  check('focus, 900 px, no Progress: the strip narrower than chosen, the terminal fitted inside its pane', !!(await lib.until(async () => { const w = await stripWidth(); return w >= 170 && w < made && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-strip.png') })
+  // The terminal comes first (#1050): the strip takes at most 40% of the Session tab (never below its 170 px), and is at
+  // its least while the terminal beside it still has 24 px over its own least (min), whatever the font; the chosen
+  // width is kept.
+  const share = () => page.evaluate(() => {
+    const strip = document.querySelector('.tile-strip')
+    const tab = strip?.closest('.tab-body')
+    return strip && tab ? { strip: Math.round(strip.getBoundingClientRect().width), tab: Math.round(tab.getBoundingClientRect().width), pane: Math.round(document.querySelector('.agents-area.tile-focus').getBoundingClientRect().width), min: window.__hiveTerminalMinWidth() } : null
+  })
+  const shared = (w) => !!w && w.strip <= Math.min(made, Math.max(170, Math.floor(w.tab * 0.4))) + 1 && w.pane >= w.min - 1 && (w.strip <= 170 || w.pane >= w.min + 23)
+  check('focus, 900 px: the strip at most 40% of the tab, the terminal wider than it', !!(await lib.until(async () => { const w = await share(); return shared(w) && w.pane > w.strip }, HUNG_MS)), JSON.stringify({ ...(await share()), made }))
+  await lib.fitWindow(app, page, { width: 800, height: 650 })
+  check('focus, 800 px: the strip at its least, the terminal still wider than its least', !!(await lib.until(async () => { const w = await share(); return w?.strip === 170 && shared(w) && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify(await share()))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-least.png') })
+  // A large terminal font (HR4's case: 24 px, a terminal's least 342 px): the strip still at its least before the terminal.
+  const fontWas = (await inv('settings:get')).appearance?.terminalFontSize
+  await inv('settings:update', { appearance: { terminalFontSize: 24 } })
+  for (const width of [950, 900]) {
+    await lib.fitWindow(app, page, { width, height: 650 })
+    check(`focus, 24 px font, ${width} px: the strip narrower first, the terminal over its least`, !!(await lib.until(async () => { const w = await share(); return w?.min > 300 && shared(w) && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify(await share()))
+  }
+  check('focus, 24 px font, 900 px: the strip at its least', (await share())?.strip === 170, JSON.stringify(await share()))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-font24.png') })
+  await inv('settings:update', { appearance: { terminalFontSize: fontWas } })
+  await lib.until(async () => (await share())?.min < 300, HUNG_MS)
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
+  await toggleProgress()
+  check('focus, 900 px, Progress open: the strip gives way, the terminal inside', !!(await lib.until(async () => (await stripWidth()) === 0 && (await fitted()) && (await inside()), HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) === 0, HUNG_MS)
+  await lib.fitWindow(app, page, { width: 1400, height: 650 })
+  check('focus, wide again: the strip as wide as it was made', !!(await lib.until(async () => (await stripWidth()) === made && (await inside()), HUNG_MS)), `${await stripWidth()}, made ${made}`)
+  await page.locator('.tile-strip > .pane-resizer').dblclick()
+  await lib.until(async () => (await stripWidth()) === 200, HUNG_MS)
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) > 0, HUNG_MS)
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
+  await page.locator('.view-switch [data-view="panes"]').click()
+  check('narrow: Panes again, still one pane', !!(await fewer(1)), String(await panes()))
+  await toggleProgress()
+  check('narrow: the Progress panel closed, two columns again, both fitted', !!(await fewer(2)), JSON.stringify({ panes: await panes(), fitted: await fitted() }))
+  await toggleProgress()
+  check('narrow: the panel open again, one pane', !!(await fewer(1)), String(await panes()))
+  await lib.fitWindow(app, page, { width: 1400, height: 650 })
+  check('wide: two columns again, both fitted', !!(await fewer(2)), JSON.stringify({ panes: await panes(), fitted: await fitted() }))
+  // At the boundary, a pixel at a time each way: one change of layout each way, the way back to two a little past where
+  // two stop fitting, so a window edge dragged across it doesn't flicker.
+  const bodyWidth = () => page.evaluate(() => Math.round(document.querySelector('.tab-body').getBoundingClientRect().width))
+  const settled = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))))
+  const walk = async (from, to) => {
+    const seen = []
+    for (let w = from; w !== to; w += from < to ? 1 : -1) {
+      const before = await bodyWidth()
+      await page.setViewportSize({ width: w, height: 650 })
+      await lib.until(async () => (await bodyWidth()) !== before, HUNG_MS)
+      await settled()
+      const n = await panes()
+      if (seen.at(-1)?.panes !== n) seen.push({ window: w, body: await bodyWidth(), panes: n })
+    }
+    return seen
+  }
+  await page.setViewportSize({ width: 960, height: 650 })
+  await fewer(1)
+  const up = await walk(960, 1120)
+  const down = await walk(1120, 960)
+  const crossed = (seen, a, b) => seen.length === 2 && seen[0].panes === a && seen[1].panes === b
+  check('boundary: widening a pixel at a time, one change, 1 → 2', crossed(up, 1, 2), JSON.stringify(up))
+  check('boundary: narrowing a pixel at a time, one change, 2 → 1', crossed(down, 2, 1), JSON.stringify(down))
+  check('boundary: two come back further out than they go', up.length === 2 && down.length === 2 && up[1].body > down[1].body + 1, JSON.stringify({ up, down }))
+  await lib.fitWindow(app, page, { width: 1400, height: 650 })
+  await fewer(2)
+  // Two columns for two agents is the automatic layout.
+  const saved = (await inv('workspace:get')).projects.find((p) => p.path === alpha)?.config.layout
+  check('wide: the layout chosen was never changed', saved === 'auto', String(saved))
+  for (const g of agents) {
+    const small = sizes(g.home).filter((s) => s.cols < MIN_COLS || s.rows < MIN_ROWS)
+    check(`narrow and back: ${g.name} was never given a size below ${MIN_COLS} × ${MIN_ROWS}`, small.length === 0, JSON.stringify(small))
+  }
 
   for (const a of [claude, codex]) await inv('session:stop', alpha, a.id).catch(() => undefined)
   await app.close()

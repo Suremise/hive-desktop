@@ -33,6 +33,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { markOnScreenSeen, onScreen } from './inbox'
 import { InboxPopover } from './components/Inbox'
 import { MoveRepairDialog, MovedBanner } from './components/MoveRepair'
+import { SetAsideDialog } from './components/SetAside'
 import { NoticeBanners, addNotice, resolveNotices } from './components/NoticeBanners'
 import { chimeAllowed } from '@shared/bursts'
 import { loadAdvanced } from './advanced'
@@ -464,6 +465,7 @@ export function App() {
       <QuitDialog />
       <CompactDialog />
       <MoveRepairDialog />
+      <SetAsideDialog />
       <AddAgentDialog />
       <AgentSettingsDialog />
       <TemplateAgentDialog />

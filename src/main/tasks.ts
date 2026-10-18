@@ -1,22 +1,18 @@
-import { AsyncLocalStorage } from 'async_hooks'
 import { randomBytes } from 'crypto'
 import { basename, join } from 'path'
-import { mkdir, readdir, readFile, stat } from 'original-fs/promises'
-import { existsSync } from 'original-fs'
+import { mkdir, writeFile } from 'original-fs/promises'
 import { projectAgents } from '../shared/defaults'
 import { englishText, forAgents, withValues, type Text } from '../shared/advanced'
 import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
 import { providerMessage } from '../shared/providers'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
-import { keepBeforeIds } from './beforeIds'
+import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
 import { config } from './config'
-import { emit } from './events'
-import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
 import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { workspace, type WorkspaceService } from './workspace'
@@ -45,10 +41,10 @@ const ERR = {
 }
 
 /**
- * The workspace's task board: one JSON file per card in .hive/tasks (<number>.json), and board.json with the next
- * number. Cards belong to a project and can be given to one of its agents. A card names its project by folder name
+ * The workspace's task board: one row per card in the workspace's database (boardStore.ts, #1017), each the card's JSON
+ * document, and the next number. Cards belong to a project and can be given to one of its agents. A card names its project by folder name
  * and by the project's stable id (#508, `projectId` in the file): the name is read back from the id, so a project
- * renamed or moved keeps its cards, and saving a card writes both (the name for people and older Hive versions).
+ * renamed or moved keeps its cards, and saving a card writes both (the name for people and for exports to older versions).
  */
 
 /**
@@ -105,48 +101,28 @@ const MAX_DECISION = 4000
 const entryId = (): string => randomBytes(6).toString('hex')
 const MAX_HISTORY = 300
 
-function tasksDir(ws: WorkspaceService = workspace): string {
-  return join(ws.hiveDir, 'tasks')
-}
-
-/** A card's file, and the lock on it (taken under the board's lock, below). */
-export const cardFile = (n: number, ws?: WorkspaceService): string => join(tasksDir(ws), `${n}.json`)
-
 /**
- * The board's lock. A card's place is worked out from every card's order, so each change that places one (creating,
- * updating, reordering, archiving, bringing back or importing a card) reads the board and writes its card under this
- * lock. It is taken before any card's lock and never inside one; a batch takes it card by card, so other changes
- * interleave. Keyed by the workspace folder, so every window's service shares it.
+ * A change of the board (#1017): under the board's lock (each change reads the board and writes its cards; a card's
+ * place is worked out from every card's order), in one transaction, told once after it commits. Re-entrant: a change
+ * made inside another is part of it. Keyed by the workspace folder, so every window's service shares it.
  */
 export function boardLock<T>(ws: WorkspaceService, fn: () => Promise<T>): Promise<T> {
-  return withFileLock(`board-lock:${ws.path ?? ''}`, fn)
+  return boardWrite(ws, fn)
 }
 
+/** The board changed: told once the change running here commits (at once outside one). */
 function changed(ws: WorkspaceService = workspace): void {
-  if (!ws.path) return
-  const batch = inBatch.getStore()
-  if (batch?.open && batch.path === ws.path.toLowerCase()) batch.changed = true
-  else emit({ type: 'tasks-changed', workspacePath: ws.path })
+  boardChanged(ws)
 }
-
-/** The batch of card changes running here (cardBatch): its board, whether it is still going on, and whether it changed it. */
-const inBatch = new AsyncLocalStorage<{ path: string; open: boolean; changed: boolean }>()
 
 /**
- * A change of many cards (#1011), told to the board once, after it: its own changes (updateTasks changes card after card)
- * and what the board folder's watcher sees of its writes. Each tasks-changed is a read of the whole board for each of
- * its listeners; told for each card written, a batch under load piled up reads until main ran out of memory (#988).
+ * A change of many cards (#1011), told to the board once, after it: one transaction (#1017), so all of it is saved or,
+ * if it fails part way, none. Each tasks-changed is a read of the board for each of its listeners; told for each card
+ * written, a batch under load piled up reads until main ran out of memory (#988).
  */
 export async function cardBatch<T>(ws: WorkspaceService, fn: () => Promise<T>): Promise<T> {
-  const path = ws.path?.toLowerCase()
-  if (!path || inBatch.getStore()?.open) return fn()
-  const batch = { path, open: true, changed: false }
-  try {
-    return await ws.holdTaskEvents(() => inBatch.run(batch, fn))
-  } finally {
-    batch.open = false
-    if (batch.changed) ws.tasksChangedSoon()
-  }
+  if (!ws.path) return fn()
+  return boardWrite(ws, fn)
 }
 
 /** A card loop's handoff (#405): a card arrived in Review (moved or returned there), or its review gave a verdict. */
@@ -166,7 +142,7 @@ export function onLoopEvent(fn: (e: LoopEvent) => void): void {
 const INTO_REVIEW = new Set<string>([HISTORY.moved.id, HISTORY.movedTop.id, HISTORY.movedBottom.id, HISTORY.movedBefore.id])
 const intoReview = (s: StoredText): boolean => s.id === HISTORY.returned.id || (INTO_REVIEW.has(s.id) && s.values?.column === 'review')
 
-/** A card read from disk, with anything missing or of the wrong type made safe (the files can be edited by hand). */
+/** A card as saved, with anything missing or of the wrong type made safe (a card from an older Hive or an export may lack fields). */
 function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?: ProjectIdIndex): TaskCard {
   const nums = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0) : [])
   const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
@@ -201,7 +177,7 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
   }
 }
 
-/** A card's decisions as read from disk (#357): only well-formed ones, each with an id; none, no field. */
+/** A card's decisions as saved (#357): only well-formed ones, each with an id; none, no field. */
 function decisionsOf(v: unknown): { decisions?: TaskDecision[] } {
   if (!Array.isArray(v)) return {}
   const out = v.flatMap((d): TaskDecision[] =>
@@ -232,99 +208,51 @@ function withoutGone(card: TaskCard, exists: (n: number) => boolean): TaskCard {
   return card
 }
 
-/** Every card on the board (archived ones too), in board order. */
-export async function allTasks(ws: WorkspaceService = workspace): Promise<TaskCard[]> {
+/**
+ * The cards on the board (archived ones too), in board order; `q` narrows it in the query (#1017): only archived cards
+ * or only the others, these numbers, these agents' cards. A reader that needs a few cards asks for those.
+ */
+export async function allTasks(ws: WorkspaceService = workspace, q: CardQuery = {}): Promise<TaskCard[]> {
   if (!ws.path) return []
-  const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
-  const numbers = new Set(names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : [])))
   const ids = await ws.projectIds()
-  const out = await bounded([...numbers], READS_AT_ONCE, async (n) => {
-    const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
-    return raw && typeof raw === 'object' ? [withoutGone(clean(raw, n, ids), (x) => numbers.has(x))] : []
-  })
-  return sortCards(out.flat())
+  if (!ws.path) return []
+  const docs = cardDocs(ws, q)
+  // References to cards that are gone are left out: every number the board has, when only some cards were read.
+  const numbers = q.archived === undefined && !q.numbers && !q.agents ? new Set(docs.map((d) => d.number)) : cardNumbers(ws)
+  return sortCards(docs.map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x))))
 }
 
-/** How many card files the board reads at once (#458): one at a time, a board of 500 cards took 0.1 s to read. */
-const READS_AT_ONCE = 16
-
-/** `fn` on each of `items`, at most `limit` at a time; the results in the items' order. */
-async function bounded<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = []
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next++
-      out[i] = await fn(items[i])
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
-  return out
+/**
+ * The board as the window shows it (#1017): the cards on it in full, archived ones in short (`summary`) unless `full`.
+ * The window reads them in full while its Archived view or an archived card's dialog is open.
+ */
+export async function windowTasks(ws: WorkspaceService = workspace, full = false): Promise<TaskCard[]> {
+  if (full || !ws.path) return allTasks(ws)
+  const ids = await ws.projectIds()
+  if (!ws.path) return []
+  const numbers = cardNumbers(ws)
+  const live = cardDocs(ws, { archived: false }).map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x)))
+  const short = archivedSummaryDocs(ws).map((d): TaskCard => ({ ...clean(d.doc, d.number, ids), summary: true }))
+  return sortCards([...live, ...short])
 }
 
 /** A card's place on the board: all that placing another card needs of it (#458). */
 type CardPlace = Pick<TaskCard, 'number' | 'column' | 'order' | 'archived' | 'project'>
-/** A card file's place fields as read, and the file's stamp then (its time, size and file id); null fields: not a card (not JSON). */
-interface KnownPlace {
-  stamp: string
-  raw: Pick<Partial<TaskCard>, 'column' | 'order' | 'archived' | 'project'> & { projectId?: unknown } | null
-}
-/**
- * Each open board's known places, as of its last read (only what is on it then), by its workspace's lifetime: dropped when
- * the workspace closes, and a read still going then can't keep them (it finds the lifetime over).
- */
-const knownPlaces = new WeakMap<AbortSignal, Map<number, KnownPlace>>()
-
-/** Whether a workspace lifetime's board places are kept (for tests). */
-export const placesKept = (life: AbortSignal): boolean => knownPlaces.has(life)
 
 /**
- * Every card's place (archived ones too), in board order, for placing a card (#458). Each change that places one did
- * read every card file, one at a time, under the board's lock: N cards created in a row cost about N²/2 reads. A card
- * file is read again only when its stamp has changed since (a write by Hive, another program or the user replaces or
- * changes it); the others are only stat'ed, a few at a time. Each file stays the truth for its card.
+ * Every card's place (archived ones too), in board order, for placing a card (#458): the place fields from the board's
+ * index (#1017), with no card's document read.
  */
 export async function boardPlaces(ws: WorkspaceService): Promise<CardPlace[]> {
   if (!ws.path) return []
-  // The board and its workspace's lifetime, together before anything is awaited: closed (or switched) meanwhile, what this
-  // read finds is never kept, not even under the next lifetime.
-  const dir = tasksDir(ws)
-  const life = ws.lifetime
-  const names = await readdir(dir).catch(() => [] as string[])
-  const numbers = names.flatMap((f) => (/^(\d+)\.json$/.test(f) ? [Number(f.slice(0, -5))] : []))
   const ids = await ws.projectIds()
-  const was = knownPlaces.get(life)
-  const now = new Map<number, KnownPlace>()
-  const out = await bounded(numbers, READS_AT_ONCE, async (n): Promise<CardPlace[]> => {
-    const file = join(dir, `${n}.json`)
-    const st = await stat(file).catch(() => null)
-    if (!st?.isFile()) return []
-    // Stat'ed before it is read: a change in between is read again next time, as its stamp is newer than the one kept.
-    const stamp = `${st.mtimeMs}:${st.size}:${st.ino}`
-    let known = was?.get(n)
-    if (known?.stamp !== stamp) {
-      // A file that can't be read now (held by another program, gone) has no place this time, as in allTasks, and is
-      // read again next time; one that isn't a card (not JSON) is known not to be one until it changes.
-      const text = await readFile(file, 'utf8').catch(() => null)
-      if (text === null) return []
-      let raw: (Partial<TaskCard> & { projectId?: unknown }) | null = null
-      try {
-        raw = JSON.parse(text)
-      } catch {
-        // Not a card.
-      }
-      known = { stamp, raw: raw && typeof raw === 'object' ? { column: raw.column, order: raw.order, archived: raw.archived, project: raw.project, projectId: raw.projectId } : null }
-    }
-    now.set(n, known)
-    if (!known.raw) return []
-    const c = clean(known.raw, n, ids)
-    return [{ number: n, column: c.column, order: c.order, archived: c.archived, project: c.project }]
-  })
-  if (!life.aborted) {
-    if (!knownPlaces.has(life)) life.addEventListener('abort', () => knownPlaces.delete(life), { once: true })
-    knownPlaces.set(life, now)
-  }
-  return sortCards(out.flat())
+  if (!ws.path) return []
+  return sortCards(
+    cardPlaces(ws).map(({ number, raw }) => {
+      const c = clean(raw as Partial<TaskCard> & { projectId?: unknown }, number, ids)
+      return { number, column: c.column, order: c.order, archived: c.archived, project: c.project }
+    })
+  )
 }
 
 /** Cards on the board, filtered; with `scope`, only that project's (asking for another project is refused). */
@@ -333,9 +261,8 @@ export async function listTasks(opts: { project?: string; column?: TaskColumn; a
   if (scope !== null && opts.project !== undefined && opts.project.toLowerCase() !== scope.toLowerCase()) {
     throw new TaskPermissionError(withValues(msg({ id: 'tasks.error.ownCardsOnly', defaultMessage: "You can see only your project's cards ({project}).", description: "An error: an agent asked for another project's cards; it sees only its own project's ({project}, its folder name)." }), { project: scope }))
   }
-  return (await allTasks()).filter(
+  return (await allTasks(workspace, { archived: opts.archived ?? false })).filter(
     (c) =>
-      (opts.archived === undefined ? !c.archived : c.archived === opts.archived) &&
       (opts.project === undefined || c.project.toLowerCase() === opts.project.toLowerCase()) &&
       (!opts.column || c.column === opts.column) &&
       inScope(c, scope)
@@ -358,14 +285,15 @@ export async function refsOutside(refs: number[], scope: string | null): Promise
 }
 
 export async function getTask(n: number, ws: WorkspaceService = workspace): Promise<TaskCard> {
-  if (!Number.isInteger(n) || n < 1) throw unknownTask(n)
-  const raw = await readJson<Partial<TaskCard> | null>(cardFile(n, ws), null)
-  if (!raw || typeof raw !== 'object') throw unknownTask(n)
-  return withoutGone(clean(raw, n, await ws.projectIds()), (x) => existsSync(cardFile(x, ws)))
+  if (!Number.isInteger(n) || n < 1 || !ws.path) throw unknownTask(n)
+  const ids = await ws.projectIds()
+  const raw = ws.path ? cardDoc(ws, n) : null
+  if (!raw) throw unknownTask(n)
+  return withoutGone(clean(raw, n, ids), (x) => hasCard(ws, x))
 }
 
 /**
- * Writes a card (in its lock) with its project's id beside its name (#508). A card whose project the workspace doesn't
+ * Saves a card (in a board change) with its project's id beside its name (#508). A card whose project the workspace doesn't
  * have now (removed, or renamed before it had an id) keeps the id it was saved with, if any, and never takes another
  * project's: shown as goneProject's while another project has its name, it is saved with that name as it was.
  */
@@ -375,14 +303,14 @@ async function saveCard(ws: WorkspaceService, n: number, card: TaskCard): Promis
   const saved = savedProjectName(card.project)
   let projectId = saved && saved === card.project ? projectIdNamed(await ws.projectIds(), saved) : null
   if (!projectId && saved) {
-    const was = await readJson<{ project?: unknown; projectId?: unknown } | null>(cardFile(n, ws), null)
+    const was = cardDoc(ws, n) as { project?: unknown; projectId?: unknown } | null
     if (was && isProjectId(was.projectId) && typeof was.project === 'string' && was.project.toLowerCase() === saved.toLowerCase()) projectId = was.projectId
   }
   const { number, title, description, project: _shown, ...rest } = card
-  await writeJsonAtomic(cardFile(n, ws), { number, title, description, project: saved, ...(projectId ? { projectId } : {}), ...rest })
+  putCard(ws, n, { number, title, description, project: saved, ...(projectId ? { projectId } : {}), ...rest })
 }
 
-/** A card file's fields in Hive's order, with its project and id as given (the rest as they were). */
+/** A card's fields in Hive's order, with its project and id as given (the rest as they were). */
 function withProject(raw: Record<string, unknown>, project: string, projectId: string): Record<string, unknown> {
   const { number, title, description, project: _was, projectId: _id, ...rest } = raw
   return { number, title, description, project, projectId, ...rest }
@@ -392,22 +320,20 @@ function withProject(raw: Record<string, unknown>, project: string, projectId: s
  * Each card names its project by id too (#508), once: a card saved before ids (or by an older Hive, which leaves the id
  * out) whose name is a project of the workspace gets that project's id, and a card whose project was renamed or moved
  * since gets its name now. A card with an id no project has (its project removed or gone) is left as it is, and so is one
- * saved before ids under a name no project has (Repair can give those to their project). Under the board's lock, each
- * card in its own, read again there, every field kept; each keeps its content from before beside it once
- * (`<n>.json.before-ids.bak`). Run each time the workspace opens; it changes nothing the second time.
+ * saved before ids under a name no project has (Repair can give those to their project). In one board change, every
+ * field kept (the cards' files as they were before 0.9 are kept in `.hive/tasks.imported-<time>`, #1017). Run each time
+ * the workspace opens; it changes nothing the second time.
  */
 export function stampCardProjects(ws: WorkspaceService): Promise<number> {
+  if (!ws.path) return Promise.resolve(0)
   return boardLock(ws, async () => {
     if (!ws.path) return 0
     const ids = await ws.projectIds()
-    const names = await readdir(tasksDir(ws)).catch(() => [] as string[])
     let n = 0
-    for (const f of names) {
-      if (!/^\d+\.json$/.test(f)) continue
-      const file = join(tasksDir(ws), f)
-      const did = await withFileLock(file, async () => {
-        const raw = await readJson<Record<string, unknown> | null>(file, null)
-        if (!raw || typeof raw !== 'object' || typeof raw.project !== 'string' || !raw.project) return false
+    for (const { number, doc: raw } of cardDocs(ws)) {
+      const f = `#${number}`
+      const did = await (async () => {
+        if (typeof raw.project !== 'string' || !raw.project) return false
         let next: { project: string; projectId: string } | null = null
         if (isProjectId(raw.projectId)) {
           const now = projectNameOf(ids, raw.projectId)
@@ -417,10 +343,9 @@ export function stampCardProjects(ws: WorkspaceService): Promise<number> {
           if (id) next = { project: raw.project, projectId: id }
         }
         if (!next) return false
-        await keepBeforeIds(file)
-        await writeJsonAtomic(file, withProject(raw, next.project, next.projectId))
+        putCard(ws, number, withProject(raw, next.project, next.projectId))
         return true
-      }).catch((e) => {
+      })().catch((e) => {
         log.warn(`giving card ${f} its project's id`, e)
         return false
       })
@@ -438,11 +363,8 @@ export function stampCardProjects(ws: WorkspaceService): Promise<number> {
 export async function legacyCards(ws: WorkspaceService): Promise<{ number: number; name: string; agents: string[] }[]> {
   if (!ws.path) return []
   const out: { number: number; name: string; agents: string[] }[] = []
-  for (const f of await readdir(tasksDir(ws)).catch(() => [] as string[])) {
-    const n = /^(\d+)\.json$/.exec(f)?.[1]
-    if (!n) continue
-    const raw = await readJson<Record<string, unknown> | null>(join(tasksDir(ws), f), null)
-    if (!raw || typeof raw !== 'object' || isProjectId(raw.projectId) || typeof raw.project !== 'string' || !raw.project) continue
+  for (const { number: n, doc: raw } of cardDocs(ws)) {
+    if (isProjectId(raw.projectId) || typeof raw.project !== 'string' || !raw.project) continue
     const review = raw.review as { agent?: unknown } | undefined
     const agents = [raw.agent, review?.agent].filter((a): a is string => typeof a === 'string' && !!a)
     out.push({ number: Number(n), name: raw.project, agents })
@@ -453,9 +375,8 @@ export async function legacyCards(ws: WorkspaceService): Promise<{ number: numbe
 /**
  * Gives cards saved before ids under a project's old name to the project they belong to now (#508, Repair's plan), with
  * its id and a line in each one's history by Repair; nothing else of the card changes (its date neither: nobody edited
- * it, and an archived card's date is when Archived says it was archived). Under the board's lock, each card read again
- * in its own: one with an id, or under another name now, is left as it is. Each keeps its content from before beside it
- * once, as stampCardProjects does. Returns how many moved.
+ * it, and an archived card's date is when Archived says it was archived). In one board change, each card read again
+ * there: one with an id, or under another name now, is left as it is. Returns how many moved.
  */
 export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: string; cards: number[] }): Promise<number> {
   return boardLock(ws, async () => {
@@ -463,16 +384,14 @@ export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: str
     if (!projectId) throw hiveError(msg({ id: 'tasks.error.repairNoProject', defaultMessage: "{project} isn't a project of the workspace now", description: "An error from Repair: the project {project} (a folder name) it was to give cards to isn't in the workspace any more." }), { project: m.to })
     let n = 0
     for (const x of m.cards) {
-      const file = cardFile(x, ws)
-      const moved = await withFileLock(file, async () => {
-        const raw = await readJson<Record<string, unknown> | null>(file, null)
-        if (!raw || typeof raw !== 'object' || isProjectId(raw.projectId) || typeof raw.project !== 'string' || raw.project.toLowerCase() !== m.from.toLowerCase()) return false
+      const moved = await (async () => {
+        const raw = cardDoc(ws, x)
+        if (!raw || isProjectId(raw.projectId) || typeof raw.project !== 'string' || raw.project.toLowerCase() !== m.from.toLowerCase()) return false
         const history = Array.isArray(raw.history) ? raw.history : []
         const entry = entryOf(new Date().toISOString(), BY.repair, storedText(HISTORY.repaired, { from: m.from, to: m.to }))
-        await keepBeforeIds(file)
-        await writeJsonAtomic(file, { ...withProject(raw, m.to, projectId), history: [...history, entry].slice(-MAX_HISTORY) })
+        putCard(ws, x, { ...withProject(raw, m.to, projectId), history: [...history, entry].slice(-MAX_HISTORY) })
         return true
-      })
+      })()
       if (moved) n++
     }
     if (n) {
@@ -483,16 +402,99 @@ export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: str
   })
 }
 
-/** The next card number, never reused (board.json keeps it; past every card file, damaged ones too, if it is lost). */
-async function nextNumber(ws: WorkspaceService): Promise<number> {
-  const file = join(tasksDir(ws), 'board.json')
-  return withFileLock(file, async () => {
-    const saved = await readJson<{ next?: number }>(file, {})
-    const highest = (await readdir(tasksDir(ws)).catch(() => [] as string[])).reduce((m, f) => Math.max(m, Number(/^(\d+)\.json$/.exec(f)?.[1] ?? 0)), 0)
-    const n = Math.max(saved.next ?? 1, highest + 1)
-    await writeJsonAtomic(file, { version: 1, next: n + 1 })
-    return n
+/** The start of a set-aside card's description the Review… dialog shows. */
+const PREVIEW_CHARS = 600
+
+/** A set-aside file's card as the older Hive saved it, or null when it isn't one. */
+function setAsideDoc(text: string | null): Record<string, unknown> | null {
+  if (text === null) return null
+  try {
+    const v = JSON.parse(text) as unknown
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The cards an older Hive saved after the board moved to its database, set aside in `.hive/tasks.set-aside` (#1017's
+ * downgrade, #1044): what the Review… dialog lists, oldest number first. A file that isn't a card is listed as unreadable.
+ */
+export async function setAsideCards(ws: WorkspaceService = workspace): Promise<SetAsideCard[]> {
+  if (!ws.path) return []
+  const ids = await ws.projectIds()
+  const numbers = cardNumbers(ws)
+  return setAsideFiles(ws).map(({ file, number, text }) => {
+    const raw = setAsideDoc(text)
+    const c = raw ? clean(raw, number, ids) : null
+    return {
+      file,
+      number,
+      free: !numbers.has(number),
+      readable: !!c,
+      title: c?.title ?? file,
+      preview: c ? c.description.slice(0, PREVIEW_CHARS) : '',
+      project: c?.project ?? '',
+      column: c?.column ?? 'todo',
+      createdBy: c?.createdBy ?? '',
+      createdAt: c?.createdAt ?? '',
+      comments: c?.comments.length ?? 0
+    }
   })
+}
+
+/**
+ * Adds a set-aside card to the board (#1044, Darren's decision on #1017): under its old number if no card has it, else
+ * the next free one, with everything it had (comments, decisions, links as they were: nothing else is rewritten), placed
+ * last in its column and a line in its history by Repair saying where it came from. In one board change, the file read
+ * again there; its content is recorded as added in the same transaction, so it is never added twice.
+ */
+export function addSetAsideCard(ws: WorkspaceService, file: string): Promise<TaskCard> {
+  return boardLock(ws, async () => {
+    const path = setAsideFile(ws, file)
+    const entry = path ? setAsideFiles(ws).find((f) => f.file === file) : undefined
+    const raw = setAsideDoc(entry?.text ?? null)
+    if (!entry || !raw) throw hiveError(msg({ id: 'tasks.error.setAsideGone', defaultMessage: 'That set-aside card is gone, or isn\'t a card: it can only be discarded.', description: "An error in the Review… dialog for cards an older Hive saved: the card's file was removed meanwhile, or can't be read as a card." }), undefined, { kind: 'notFound' })
+    const ids = await ws.projectIds()
+    const was = entry.number
+    const n = hasCard(ws, was) ? await nextNumber(ws) : was
+    const now = new Date().toISOString()
+    const c = clean(raw, n, ids)
+    // Every field the older Hive stored is kept (#1044 round 1: its own fields, past holds for its cost), Hive's own
+    // fields as read (round 2: one of the wrong type gets its safe default, as on any read, so it can't stop the card
+    // coming back; the original stays in the Recycle Bin): but its number, place, history and date. A review under way
+    // there isn't one here (saveCard ends its reviewer's hold).
+    const { review: _review, ...known } = c
+    // Hive's optional fields only as read: one left out as broken isn't kept from the stored card either.
+    const { agentName: _a, review: _r, archivedFor: _f, archivedBatch: _b, decisions: _d, held: _h, ...stored } = raw
+    const card = {
+      ...stored,
+      ...known,
+      number: n,
+      order: orderIn(await boardPlaces(ws), c.column, null, null),
+      history: [...c.history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
+      updatedAt: now
+    } as TaskCard
+    await saveCard(ws, n, card)
+    setAsideAdded(ws, file, entry.text!)
+    log.info(`#${n} added from ${SET_ASIDE} (made in an older Hive as #${was}): ${userText(card.title)}`)
+    changed(ws)
+    return clean(card, n, ids)
+  })
+}
+
+/** Discards a set-aside card (#1044): its file goes to the Recycle Bin. The window asks first. */
+export async function discardSetAsideCard(ws: WorkspaceService, file: string): Promise<void> {
+  const path = setAsideFile(ws, file)
+  if (!path) return
+  await trash(path)
+  log.info(`discarded ${file} from ${SET_ASIDE}`)
+  changed(ws)
+}
+
+/** The next card number, never reused (in a board change). */
+async function nextNumber(ws: WorkspaceService): Promise<number> {
+  return takeNumber(ws)
 }
 
 /** A project of the workspace by folder name ('' for the workspace itself); throws for an unknown one. */
@@ -547,7 +549,7 @@ async function cardRefs(v: unknown, self: number | null, what: 'blockedBy' | 'li
   for (const n of nums) {
     if (!Number.isInteger(n) || n < 1) throw hiveError(msg({ id: 'tasks.error.refsNotNumber', defaultMessage: '{field}: "{value}" is not a card number', description: 'An error: the list {field} (the name of the call\'s field: blockedBy or links, kept as it is) has {value} in it, which is not a card number.' }), { field: what, value: String(n) }, { kind: 'invalid' })
     if (n === self) throw hiveError(msg({ id: 'tasks.error.refsSelf', defaultMessage: "{field}: a card can't refer to itself", description: "An error: the list {field} (the name of the call's field: blockedBy or links, kept as it is) names the card itself." }), { field: what }, { kind: 'invalid' })
-    if (!existsSync(cardFile(n))) throw noCard(n)
+    if (!hasCard(workspace, n)) throw noCard(n)
     if (!hidden.includes(n) && !inScope(await getTask(n), scope)) throw noCard(n)
   }
   return [...nums, ...hidden.filter((n) => !nums.includes(n))]
@@ -663,7 +665,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
   const orderAt = (i: number): number => (above ? above.order + ((first.order - above.order) * (i + 1)) / (nums.length + 1) : first.order - nums.length + i)
   for (const [i, x] of nums.entries()) {
     const was = own.findIndex((c) => c.number === x)
-    await withFileLock(cardFile(x, ws), async () => {
+    await (async () => {
       const card = await getTask(x, ws)
       // Every write is the caller's to make on the card as it is now: moved to another project since the list was
       // read, it is unknown to a confined agent (its order and history stay as they are).
@@ -673,10 +675,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
       card.order = orderAt(i)
       if (was !== i && actor.kind !== 'user') note(card, by, i === 0 ? storedText(HISTORY.movedTop, { column }) : storedText(HISTORY.placed, { place: i + 1, column }))
       await saveCard(ws, x, card)
-    }).catch((e) => {
-      if (i) changed(ws)
-      throw e
-    })
+    })()
   }
   log.info(`${W} put in order by ${userText(by)}: ${nums.map((x) => `#${x}`).join(', ')}`)
   changed(ws)
@@ -752,7 +751,6 @@ async function createTaskLocked(
   const own = column === 'doing' && input.agent === undefined ? selfIn(actor, project) : null
   const agent = input.agent ? await agentOf(project, input.agent) : own ? await agentOf(project, own) : null
   const ws = workspace
-  await mkdir(tasksDir(ws), { recursive: true })
   const by = actorName(actor)
   const now = new Date().toISOString()
   const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy', scope) : []
@@ -797,12 +795,16 @@ export function updateTask(...args: Parameters<typeof updateTaskLocked>): Promis
   return boardLock(workspace, () => updateTaskLocked(...args))
 }
 
+/** For tests: runs as a card's change begins, in its board change (to hold a batch at a card). */
+export const taskTestHooks: { beforeUpdate: ((n: number) => Promise<void>) | null } = { beforeUpdate: null }
+
 async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, opts: { check?: (card: TaskCard) => void; said?: string[]; comment?: string; commit?: () => void } = {}): Promise<TaskCard> {
+  await taskTestHooks.beforeUpdate?.(n)
   const ws = workspace
   const by = actorName(actor)
   const comment = opts.comment === undefined ? null : commentText(opts.comment)
   let handoff: LoopEvent['kind'] | null = null
-  const result = await withFileLock(cardFile(n, ws), async () => {
+  const result = await (async () => {
     const card = await getTask(n, ws)
     const scope = scopeOf(actor)
     if (!inScope(card, scope)) throw unknownTask(n)
@@ -941,11 +943,13 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
     await saveCard(ws, n, card)
     handoff = said.some((x) => x.id === HISTORY.reviewPassed.id || x.id === HISTORY.reviewFailed.id) ? 'verdict' : said.some(intoReview) ? 'review' : null
     return card
-  })
+  })()
   changed(ws)
   if (handoff) {
     try {
-      loopEvents?.({ ws, card: result, kind: handoff, actor })
+      // Once the change is saved (#1017: its transaction commits), outside it: its wake reads the card as saved.
+      const kind = handoff
+      afterBoardWrite(ws, () => loopEvents?.({ ws, card: result, kind, actor }))
     } catch (e) {
       log.warn('a loop handoff', e)
     }
@@ -975,7 +979,7 @@ export function batchNumbers(numbers: unknown): number[] {
 }
 
 /**
- * Changes many cards with the same fields, in the order given. Each card goes through updateTask: under its own lock,
+ * Changes many cards with the same fields, in the order given, in one board change. Each card goes through updateTask,
  * authorised against the card as it is then, with the same refusals and history lines as a single call. A refused card
  * (unknown, another project's, archived, in Doing with another agent, say) is left as it was and the others still apply:
  * each card is all or nothing, the batch is not. Its error is the one a missing card gets, so it reveals no more.
@@ -1006,7 +1010,7 @@ async function updateTasksUnbatched(numbers: number[], patch: BatchPatch, actor:
  * caller has going on the card now: once the card has moved on (out of Review, say, for fixes, which ends the review)
  * an old verdict can't settle newer work. The user, the Assistant and scripts don't review through this (they have no
  * agent of the project to mark the card with). Returns whether the card changed (a renewal changes it without a line in
- * its history). Runs under the card's lock, with the card as it is now.
+ * its history). Runs in the card's change, with the card as it is now.
  */
 async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, said: StoredText[]): Promise<boolean> {
   const me = selfIn(actor, card.project)
@@ -1039,30 +1043,29 @@ async function reviewChange(card: TaskCard, patch: TaskPatch, actor: TaskActor, 
  * text (kept as it is), or a message of the card history's (shared/taskHistory.ts), which the window shows in its language.
  */
 export async function noteOnCard(n: number, what: string | StoredText, ws: WorkspaceService = workspace): Promise<void> {
-  await withFileLock(cardFile(n, ws), async () => {
+  await boardLock(ws, async () => {
     const card = await getTask(n, ws)
     note(card, BY.hive, what)
     await saveCard(ws, n, card)
+    changed(ws)
   })
-  changed(ws)
 }
 
 /**
  * A comment from Hive itself on a card (#606: its agent's model changed after a safeguard stop), for whoever reads the
- * card. `still`: whether the card, as it is under its lock, is still the one meant (its column, project and agent may
+ * card. `still`: whether the card, as it is in the change, is still the one meant (its column, project and agent may
  * have changed since it was chosen). True when it was written. `said`: English text, or a message of the card history's
  * (shared/taskHistory.ts), kept as its English (`text`) and as data (`hiveText`, #846) for the window to show in its language.
  */
 export async function commentAsHive(n: number, said: string | StoredText, ws: WorkspaceService = workspace, still: (card: TaskCard) => boolean = () => true): Promise<boolean> {
-  const done = await withFileLock(cardFile(n, ws), async () => {
+  return boardLock(ws, async () => {
     const card = await getTask(n, ws)
     if (card.archived || !still(card)) return false
     addComment(card, BY.hive, typeof said === 'string' ? said : englishSaid(said), typeof said === 'string' ? undefined : said)
     await saveCard(ws, n, card)
+    changed(ws)
     return true
   })
-  if (done) changed(ws)
-  return done
 }
 
 /** Why an agent's reviews stop, as its callers say it (in English), and its key in the history line's message. */
@@ -1081,14 +1084,14 @@ async function endReviewsUnbatched(project: string, agentId: string, why: Review
   const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
   const out: number[] = []
   for (const c of mine) {
-    const ended = await withFileLock(cardFile(c.number, ws), async () => {
+    const ended = await (async () => {
       const card = await getTask(c.number, ws)
       if (card.review?.agent !== agentId) return false
       note(card, BY.hive, storedText(HISTORY.reviewEnded, { agent: card.review.agentName, why: REVIEW_END[why] }))
       delete card.review
       await saveCard(ws, c.number, card)
       return true
-    }).catch((e) => {
+    })().catch((e) => {
       log.warn(`Could not end the review of #${c.number}`, e)
       return false
     })
@@ -1128,16 +1131,15 @@ function addComment(c: TaskCard, by: string, t: string, hiveText?: StoredText): 
 export async function commentTask(n: number, comment: string, actor: TaskActor): Promise<TaskCard> {
   const ws = workspace
   const t = commentText(comment)
-  const card = await withFileLock(cardFile(n, ws), async () => {
+  return boardLock(ws, async () => {
     const c = await getTask(n, ws)
     if (!inScope(c, scopeOf(actor))) throw unknownTask(n)
     if (c.archived && actor.kind !== 'user') throw new TaskPermissionError(withValues(ERR.archived, { n }))
     addComment(c, actorName(actor), t)
     await saveCard(ws, n, c)
+    changed(ws)
     return c
   })
-  changed(ws)
-  return card
 }
 
 /**
@@ -1149,7 +1151,7 @@ export async function editDecision(n: number, id: string, newText: string | null
   const ws = workspace
   const t = newText === null ? null : text(newText, MAX_DECISION, 'decision').trim()
   if (t === '') throw hiveError(msg({ id: 'tasks.error.decisionEmptied', defaultMessage: 'The decision is empty: remove it instead.', description: "An error: the user emptied a decision's text; to take it off the card, remove it." }))
-  const card = await withFileLock(cardFile(n, ws), async () => {
+  return boardLock(ws, async () => {
     const c = await getTask(n, ws)
     const d = c.decisions?.find((x) => x.id === id)
     if (!d) throw hiveError(msg({ id: 'tasks.error.decisionGone', defaultMessage: 'That decision is no longer on #{n}.', description: 'An error: the decision being changed was removed from card #{n} (a number) meanwhile.' }), { n })
@@ -1164,10 +1166,9 @@ export async function editDecision(n: number, id: string, newText: string | null
       d.editedAt = new Date().toISOString()
     }
     await saveCard(ws, n, c)
+    changed(ws)
     return c
   })
-  changed(ws)
-  return card
 }
 
 /** Archives a card (hidden from the board, kept) or brings it back. The user's alone. */
@@ -1177,7 +1178,7 @@ export function archiveTask(n: number, archived: boolean): Promise<TaskCard> {
 
 async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard> {
   const ws = workspace
-  const card = await withFileLock(cardFile(n, ws), async () => {
+  return (async () => {
     const c = await getTask(n, ws)
     if (c.archived === archived) return c
     c.archived = archived
@@ -1189,22 +1190,19 @@ async function archiveTaskLocked(n: number, archived: boolean): Promise<TaskCard
     // Back at the end of its column.
     if (!archived) c.order = orderIn(await boardPlaces(ws), c.column, n, null)
     await saveCard(ws, n, c)
+    changed(ws)
     return c
-  })
-  changed(ws)
-  return card
+  })()
 }
 
 // ---------------------------------------------------------------------------
 // Bulk archiving (#351): the user's Archive All in a column and Archive All Cards. Each is a batch, recorded with its
-// columns as they were, so Undo and "Unarchive this batch" bring its cards back where they were. One batch at a time
-// on the board (the batches file's lock), and the board is told once, not once a card.
+// columns as they were, so Undo and "Unarchive this batch" bring its cards back where they were. Each is one board
+// change (#1017), told once, not once a card.
 // ---------------------------------------------------------------------------
 
 const MAX_BATCH = 5000
 const KEEP_BATCHES = 50
-
-const batchesFile = (ws: WorkspaceService): string => join(tasksDir(ws), 'archive-batches.json')
 
 const isBatch = (b: unknown): b is ArchiveBatch => {
   const x = b as ArchiveBatch | null
@@ -1212,8 +1210,7 @@ const isBatch = (b: unknown): b is ArchiveBatch => {
 }
 
 async function readBatches(ws: WorkspaceService): Promise<ArchiveBatch[]> {
-  const raw = await readJson<{ batches?: unknown }>(batchesFile(ws), {})
-  return Array.isArray(raw.batches) ? raw.batches.filter(isBatch) : []
+  return archiveBatchDocs(ws).filter(isBatch)
 }
 
 /** The bulk archives kept (the latest 50), oldest first. */
@@ -1223,7 +1220,7 @@ export async function archiveBatches(ws: WorkspaceService = workspace): Promise<
 
 /**
  * Archives the cards listed, as one batch: the user's alone (agents and the Assistant never archive). Each card is checked
- * again as it is when it is archived (under its lock), against what the user asked for: still in the column and project
+ * again as it is when it is archived, against what the user asked for: still in the column and project
  * the board showed and matching its search, and, unless `includeBusy`, not one an agent is on now (`busy`: its running
  * agent in Doing, its reviewer, an agent watching it). Those that aren't, or can't be read or saved, stay on the board
  * and come back in `skipped` with why; cards already archived or gone are passed over. Returns the batch (null when
@@ -1255,8 +1252,7 @@ async function archiveBatchUnbatched(numbers: unknown, req: ArchiveRequest, acto
         : !cardMatches(c, query)
           ? tr(msg({ id: 'tasks.skipped.noMatch', defaultMessage: 'no longer matches the search', description: 'Why Archive All left a card on the board (after its number, "#12 no longer matches the search"): it changed meanwhile, and the board\'s search no longer finds it. Lower case: it follows the number.' }))
           : (busy?.(c) ?? null)
-  await mkdir(tasksDir(ws), { recursive: true })
-  const result = await withFileLock(batchesFile(ws), async (): Promise<ArchiveResult> => {
+  const result = await boardLock(ws, async (): Promise<ArchiveResult> => {
     const all = await boardPlaces(ws)
     const want = new Set(nums)
     const going = all.filter((c) => want.has(c.number) && !c.archived)
@@ -1266,14 +1262,11 @@ async function archiveBatchUnbatched(numbers: unknown, req: ArchiveRequest, acto
     for (const c of going) columns[c.column] ??= all.filter((x) => x.column === c.column && !x.archived).map((x) => x.number)
     const batch: ArchiveBatch = { id: `b${Date.now().toString(36)}${randomBytes(3).toString('hex')}`, at: new Date().toISOString(), by: BY.you, label: what, cards: going.map((c) => c.number), columns }
     const kept = await readBatches(ws)
-    // Recorded first: a card is in the batch only once it is archived with its id, so a batch cut short brings back
-    // only what it archived.
-    await writeJsonAtomic(batchesFile(ws), { version: 1, batches: [...kept, batch].slice(-KEEP_BATCHES) })
     const done: number[] = []
     const skipped: { number: number; why: string }[] = []
     for (const c of going) {
-      await withFileLock(cardFile(c.number, ws), async () => {
-        if (!existsSync(cardFile(c.number, ws))) return
+      await (async () => {
+        if (!hasCard(ws, c.number)) return
         const fresh = await getTask(c.number, ws).catch(() => null)
         if (!fresh) return void skipped.push({ number: c.number, why: tr(msg({ id: 'tasks.skipped.unreadable', defaultMessage: "couldn't be read", description: 'Why Archive All left a card on the board (after its number, "#12 couldn\'t be read"): its file could not be read. Lower case: it follows the number.' })) })
         if (fresh.archived) return
@@ -1285,15 +1278,14 @@ async function archiveBatchUnbatched(numbers: unknown, req: ArchiveRequest, acto
         note(fresh, BY.you, storedText(HISTORY.archivedInBatch, { n: going.length, label: what }))
         await saveCard(ws, c.number, fresh)
         done.push(c.number)
-      }).catch((e) => {
+      })().catch((e) => {
         log.warn(`Could not archive #${c.number} with its batch`, e)
         skipped.push({ number: c.number, why: tr(msg({ id: 'tasks.skipped.unsaved', defaultMessage: "couldn't be saved", description: 'Why Archive All left a card on the board (after its number, "#12 couldn\'t be saved"): its file could not be written. Lower case: it follows the number.' })) })
       })
     }
-    if (done.length !== batch.cards.length) {
-      batch.cards = done
-      await writeJsonAtomic(batchesFile(ws), { version: 1, batches: [...kept, ...(done.length ? [batch] : [])].slice(-KEEP_BATCHES) })
-    }
+    // In the same change as its cards: the batch lists exactly the cards it archived.
+    batch.cards = done
+    if (done.length) setArchiveBatches(ws, [...kept, batch].slice(-KEEP_BATCHES))
     return { batch: done.length ? batch : null, archived: done, skipped }
   })
   if (result.archived.length) {
@@ -1317,7 +1309,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
   if (actor.kind !== 'user') throw new TaskPermissionError(msg({ id: 'tasks.error.onlyUserUnarchives', defaultMessage: 'Only the user brings archived cards back.', description: 'An error: an agent or the Assistant tried to bring archived cards back onto the board; only the user does that.' }))
   const ws = workspace
   if (!ws.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
-  const result = await withFileLock(batchesFile(ws), async (): Promise<UnarchiveResult> => {
+  const result = await (async (): Promise<UnarchiveResult> => {
     const batches = await readBatches(ws)
     const batch = batches.find((b) => b.id === id)
     if (!batch) throw hiveError(msg({ id: 'tasks.error.batchGone', defaultMessage: 'That batch is no longer kept: unarchive its cards from Archived.', description: "An error: the Archive All batch to bring back is no longer kept (Hive keeps the latest 50); its cards can still be brought back one by one from the board's Archived list." }))
@@ -1325,7 +1317,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
     // The batch's own list, read card by card: one that can't be read now still belongs to it.
     const back: TaskCard[] = []
     for (const n of batch.cards) {
-      if (!existsSync(cardFile(n, ws))) continue
+      if (!hasCard(ws, n)) continue
       const c = await getTask(n, ws).catch(() => null)
       if (!c) failed.add(n)
       else if (c.archived && c.archivedBatch === id) back.push(c)
@@ -1341,8 +1333,8 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
         mine.map((c) => c.number)
       )
       for (const c of mine) {
-        await withFileLock(cardFile(c.number, ws), async () => {
-          if (!existsSync(cardFile(c.number, ws))) return
+        await (async () => {
+          if (!hasCard(ws, c.number)) return
           const fresh = await getTask(c.number, ws).catch(() => null)
           if (!fresh) return void failed.add(c.number)
           if (!fresh.archived || fresh.archivedBatch !== id) return
@@ -1353,16 +1345,16 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
           note(fresh, BY.you, storedText(HISTORY.backWithBatch, { label: batch.label }))
           await saveCard(ws, c.number, fresh)
           restored.push(c.number)
-        }).catch((e) => {
+        })().catch((e) => {
           log.warn(`Could not bring #${c.number} back with its batch`, e)
           failed.add(c.number)
         })
       }
     }
     // Kept while any of its cards couldn't come back: bringing it back again tries those (the others aren't its any more).
-    if (!failed.size) await writeJsonAtomic(batchesFile(ws), { version: 1, batches: batches.filter((b) => b.id !== id) })
+    if (!failed.size) setArchiveBatches(ws, batches.filter((b) => b.id !== id))
     return { restored, failed: [...failed] }
-  })
+  })()
   if (result.restored.length) {
     log.info(`Brought back ${result.restored.length} card(s) of batch ${id}${result.failed.length ? `; ${result.failed.length} couldn't be` : ''}`)
     changed(ws)
@@ -1372,7 +1364,7 @@ async function unarchiveBatchLocked(id: string, actor: TaskActor): Promise<Unarc
 
 /** The open cards (not archived or done) given to one agent of a project. */
 export async function agentCards(project: string, agentId: string, ws: WorkspaceService = workspace): Promise<TaskCard[]> {
-  return (await allTasks(ws)).filter((c) => !c.archived && c.column !== 'done' && c.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
+  return (await allTasks(ws, { archived: false, agents: [agentId] })).filter((c) => c.column !== 'done' && c.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
 }
 
 /**
@@ -1400,33 +1392,40 @@ async function releaseAgentCardsUnbatched(project: string, agentId: string, acto
   return out
 }
 
+/**
+ * A card being deleted (in its change): to the Recycle Bin as a file (`<n>.json`, as Export Board to JSON writes it),
+ * from where the user can still get it back, then off the board.
+ */
+async function binCard(ws: WorkspaceService, n: number): Promise<boolean> {
+  const doc = cardDoc(ws, n)
+  if (!doc) return false
+  const dir = join(ws.hiveDir, 'deleted-cards')
+  await mkdir(dir, { recursive: true })
+  const file = join(dir, `${n}.json`)
+  await writeFile(file, JSON.stringify(doc, null, 2) + '\n', 'utf8')
+  await trash(file)
+  return deleteCard(ws, n)
+}
+
 /** Deletes a card (to the Recycle Bin). The user's alone. Other cards' references to it are dropped. */
 export async function deleteTask(n: number): Promise<void> {
   const ws = workspace
-  const file = cardFile(n, ws)
-  // Under the card's lock, like every change: a change already reading it finishes first, and one waiting finds
-  // it gone rather than writing it back.
-  const gone = await withFileLock(file, async () => {
-    if (!existsSync(file)) return false
-    await trash(file)
-    return true
+  // One change: a change already reading it finishes first, and one waiting finds it gone rather than writing it back.
+  await boardLock(ws, async () => {
+    if (!(await binCard(ws, n))) return
+    await dropRefs(ws, new Set([n]))
+    changed(ws)
   })
-  if (!gone) return
-  await dropRefs(ws, new Set([n]))
-  changed(ws)
 }
 
 /** Drops references to cards that are gone from the others' blockedBy and links. */
 async function dropRefs(ws: WorkspaceService, gone: Set<number>): Promise<void> {
-  for (const c of await allTasks(ws)) {
-    if (!c.blockedBy.some((x) => gone.has(x)) && !c.links.some((x) => gone.has(x))) continue
-    await withFileLock(cardFile(c.number, ws), async () => {
-      const fresh = await getTask(c.number, ws).catch(() => null)
-      if (!fresh) return
-      fresh.blockedBy = fresh.blockedBy.filter((x) => !gone.has(x))
-      fresh.links = fresh.links.filter((x) => !gone.has(x))
-      await saveCard(ws, c.number, fresh)
-    })
+  // As saved: a card read through getTask already leaves out references to cards that are gone.
+  for (const { number, doc } of cardDocs(ws)) {
+    const refs = [...(Array.isArray(doc.blockedBy) ? doc.blockedBy : []), ...(Array.isArray(doc.links) ? doc.links : [])]
+    if (!refs.some((x) => gone.has(x as number))) continue
+    const fresh = await getTask(number, ws).catch(() => null)
+    if (fresh) await saveCard(ws, number, fresh)
   }
 }
 
@@ -1452,7 +1451,7 @@ async function archiveOldDoneUnbatched(ws: WorkspaceService, now: number): Promi
   const out: number[] = []
   for (const c of await allTasks(ws)) {
     if (c.archived || c.column !== 'done' || doneSince(c) > cutoff) continue
-    await withFileLock(cardFile(c.number, ws), async () => {
+    await (async () => {
       // As it is now: moved out of Done or archived meanwhile, it stays.
       const fresh = await getTask(c.number, ws).catch(() => null)
       if (!fresh || fresh.archived || fresh.column !== 'done' || doneSince(fresh) > cutoff) return
@@ -1461,7 +1460,7 @@ async function archiveOldDoneUnbatched(ws: WorkspaceService, now: number): Promi
       note(fresh, BY.hive, storedText(HISTORY.archivedDone, { days }))
       await saveCard(ws, c.number, fresh)
       out.push(c.number)
-    })
+    })()
   }
   if (out.length) {
     log.info(`Archived ${out.length} card(s) done for ${days}+ days: ${out.map((n) => `#${n}`).join(', ')}`)
@@ -1487,14 +1486,14 @@ async function archiveProjectCardsUnbatched(ws: WorkspaceService, project: strin
   const out: TaskCard[] = []
   for (const c of await projectCards(ws, project)) {
     if (c.archived) continue
-    await withFileLock(cardFile(c.number, ws), async () => {
+    await (async () => {
       const fresh = await getTask(c.number, ws)
       fresh.archived = true
       fresh.archivedFor = why
       note(fresh, BY.you, storedText(why === 'project-hidden' ? HISTORY.archivedHidden : HISTORY.archivedRemoved, { project }))
       await saveCard(ws, c.number, fresh)
       out.push(fresh)
-    })
+    })()
   }
   if (out.length) changed(ws)
   return out
@@ -1509,14 +1508,14 @@ async function restoreProjectCardsUnbatched(ws: WorkspaceService, project: strin
   let n = 0
   for (const c of await projectCards(ws, project)) {
     if (!c.archived || (c.archivedFor !== 'project-hidden' && c.archivedFor !== 'project-removed')) continue
-    await withFileLock(cardFile(c.number, ws), async () => {
+    await (async () => {
       const fresh = await getTask(c.number, ws)
       fresh.archived = false
       delete fresh.archivedFor
       note(fresh, BY.you, storedText(HISTORY.restored, { project }))
       await saveCard(ws, c.number, fresh)
       n++
-    })
+    })()
   }
   if (n) changed(ws)
   return n
@@ -1530,10 +1529,7 @@ export function deleteProjectCards(ws: WorkspaceService, project: string): Promi
 async function deleteProjectCardsUnbatched(ws: WorkspaceService, project: string): Promise<number> {
   const gone = new Set<number>()
   for (const c of await projectCards(ws, project)) {
-    const f = cardFile(c.number, ws)
-    await withFileLock(f, async () => {
-      if (existsSync(f)) await trash(f)
-    })
+    await binCard(ws, c.number)
     gone.add(c.number)
   }
   if (gone.size) {
@@ -1553,7 +1549,6 @@ export function importCards(ws: WorkspaceService, cards: TaskCard[], project: st
 
 async function importCardsLocked(ws: WorkspaceService, cards: TaskCard[], project: string): Promise<number> {
   if (!cards.length) return 0
-  await mkdir(tasksDir(ws), { recursive: true })
   const map = new Map<number, number>()
   for (const c of cards) map.set(c.number, await nextNumber(ws))
   const all = await boardPlaces(ws)

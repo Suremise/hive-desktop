@@ -121,7 +121,7 @@ const skill = (dir, name, audience) => {
   await sleep(500)
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(600)
-  await page.keyboard.press('Alt+8')
+  await lib.openMoreTab(page, 'Skills')
   await lib.until(async () => (await page.locator('.split-list .skill-row').count()) > 0, 10000)
   const tabRows = await page.locator('.split-list .skill-row').allInnerTexts()
   const has = (n) => tabRows.some((t) => t.includes(n))
@@ -181,7 +181,7 @@ const skill = (dir, name, audience) => {
   await page.screenshot({ path: path.join(lib.WORK, 'skillaudience-narrow.png') })
   await page.keyboard.press('Control+Shift+E')
   await sleep(500)
-  await page.keyboard.press('Alt+8')
+  await lib.openMoreTab(page, 'Skills')
   await lib.until(async () => (await page.locator('.split-list .skill-row').count()) > 0, 10000)
   await page.screenshot({ path: path.join(lib.WORK, 'skillaudience-narrow-project.png') })
 

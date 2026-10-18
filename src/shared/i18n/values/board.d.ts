@@ -248,7 +248,13 @@ interface HiveMessageValues {
   'board.error.archive': undefined
   'board.error.change': undefined
   'board.error.move': undefined
+  'board.error.newer': undefined
+  'board.error.noWorkspace': undefined
   'board.error.unarchive': undefined
+  'board.error.unavailable': { error: string | number }
+  'board.export.command': undefined
+  'board.export.done': { n: number }
+  'board.export.failed': undefined
   'board.field.agent': undefined
   'board.field.blocked': undefined
   'board.field.blockedBy': undefined
@@ -409,6 +415,27 @@ interface HiveMessageValues {
   'board.run.waiting': { waited: string | number }
   'board.run.wordsStale': { run: string | number }
   'board.run.wordsWaiting': { run: string | number }
+  'board.setAside.add': undefined
+  'board.setAside.added': { n: string | number }
+  'board.setAside.adding': undefined
+  'board.setAside.close': undefined
+  'board.setAside.discard': undefined
+  'board.setAside.discardButton': undefined
+  'board.setAside.discardMessage': { readable: string }
+  'board.setAside.discardTitle': { title: string | number }
+  'board.setAside.discarding': undefined
+  'board.setAside.intro': undefined
+  'board.setAside.keeps': { n: string | number }
+  'board.setAside.links': undefined
+  'board.setAside.loading': undefined
+  'board.setAside.made': { by: string | number; when: string | number }
+  'board.setAside.menu': { n: number }
+  'board.setAside.none': undefined
+  'board.setAside.number': { n: string | number }
+  'board.setAside.taken': { n: string | number }
+  'board.setAside.title': undefined
+  'board.setAside.unreadable': undefined
+  'board.setAside.where': { project: string; column: string | number; comments: number }
   'board.slots.agentMerging': { agent: string | number; cards: string }
   'board.slots.agentNext': { agent: string | number; cards: string }
   'board.slots.free': undefined

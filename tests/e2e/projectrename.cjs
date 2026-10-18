@@ -81,9 +81,11 @@ const oldCard = (n, proj, agent) =>
   await r.inv('tasks:archive', old.number, true)
   const id = readJson(path.join(alpha, '.hive', 'project.json')).id
   check('the project has an id, in its own project.json', /^p-[0-9a-f]+$/.test(id ?? ''), String(id))
-  check('its cards are saved with it', [doing, todo, old].every((c) => readJson(path.join(tasksDir, `${c.number}.json`)).projectId === id))
+  check('its cards are saved with it', [doing, todo, old].every((c) => lib.readCard(ws, c.number).projectId === id))
   check('…and the board shows no id', !('projectId' in doing))
-  check('cards saved before ids, by a project no longer there by that name, are left as they were', readJson(path.join(tasksDir, '1.json')).projectId === undefined)
+  check('cards saved before ids, by a project no longer there by that name, are left as they were', lib.readCard(ws, 1).projectId === undefined)
+  // #1017: the cards' files moved into the board's database as it opened, the folder kept as a backup.
+  check("the cards' files are in the board now, their folder kept as a backup", fs.readdirSync(path.join(ws, '.hive')).some((f) => f.startsWith('tasks.imported-')) && !fs.existsSync(path.join(tasksDir, '1.json')))
   await r.app.close()
 
   // --- Renamed while Hive was closed.
@@ -92,7 +94,8 @@ const oldCard = (n, proj, agent) =>
   const { page, inv } = r
   page.on('pageerror', (e) => check('no page errors', false, e.message))
   await lib.openWorkspace(inv, page, ws)
-  const cards = async () => await inv('tasks:list')
+  // Archived cards in full (#1017: the window has them in short until its Archived view opens).
+  const cards = async () => await inv('tasks:list', true)
   const mine = (list) => list.filter((c) => [doing.number, todo.number, old.number].includes(c.number))
   check("the renamed project's cards are its at once, archived ones too", mine(await cards()).every((c) => c.project === 'gamma') && mine(await cards()).length === 3, JSON.stringify(mine(await cards()).map((c) => c.project)))
   check('none is left under the old name', !(await cards()).some((c) => c.project === 'alpha'))
@@ -104,7 +107,7 @@ const oldCard = (n, proj, agent) =>
     const j = fs.existsSync(path.join(ws, '.hive', 'project-names.json')) ? readJson(path.join(ws, '.hive', 'project-names.json')) : null
     return j?.projects?.[id]?.name === 'gamma' && JSON.stringify(j.projects[id].former) === '["alpha"]'
   }, 10000)))
-  check('the card files catch up when the workspace opens', !!(await lib.until(() => readJson(path.join(tasksDir, `${doing.number}.json`)).project === 'gamma', 10000)))
+  check('the saved cards catch up when the workspace opens', !!(await lib.until(() => lib.readCard(ws, doing.number).project === 'gamma', 10000)))
   await page.getByRole('button', { name: 'Task Board' }).click()
   const tile = page.locator(`.task-card[data-task="${doing.number}"]`)
   await tile.waitFor({ timeout: 10000 })
@@ -130,7 +133,7 @@ const oldCard = (n, proj, agent) =>
   const websiteCards = (await cards()).filter((c) => c.number === 1 || c.number === 2)
   check("old-site's cards are site's, still archived, with their agent", websiteCards.every((c) => c.project === 'site' && c.archived) && websiteCards.find((c) => c.number === 1)?.agent === 'a-claude', JSON.stringify(websiteCards.map((c) => [c.project, c.archived, c.agent])))
   check('each says so in its history', websiteCards.every((c) => c.history.at(-1)?.what === 'Project: old-site → site (renamed or moved)'))
-  check('…and is saved with site’s id', readJson(path.join(tasksDir, '1.json')).projectId === readJson(path.join(site, '.hive', 'project.json')).id)
+  check('…and is saved with site’s id', lib.readCard(ws, 1).projectId === readJson(path.join(site, '.hive', 'project.json')).id)
   const again = await inv('workspace:moveRepair')
   check('Repair again changes nothing', again.done.length === 0 && again.failed.length === 0, JSON.stringify(again))
 

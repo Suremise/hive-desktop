@@ -1465,6 +1465,22 @@ textarea.input {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+/* More ▾ (#1043): the last tab, a quiet button like Agents ▾, opening a menu of the project's other tabs. */
+.tab-more {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+.tab-more:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -3px;
+}
+.tab .tab-chevron,
+.tab-m .tab-chevron {
+  font-size: 11px;
+  margin-left: -2px;
+}
 
 /* ---------- Project header ---------- */
 .project-header {
@@ -1587,6 +1603,51 @@ textarea.input {
 }
 .moved-banner .btn + .icon-btn {
   flex-shrink: 0;
+}
+/* Cards made by an older Hive, set aside (#1044). */
+.set-aside-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.set-aside-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.set-aside-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.set-aside-number {
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.set-aside-title {
+  overflow-wrap: anywhere;
+}
+.set-aside-preview {
+  max-height: 7.5em;
+  overflow: hidden;
+  font-size: 0.95em;
+}
+.set-aside-number-note .codicon {
+  vertical-align: -2px;
+}
+.set-aside-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
 }
 /* Repair a Moved Workspace (#146). */
 .move-repair section + section {
@@ -4710,6 +4771,13 @@ body.pane-resizing .monaco-editor {
 .view-switch button {
   padding: 0 10px;
 }
+/* Folded to icons (#1046): each in a tooltip, so the line between them is drawn on the second's button. */
+.view-switch.icons button {
+  padding: 0 7px;
+}
+.view-switch.icons .tip-wrap + .tip-wrap > button {
+  border-left: 1px solid var(--border);
+}
 /* The summary chip: the most urgent state's mark, then the counts ("1 waiting · 2 working · 3 idle"); ▾ lists the agents. */
 .summary-chip {
   display: inline-flex;
@@ -4724,6 +4792,14 @@ body.pane-resizing .monaco-editor {
   color: var(--fg);
   font-size: 12px;
   cursor: pointer;
+}
+/* The chip gives way last (#1046): its tooltip's wrapper, the toolbar's item, may narrow, so its counts are cut. */
+.session-toolbar > .tip-wrap:has(> .summary-chip) {
+  display: flex;
+  min-width: 0;
+}
+.summary-chip {
+  max-width: 100%;
 }
 .summary-chip:hover {
   background: var(--bg-hover);
@@ -7017,20 +7093,53 @@ body.pane-resizing-v .monaco-editor {
   letter-spacing: 0;
   font-weight: normal;
 }
+/* An agent that needs you: the row opens it (its tooltip says so); a finished one's quiet × dismisses it without going
+   there (#1047), shown on hover and focus but always in the tab order. */
 .assistant-attention {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: 2px;
   margin-bottom: 4px;
   border-radius: 4px;
   background: var(--accent-soft);
   color: var(--fg-strong);
+}
+.assistant-attention > .tip-wrap:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.assistant-attention-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
   cursor: pointer;
 }
-.assistant-attention .codicon {
+.assistant-attention-open .codicon {
   color: var(--warning);
   margin-top: 1px;
+}
+.assistant-attention .assistant-attention-dismiss {
+  width: 20px;
+  height: 20px;
+  margin: 2px 2px 0 0;
+  color: var(--fg-muted);
+  opacity: 0;
+}
+.assistant-attention:hover .assistant-attention-dismiss,
+.assistant-attention:focus-within .assistant-attention-dismiss {
+  opacity: 1;
+}
+.assistant-attention .assistant-attention-dismiss:hover {
+  color: var(--fg);
 }
 /* A project on one line (#979): its name, its agents' state marks (they wrap in a narrow panel), how many run. */
 .assistant-project {

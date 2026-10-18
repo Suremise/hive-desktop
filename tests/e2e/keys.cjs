@@ -1,5 +1,6 @@
 // Keyboard shortcuts: Settings editor (record, chord, conflict, refused keys, remove, reset), project
-// overrides, and some new defaults (Go to Project, layouts, next tab). Throwaway profile and workspace;
+// overrides, and some new defaults (Go to Project, layouts, next tab); Alt+1…8 for the tabs in the strip's order, More ▾'s
+// tabs, and the Project menu matching them (#1043). Throwaway profile and workspace;
 // no sessions started.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
@@ -35,8 +36,41 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   check('Ctrl+Tab: next project tab', /Overview/.test(await tab()), await tab())
   await page.keyboard.press('Control+Shift+Tab'); await lib.until(async () => /Session/.test(await tab().catch(() => '')), HUNG_MS)
   check('Ctrl+Shift+Tab: previous tab', /Session/.test(await tab()), await tab())
-  for (const k of ['Alt+2', 'Alt+3', 'Alt+4', 'Alt+1']) { await page.keyboard.press(k); await sleep(150) }
+  // Alt+1…8: the strip's tabs in the order they show (#1043); More ▾'s have none.
+  const MAIN = ['Session', 'Overview', 'Performance', 'Tasks', 'Sessions', 'Files', 'Attachments', 'Git']
+  const strip = (await page.locator('.tabs .tab:not(.tab-more) .tab-label').allInnerTexts()).map((t) => t.trim())
+  check('the strip shows the main tabs, in order, then More ▾', JSON.stringify(strip) === JSON.stringify(MAIN) && (await page.locator('.tabs .tab').last().evaluate((t) => t.classList.contains('tab-more'))), JSON.stringify(strip))
+  const reached = []
+  for (const [i, label] of [...MAIN.entries()].reverse()) {
+    await page.keyboard.press(`Alt+${i + 1}`)
+    if (await lib.until(async () => (await tab().catch(() => '')).trim() === label, HUNG_MS)) reached.push(label)
+  }
+  check('Alt+1…8 open the tabs in the order they show', reached.length === MAIN.length, `reached ${JSON.stringify(reached)}`)
   check('tab shortcuts never hide the sidebar', (await page.locator('.project-row').count()) === 2)
+  await page.locator('.tabs .tab-more').click(); await lib.until(async () => (await page.locator('.menu .menu-item').count()) === 4, HUNG_MS)
+  const moreItems = (await page.locator('.menu .menu-item').allInnerTexts()).map((t) => t.trim())
+  check('More ▾ lists Memory, Skills, Templates and MCP, with no keys', JSON.stringify(moreItems) === JSON.stringify(['Memory', 'Skills', 'Templates', 'MCP']), JSON.stringify(moreItems))
+  await page.keyboard.press('Escape'); await lib.until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
+  for (const label of ['Memory', 'Skills', 'Templates', 'MCP']) {
+    let ok = true
+    await lib.openMoreTab(page, label).catch(() => (ok = false))
+    check(`More ▾ → ${label} opens it, and More ▾ shows its name`, ok && (await tab()).trim() === label, await tab())
+  }
+  // From the keyboard: focus More ▾, Enter opens its menu on its first entry, Enter chooses it.
+  await page.locator('.tabs .tab-more').focus(); await page.keyboard.press('Enter')
+  await lib.until(async () => (await page.locator('.menu .menu-item.active').count()) === 1, HUNG_MS)
+  await page.keyboard.press('Enter')
+  check('More ▾ works from the keyboard', !!(await lib.until(async () => (await tab().catch(() => '')).trim() === 'Memory', HUNG_MS)), await tab())
+  await page.keyboard.press('Alt+1'); await lib.until(async () => (await tab().catch(() => '')).trim() === 'Session', HUNG_MS)
+  check('a main tab gives More ▾ its own name back', (await page.locator('.tabs .tab-more .tab-label').innerText()).trim() === 'More')
+  // The menu bar's Project menu: the main tabs with Alt+1…8, then More ▾'s, then Project Settings (Alt+0).
+  await page.locator('.menubar-item[data-menu="project"]').click(); await lib.until(async () => (await page.locator('.menu [data-command^="project.tab."]').count()) === 13, HUNG_MS)
+  const menuRows = await page.locator('.menu').last().evaluate((m) => [...m.children].map((c) => (c.classList.contains('menu-sep') ? '-' : `${c.getAttribute('data-command') ?? ''}=${c.querySelector('.menu-key')?.textContent.trim() ?? ''}`)))
+  const tabRows = menuRows.slice(menuRows.findIndex((r) => r.startsWith('project.tab.')), menuRows.findIndex((r) => r.startsWith('project.tab.settings')) + 1)
+  const wantRows = ['session', 'overview', 'performance', 'tasks', 'sessions', 'files', 'images', 'changes'].map((id, i) => `project.tab.${id}=Alt+${i + 1}`).concat(['-', 'project.tab.memory=', 'project.tab.skills=', 'project.tab.templates=', 'project.tab.mcp=', '-', 'project.tab.settings=Alt+0'])
+  check('the Project menu matches the strip and its keys', JSON.stringify(tabRows) === JSON.stringify(wantRows), JSON.stringify(tabRows))
+  await page.screenshot({ path: path.join(scratch, 'keys-0-project-menu.png') })
+  await page.keyboard.press('Escape'); await page.mouse.click(5, 500); await lib.until(async () => (await page.locator('.menu').count()) === 0, HUNG_MS)
   await page.keyboard.press('Control+Alt+2'); await lib.until(async () => (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')?.config.layout === 'columns2', HUNG_MS)
   const p = (await inv('workspace:refresh')).projects.find((x) => x.name === 'bravo')
   check('Ctrl+Alt+2: two-column layout', p.config.layout === 'columns2', JSON.stringify(p.config.layout))
@@ -89,7 +123,7 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await row.locator('.icon-btn[aria-label^="Reset to default"]').click(); await lib.until(async () => !('view.notifications' in (await inv('settings:get')).keybindings), HUNG_MS)
   check('reset to default', !('view.notifications' in (await inv('settings:get')).keybindings))
 
-  // Project override: alpha gets Alt+F for Files; bravo keeps Alt+4
+  // Project override: alpha gets Alt+F for Files; bravo keeps Alt+6
   await page.keyboard.press('Escape')
   if (!(await page.locator('.project-row').count())) await page.locator('.activity-btn[aria-label="Projects"]').click()
   await sleep(300)
@@ -114,8 +148,8 @@ const check = (name, ok, extra = '') => { if (ok) pass++; else fail++; console.l
   await page.locator('.tabs .tab', { hasText: 'Session' }).first().click(); await lib.until(async () => /Session/.test(await tab().catch(() => '')), HUNG_MS)
   await page.keyboard.press('Alt+F'); await sleep(500) // A fixed wait on purpose: this checks that Alt+F does NOT switch tabs in bravo.
   check('Alt+F does nothing in bravo', /Session/.test(await tab()), await tab())
-  await page.keyboard.press('Alt+4'); await lib.until(async () => /Files/.test(await tab().catch(() => '')), HUNG_MS)
-  check('bravo keeps Alt+4', /Files/.test(await tab()), await tab())
+  await page.keyboard.press('Alt+6'); await lib.until(async () => /Files/.test(await tab().catch(() => '')), HUNG_MS)
+  check('bravo keeps Alt+6', /Files/.test(await tab()), await tab())
 
   // Shortcuts dialog reflects changes and links to the editor
   await page.locator('.project-row', { hasText: 'alpha' }).click(); await lib.until(async () => /alpha/.test(await page.locator('.project-header h1').innerText().catch(() => '')), HUNG_MS)

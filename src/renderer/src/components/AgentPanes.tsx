@@ -17,7 +17,7 @@ import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -60,6 +60,8 @@ function rectStyle(r: Rect): CSSProperties {
 /** Which agent each pane of the selected project shows. */
 export function usePanes(project: ProjectInfo | null): (string | null)[] {
   const focused = useStore((s) => (project ? s.focusedAgent[project.path] : undefined))
+  // Fewer columns while they don't fit (#1037).
+  useStore((s) => s.paneColumns)
   if (!project) return []
   return paneAssignment(project, focused && project.agents.some((a) => a.id === focused) ? focused : focusedAgentId(project))
 }
@@ -717,11 +719,17 @@ function AgentTabTip({ project, a }: { project: ProjectInfo; a: AgentInfo }) {
 /** A layout's name, for its button in the session toolbar: "Two columns". */
 const layoutLabel = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.name', defaultMessage: '{layout, select, single {One at a time} columns2 {Two columns} columns3 {Three columns} grid {Grid of four} other {Grid of six}}', description: "A pane layout's name: its button's tooltip and accessible name in the session toolbar." }), { layout: l })
 
+/** The chosen layout's tooltip while fewer columns are shown, the panes being too narrow for a terminal each (#1037). */
+const NARROWED = msg({ id: 'panes.layout.narrowed', defaultMessage: '{layout}: shown as {shown} until there is room for a terminal in each pane', description: "Tooltip of the chosen layout's button (the session toolbar) while the window is too narrow for its columns: {layout} is its name (\"Two columns\"), {shown} the layout shown meanwhile, lower case (\"one at a time\")." })
+const shownName = (l: SessionLayout): string => tr(msg({ id: 'panes.layout.shownName', defaultMessage: '{layout, select, single {one at a time} columns2 {two columns} columns3 {three columns} grid {a grid of four} other {a grid of six}}', description: "A pane layout's name in a sentence, lower case: the layout shown while the chosen one doesn't fit (panes.layout.narrowed's {shown})." }), { layout: l })
+
 /**
  * How far the toolbar's controls fold when short of room (#886): the layouts become one button with a menu; then the page
- * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾.
+ * buttons become the compact pager (‹ 3 / 6 ▾ ›); then the pager is only its menu, and the menus drop their ▾; then
+ * + Add is only its + (#1046); then Panes | Tiles are their icons. Past that, the summary chip's counts are cut, down to
+ * its mark.
  */
-const TOOLBAR_FOLDS = 3
+const TOOLBAR_FOLDS = 5
 
 /** The width the session toolbar needs: its controls on one row, the summary chip whole (`useFolds`, #886). */
 function toolbarNeed(el: HTMLElement): number | null {
@@ -735,6 +743,8 @@ function toolbarNeed(el: HTMLElement): number | null {
 
 /** The Session tab's views, in the toggle's order. */
 const SESSION_VIEWS: readonly SessionView[] = ['panes', 'tiles']
+/** Each view's icon on the toggle, folded to icons (#1046). */
+const VIEW_ICON: Record<SessionView, string> = { panes: 'terminal', tiles: 'table' }
 
 const VIEW_NAME = msg({ id: 'panes.view.name', defaultMessage: '{view, select, tiles {Tiles} other {Panes}}', description: "The Session tab's two views, on its Panes | Tiles toggle: Panes shows the agents' terminals, Tiles a small tile per agent. Keep them short." })
 const ADD = msg({ id: 'panes.add.menu', defaultMessage: 'Add', description: "The session toolbar's + Add ▾ button: adds agents (the dialog, a quick add, from a template) and saves or loads templates. Keep it short." })
@@ -804,9 +814,11 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   }, [view, project.path])
   const page = agentPage(project, focused ?? null)
   const panesView = view === 'panes'
-  // One layout for the project; a page holds as many agents as it has panes (#134).
+  // One layout for the project; a page holds as many agents as it has panes (#134). With too little room for its columns,
+  // fewer are shown (#1037): the buttons keep the one chosen, and its pages are those of the layout shown.
   const layout = projectLayout(project.config)
-  const perPage = agentsPerPage(layout)
+  const shown = useStore((s) => shownLayout(project, s))
+  const perPage = agentsPerPage(shown)
   const pages = agentPageCount(project.agents.length, perPage)
   const many = project.agents.length > 1
   const pageKb = commandKeybinding('agent.nextPage')
@@ -957,6 +969,9 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   // The compact pager for more pages than buttons, or (folded, #886) for any pages in a toolbar short of room.
   const compactPager = pages > PAGE_BUTTONS_MAX || (pages > 1 && folds >= 2)
   const bare = folds >= 3
+  // Shorter still (#1046): + Add is only its +, then Panes | Tiles their icons.
+  const addIcon = folds >= 4
+  const viewIcons = folds >= 5
   // Every other page's most urgent agent, for the compact pager's menu button.
   const elsewhere = compactPager ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
   const pageMenu = (el: Element, keyboard: boolean): void => {
@@ -979,7 +994,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
       {/* A radio group (#975): one tab stop, on the chosen view; the arrow keys (round, Home, End) move to the other and choose it. */}
       <div
-        className="segmented view-switch"
+        className={cx('segmented', 'view-switch', viewIcons && 'icons')}
         role="radiogroup"
         // Busy while the choice saves (it shows meanwhile; a failed save goes back to the saved view).
         aria-busy={chosen?.path === project.path || undefined}
@@ -994,19 +1009,22 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         }}
       >
         {SESSION_VIEWS.map((v, i) => (
-          <button
-            key={v}
-            ref={(el) => void (viewButtons.current[i] = el)}
-            role="radio"
-            aria-checked={shownView === v}
-            tabIndex={shownView === v ? 0 : -1}
-            className={cx(shownView === v && 'active')}
-            data-view={v}
-            // Tiles again, from an agent's focus view (#976): back to the grid.
-            onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
-          >
-            {tr(VIEW_NAME, { view: v })}
-          </button>
+          // Folded to its icon (#1046): its name on hover and for screen readers.
+          <Tooltip key={v} content={viewIcons ? tr(VIEW_NAME, { view: v }) : null}>
+            <button
+              ref={(el) => void (viewButtons.current[i] = el)}
+              role="radio"
+              aria-checked={shownView === v}
+              tabIndex={shownView === v ? 0 : -1}
+              className={cx(shownView === v && 'active')}
+              data-view={v}
+              // Tiles again, from an agent's focus view (#976): back to the grid.
+              onClick={() => (shownView !== v ? chooseView(v, false) : v === 'tiles' && focusTileAfter(closeTile(project)))}
+              aria-label={viewIcons ? tr(VIEW_NAME, { view: v }) : undefined}
+            >
+              {viewIcons ? <Icon name={VIEW_ICON[v]} /> : tr(VIEW_NAME, { view: v })}
+            </button>
+          </Tooltip>
         ))}
       </div>
       {project.agents.length > 0 && (
@@ -1040,7 +1058,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       )}
       {panesView && (many || layout !== 'single') && folds >= 1 && (
         <div className="segmented layout-switch">
-          <Tooltip content={layoutLabel(layout)}>
+          <Tooltip content={shown !== layout ? tr(NARROWED, { layout: layoutLabel(layout), shown: shownName(shown) }) : layoutLabel(layout)}>
             <button
               className="layout-menu"
               aria-label={layoutLabel(layout)}
@@ -1059,7 +1077,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       {panesView && (many || layout !== 'single') && folds < 1 && (
         <div className="segmented layout-switch">
           {SESSION_LAYOUTS.map((l) => (
-            <Tooltip key={l.value} content={l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
+            <Tooltip key={l.value} content={l.value === layout && shown !== layout ? tr(NARROWED, { layout: layoutLabel(layout), shown: shownName(shown) }) : l.panes > 2 ? tr(msg({ id: 'panes.layout.wide', defaultMessage: '{layout} (works best on a wide window, or with the sidebar hidden: Ctrl+B)', description: "Tooltip of a layout button with three or more panes (the session toolbar): its name ({layout}) and a hint. Ctrl+B hides the sidebar." }), { layout: layoutLabel(l.value) }) : layoutLabel(l.value)}>
               <button className={cx(layout === l.value && 'active')} onClick={() => void actions.setLayout(project.path, l.value)} aria-label={layoutLabel(l.value)}>
                 <LayoutGlyph layout={l.value} />
               </button>
@@ -1068,8 +1086,9 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
         </div>
       )}
       <Tooltip content={full ? agentLimitText(limit, tr) : tr(msg({ id: 'panes.add.menuTip', defaultMessage: 'Add an agent (Add Agent…: choose its provider, where it works and its settings), or save and load templates', description: "Tooltip of the session toolbar's + Add ▾ button. \"Add Agent…\" is its first menu item: use its translation." }))}>
-        <button ref={add} className="btn subtle small add-menu" aria-haspopup="menu" aria-expanded={addMenu.shown} onClick={(e) => openAdd(e.detail === 0)}>
-          <Icon name="add" /> {tr(ADD)}
+        <button ref={add} className="btn subtle small add-menu" aria-haspopup="menu" aria-expanded={addMenu.shown} aria-label={addIcon ? tr(ADD) : undefined} onClick={(e) => openAdd(e.detail === 0)}>
+          <Icon name="add" />
+          {!addIcon && ` ${tr(ADD)}`}
           {!bare && <Icon name="chevron-down" />}
         </button>
       </Tooltip>

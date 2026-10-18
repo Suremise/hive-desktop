@@ -288,6 +288,51 @@ export function projectLayout(cfg: Pick<ProjectConfig, 'agents' | 'layout'>): Se
 /** How many agents a page of this project's Session tab holds. */
 export const projectPerPage = (cfg: Pick<ProjectConfig, 'agents' | 'layout'>): number => agentsPerPage(projectLayout(cfg))
 
+/** How many panes a layout has side by side. */
+export function layoutColumns(layout: SessionLayout): number {
+  return layout === 'grid' ? 2 : layout === 'grid6' ? 3 : layoutPanes(layout)
+}
+
+/** The layout with a column fewer: the grids keep two rows, then one at a time. */
+const NARROWER: Record<SessionLayout, SessionLayout> = { single: 'single', columns2: 'single', columns3: 'columns2', grid: 'single', grid6: 'grid' }
+
+/**
+ * How many panes fit side by side in `width`, each `paneMin` wide, given how many did (`was`): fewer as soon as they
+ * don't fit, more only `margin` past where they would, so a pixel either way at the boundary doesn't flip the layout.
+ */
+export function paneColumnsFor(width: number, paneMin: number, was: number | null, margin: number): number {
+  const fit = Math.max(1, Math.floor(width / paneMin))
+  if (was === null || fit < was) return fit
+  return Math.max(was, Math.floor((width - margin) / paneMin))
+}
+
+/** The most of the Session tab's width the focus view's strip takes, above its least (#1050): the terminal comes first. */
+export const TILE_STRIP_SHARE = 0.4
+
+/**
+ * How wide the focus view's strip may be in a Session tab `width` wide, beside a pane `paneMin` wide, given what it was
+ * (`was`). The terminal comes first (#1050): the strip takes at most TILE_STRIP_SHARE of the width, and of the room above
+ * both least widths (its `least` and `paneMin`) at most half, past `margin`, so it is at its least while the pane still
+ * has `margin` over its own, whatever the terminal's font. Hidden (0) when even its least leaves the pane too little, and
+ * shown again only `margin` past that, so a pixel either way doesn't toggle it (#1037).
+ */
+export function tileStripRoom(width: number, paneMin: number, least: number, was: number | null, margin: number): number {
+  const spare = width - paneMin - least
+  if (spare < (was === 0 ? margin : 0)) return 0
+  return least + Math.max(0, Math.min(Math.floor(width * TILE_STRIP_SHARE) - least, Math.floor((spare - margin) / 2)))
+}
+
+/**
+ * The layout shown for the one chosen when only `columns` panes fit side by side (#1037: narrower, a terminal can't be
+ * fitted to its pane): it drops columns until they fit, down to one at a time. null: no limit.
+ */
+export function layoutFitting(layout: SessionLayout, columns: number | null): SessionLayout {
+  if (columns === null) return layout
+  let l = layout
+  while (l !== 'single' && layoutColumns(l) > columns) l = NARROWER[l]
+  return l
+}
+
 /**
  * The Session tab's view for a project (#975): the one its Panes | Tiles toggle chose, else Settings → Sessions → Default
  * session view, else Panes.

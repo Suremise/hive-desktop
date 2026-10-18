@@ -14,6 +14,11 @@ interface HiveMessageValues {
   'main.antivirus.tooLong': undefined
   'main.antivirus.unreadable': undefined
   'main.antivirus.windowsOnly': undefined
+  'main.board.damagedBody': { files: string | number; folder: string | number }
+  'main.board.damagedTitle': { n: number }
+  'main.board.foundBody': { folder: string | number }
+  'main.board.foundTitle': { n: number }
+  'main.board.review': undefined
   'main.console.noWorkspace': undefined
   'main.console.title': { workspace: string | number }
   'main.corrupt.damaged': { file: string | number }
@@ -167,8 +172,10 @@ interface HiveMessageValues {
   'main.unexpectedClose.failed': { n: number; agents: string | number }
   'main.unexpectedClose.merge': { agent: string | number; branch: string | number; folder: string | number }
   'main.unexpectedClose.mergeCards': { agent: string | number; branch: string | number; cards: string | number; folder: string | number }
+  'main.unexpectedClose.notChecked': { u: number; ids: string | number }
   'main.unexpectedClose.notResumed': undefined
   'main.unexpectedClose.notStopped': { n: number }
+  'main.unexpectedClose.notStoppedNorChecked': { n: number; u: number; ids: string | number }
   'main.unexpectedClose.overview': undefined
   'main.unexpectedClose.progressRun': { title: string | number; n: number }
   'main.unexpectedClose.resumeAll': undefined

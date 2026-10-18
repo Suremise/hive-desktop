@@ -1,4 +1,4 @@
-import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, projectSessionView, resolveKeybinding } from '@shared/defaults'
+import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectSessionView, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProjectInfo, ProviderId, SessionLayout } from '@shared/types'
@@ -6,7 +6,7 @@ import { tilePageCount } from '@shared/tiles'
 import { APP_NAME } from '@shared/appName'
 import { msg, tr, type Msg, type Values } from '@shared/i18n'
 import { call } from './api'
-import { unarchiveBatch } from './boardBatches'
+import { EXPORT_BOARD, exportBoard, unarchiveBatch } from './boardBatches'
 import { checkForUpdates, openReleaseNotes } from './components/Updates'
 import { openModeMenu } from './components/PermissionMode'
 import * as actions from './actions'
@@ -14,7 +14,7 @@ import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
 import { focusTileAfter } from './components/AgentTiles'
-import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, shownPerPage, toggleCompactSidebar, type ProjectTab } from './store'
 import { STRIP_TABS } from '@shared/projectTabs'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
@@ -132,7 +132,7 @@ const tilesShown = (p: ProjectInfo): boolean => projectSessionView(p.config, get
 const pageCount = (): number => {
   const p = selected()
   if (!p) return 1
-  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, projectPerPage(p.config))
+  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, shownPerPage(p))
 }
 
 /** Goes to the next or previous agent page (when the project has more than one). */
@@ -222,16 +222,16 @@ const COMMAND_DEFS: CommandDef[] = [
   { id: 'project.openTerminal', name: msg({ id: 'shell.command.project.openTerminal', defaultMessage: 'Open External Terminal Here', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Shift+`', when: hasProject, run: () => call('project:openTerminal', get().selectedProject!) }, // i18n-ignore: a shortcut's keys
   { id: 'project.tab.session', name: msg({ id: 'shell.command.project.tab.session', defaultMessage: 'Go to Session', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+1', when: hasProject, run: tab('session') },
   { id: 'project.tab.overview', name: msg({ id: 'shell.command.project.tab.overview', defaultMessage: 'Go to Overview', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+2', when: hasProject, run: tab('overview') },
-  { id: 'project.tab.performance', name: msg({ id: 'shell.command.project.tab.performance', defaultMessage: 'Go to Performance', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('performance') },
-  { id: 'project.tab.tasks', name: msg({ id: 'shell.command.project.tab.tasks', defaultMessage: 'Go to Tasks', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('tasks') },
-  { id: 'project.tab.sessions', name: msg({ id: 'shell.command.project.tab.sessions', defaultMessage: 'Go to Sessions', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+3', when: hasProject, run: tab('sessions') },
-  { id: 'project.tab.files', name: msg({ id: 'shell.command.project.tab.files', defaultMessage: 'Go to Files', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+4', when: hasProject, run: tab('files') },
-  { id: 'project.tab.images', name: msg({ id: 'shell.command.project.tab.images', defaultMessage: 'Go to Attachments', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+5', when: hasProject, run: tab('images') },
-  { id: 'project.tab.changes', name: msg({ id: 'shell.command.project.tab.changes', defaultMessage: 'Go to Git', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+6', when: hasProject, run: tab('changes') },
-  { id: 'project.tab.memory', name: msg({ id: 'shell.command.project.tab.memory', defaultMessage: 'Go to Memory', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+7', when: hasProject, run: tab('memory') },
-  { id: 'project.tab.skills', name: msg({ id: 'shell.command.project.tab.skills', defaultMessage: 'Go to Skills', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+8', when: hasProject, run: tab('skills') },
+  { id: 'project.tab.performance', name: msg({ id: 'shell.command.project.tab.performance', defaultMessage: 'Go to Performance', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+3', when: hasProject, run: tab('performance') },
+  { id: 'project.tab.tasks', name: msg({ id: 'shell.command.project.tab.tasks', defaultMessage: 'Go to Tasks', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+4', when: hasProject, run: tab('tasks') },
+  { id: 'project.tab.sessions', name: msg({ id: 'shell.command.project.tab.sessions', defaultMessage: 'Go to Sessions', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+5', when: hasProject, run: tab('sessions') },
+  { id: 'project.tab.files', name: msg({ id: 'shell.command.project.tab.files', defaultMessage: 'Go to Files', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+6', when: hasProject, run: tab('files') },
+  { id: 'project.tab.images', name: msg({ id: 'shell.command.project.tab.images', defaultMessage: 'Go to Attachments', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+7', when: hasProject, run: tab('images') },
+  { id: 'project.tab.changes', name: msg({ id: 'shell.command.project.tab.changes', defaultMessage: 'Go to Git', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+8', when: hasProject, run: tab('changes') },
+  { id: 'project.tab.memory', name: msg({ id: 'shell.command.project.tab.memory', defaultMessage: 'Go to Memory', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('memory') },
+  { id: 'project.tab.skills', name: msg({ id: 'shell.command.project.tab.skills', defaultMessage: 'Go to Skills', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('skills') },
   { id: 'project.tab.templates', name: msg({ id: 'shell.command.project.tab.templates', defaultMessage: 'Go to Templates', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('templates') },
-  { id: 'project.tab.mcp', name: msg({ id: 'shell.command.project.tab.mcp', defaultMessage: 'Go to MCP', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+9', when: hasProject, run: tab('mcp') },
+  { id: 'project.tab.mcp', name: msg({ id: 'shell.command.project.tab.mcp', defaultMessage: 'Go to MCP', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', when: hasProject, run: tab('mcp') },
   { id: 'project.tab.settings', name: msg({ id: 'shell.command.project.tab.settings', defaultMessage: 'Go to Project Settings', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Alt+0', when: hasProject, run: tab('settings') },
   { id: 'project.storage', name: msg({ id: 'shell.command.project.storage', defaultMessage: 'Project Storage and Clean Up…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category. The … says it opens a dialog first: keep it.' }), category: 'project', when: hasProject, run: () => openProjectSettings(get().selectedProject!, 'storage') },
   { id: 'project.tab.next', name: msg({ id: 'shell.command.project.tab.next', defaultMessage: 'Next Project Tab', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Project category.' }), category: 'project', keybinding: 'Mod+Tab', when: hasProject, run: () => cycleTab(1) }, // i18n-ignore: a shortcut's keys
@@ -441,6 +441,20 @@ const COMMAND_DEFS: CommandDef[] = [
       const p = s.activity === 'projects' ? selected()?.name : s.boardProject
       set({ taskOpen: { project: p ?? '' } })
     }
+  },
+  {
+    id: 'task.exportBoard',
+    name: EXPORT_BOARD,
+    category: 'tasks',
+    when: hasWorkspace,
+    run: () => void exportBoard()
+  },
+  {
+    id: 'task.reviewSetAside',
+    name: msg({ id: 'shell.command.task.reviewSetAside', defaultMessage: 'Review Cards Made by an Older Hive…', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category: opens the dialog listing cards an older version of Hive saved, set aside, to add each to the board or discard it. The … says it opens a dialog first: keep it." }),
+    category: 'tasks',
+    when: hasWorkspace,
+    run: () => set({ setAsideOpen: true })
   },
   {
     id: 'task.undoArchive',
