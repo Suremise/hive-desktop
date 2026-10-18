@@ -18,6 +18,14 @@ const REASON = 120
 const LINE = 300
 /** The lines each section is sure of before any gets more (#1032 round 2). */
 const FLOOR_LINES = 2
+/**
+ * The most lines a section shows however much room is left (#1078): the rest is a count and the tool that lists it, so
+ * no section grows with the board (60 On Hold cards were ~4K tokens in every new conversation). The journal's sections
+ * are capped where main picks them (PICK in main/startView.ts).
+ */
+const MAX_LINES = { waiting: 10, active: 10, lanes: 8, agents: 8, board: 10 } as const
+/** A blocked reason that asks the user to decide something, rather than wait for a later version or card. */
+const DECIDE = /\b(design|discuss|decid|decision|choose|choice)|\?/i
 
 export interface ViewCard {
   number: number
@@ -27,6 +35,9 @@ export interface ViewCard {
   agent: string | null
   reviewer: string | null
   blocked: string | null
+  labels?: string[]
+  /** When it last changed (ISO), for the order of what waits on the user. */
+  updatedAt?: string
 }
 
 export interface ViewLane {
@@ -97,9 +108,15 @@ const laneLine = (l: ViewLane): string => `- ${l.builder}${l.reviewer ? `/${l.re
 interface Section {
   title: string
   lines: string[]
-  /** Said in place of the lines that don't fit. */
-  more: string
+  /** Said in place of the lines that don't fit; a function gets how many of the lines are shown. */
+  more: string | ((shown: number) => string)
 }
+
+/**
+ * How soon a blocked card wants the user (#1078), smallest first: blocked while in hand (a loop's question), then On Hold
+ * waiting on a decision (design, discuss, decide), then the rest of On Hold (after a release, after another card).
+ */
+const urgency = (c: ViewCard): number => (c.column !== 'hold' ? 0 : DECIDE.test(c.blocked ?? '') || (c.labels ?? []).some((l) => DECIDE.test(l)) ? 1 : 2)
 
 /**
  * The view as text, never over START_VIEW_MAX_BYTES. Every section first gets its first lines (FLOOR_LINES; a line is at
@@ -113,10 +130,22 @@ export function startView(v: StartViewInput): string {
   const head = `[Hive] Where things stand, ${why} (${when}): a snapshot from the board, lanes, agents and your journal. Check the live state before acting on it.`
   const foot = 'More with hive_journal_recall (small first; hive_journal_entry for one in full): the journal skill says how.'
 
-  const waiting = [
-    ...v.blocked.map((c) => `- #${c.number} (${c.project}, ${columnName(c.column)}${c.agent ? `, ${c.agent}` : ''}) blocked: ${clip(c.blocked ?? '', REASON)}`),
-    ...v.agents.filter((a) => a.status === 'waiting' || a.status === 'signin').map((a) => `- ${a.name} (${a.project}) ${a.status === 'signin' ? 'needs signing in' : 'waits for the user'}${a.asking ? `: ${clip(a.asking, REASON)}` : ''}`)
-  ]
+  const cards = v.blocked.map((c) => ({ hold: c.column === 'hold', line: `- #${c.number} (${c.project}, ${columnName(c.column)}${c.agent ? `, ${c.agent}` : ''}) blocked: ${clip(c.blocked ?? '', REASON)}` }))
+  const asking = v.agents.filter((a) => a.status === 'waiting' || a.status === 'signin').map((a) => ({ hold: false, line: `- ${a.name} (${a.project}) ${a.status === 'signin' ? 'needs signing in' : 'waits for the user'}${a.asking ? `: ${clip(a.asking, REASON)}` : ''}` }))
+  // Within its cap, as it always was (#1078: a small board's view doesn't change); past it, agents asking now first, then
+  // blocked cards by urgency, the most recently changed first within each.
+  const rank = [...v.blocked.keys()].sort((i, j) => {
+    const a = v.blocked[i]
+    const b = v.blocked[j]
+    return urgency(a) - urgency(b) || (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '') || b.number - a.number
+  })
+  const waitingItems = cards.length + asking.length > MAX_LINES.waiting ? [...asking, ...rank.map((i) => cards[i])] : [...cards, ...asking]
+  const waiting = waitingItems.map((w) => w.line)
+  // What the left-out lines are: all On Hold cards (the usual case on a big board) point at that column's listing.
+  const waitingMore = (shown: number): string => {
+    const left = waitingItems.slice(shown)
+    return left.every((w) => w.hold) ? `${left.length} more On Hold: hive_list_tasks column hold` : `${left.length} more: hive_list_tasks and hive_list_projects`
+  }
   const byProject = new Map<string, ViewAgent[]>()
   for (const a of v.agents) byProject.set(a.project, [...(byProject.get(a.project) ?? []), a])
   const agents = [...byProject].map(([p, list]) => `- ${p}: ${list.map((a) => `${a.name} ${a.status}`).join(', ')}`)
@@ -127,7 +156,7 @@ export function startView(v: StartViewInput): string {
   const digest = v.journal.digestDue ? [`- ${v.journal.digestDue} has entries but no digest: write one (kind digest, digestOf "${v.journal.digestDue}"; the journal skill).`] : []
 
   const S = {
-    waiting: { title: 'Waiting on the user:', lines: waiting, more: 'hive_list_tasks and hive_list_projects' },
+    waiting: { title: 'Waiting on the user:', lines: waiting, more: waitingMore },
     decisions: { title: 'Journal: recent decisions and plans:', lines: v.journal.decisions.map(entryLine), more: 'hive_journal_recall kinds decision, plan' },
     active: { title: 'Cards in Doing and Review:', lines: v.active.map(cardLine), more: 'hive_list_tasks' },
     onCards: { title: 'Journal: on the cards in hand:', lines: v.journal.onCards.map(entryLine), more: 'hive_journal_recall with link card' },
@@ -143,7 +172,11 @@ export function startView(v: StartViewInput): string {
   const room = START_VIEW_MAX_BYTES - bytes(head) - bytes(foot) - 2
   type Key = keyof typeof S
   const lines = new Map<Key, string[]>(priority.map((k) => [k, S[k].lines.map((l) => clip(l, LINE))]))
-  const moreLine = (k: Key, left: number): string => `- (${left} more: ${S[k].more})`
+  const moreLine = (k: Key, left: number): string => {
+    const more: Section['more'] = S[k].more
+    return typeof more === 'function' ? `- (${more(lines.get(k)!.length - left)})` : `- (${left} more: ${more})`
+  }
+  const maxLines = (k: Key): number => (k in MAX_LINES ? MAX_LINES[k as keyof typeof MAX_LINES] : Infinity)
   // What a section costs with its first n lines: its title, those lines, and a "more" line for the rest (none at 0).
   const cost = (k: Key, n: number): number => {
     if (!n) return 0
@@ -159,7 +192,7 @@ export function startView(v: StartViewInput): string {
   for (const floor of [FLOOR_LINES, Infinity]) {
     for (const k of priority) {
       let n = shown.get(k)!
-      const most = Math.min(floor, lines.get(k)!.length)
+      const most = Math.min(floor, maxLines(k), lines.get(k)!.length)
       while (n < most && used + cost(k, n + 1) - cost(k, n) <= room) {
         used += cost(k, n + 1) - cost(k, n)
         n++
