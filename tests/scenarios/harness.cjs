@@ -469,8 +469,42 @@ async function runScenario(sc, providerKey, opts = {}) {
     if (sc.beforeLaunch) await sc.beforeLaunch(ctx)
     await inv('session:start', host, { agentId })
     const key = lib.ptyKey(host, agentId)
-    /** Sends the session under test another prompt (a scenario's later step, from `during`): typed until it works. */
-    ctx.promptSubject = (text) => lib.sendPrompt(inv, key, text, { submitted: async () => ['working', 'background'].includes((await live())?.status), waitMs: 20000 })
+    /** The session under test's conversation as Hive reads it (its transcript's items), or [] before it has one. */
+    const conversation = async () => {
+      const s = await live()
+      return s?.sessionId ? ((await inv('transcript:read', host, s.sessionId).catch(() => null))?.items ?? []) : []
+    }
+    /** Whether the conversation has a prompt with this text (its start), counted from the `after`th such prompt. */
+    const promptIndex = (items, text, after = 0) => items.map((x, i) => (x.kind === 'user' && x.text.includes(text.slice(0, 40)) ? i : -1)).filter((i) => i >= 0)[after] ?? -1
+    /**
+     * Whether a prompt with this text was answered (#1032 round 3: durable evidence, never a working state sampled in
+     * passing): the conversation has it and a reply after it, and the session is idle again.
+     */
+    ctx.answered = async (text) => {
+      const s = await live()
+      if (!['finished', 'ready'].includes(s?.status)) return false
+      const items = await conversation()
+      const at = promptIndex(items, text)
+      if (at >= 0 && items.slice(at + 1).some((x) => x.kind === 'assistant')) return true
+      // A CLI whose records Hive doesn't read as a conversation (the fake Codex's rollout has no messages): Hive's turn
+      // ledger has a turn over that began after the prompt was sent (its own id, not the one before).
+      return !!s.turn?.id && s.turn.state === 'over' && s.turn.id !== (turnBefore.get(text) ?? null)
+    }
+    /** The turn the session was on when a prompt was sent (promptSubject's; none before the first prompt). */
+    const turnBefore = new Map()
+    /**
+     * Sends the session under test another prompt (a scenario's later step, from `during`): typed until it works, which
+     * is the session working or the conversation having it (a quick turn may be over before a look sees it working).
+     */
+    ctx.promptSubject = async (text) => {
+      const before = (await conversation()).filter((x) => x.kind === 'user' && x.text.includes(text.slice(0, 40))).length
+      turnBefore.set(text, (await live())?.turn?.id ?? null)
+      const taken = async () => {
+        const s = await live()
+        return ['working', 'background'].includes(s?.status) || (!!s?.turn?.id && s.turn.id !== turnBefore.get(text)) || promptIndex(await conversation(), text, before) >= 0
+      }
+      return lib.sendPrompt(inv, key, text, { submitted: taken, waitMs: 20000 })
+    }
     // Skipped for the environment (#302): no checks, no cost; the runner stops the provider's other trials.
     const skipFor = (why) => {
       result.environment = why

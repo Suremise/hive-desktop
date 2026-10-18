@@ -1916,35 +1916,33 @@ module.exports.SCENARIOS = [
     // A first turn, then Hive's Compact (the CLI's /compact), then the question once the compaction is over.
     prompt: 'Reply with the one word "ready".',
     fake: 'work 1',
+    // Each step waits for the one before to be over by durable evidence (#1032 round 3): the conversation has the
+    // prompt and a reply after it, with the session idle; the compaction by Hive's view after it (or the transcript's).
     async during(c, status) {
-      const idle = ['finished', 'ready'].includes(status)
-      if (status === 'working' && !c.compactAt) c.firstWorked = true
+      if (!['finished', 'ready'].includes(status) || c.askedAt) return
       c.home ??= (await c.inv('workspace:refresh')).assistant.path
-      // Only Claude Code takes the view so far (#1065): the others are asked straight after their first turn.
-      if (c.firstWorked && !c.askedAt && idle && c.provider !== 'claude-code') {
+      c.question ??= c.fake ? 'hive hive_journal_recall {"query":"greeting","limit":3}' : 'What did we decide about the greeting last week? Answer in a line.'
+      const ask = async () => {
         c.askedAt = Date.now()
-        await c.promptSubject(c.fake ? 'hive hive_journal_recall {"query":"greeting","limit":3}' : 'What did we decide about the greeting last week? Answer in a line.')
-        return
+        await c.promptSubject(c.question)
       }
-      if (c.firstWorked && !c.compactAt && idle) {
+      if (!c.compactAt) {
+        if (!(await c.answered(c.fake ? 'work 1' : 'Reply with the one word'))) return
+        // Only Claude Code takes the view so far (#1065): the others are asked straight after their first turn.
+        if (c.provider !== 'claude-code') return ask()
         c.compactAt = Date.now()
         await c.inv('session:compact', c.home, undefined, 'assistant')
         return
       }
-      if (c.compactAt && !c.askedAt && idle) {
-        const live = (await c.inv('session:live')).find((x) => x.projectPath.toLowerCase() === c.home.toLowerCase() && x.agentId === 'assistant')
-        const compacted = c.startViews().some((v) => v.source === 'compact') || (live?.sessionId && (await c.inv('transcript:compactions', c.home, live.sessionId).catch(() => [])).length > 0)
-        if (!compacted) return
-        c.askedAt = Date.now()
-        await c.promptSubject(c.fake ? 'hive hive_journal_recall {"query":"greeting","limit":3}' : 'What did we decide about the greeting last week? Answer in a line.')
-        return
-      }
-      if (c.askedAt && status === 'working') c.answering = true
+      const live = (await c.inv('session:live')).find((x) => x.projectPath.toLowerCase() === c.home.toLowerCase() && x.agentId === 'assistant')
+      const compacted = c.startViews().some((v) => v.source === 'compact' && Date.parse(v.at) >= c.compactAt) || (live?.sessionId && (await c.inv('transcript:compactions', c.home, live.sessionId).catch(() => [])).length > 0)
+      if (compacted) await ask()
     },
-    // Until the question's turn has run (bounded: a compaction that never ends fails the checks below).
+    // Until the question has been answered in its own turn (a step that never comes fails the checks below at the limit).
     async keepWaiting(c) {
-      if (c.compactAt && !c.askedAt && Date.now() - c.compactAt > 120000) return false
-      return !c.askedAt || !c.answering
+      if (!c.askedAt) return true
+      c.questionAnswered ||= await c.answered(c.question)
+      return !c.questionAnswered
     },
     expect: (o, c) => {
       const views = c.startViews()
@@ -1962,6 +1960,7 @@ module.exports.SCENARIOS = [
             ]
           : [['Hive gave no view to a CLI that cannot take it (#1065)', views.length === 0, `${views.length} views`]]),
         ...(takesView ? [['asked after the compaction was over', !!c.askedAt && c.askedAt > (c.compactAt ?? Infinity), `compact ${c.compactAt ?? '-'}, asked ${c.askedAt ?? '-'}`]] : []),
+        ['the question was answered in its own turn (its prompt, then a reply, the session idle)', !!c.questionAnswered, `asked ${c.askedAt ?? '-'}`],
         ['recalled it from its journal (hive_journal_recall worked), or answered from the view', recalled.length > 0 || (takesView && /Welcome back/i.test(o.finalReply ?? '')), `${recalled.length} recalls; ${(o.finalReply ?? '').slice(0, 200)}`],
         ['its answer names the decision', /Welcome back/i.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
         ['changed nothing on the board', o.cards.g?.column === 'doing', o.cards.g?.column]
