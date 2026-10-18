@@ -55,6 +55,29 @@ export const BOARD_MIGRATIONS: Migration[] = [
         CREATE TABLE board_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
         CREATE TABLE archive_batches (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, doc TEXT NOT NULL) STRICT;
       `)
+  },
+  {
+    // #1018: the workspace's other stores (lanes, watches, deliveries), a row each of their entries (storeRows.ts).
+    version: 2,
+    name: 'store_rows',
+    up: (db) =>
+      db.exec(`
+        CREATE TABLE store_rows (
+          store TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          key   TEXT NOT NULL,
+          ord   INTEGER NOT NULL,
+          doc   TEXT NOT NULL,
+          PRIMARY KEY (store, scope, key)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE store_meta (
+          store TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          key   TEXT NOT NULL,
+          value TEXT NOT NULL,
+          PRIMARY KEY (store, scope, key)
+        ) STRICT, WITHOUT ROWID;
+      `)
   }
 ]
 
@@ -514,7 +537,7 @@ export async function boardWrite<T>(ws: WorkspaceService, fn: () => Promise<T>):
   const path = pathOf(ws)
   const key = keyOf(path)
   if (inWrite(key)) return fn()
-  return withFileLock(`board-lock:${path}`, async () => {
+  return withFileLock(boardLock(path), async () => {
     const b = boardOf(path)
     if (b.db.newer !== null) throw hiveError(M.newer, undefined, { kind: 'conflict' })
     const state: WriteState = { key, open: true, changed: false, after: [], lost: null }
@@ -716,6 +739,16 @@ export function setArchiveBatches(ws: WorkspaceService, batches: ArchiveBatch[])
     for (const x of batches) ins.run(x.id, JSON.stringify(x))
   })
 }
+
+/**
+ * The workspace database's connections, for the stores kept beside the board (#1018, storeRows.ts): opened (and moved in
+ * from files) as the board is. Their changes take the board's lock, so they never run inside one of its transactions.
+ */
+export const workspaceDb = (workspacePath: string): Db => boardOf(workspacePath).db
+/** The lock the board's changes take, which the stores beside it take too. */
+export const boardLock = (workspacePath: string): string => `board-lock:${workspacePath}`
+/** Whether this code runs inside a change of that workspace's board. */
+export const inBoardWrite = (workspacePath: string): boolean => inWrite(keyOf(workspacePath))
 
 /** The board's file (for the log, diagnostics and tests). */
 export const boardFile = (workspacePath: string): string => join(workspacePath, HIVE_DIR, DB_FILE)

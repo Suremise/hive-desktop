@@ -8,9 +8,9 @@ import { withValues, type Text } from '../shared/advanced'
 import { msg } from '../shared/i18n'
 import { HiveError } from './hiveError'
 import { onHiveEvent } from './events'
-import { readJson, withFileLock, writeJsonAtomic } from './fsutil'
+import { readJson, withFileLock } from './fsutil'
+import { openStore, readStore, saveStore } from './storeRows'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName } from '../shared/projectIds'
-import { keepBeforeIds } from './beforeIds'
 import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { getTask, inScope } from './tasks'
@@ -25,9 +25,11 @@ const log = createLogger('lanes')
  * is Done (or its builder ends it after the merge), and is abandoned when its builder or reviewer is removed.
  *
  * Bookkeeping, never a gate: nothing here refuses or holds up work on a card, and a loop with no lane runs as before.
- * Changes to a workspace's lanes happen under its file's lock, read and written whole (the file is small).
+ * Changes to a workspace's lanes happen under their lock, read and written whole. They are kept in the workspace database
+ * (#1018: a row a lane, storeRows.ts), moved in from `.hive/lanes.json` the first time.
  */
 
+/** The lanes' file before #1018 (moved in at the first open, then kept as a backup); its path is also the lanes' lock. */
 const fileOf = (ws: WorkspaceService): string => join(ws.hiveDir, 'lanes.json')
 const same = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase()
 
@@ -61,7 +63,7 @@ const readIds = new WeakMap<LaneRecord, string>()
  * (projectNow), and a lane saved before ids has its name only.
  */
 async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
-  const data = await readJson<unknown>(fileOf(ws), null)
+  const data = await savedLanes(ws)
   const raw = data && typeof data === 'object' && Array.isArray((data as { lanes?: unknown }).lanes) ? ((data as { lanes: unknown[] }).lanes as Record<string, unknown>[]) : []
   // Listed now: the cards read against these lanes next see the same projects (a lane and its cards agree).
   const ids = await ws.projectIds({ fresh: true })
@@ -74,6 +76,37 @@ async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
   const lanes = readLanes(data)
   for (const l of lanes) if (idOf.has(l.id)) readIds.set(l, idOf.get(l.id)!)
   return lanes
+}
+
+/** Workspaces whose lanes were opened (moved in from lanes.json, the first time) since Hive started. */
+const opened = new Set<string>()
+
+/**
+ * The lanes as saved, in the form lanes.json had (`{ version, lanes }`): the workspace database's rows, after moving the
+ * file in the first time (#1018). Read under the lanes' lock.
+ */
+async function savedLanes(ws: WorkspaceService): Promise<{ version: 1; lanes: Record<string, unknown>[] }> {
+  const path = ws.path!
+  const key = path.toLowerCase()
+  const file = fileOf(ws)
+  const data = opened.has(key)
+    ? readStore(path, 'lanes')
+    : await openStore(path, 'lanes', '', file, async () => {
+        const v = await readJson<unknown>(file, null)
+        if (v === null) return null
+        const raw = v && typeof v === 'object' && Array.isArray((v as { lanes?: unknown }).lanes) ? ((v as { lanes: unknown[] }).lanes as unknown[]) : []
+        const keys = new Set<string>()
+        return {
+          rows: raw.map((l, i) => {
+            const id = l && typeof l === 'object' && typeof (l as { id?: unknown }).id === 'string' ? (l as { id: string }).id : ''
+            const k = id && !keys.has(id) ? id : `imported-${i}`
+            keys.add(k)
+            return { key: k, doc: JSON.stringify(l) }
+          })
+        }
+      })
+  opened.add(key)
+  return { version: 1, lanes: data.rows.map((r) => JSON.parse(r.doc) as Record<string, unknown>) }
 }
 
 /** The lanes as saved: each with its project's id beside its name (the id it had, for a project the workspace doesn't have now). */
@@ -96,22 +129,22 @@ async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
     const { id, project: _shown, ...rest } = l
     return { id, project: saved, ...(projectId ? { projectId } : {}), ...rest }
   })
-  await writeJsonAtomic(fileOf(ws), { version: 1, lanes: stamped })
+  await saveStore(ws.path!, 'lanes', '', stamped.map((l) => ({ key: l.id, doc: JSON.stringify(l) })))
   for (const fn of writtenListeners) fn()
 }
 
 /**
  * Each lane names its project by id too (#508), once, when the workspace opens: those saved before ids whose name is a
- * project get its id, and those whose project was renamed since its name now. lanes.json keeps its content from before
- * beside it once (`lanes.json.before-ids.bak`). Lanes under a name no project has are left as they are (Repair:
+ * project get its id, and those whose project was renamed since its name now (lanes.json, from before, is kept as the
+ * database's import backup, #1018). Lanes under a name no project has are left as they are (Repair:
  * moveOrphanLanes). Changes nothing the second time. Returns how many lanes changed.
  */
 export async function stampLaneProjects(ws: WorkspaceService): Promise<number> {
   if (!ws.path) return 0
   const file = fileOf(ws)
   const n = await withFileLock(file, async () => {
-    const before = await readJson<{ lanes?: unknown } | null>(file, null)
-    if (!before || !Array.isArray(before.lanes)) return 0
+    const before = await savedLanes(ws)
+    if (!before.lanes.length) return 0
     const lanes = await read(ws)
     const ids = await ws.projectIds()
     const names = new Map(lanes.map((l) => [l.id, l.project]))
@@ -121,7 +154,6 @@ export async function stampLaneProjects(ws: WorkspaceService): Promise<number> {
       return !!projectIdNamed(ids, v.project)
     }).length
     if (!changing) return 0
-    await keepBeforeIds(file)
     await write(ws, lanes)
     return changing
   })
@@ -147,7 +179,6 @@ export async function moveOrphanLanes(ws: WorkspaceService, m: { from: string; t
       l.project = m.to
       l.updatedAt = now()
     }
-    await keepBeforeIds(file)
     await write(ws, lanes)
     return moving.length
   })

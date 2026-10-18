@@ -145,7 +145,7 @@ const liveAgent = async (inv, agentId) => (await inv('session:live')).find((l) =
       const home = (await inv('workspace:refresh')).assistant?.path
       const told = () => {
         try {
-          return JSON.parse(fs.readFileSync(path.join(home, '.hive', 'deliveries.json'), 'utf8')).deliveries?.find((r) => r.agentId === 'assistant' && r.from?.kind === 'hive' && /Hive closed unexpectedly: last seen/.test(r.body))
+          return require('./storeDocs.cjs').deliveriesOf(home).find((r) => r.agentId === 'assistant' && r.from?.kind === 'hive' && /Hive closed unexpectedly: last seen/.test(r.body))
         } catch {
           return null
         }

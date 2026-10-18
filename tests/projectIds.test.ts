@@ -2,7 +2,7 @@
 // in its own project.json. The pure rules (which copy keeps an id, whose cards are left under an old name), then a
 // workspace: ids given once, cards stamped once, a rename followed, a copied folder given a new id, and Repair giving
 // cards saved before ids (under a project's old name) to the project they belong to now.
-import { cpSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -10,6 +10,7 @@ import { goneProject, isProjectId, orphanNames, projectNow, savedProjectName, se
 import { moveFolder } from './moveFolder'
 import { tempDir } from './tempDir'
 import { readCardIn, writeCardOutside } from './boardDb'
+import { storeDocs } from './storeDocs'
 
 const base = tempDir('hive-projectids-')
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
@@ -187,8 +188,7 @@ describe('a workspace', () => {
     // Its agent is found in the project under its new name.
     const changed = await run(() => tasks.updateTask(live.number, { agent: 'R1' }, user))
     expect(changed).toMatchObject({ project: 'gamma', agent: 'r1' })
-    const lanesFile = JSON.parse(readFileSync(join(wsPath, '.hive', 'lanes.json'), 'utf8')) as { lanes: { project: string; projectId: string }[] }
-    expect(lanesFile.lanes[0].projectId).toBe(id)
+    expect(storeDocs<{ projectId: string }>(wsPath, 'lanes')[0].projectId).toBe(id)
   })
 
   it('a copy of a project folder gets an id of its own: the cards stay with the original', async () => {
@@ -286,13 +286,15 @@ describe('a saved id decides; nothing is lost on the way (#508 round 2)', () => 
     expect(await tasks.stampCardProjects(w)).toBe(0)
   })
 
-  it('lanes saved before ids get their project’s id when stamped, lanes.json kept as it was beside it, once', async () => {
+  it('lanes saved before ids get their project’s id when stamped, once; lanes.json kept as it was in the import backup (#1018)', async () => {
     const before = readFileSync(join(wsPath, '.hive', 'lanes.json'), 'utf8')
     expect(await lanes.stampLaneProjects(w)).toBe(1)
-    const saved = JSON.parse(readFileSync(join(wsPath, '.hive', 'lanes.json'), 'utf8')).lanes as { id: string; projectId?: string }[]
+    const saved = storeDocs<{ id: string; projectId?: string }>(wsPath, 'lanes')
     expect(saved.find((l) => l.id === 'lane-a')?.projectId).toBe(projectJson(join(wsPath, 'alpha')).id)
     expect(saved.find((l) => l.id === 'lane-o')?.projectId).toBeUndefined()
-    expect(readFileSync(join(wsPath, '.hive', 'lanes.json.before-ids.bak'), 'utf8')).toBe(before)
+    const backup = readdirSync(join(wsPath, '.hive')).find((f) => f.startsWith('lanes.json.imported-'))!
+    expect(readFileSync(join(wsPath, '.hive', backup), 'utf8')).toBe(before)
+    expect(existsSync(join(wsPath, '.hive', 'lanes.json'))).toBe(false)
     expect(await lanes.stampLaneProjects(w)).toBe(0)
   })
 

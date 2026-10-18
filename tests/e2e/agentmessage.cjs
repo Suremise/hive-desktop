@@ -190,7 +190,7 @@ const check = (name, ok, extra = '') => {
   // fired (each turn ends when the test makes its file, holduntil), so the wake waits for the builder and the message rides it.
   const firedFor = (agentId) => {
     try {
-      return JSON.parse(fs.readFileSync(path.join(ws, '.hive', 'watches.json'), 'utf8')).watches.some((w) => w.agentId === agentId && w.agents && w.fired)
+      return require('./storeDocs.cjs').storeDocs(ws, 'watches').some((w) => w.agentId === agentId && w.agents && w.fired)
     } catch {
       return false
     }
