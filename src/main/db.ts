@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, readdirSync, rmSync } from 'original-fs'
-import { dirname, join } from 'path'
+import { basename, dirname, join } from 'path'
 
 /**
  * Hive's SQLite layer (#990, #1017): every database Hive keeps (the workspace's board in `.hive/hive.db`; later its metrics,
@@ -24,6 +24,8 @@ export interface OpenOptions {
   hiveVersion: string
   /** Where a copy of the file is kept before a step runs on one that has data (the last 3 are kept). */
   backupDir?: string
+  /** The name its copies start with there (default: the file's name without `.db`), so databases sharing a folder keep their own three. */
+  backupFamily?: string
 }
 
 /** An open database: a writer and a reader connection to one file. */
@@ -67,17 +69,31 @@ function hasData(db: DatabaseSync): boolean {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_version' LIMIT 1").get()
 }
 
-/** A copy of the file as it is (VACUUM INTO: consistent, synchronous), keeping the newest three in `dir`. */
-export function backupTo(db: DatabaseSync, dir: string, name: string): string {
+/** How many copies of a database `backupTo` keeps. */
+export const BACKUPS_KEPT = 3
+
+/** A copy's name, `<family>-v<version>-<ISO time with : and . as ->.db`: sorted by its time, whatever the version. */
+const backupName = (family: string, version: number, at: Date): string => `${family}-v${version}-${at.toISOString().replace(/[:.]/g, '-')}.db`
+/** What follows `<family>-v` in a copy's name: its version and time. */
+const BACKUP_REST = /^\d+-(\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z)\.db$/
+
+/**
+ * A copy of the file as it is (VACUUM INTO: consistent, synchronous), keeping the newest three of its family in `dir`
+ * (#1039). Only names of the family's exact form count, so another database's copies, or anything else in the folder,
+ * are never pruned.
+ */
+export function backupTo(db: DatabaseSync, dir: string, family: string, version: number, at = new Date()): string {
   mkdirSync(dir, { recursive: true })
+  const name = backupName(family, version, at)
   const file = join(dir, name)
   rmSync(file, { force: true })
   db.prepare('VACUUM INTO ?').run(file)
-  const stem = name.replace(/-[^-]+\.db$/, '')
+  const prefix = `${family}-v`
   const kept = readdirSync(dir)
-    .filter((f) => f.startsWith(stem) && f.endsWith('.db'))
-    .sort()
-  for (const f of kept.slice(0, Math.max(0, kept.length - 3))) rmSync(join(dir, f), { force: true })
+    .map((f) => ({ f, at: f.startsWith(prefix) ? BACKUP_REST.exec(f.slice(prefix.length))?.[1] : undefined }))
+    .filter((c): c is { f: string; at: string } => !!c.at)
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.f < b.f ? -1 : 1))
+  for (const c of kept.slice(0, Math.max(0, kept.length - BACKUPS_KEPT))) rmSync(join(dir, c.f), { force: true })
   return file
 }
 
@@ -95,11 +111,11 @@ export function transaction<T>(db: DatabaseSync, fn: () => T): T {
 }
 
 /** Runs the steps the file hasn't had, each in its own transaction, after a copy of a file with data in it. */
-function migrate(db: DatabaseSync, opts: OpenOptions): void {
+function migrate(db: DatabaseSync, file: string, opts: OpenOptions): void {
   const from = schemaVersion(db)
   const todo = opts.migrations.filter((m) => m.version > from).sort((a, b) => a.version - b.version)
   if (!todo.length) return
-  if (opts.backupDir && from > 0 && hasData(db)) backupTo(db, opts.backupDir, `hive-v${from}-${new Date().toISOString().replace(/[:.]/g, '-')}.db`)
+  if (opts.backupDir && from > 0 && hasData(db)) backupTo(db, opts.backupDir, opts.backupFamily ?? basename(file).replace(/\.db$/i, ''), from)
   transaction(db, () => db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL, hive_version TEXT NOT NULL) STRICT'))
   const record = db.prepare('INSERT INTO schema_version (version, name, applied_at, hive_version) VALUES (?, ?, ?, ?)')
   for (const m of todo) {
@@ -124,7 +140,7 @@ export function openDb(file: string, opts: OpenOptions): Db {
     const known = Math.max(0, ...opts.migrations.map((m) => m.version))
     const found = schemaVersion(writer)
     const newer = found > known ? found : null
-    if (newer === null) migrate(writer, opts)
+    if (newer === null) migrate(writer, file, opts)
     else writer.exec('PRAGMA query_only = ON')
     reader = new DatabaseSync(file, { timeout: 5000 })
     configure(reader)

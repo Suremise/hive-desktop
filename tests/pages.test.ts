@@ -1,7 +1,7 @@
 // Agent pages (#134): one layout for the project (automatic until chosen), and a page holds as many agents as it has
 // panes, so every agent on a page has a pane: pages = agents ÷ panes. One at a time (Single) is one page of every agent.
 import { describe, expect, it } from 'vitest'
-import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
+import { AGENT_LIMIT_DEFAULT, AGENT_LIMIT_MAX, SESSION_LAYOUTS, agentPageCount, agentsPerPage, chosenLayout, layoutColumns, layoutFitting, paneColumnsFor, layoutForAgents, layoutPanes, migrateProjectConfig, pageAgents, pageEndIndex, pageOfAgent, projectLayout, projectPerPage } from '../src/shared/defaults'
 import type { PageLayout, SessionLayout } from '../src/shared/types'
 
 const agents = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `a${i + 1}`, name: `Agent ${i + 1}` }))
@@ -89,5 +89,59 @@ describe('agent pages follow the layout (#134)', () => {
     const both = migrateProjectConfig({ version: 2, agents: agents(2), layout: 'columns3', layouts: ['grid'] })
     expect([both.layout, 'layouts' in both]).toEqual(['columns3', false])
     expect(migrateProjectConfig({ version: 2, agents: agents(2), layout: 'mosaic' })).toMatchObject({ layout: 'auto' })
+  })
+})
+
+describe('a layout too wide for the room drops columns (#1037)', () => {
+  it('each layout, as fewer columns fit: the grids keep their rows, then one at a time', () => {
+    const shown = (l: SessionLayout) => [3, 2, 1].map((c) => layoutFitting(l, c)).join(' ')
+    expect(shown('columns3')).toBe('columns3 columns2 single')
+    expect(shown('columns2')).toBe('columns2 columns2 single')
+    expect(shown('grid6')).toBe('grid6 grid single')
+    expect(shown('grid')).toBe('grid grid single')
+    expect(shown('single')).toBe('single single single')
+  })
+
+  it('never more columns than fit, the chosen one when they all fit or before it is measured', () => {
+    for (const { value } of SESSION_LAYOUTS) {
+      expect(layoutFitting(value, null)).toBe(value)
+      expect(layoutFitting(value, 9)).toBe(value)
+      for (const c of [0, 1, 2, 3]) expect(layoutColumns(layoutFitting(value, c))).toBeLessThanOrEqual(Math.max(1, c))
+    }
+  })
+})
+
+describe('how many panes fit, with a margin before giving one back (#1037)', () => {
+  it('first measured: as many as fit', () => {
+    expect(paneColumnsFor(399, 200, null, 24)).toBe(1)
+    expect(paneColumnsFor(400, 200, null, 24)).toBe(2)
+    expect(paneColumnsFor(150, 200, null, 24)).toBe(1)
+  })
+
+  it('a pixel at a time across the boundary: one change each way, two again only past the margin', () => {
+    const walk = (widths: number[]) => {
+      let n: number | null = 1
+      const changes: number[] = []
+      for (const w of widths) {
+        const next = paneColumnsFor(w, 200, n, 24)
+        if (next !== n) changes.push(w)
+        n = next
+      }
+      return changes
+    }
+    const up = Array.from({ length: 80 }, (_, i) => 380 + i)
+    expect(walk(up)).toEqual([424])
+    // From two, narrowing: one as soon as two don't fit.
+    let n: number | null = 2
+    const down: number[] = []
+    for (const w of [...up].reverse()) {
+      const next = paneColumnsFor(w, 200, n, 24)
+      if (next !== n) down.push(w)
+      n = next
+    }
+    expect(down).toEqual([399])
+    // Wiggling a pixel either side of 400 changes nothing.
+    expect(paneColumnsFor(401, 200, 1, 24)).toBe(1)
+    expect(paneColumnsFor(400, 200, 2, 24)).toBe(2)
   })
 })

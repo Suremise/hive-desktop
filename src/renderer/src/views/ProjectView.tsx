@@ -11,8 +11,9 @@ import * as actions from '../actions'
 import { call } from '../api'
 import { commandKeybinding } from '../commands'
 import { AddAgentButton, PANE_FOOTER, PANE_HEADER, PaneChrome, RESUME_TINT, ResumeButton, SessionToolbar, TerminalLayer, usePanes, useWidth } from '../components/AgentPanes'
-import { AgentTiles, useTileStripWidth } from '../components/AgentTiles'
-import { projectSessionView } from '@shared/defaults'
+import { terminalMinWidth } from '../components/TerminalView'
+import { AgentTiles, tileStripRoom, useTileStripWidth } from '../components/AgentTiles'
+import { paneColumnsFor, projectSessionView } from '@shared/defaults'
 import { Icon, IconButton, Switch, Tooltip, useContextMenu, useFolds, type MenuEntry } from '../components/ui'
 import { StateMark } from '../components/StateMark'
 import { ProjectAgentsTable, useAgentsText } from '../components/AgentsTable'
@@ -111,6 +112,8 @@ const TAB_FIT_SPARE = 12
 
 /** The least of the project's name the header keeps beside its status before its actions fold further (#886). */
 const TITLE_MIN = 96
+/** How far past the width a terminal needs the panes give back a column, or the focus view its strip (#1037). */
+const FIT_MARGIN = 24
 /** How far the header's actions can fold: every label; Resume, Stop, Active and Agents ▾ as icons; Agents ▾'s actions in ⋯. */
 const HEADER_FOLDS = 2
 
@@ -352,6 +355,20 @@ export function ProjectView({ visible }: { visible: boolean }) {
   // The focus view's pane beside its strip, as wide as the user made it (#1021).
   const stripWidth = useTileStripWidth()
   const terminalVisibleFor = visible && project && tab === 'session' && panesShown ? project.path : null
+  // How many panes fit side by side, each wide enough for a terminal (#1037): the layout shows fewer while they don't.
+  const [bodyRef, bodyWidth] = useWidth<HTMLDivElement>()
+  const appearance = useStore((s) => s.settings?.appearance)
+  useEffect(() => {
+    // Hidden (another view shown), it measures nothing: the last width stands.
+    if (bodyWidth <= 0) return
+    // Each a little past the boundary before it gives back what it gave way (FIT_MARGIN), so a pixel either way at it
+    // doesn't flip the layout or the focus view's strip.
+    const min = terminalMinWidth()
+    const was = useStore.getState()
+    const paneColumns = paneColumnsFor(bodyWidth, min, was.paneColumns, FIT_MARGIN)
+    const stripRoom = tileStripRoom(bodyWidth, min, was.tileStripRoom, FIT_MARGIN)
+    if (was.paneColumns !== paneColumns || was.tileStripRoom !== stripRoom) set({ paneColumns, tileStripRoom: stripRoom })
+  }, [bodyWidth, appearance?.terminalFontSize, appearance?.terminalFontFamily])
   const layoutShows = usePanes(project)
   const panes = tileFocus ? [tileFocus] : layoutShows
   const focusedAgent = useFocusedAgent(project)
@@ -552,7 +569,7 @@ export function ProjectView({ visible }: { visible: boolean }) {
 
       <ProjectTabStrip project={project} tab={tab} live={!!live} />
 
-      <div className="tab-body">
+      <div className="tab-body" ref={bodyRef}>
         {tab === 'session' && <SessionToolbar project={project} view={view} />}
         <div className={cx('agents-area', tab === 'session' && panesShown ? 'shown' : 'hidden', !!tileFocus && 'tile-focus')} style={tileFocus ? { left: stripWidth } : undefined}>
           <TerminalLayer visibleFor={terminalVisibleFor} panes={panes} />

@@ -1,6 +1,6 @@
 // A main area squeezed by the side panels (#227): at 1400×850 and 125% zoom, with the Projects sidebar, a 430 px
 // Assistant panel and the Progress panel open, the project view is about 80 px wide. Its empty states (no agents; an
-// agent not running beside an empty pane) stay inside it: nothing of the main area is under the pointer anywhere over
+// agent not running, two columns chosen: shown one at a time there, #1037) stay inside it: nothing of the main area is under the pointer anywhere over
 // the sidebar, the Assistant or Progress, and the empty state's first button can still be reached by scrolling it into
 // view. Assistant on the left and the right, both themes, 100% and 125%. Dev build, throwaway profile and workspace,
 // the fake Claude Code (the Assistant's); quiet.
@@ -31,7 +31,7 @@ const check = (name, ok, extra = '') => {
   await lib.appReady(page)
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
-  // beta: one agent, never started, in two columns, so its second pane is empty.
+  // beta: one agent, never started, two columns chosen (its second pane empty where there is room for two).
   await lib.addAgent(inv, beta, { name: 'Coder' })
   await inv('project:updateConfig', beta, { layout: 'columns2' })
   await inv('ui:setPane', 'assistant', 430)
@@ -118,7 +118,8 @@ const check = (name, ok, extra = '') => {
       const lead = await explanation()
       check(`${tag}, no agents: the explanation ${p.main.width < 280 ? 'gives way to the title and buttons' : 'shows'}`, lead === p.main.width >= 280, String(lead))
       await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-alpha.png`) })
-      await run(`${tag}, an agent not running beside an empty pane`, 'beta', [['New Session', '.pane-placeholder .btns .btn.act-start'], ['Add Agent', '.pane-placeholder:not(:has(.btns)) .btn']], 2)
+      // Two columns chosen are too narrow for a terminal here: one at a time, the agent's empty state alone (#1037).
+      await run(`${tag}, an agent not running, two columns chosen`, 'beta', [['New Session', '.session-empty-card .btn.act-start']], 1)
       await page.screenshot({ path: path.join(lib.WORK, `narrowmain-${side}-${z * 100}-beta.png`) })
     }
     await zoom(1)

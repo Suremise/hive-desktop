@@ -65,6 +65,8 @@
   "panes.header.untakenTip": "Hive escribió esto, pero su CLI no lo ha tomado (no estaba leyendo lo que se escribía): “{line}”. Haz clic en su terminal y presiona Enter. Hive no escribe nada más en él hasta que su CLI lo tome.",
   "panes.header.watchTip": "{watch}: Hive le escribe una línea cuando {kind, select, agent {{n, plural, one {el agente termine, te espere o se detenga} many {uno de los agentes termine, te espere o se detenga} other {uno de los agentes termine, te espere o se detenga}}} lane {falle una revisión, una tarjeta quede bloqueada o estancada, o un carril deba fusionarse o termine} other {{n, plural, one {la tarjeta cambie} many {una de las tarjetas cambie} other {una de las tarjetas cambie}}}}, o al llegar a {limit} si no ocurre nada. Mientras tanto no se ejecuta nada y no acepta otro trabajo.",
   "panes.layout.name": "{layout, select, single {Uno a la vez} columns2 {Dos columnas} columns3 {Tres columnas} grid {Cuadrícula de cuatro} other {Cuadrícula de seis}}",
+  "panes.layout.narrowed": "{layout}: se muestra como {shown} hasta que haya sitio para un terminal en cada panel",
+  "panes.layout.shownName": "{layout, select, single {uno a la vez} columns2 {dos columnas} columns3 {tres columnas} grid {una cuadrícula de cuatro} other {una cuadrícula de seis}}",
   "panes.layout.wide": "{layout} (funciona mejor en una ventana ancha o con la barra lateral oculta: Ctrl+B)",
   "panes.leftovers.count": "{n, plural, one {# en ejecución} many {# en ejecución} other {# en ejecución}}",
   "panes.leftovers.end": "{n, plural, one {Terminarlo} many {Terminar los #} other {Terminar los #}}",

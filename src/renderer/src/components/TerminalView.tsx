@@ -101,6 +101,19 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
     return !dims || !(dims.cols >= MIN_COLS) || !(dims.rows >= MIN_ROWS) || (dims.cols === term.cols && dims.rows === term.rows)
   })
 
+/**
+ * Whether every terminal on screen is drawn inside its pane: its screen (cols × cell width) ends within its host, so
+ * nothing of it is cut at the pane's edge (#1037). A terminal too small to fit counts as fitted above, not here.
+ */
+;(window as unknown as { __hiveTerminalsInside?: () => boolean }).__hiveTerminalsInside = () =>
+  [...terminals.values()].every((term) => {
+    const host = term.element?.closest<HTMLElement>('.terminal-host')
+    if (!host || host.classList.contains('hidden') || host.offsetWidth === 0 || host.offsetHeight === 0) return true
+    const screen = term.element?.querySelector<HTMLElement>('.xterm-screen')?.getBoundingClientRect()
+    const box = host.getBoundingClientRect()
+    return !!screen && screen.width > 0 && screen.right <= box.right + 0.5
+  })
+
 /** A terminal's own selection (Shift+drag, or a drag where the program doesn't track the mouse), for tests. */
 ;(window as unknown as { __hiveTerminalSelection?: (key: string) => string | null }).__hiveTerminalSelection = (key) => terminals.get(key)?.getSelection() ?? null
 
@@ -127,6 +140,21 @@ export function pasteIntoTerminal(ptyKey: string, text: string): boolean {
 /** Smaller than this is a measurement of a terminal not laid out (hidden, or mid-layout), never a pane's real size (#247). */
 const MIN_COLS = 20
 const MIN_ROWS = 5
+/** Besides its columns, a terminal's pane has its padding (.terminal-host) and xterm's scroll bar, with some to spare. */
+const PANE_EXTRA_PX = 32
+let measureCanvas: HTMLCanvasElement | null = null
+
+/**
+ * How wide a pane has to be for its terminal to be fitted (MIN_COLS and a column or two over), in the terminal font now:
+ * narrower, the layout shows fewer columns (#1037) rather than a terminal clipped at the pane's edge.
+ */
+export function terminalMinWidth(): number {
+  const a = useStore.getState().settings?.appearance
+  const ctx = (measureCanvas ??= document.createElement('canvas')).getContext('2d')
+  if (ctx) ctx.font = `${a?.terminalFontSize ?? 13}px ${a?.terminalFontFamily || 'monospace'}`
+  const cell = ctx?.measureText('W').width || 8
+  return Math.ceil((MIN_COLS + 2) * cell) + PANE_EXTRA_PX
+}
 /** A layout that is still settling (a view shown again re-renders its header as it measures it) is fitted once, at its final size. */
 const FIT_SETTLE_MS = 100
 /** How long after a fit, or being shown, a terminal following its output is held at the bottom (see TerminalView). */

@@ -24,7 +24,7 @@ import { PaneResizer, usePaneSize } from './Resizer'
 import { StateMark } from './StateMark'
 import { ShowAllList } from './ShowAllList'
 import { TerminalView } from './TerminalView'
-import { Icon, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
+import { Icon, IconButton, Modal, ReviewMark, statusText, Tooltip, useContextMenu, type MenuEntry } from './ui'
 import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
 
 /**
@@ -119,6 +119,8 @@ const M = {
   workspace: msg({ id: 'assistant.panel.workspace', defaultMessage: 'Workspace', description: "The heading of the Assistant's overview of the workspace." }),
   counts: msg({ id: 'assistant.panel.counts', defaultMessage: '{running} running · {projects, plural, one {# project} other {# projects}}', description: "Beside Workspace in the Assistant's overview." }),
   attention: msg({ id: 'assistant.panel.attention', defaultMessage: '{kind, select, waiting {is waiting for you} question {has a question for you} safeguard {changed models after a safeguard stop} other {has finished}}', description: "The Assistant's overview: what an agent that needs you is doing, after its project and name. Lower case: it follows them." }),
+  attentionOpen: msg({ id: 'assistant.panel.attentionOpen', defaultMessage: '{dismiss, select, yes {Click to open {name} and dismiss} other {Click to open {name}}}', description: "Tooltip of a row in the Assistant's overview for an agent that needs you ({name}: the agent, or its project when it has one agent). \"and dismiss\" when going there also removes the row (it has finished)." }),
+  attentionDismiss: msg({ id: 'assistant.panel.attentionDismiss', defaultMessage: 'Dismiss: {name} {kind, select, safeguard {changed models after a safeguard stop} other {has finished}}', description: "The × on a row in the Assistant's overview for an agent that has finished (its tooltip and name for screen readers): removes the row without going to the agent. {name}: the agent, or its project when it has one agent." }),
   noProjects: msg({ id: 'assistant.panel.noProjects', defaultMessage: 'No projects in this workspace yet.', description: "The Assistant's overview with no projects." }),
   inactive: msg({ id: 'assistant.panel.inactive', defaultMessage: '{count, plural, one {# inactive project} other {# inactive projects}}', description: "The Assistant's overview: a row that shows the inactive projects folded into it." }),
   restartQuestion: msg({ id: 'assistant.panel.restartQuestion', defaultMessage: 'Restart the Assistant?', description: "Confirmation before the Assistant's coding agent is changed." }),
@@ -850,16 +852,27 @@ function WorkspaceOverview() {
           </button>
         </Tooltip>
       </div>
-      {attention.map(({ i, p, a }) => (
-        <div key={`${p.path}#${a.id}`} className="assistant-attention" onClick={() => go(p, a.id)}>
-          <Icon name={i.kind === 'finished' ? 'check' : 'bell-dot'} />
-          <span>
-            <strong>{p.name}</strong>
-            {p.agents.length > 1 ? ` · ${a.name}` : ''} {tr(M.attention, { kind: i.kind })}
-            {i.message ? `: ${i.message}` : ''}
-          </span>
-        </div>
-      ))}
+      {attention.map(({ i, p, a }) => {
+        // A finish (and a model switch after a safeguard stop) is dismissed by going there, or by its × (#1047).
+        const dismiss = i.kind === 'finished' || i.kind === 'safeguard'
+        const who = p.agents.length > 1 ? a.name : p.name
+        const hint = tr(M.attentionOpen, { name: who, dismiss: dismiss ? 'yes' : 'no' })
+        return (
+          <div key={`${p.path}#${a.id}`} className="assistant-attention" data-agent={a.id}>
+            <Tooltip content={hint} focus block>
+              <button type="button" className="assistant-attention-open" aria-description={hint} onClick={() => go(p, a.id)}>
+                <Icon name={i.kind === 'finished' ? 'check' : 'bell-dot'} />
+                <span>
+                  <strong>{p.name}</strong>
+                  {p.agents.length > 1 ? ` · ${a.name}` : ''} {tr(M.attention, { kind: i.kind })}
+                  {i.message ? `: ${i.message}` : ''}
+                </span>
+              </button>
+            </Tooltip>
+            {dismiss && <IconButton icon="close" className="assistant-attention-dismiss" title={tr(M.attentionDismiss, { name: who, kind: i.kind })} onClick={() => void call('session:markSeen', p.path, [a.id]).catch(() => undefined)} />}
+          </div>
+        )
+      })}
       {projects.length === 0 && <div className="faint assistant-empty">{tr(M.noProjects)}</div>}
       {shown.map(row)}
       {folded.length > 0 && (

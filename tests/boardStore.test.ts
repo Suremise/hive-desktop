@@ -15,7 +15,7 @@ const base = tempDir('hive-board-store-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
 const tasks = await import('../src/main/tasks')
 const store = await import('../src/main/boardStore')
-const { openDb, schemaVersion } = await import('../src/main/db')
+const { backupTo, openDb, schemaVersion } = await import('../src/main/db')
 
 const user = { kind: 'user' } as const
 let n = 0
@@ -69,9 +69,36 @@ describe('the database layer (db.ts)', () => {
     const two = openDb(file, { migrations: [...steps, { version: 2, name: 'two', up: (d) => d.exec('CREATE TABLE b (y)') }], hiveVersion: '9.9.10', backupDir: backups })
     try {
       expect(schemaVersion(two.writer)).toBe(2)
-      expect(readdirSync(backups).filter((f) => f.startsWith('hive-v1-'))).toHaveLength(1)
+      expect(readdirSync(backups).filter((f) => f.startsWith('x-v1-'))).toHaveLength(1)
     } finally {
       two.close()
+    }
+  })
+
+  it("keeps the newest three copies of a database across times and versions, never another database's or other files (#1039)", () => {
+    const dir = join(base, `layer-${++n}`, 'backups')
+    mkdirSync(dir, { recursive: true })
+    // Another database sharing the folder, one whose name starts the same, and files not of the form: all kept.
+    const others = ['journal-v1-2026-01-01T00-00-00-000Z.db', 'hive-journal-v1-2026-01-01T00-00-00-000Z.db', 'hive-v1-notes.db', 'hive-v1-2026-01-01T00-00-00-000Z.db.txt']
+    for (const f of others) writeFileSync(join(dir, f), '')
+    const db = new DatabaseSync(':memory:')
+    try {
+      db.exec('CREATE TABLE a (x)')
+      // Five copies at different seconds, minutes, days and versions, made out of order: the newest three by time remain.
+      const times = ['2026-10-17T22-08-09-123Z', '2026-10-15T10-00-00-000Z', '2026-10-17T22-08-10-000Z', '2026-10-17T23-59-59-999Z', '2026-10-16T08-30-00-500Z']
+      const versions = [1, 3, 2, 1, 2]
+      times.forEach((t, i) => backupTo(db, dir, 'hive', versions[i], new Date(t.replace(/T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z/, 'T$1:$2:$3.$4Z'))))
+      const kept = readdirSync(dir).filter((f) => !others.includes(f)).sort()
+      expect(kept).toEqual(['hive-v1-2026-10-17T22-08-09-123Z.db', 'hive-v1-2026-10-17T23-59-59-999Z.db', 'hive-v2-2026-10-17T22-08-10-000Z.db'])
+      // Each is a whole copy.
+      for (const f of kept) {
+        const copy = new DatabaseSync(join(dir, f), { readOnly: true })
+        expect(copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([{ name: 'a' }])
+        copy.close()
+      }
+      for (const f of others) expect(existsSync(join(dir, f))).toBe(true)
+    } finally {
+      db.close()
     }
   })
 

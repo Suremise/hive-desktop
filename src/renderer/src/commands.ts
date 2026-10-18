@@ -1,4 +1,4 @@
-import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectPerPage, projectSessionView, resolveKeybinding } from '@shared/defaults'
+import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectSessionView, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProjectInfo, ProviderId, SessionLayout } from '@shared/types'
@@ -14,7 +14,7 @@ import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
 import { focusTileAfter } from './components/AgentTiles'
-import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, shownPerPage, toggleCompactSidebar, type ProjectTab } from './store'
 import { STRIP_TABS } from '@shared/projectTabs'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
@@ -132,7 +132,7 @@ const tilesShown = (p: ProjectInfo): boolean => projectSessionView(p.config, get
 const pageCount = (): number => {
   const p = selected()
   if (!p) return 1
-  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, projectPerPage(p.config))
+  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, shownPerPage(p))
 }
 
 /** Goes to the next or previous agent page (when the project has more than one). */

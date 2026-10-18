@@ -51,6 +51,8 @@ interface HiveMessageValues {
   'assistant.panel.appliesNext': undefined
   'assistant.panel.asking': undefined
   'assistant.panel.attention': { kind: string }
+  'assistant.panel.attentionDismiss': { name: string | number; kind: string }
+  'assistant.panel.attentionOpen': { dismiss: string; name: string | number }
   'assistant.panel.cancel': undefined
   'assistant.panel.chooseMode': undefined
   'assistant.panel.codingAgent': undefined

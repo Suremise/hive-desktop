@@ -65,6 +65,8 @@
   "panes.header.untakenTip": "Hive a tapé ceci, mais sa CLI ne l’a pas pris (elle ne lisait pas sa saisie) : « {line} ». Clique dans son terminal et appuie sur Entrée. Hive n’y tape plus rien tant que sa CLI ne l’a pas pris.",
   "panes.header.watchTip": "{watch} : Hive y tape une ligne quand {kind, select, agent {{n, plural, one {l’agent termine} many {l’un d’eux termine} other {l’un d’eux termine}}, t’attend ou s’arrête} lane {une relecture échoue, une carte est bloquée ou à l’arrêt, ou un couloir doit fusionner ou se termine} other {{n, plural, one {la carte change} many {l’une d’elles change} other {l’une d’elles change}}}}, ou à {limit} si rien ne se passe. Rien ne tourne en attendant, et l’agent ne prend aucun autre travail.",
   "panes.layout.name": "{layout, select, single {Un à la fois} columns2 {Deux colonnes} columns3 {Trois colonnes} grid {Grille de quatre} other {Grille de six}}",
+  "panes.layout.narrowed": "{layout} : affiché en {shown} jusqu’à ce que chaque volet ait la place d’un terminal",
+  "panes.layout.shownName": "{layout, select, single {un à la fois} columns2 {deux colonnes} columns3 {trois colonnes} grid {grille de quatre} other {grille de six}}",
   "panes.layout.wide": "{layout} (idéal pour une fenêtre large, ou barre latérale masquée : Ctrl+B)",
   "panes.leftovers.count": "{n, plural, one {# tourne encore} many {# tournent encore} other {# tournent encore}}",
   "panes.leftovers.end": "{n, plural, one {L’arrêter} many {Arrêter les #} other {Arrêter les #}}",
