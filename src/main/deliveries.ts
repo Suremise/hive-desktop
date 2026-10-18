@@ -1146,9 +1146,9 @@ async function offerOnce(host: string, agentId: string, only?: string, tries = 1
   if (!offer || !offerHolds(store, offer)) {
     if (!offer) return false
     await unoffer(store, offer)
-    // Overtaken as it was saved (#1036: the board changed after its line was made, e.g. the board folder's own event of
-    // the change that queued it): made again from things as they are now, at once; still overtaken, tried in a moment,
-    // never left for the tick.
+    // Overtaken as it was saved (#1036: the board changed after its line was made, by another agent or, seen by the
+    // board's poll, another process): made again from things as they are now, at once; still overtaken, tried in a
+    // moment, never left for the tick.
     if (tries < OVERTAKEN_TRIES) return offerOnce(host, agentId, only, tries + 1)
     retrySoon(host, agentId)
     return false

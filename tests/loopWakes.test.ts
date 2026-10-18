@@ -235,8 +235,8 @@ describe('loop wakes (main/loopWakes.ts, #405)', async () => {
       await inWorkspace(w, () => tasks.updateTask(c, { review: 'failed' }, r1, { comment: 'Round 1: FAILED.' }))
       st.status.set('r1', 'working')
       st.status.set('b1', 'ready')
-      // Typed once a try finds the board as its wake was made (#1045: the board folder's own events of these changes land
-      // late on a loaded machine), then nothing more.
+      // Typed once a try finds the board as its wake was made (#1045: a board change landing as it is offered keeps it
+      // for the next try), then nothing more.
       await typedUntil(st, 2)
       await settled()
       expect(st.typed).toHaveLength(2)

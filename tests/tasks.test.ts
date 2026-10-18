@@ -1001,8 +1001,8 @@ describe('card decisions', () => {
       })
     ]
     writer.testHooks.takeMs = 20
-    // The board folder's own event of the decision, late (a loaded machine): it lands as the delivery and then its offer
-    // are saved, after the line was made, so the offer no longer holds once saved.
+    // A board change from elsewhere (another agent's, or another process's seen by the board's poll) lands as the
+    // delivery and then its offer are saved, after the line was made, so the offer no longer holds once saved.
     let saves = 0
     deliveries.setBeforeSaveForTests(() => {
       if (saves++ < 2) events.tellListeners({ type: 'tasks-changed', workspacePath: w.path! })
