@@ -16,6 +16,8 @@ import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
+import { HAND_OVER_TEXT, handOverWaits, handOverWhen } from '@shared/handOver'
+import { laneRunning } from '@shared/laneBar'
 import { call, errorMessage } from '../api'
 import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
@@ -418,6 +420,12 @@ function agentMenu(project: ProjectInfo, a: AgentInfo, pick: () => void, usage?:
       : []),
     ...sessionItems(project, a.live, usage?.session),
     { label: tr(msg({ id: 'panes.menu.handOver', defaultMessage: 'Hand Over to…', description: "Menu item (an agent's menu): hands its work over to another agent or a new conversation." })), icon: 'arrow-swap', onClick: () => set({ handOverFor: { project: project.path, agentId: a.id } }) },
+    // At a good moment (#1057): after its card, or once its turn is over; while one is queued, cancelling it.
+    ...(a.live?.handOverAfter
+      ? [{ label: tr(HAND_OVER_TEXT.cancel), icon: 'arrow-swap', detail: tr(HAND_OVER_TEXT.queuedMenu, handOverWhen(a.live.handOverAfter, false)), onClick: () => void actions.cancelHandOverLater(project.path, a.id) }]
+      : a.live
+        ? [{ label: tr(HAND_OVER_TEXT.later), icon: 'arrow-swap', onClick: () => void actions.handOverLater(project.path, a.id) }]
+        : []),
     ...moveItems(project, a),
     { separator: true },
     { label: tr(AGENT_SETTINGS), icon: 'settings', onClick: () => set({ agentSettingsFor: { project: project.path, agentId: a.id } }) },
@@ -1339,24 +1347,24 @@ function useFooterFit(): [React.RefObject<HTMLDivElement | null>, number] {
  * transcript's size, the context used and the cost on the right (#1013); the context's tokens and the session's cost
  * detail on hover. Warnings only when they matter, in the warning colour: the context past the Compact threshold, the
  * size past the transcript's warn size, background tasks running (just left of the size). Clicking the model opens the agent's settings (or `onSettings`), the context its session in the
- * project's Overview (or `onContext`), the transcript warning Hand Over to… (or `onTranscript`, with `transcriptAdvice`
- * in its tooltip).
+ * project's Overview (or `onContext`), the transcript warning what the long-conversation notice offers (#1057): Hand Over to… while the agent is idle and on
+ * no running lane's card, else a hand-over after this card (the Assistant: a new conversation once idle), and while one
+ * is queued, cancelling it.
  */
 export function PaneFooter({
   project,
   a,
   onSettings,
   onContext,
-  onTranscript,
-  transcriptAdvice,
+  assistant = false,
   settingsName
 }: {
   project: ProjectInfo
   a: AgentInfo
   onSettings?: () => void
   onContext?: () => void
-  onTranscript?: () => void
-  transcriptAdvice?: string
+  /** The Assistant's footer: a long conversation starts a new one once idle (it has no Hand Over to…). */
+  assistant?: boolean
   settingsName?: string
 }) {
   useLanguage()
@@ -1384,6 +1392,15 @@ export function PaneFooter({
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
   const tasks = live?.backgroundTasks ?? 0
+  const inLane = useStore((s) => !assistant && s.lanes.some((l) => laneRunning(l.state) && l.project.toLowerCase() === project.name.toLowerCase() && (l.builder.id === a.id || l.reviewer?.id === a.id)))
+  const queued = live?.handOverAfter
+  // What a click on the size does, as the notice offers (#1057): Hand Over to… (now), or a hand-over at a good moment.
+  const when = assistant ? 'assistant' : handOverWaits(live, inLane) ? 'later' : 'now'
+  const transcriptClick = (): void => {
+    if (queued) void actions.cancelHandOverLater(project.path, a.id)
+    else if (when === 'now') set({ handOverFor: { project: project.path, agentId: a.id } })
+    else void actions.handOverLater(project.path, a.id)
+  }
   // The first time either turns amber: the tip about what to do.
   useEffect(() => void (long && offerTip('transcript-long')), [long])
   useEffect(() => void (over && offerTip('compact-suggested')), [over])
@@ -1400,7 +1417,7 @@ export function PaneFooter({
       {
         size: formatSize(size),
         limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
-        advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
+        advice: !long ? 'none' : queued ? tr(HAND_OVER_TEXT.queuedTip, handOverWhen(queued, assistant)) : tr(HAND_OVER_TEXT.advice, { when })
       }
     )
   // A dot between items, for the eye only.
@@ -1430,8 +1447,8 @@ export function PaneFooter({
       key: 'transcript',
       node: (
         <Tooltip key="transcript" content={transcriptTip(bytes)}>
-          <span className="pane-foot-item warn foot-transcript" onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
-            <Icon name="warning" />
+          <span className={cx('pane-foot-item warn foot-transcript', queued && 'queued')} onClick={transcriptClick}>
+            <Icon name={queued ? 'arrow-swap' : 'warning'} />
             <span className="fit-text size-text" data-give="3">
               {formatSize(bytes)}
             </span>

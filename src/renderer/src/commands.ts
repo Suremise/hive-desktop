@@ -274,6 +274,26 @@ const COMMAND_DEFS: CommandDef[] = [
     }
   },
   {
+    id: 'session.handOverLater',
+    name: msg({ id: 'shell.command.session.handOverLater', defaultMessage: 'Hand Over an Agent After Its Card', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It queues a hand-over to a new conversation, done once the agent's card is through or its turn is over." }),
+    category: 'session',
+    // From the long-conversation notification, which passes the agent.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.handOverLater(projectPath, agentId)
+    }
+  },
+  {
+    id: 'session.cancelHandOverLater',
+    name: msg({ id: 'shell.command.session.cancelHandOverLater', defaultMessage: "Cancel an Agent's Queued Hand-Over", description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
+    category: 'session',
+    // From the notice that one is queued, which passes the agent.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.cancelHandOverLater(projectPath, agentId)
+    }
+  },
+  {
     id: 'session.allowLockedEdit',
     name: msg({ id: 'shell.command.session.allowLockedEdit', defaultMessage: 'Allow a Locked Edit', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
     category: 'session',

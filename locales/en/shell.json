@@ -399,6 +399,10 @@
     "defaultMessage": "Back to Tiles",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: from one agent's focus view (its pane large) back to the Tiles view's grid of tiles."
   },
+  "shell.command.session.cancelHandOverLater": {
+    "defaultMessage": "Cancel an Agent's Queued Hand-Over",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
   "shell.command.session.compact": {
     "defaultMessage": "Compact Conversation…",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. The … says it opens a dialog first: keep it."
@@ -406,6 +410,10 @@
   "shell.command.session.focusTerminal": {
     "defaultMessage": "Focus Session Terminal",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.session.handOverLater": {
+    "defaultMessage": "Hand Over an Agent After Its Card",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It queues a hand-over to a new conversation, done once the agent's card is through or its turn is over."
   },
   "shell.command.session.handOverTo": {
     "defaultMessage": "Hand Over an Agent's Work",

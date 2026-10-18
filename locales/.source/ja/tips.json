@@ -124,7 +124,7 @@
   "tips.group.files": "Files",
   "tips.group.sessions": "Sessions",
   "tips.group.shortcuts": "Shortcuts",
-  "tips.handoverSelf.text": "When an agent's transcript size turns amber, click it and choose the agent itself: it writes a handover, and a new conversation picks up from it, short and fast again.",
+  "tips.handoverSelf.text": "When an agent's transcript size turns amber, click it: idle, choose the agent itself in Hand Over to…; busy or in a card loop, it hands over after this card. It writes a handover, and a new conversation picks up from it, short and fast.",
   "tips.handoverSelf.title": "A long conversation? Hand it over to itself",
   "tips.hardwareAcceleration.text": "If your graphics driver leaves Hive's window blank, flickering or crashing, turn on Settings → Advanced → Disable hardware acceleration and restart Hive. A window that doesn't draw at all: start Hive once with --disable-gpu.",
   "tips.hardwareAcceleration.title": "A blank or flickering window?",

@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number}h {m}m",
   "actions.duration.minutes": "{m}m",
   "actions.duration.seconds": "{s}s",
+  "actions.handOverLater.cancelFailed": "Couldn't cancel the hand-over",
+  "actions.handOverLater.failed": "Couldn't queue the hand-over",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

@@ -135,7 +135,6 @@
   "assistant.panel.tellFailed": "无法将模式告知助手",
   "assistant.panel.theAssistant": "助手",
   "assistant.panel.title": "助手",
-  "assistant.panel.transcriptAdvice": "开始新对话（⋯ →“新建对话”）可保持响应迅速。",
   "assistant.panel.watches": "<b>{name}</b>照看着此工作区：可以问它智能体在做什么、任何项目的情况，或让它制定计划、做评审。",
   "assistant.panel.workingOn": "正在处理 #{number} {title}",
   "assistant.panel.workspace": "工作区",

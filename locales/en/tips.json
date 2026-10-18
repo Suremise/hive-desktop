@@ -516,7 +516,7 @@
     "description": "A heading of Help → Tips: shortcuts and other ways to get around Hive."
   },
   "tips.handoverSelf.text": {
-    "defaultMessage": "When an agent's transcript size turns amber, click it and choose the agent itself: it writes a handover, and a new conversation picks up from it, short and fast again.",
+    "defaultMessage": "When an agent's transcript size turns amber, click it: idle, choose the agent itself in Hand Over to…; busy or in a card loop, it hands over after this card. It writes a handover, and a new conversation picks up from it, short and fast.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
   },
   "tips.handoverSelf.title": {

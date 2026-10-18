@@ -101,8 +101,10 @@ interface HiveMessageValues {
   'shell.command.session.archiveAll': undefined
   'shell.command.session.archiveAllLive': { several: string; n: string | number }
   'shell.command.session.backToTiles': undefined
+  'shell.command.session.cancelHandOverLater': undefined
   'shell.command.session.compact': undefined
   'shell.command.session.focusTerminal': undefined
+  'shell.command.session.handOverLater': undefined
   'shell.command.session.handOverTo': undefined
   'shell.command.session.new': undefined
   'shell.command.session.permissionMode': undefined

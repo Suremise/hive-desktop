@@ -135,7 +135,6 @@
   "assistant.panel.tellFailed": "No se pudo comunicar el modo al Asistente",
   "assistant.panel.theAssistant": "El Asistente",
   "assistant.panel.title": "Asistente",
-  "assistant.panel.transcriptAdvice": "Empieza una conversación nueva (⋯ → Nueva conversación) para que todo siga siendo rápido.",
   "assistant.panel.watches": "<b>{name}</b> vigila este espacio de trabajo: pregúntale qué hacen los agentes, por cualquier proyecto, o pídele un plan o una revisión.",
   "assistant.panel.workingOn": "Trabajando en #{number} {title}",
   "assistant.panel.workspace": "Espacio de trabajo",

@@ -135,7 +135,6 @@
   "assistant.panel.tellFailed": "アシスタントにモードを伝えられませんでした",
   "assistant.panel.theAssistant": "アシスタント",
   "assistant.panel.title": "アシスタント",
-  "assistant.panel.transcriptAdvice": "動作を軽く保つには、新しい会話を始めてください（⋯→「新しい会話」）。",
   "assistant.panel.watches": "<b>{name}</b>がこのワークスペースを見守ります。エージェントの作業状況やプロジェクトのことを尋ねたり、計画やレビューを頼んだりできます。",
   "assistant.panel.workingOn": "#{number} {title}を作業中",
   "assistant.panel.workspace": "ワークスペース",

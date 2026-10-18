@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number}時間{m}分",
   "actions.duration.minutes": "{m}分",
   "actions.duration.seconds": "{s}秒",
+  "actions.handOverLater.cancelFailed": "引き継ぎをキャンセルできませんでした",
+  "actions.handOverLater.failed": "引き継ぎを予約できませんでした",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

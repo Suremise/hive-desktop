@@ -124,7 +124,7 @@
   "tips.group.files": "Dateien",
   "tips.group.sessions": "Sitzungen",
   "tips.group.shortcuts": "Tastenkombinationen",
-  "tips.handoverSelf.text": "Wird die Transkriptgröße eines Agenten gelb, klicke darauf und wähle den Agenten selbst: Er schreibt eine Übergabe, und eine neue Unterhaltung macht dort weiter, wieder kurz und schnell.",
+  "tips.handoverSelf.text": "Wird die Transkriptgröße eines Agenten gelb, klicke darauf: Ist er untätig, wähle in Übergeben an… den Agenten selbst; ist er beschäftigt oder in einer Kartenschleife, übergibt er nach dieser Karte. Er schreibt eine Übergabe, und eine neue Unterhaltung macht dort weiter, kurz und schnell.",
   "tips.handoverSelf.title": "Eine lange Unterhaltung? An sich selbst übergeben",
   "tips.hardwareAcceleration.text": "Lässt dein Grafiktreiber Hives Fenster leer bleiben, flackern oder abstürzen, schalte Einstellungen → Erweitert → Hardwarebeschleunigung deaktivieren ein und starte Hive neu. Zeichnet das Fenster gar nichts: Starte Hive einmal mit --disable-gpu.",
   "tips.hardwareAcceleration.title": "Leeres oder flackerndes Fenster?",

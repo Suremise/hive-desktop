@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number} 小时 {m} 分",
   "actions.duration.minutes": "{m} 分钟",
   "actions.duration.seconds": "{s} 秒",
+  "actions.handOverLater.cancelFailed": "无法取消交接",
+  "actions.handOverLater.failed": "无法安排交接",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

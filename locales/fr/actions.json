@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number} h {m} min",
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
+  "actions.handOverLater.cancelFailed": "Impossible d’annuler le passage de relais",
+  "actions.handOverLater.failed": "Impossible de prévoir le passage de relais",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Del",
   "actions.keys.shift": "Shift",

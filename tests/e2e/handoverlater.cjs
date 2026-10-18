@@ -1,0 +1,190 @@
+// The long-conversation notice's hand-over at a good moment (#1057), on fake Claude Code agents. Past Settings →
+// Sessions → Warn when a transcript is over, the notice informs and offers what fits what the agent is doing:
+// - Idle, on no lane: Hand Over to… (the dialog), as before; the footer's size opens it too.
+// - Working: Hand Over After This Card, which queues it (a notice with Cancel Hand-Over; the footer's size shows ⇄ and
+//   cancels it; ⋯ has Hand Over After This Card / Cancel Hand-Over). Nothing happens while it works; once its turn is
+//   over Hive asks it for a handover and it carries on in a new conversation.
+// - The builder of a running lane, idle: Hand Over After This Card too. Queued, it waits while its card is in Review,
+//   and while it holds the merge slot after the card has passed; once the slot is released Hive asks it for a handover
+//   that says where the loop is, and it carries on in a new conversation.
+// Screenshots of the notice in both states, in both themes. The fake CLI can't write a handover with Hive's tools, so
+// the test writes it, with the agent's session in its header, once Hive has asked. Dev build, throwaway profile,
+// workspace and CLAUDE_CONFIG_DIR.
+const lib = require('./lib.cjs')
+const { _electron } = require('playwright-core')
+const fs = require('fs')
+const path = require('path')
+// The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
+const HUNG_MS = 60000
+
+const userData = path.join(lib.WORK, 'handoverlater-profile')
+const ws = path.join(lib.WORK, 'handoverlater-ws')
+const claudeHome = path.join(lib.WORK, 'handoverlater-claude-home')
+const shots = path.join(lib.WORK, 'handoverlater-shots')
+const alpha = path.join(ws, 'alpha')
+const PORT = Number(lib.port(47827))
+let failed = 0
+const check = (name, ok, extra = '') => {
+  if (!ok) failed++
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
+}
+
+;(async () => {
+  for (const d of [userData, ws, shots]) fs.rmSync(d, { recursive: true, force: true })
+  fs.mkdirSync(shots, { recursive: true })
+  lib.gitProject(alpha)
+  const hdir = path.join(ws, '.hive', 'shared', 'handovers')
+  fs.mkdirSync(hdir, { recursive: true })
+  const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), HIVE_TEST_TIPS: 'off', ...lib.fakeClaude(userData, claudeHome, [alpha]) })
+  const cfgFile = path.join(userData, 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
+  cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never', showTips: false }
+  cfg.settings.notifications = { ...cfg.settings.notifications, desktopNotifications: false, chimeEnabled: false }
+  cfg.settings.sessions = { ...cfg.settings.sessions, transcriptWarnMB: 1 }
+  fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
+
+  const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
+  try {
+    const page = await app.firstWindow()
+    page.on('pageerror', (e) => check('no page errors', false, e.message))
+    await lib.fitWindow(app, page, { width: 1500, height: 900 })
+    await lib.appReady(page)
+    const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
+    await lib.openWorkspace(inv, page, ws)
+    await page.getByText('alpha', { exact: true }).first().click()
+    await lib.waitForProvider(inv)
+    const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
+    const idle = await lib.addAgent(inv, alpha, { name: 'Idle' })
+    const busy = await lib.addAgent(inv, alpha, { name: 'Busy' })
+    const builder = await lib.addAgent(inv, alpha, { name: 'Builder' })
+    await lib.addAgent(inv, alpha, { name: 'Reviewer' })
+    for (const a of [idle, busy, builder]) await inv('session:start', alpha, { agentId: a.id })
+    const statuses = async () => (await Promise.all([idle, busy, builder].map((a) => live(a.id)))).map((s) => s?.status)
+    check('the agents start', !!(await lib.until(async () => (await statuses()).every((s) => s === 'ready'), HUNG_MS, 300)), JSON.stringify(await statuses()))
+    const say = async (a, text) => lib.sendPrompt(inv, lib.ptyKey(alpha, a.id), text, { submitted: async () => (await live(a.id))?.status === 'working' })
+    const toastOf = (name) => page.locator('.toast', { hasText: `${name}: long conversation` })
+    const footerOf = (name) => page.locator('.agent-pane', { has: lib.paneHeader(page, name) }).locator('.pane-footer-bar .foot-transcript')
+    const writing = (name) => page.locator('.toast', { hasText: `${name} is writing a handover` })
+    const shoot = async (name) => {
+      for (const theme of ['dark', 'light']) {
+        await inv('settings:update', { appearance: { theme } })
+        await lib.until(async () => (await page.evaluate(() => document.documentElement.dataset.theme)) === theme, HUNG_MS)
+        await page.screenshot({ path: path.join(shots, `${name}-${theme}.png`) })
+      }
+    }
+    // The handover the agent is asked for, written as hive_create_handover would (its session in the header).
+    const writeHandover = (name, sessionId) =>
+      fs.writeFileSync(path.join(hdir, `2026-10-18-alpha-${name.toLowerCase()}.md`), `# ${name}'s work\n\n- **Project:** alpha\n- **Session:** ${sessionId}\n\nCarry on.\n`)
+    /** Waits for Hive to ask the agent for its handover, writes it, and waits for its new conversation. */
+    const handsOver = async (a, name, first) => {
+      const asked = await lib.until(async () => (await writing(name).count()) > 0, HUNG_MS, 200)
+      if (asked) writeHandover(name, first)
+      const fresh = await lib.until(async () => {
+        const s = await live(a.id)
+        return s?.sessionId && s.sessionId !== first && s
+      }, HUNG_MS, 300)
+      return { asked: !!asked, fresh }
+    }
+
+    // --- Idle, on no lane: Hand Over to…, as before.
+    await say(idle, 'pad 1200')
+    await lib.until(async () => (await live(idle.id))?.status === 'finished', HUNG_MS, 300)
+    const idleToast = toastOf('Idle')
+    check('idle: the notice says so', !!(await lib.until(async () => (await idleToast.count()) === 1, HUNG_MS, 200)))
+    const idleText = await idleToast.innerText().catch(() => '')
+    check('…informing, with Hand Over to…', /over 1 MB\): it may slow down/.test(idleText) && /Hand Over to…/.test(idleText) && !/After This Card/.test(idleText), idleText)
+    await shoot('notice-idle')
+    await idleToast.getByRole('button', { name: 'Hand Over to…' }).click()
+    const dialog = page.locator('.dialog', { hasText: 'Hand over' })
+    check("…which opens Hand Over to…", !!(await lib.until(async () => (await dialog.count()) === 1, HUNG_MS, 200)))
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await dialog.count()) === 0, HUNG_MS, 200)
+
+    // --- Working: Hand Over After This Card, queued until its turn is over.
+    const busyFirst = (await live(busy.id)).sessionId
+    await say(busy, 'pad 1200 holduntil go-busy')
+    const busyToast = toastOf('Busy')
+    check('working: the notice says so', !!(await lib.until(async () => (await busyToast.count()) === 1, HUNG_MS, 200)))
+    const busyText = await busyToast.innerText().catch(() => '')
+    check('…offering Hand Over After This Card, not Hand Over to…', /at a good moment, after this card/.test(busyText) && /Hand Over After This Card/.test(busyText) && !/Hand Over to…/.test(busyText), busyText)
+    await shoot('notice-working')
+    await busyToast.getByRole('button', { name: 'Hand Over After This Card' }).click()
+    check('…which queues it', !!(await lib.until(async () => !!(await live(busy.id))?.handOverAfter, HUNG_MS, 200)), JSON.stringify((await live(busy.id))?.handOverAfter))
+    check('…and says so, with Cancel Hand-Over', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'hands over after this card' }).getByRole('button', { name: 'Cancel Hand-Over' }).count()) === 1, HUNG_MS, 200)))
+    const busyFoot = footerOf('Busy')
+    check("the footer's size shows it is queued", !!(await lib.until(async () => ((await busyFoot.getAttribute('class').catch(() => '')) ?? '').includes('queued'), HUNG_MS, 200)))
+    const tip = await lib.hoverTip(page, busyFoot, (t) => /Click to cancel/.test(t))
+    check('…its tooltip says when, and that a click cancels it', /once its turn is over/.test(tip) && /Never while it merges/.test(tip), tip)
+    await page.mouse.move(5, 5)
+    await busyFoot.click()
+    check('clicking it cancels it', !!(await lib.until(async () => !(await live(busy.id))?.handOverAfter, HUNG_MS, 200)))
+    const menu = await lib.agentMenu(page, 'Busy')
+    check('⋯ offers Hand Over After This Card', menu.some((t) => t.startsWith('Hand Over After This Card')), JSON.stringify(menu))
+    await lib.menuEntry(page, 'Hand Over After This Card').click()
+    check('…which queues it again', !!(await lib.until(async () => !!(await live(busy.id))?.handOverAfter, HUNG_MS, 200)))
+    const menu2 = await lib.agentMenu(page, 'Busy')
+    check('…and ⋯ then offers Cancel Hand-Over, saying when', menu2.some((t) => t.startsWith('Cancel Hand-Over') && /once its turn is over/.test(t)), JSON.stringify(menu2))
+    await page.keyboard.press('Escape')
+    const busyWaits = await lib.until(async () => /Busy\W*: queued hand-over waits \(turn\)/.test(fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8')), HUNG_MS, 200)
+    check('nothing is handed over while it works', !!busyWaits && (await live(busy.id))?.status === 'working' && (await live(busy.id))?.sessionId === busyFirst && (await writing('Busy').count()) === 0)
+    fs.writeFileSync(path.join(claudeHome, 'go-busy'), '')
+    const b = await handsOver(busy, 'Busy', busyFirst)
+    check('once its turn is over, Hive asks it for a handover', b.asked)
+    check('…and it carries on in a new conversation', !!b.fresh && !b.fresh.handOverAfter, JSON.stringify(await live(busy.id)))
+
+    // --- On a running lane: after its card, and never while it holds the merge slot.
+    const make = async (title, column) => (await inv('tasks:create', { title, project: 'alpha', column, agent: builder.id })).number
+    const n1 = await make('Lane card one', 'review')
+    const n2 = await make('Lane card two', 'todo')
+    const api = async (token, method, route, body) => {
+      const r = await fetch(`http://127.0.0.1:${PORT}${route}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
+      return { status: r.status, body: await r.json().catch(() => null) }
+    }
+    const workspaceToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
+    const started = await api(workspaceToken, 'POST', '/v1/lanes', { project: 'alpha', builder: 'Builder', reviewer: 'Reviewer', name: 'hand-over lane', cards: [n1, n2] })
+    check('a lane starts', started.status === 200, JSON.stringify(started))
+    const builderFirst = (await live(builder.id)).sessionId
+    await say(builder, 'pad 1200')
+    await lib.until(async () => (await live(builder.id))?.status === 'finished', HUNG_MS, 300)
+    const laneToast = toastOf('Builder')
+    check('in a lane: the notice says so', !!(await lib.until(async () => (await laneToast.count()) === 1, HUNG_MS, 200)))
+    const laneText = await laneToast.innerText().catch(() => '')
+    check('…offering Hand Over After This Card although it is idle', /Hand Over After This Card/.test(laneText) && !/Hand Over to…/.test(laneText), laneText)
+    await laneToast.getByRole('button', { name: 'Hand Over After This Card' }).click()
+    const queued = await lib.until(async () => (await live(builder.id))?.handOverAfter, HUNG_MS, 200)
+    check('…which queues it after its card', queued?.card === n1 && !!queued?.lane, JSON.stringify(queued))
+    // Its own token, from its launch, to hold the merge slot as an agent merging does.
+    const launches = fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const token = launches.find((l) => l.sessionId === builderFirst)?.env?.HIVE_API_TOKEN
+    const claim = await api(token, 'POST', '/v1/projects/alpha/merge-slot/claim', { cards: [n1], timeoutSeconds: 0 })
+    check('it holds the merge slot', !!(await lib.until(async () => !!(await live(builder.id))?.mergeSlot, HUNG_MS, 200)), JSON.stringify(claim))
+    // The card through review, the lane on its next card: still not while it merges.
+    await inv('tasks:update', n1, { column: 'passed' })
+    const onNext = await lib.until(async () => (await inv('lanes:list')).find((l) => l.name === 'hand-over lane')?.current === n2, HUNG_MS, 200)
+    check('its card passes and the lane goes on to the next', !!onNext)
+    // Hive's log says when it has looked at the queued hand-over again with the lane on its next card (a line each time why it waits changes).
+    const hiveLog = () => { try { return fs.readFileSync(path.join(userData, 'logs', 'hive.log'), 'utf8') } catch { return '' } }
+    const waited = await lib.until(async () => new RegExp(`Builder\\W*: queued hand-over waits \\(merging, lane on #${n2}\\)`).test(hiveLog()), HUNG_MS, 200)
+    check('…but it is not handed over while it holds the merge slot', !!waited && !!(await live(builder.id))?.handOverAfter && (await live(builder.id))?.sessionId === builderFirst && (await writing('Builder').count()) === 0, hiveLog().split('\n').filter((l) => /hand-over/.test(l)).slice(-5).join(' | '))
+    const released = await api(token, 'POST', '/v1/projects/alpha/merge-slot/release', {})
+    check('it releases the slot', released.status === 200, JSON.stringify(released))
+    const askedAt = await lib.until(async () => (await writing('Builder').count()) > 0, HUNG_MS, 200)
+    const asked = await lib.until(async () => /through review/.test(lib.plainText(await inv('pty:buffer', lib.ptyKey(alpha, builder.id)).catch(() => ''))), HUNG_MS, 300)
+    check('then Hive asks it for a handover that says where the loop is', !!askedAt && !!asked)
+    writeHandover('Builder', builderFirst)
+    const fresh = await lib.until(async () => {
+      const s = await live(builder.id)
+      return s?.sessionId && s.sessionId !== builderFirst && s
+    }, HUNG_MS, 300)
+    check('…and it carries on in a new conversation', !!fresh, JSON.stringify(await live(builder.id)))
+    const rec = (await inv('session:list', alpha)).find((s) => s.id === fresh?.sessionId)
+    check('…linked to the old one', rec?.handedOverFrom === builderFirst, JSON.stringify(rec && { from: rec.handedOverFrom }))
+    console.log(`screenshots: ${shots}`)
+  } finally {
+    await app.close().catch(() => undefined)
+  }
+  process.exit(failed ? 1 : 0)
+})().catch((e) => {
+  console.log('FAIL', e.message)
+  process.exit(1)
+})

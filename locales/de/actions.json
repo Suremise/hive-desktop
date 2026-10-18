@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number} h {m} min",
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
+  "actions.handOverLater.cancelFailed": "Übergabe konnte nicht abgebrochen werden",
+  "actions.handOverLater.failed": "Übergabe konnte nicht vorgemerkt werden",
   "actions.keys.ctrl": "Strg",
   "actions.keys.delete": "Entf",
   "actions.keys.shift": "Shift",

@@ -124,7 +124,7 @@
   "tips.group.files": "Archivos",
   "tips.group.sessions": "Sesiones",
   "tips.group.shortcuts": "Atajos",
-  "tips.handoverSelf.text": "Cuando el tamaño de la transcripción de un agente se vuelve ámbar, haz clic en él y elige el propio agente: escribe un traspaso, y una conversación nueva sigue desde él, de nuevo corta y rápida.",
+  "tips.handoverSelf.text": "Cuando el tamaño de la transcripción de un agente se vuelve ámbar, haz clic en él: inactivo, elige el propio agente en Traspasar a…; ocupado o en un bucle de tarjetas, traspasa después de esta tarjeta. Escribe un traspaso, y una conversación nueva sigue desde él, corta y rápida.",
   "tips.handoverSelf.title": "¿Una conversación larga? Que el agente se la traspase a sí mismo",
   "tips.hardwareAcceleration.text": "Si tu controlador gráfico deja la ventana de Hive en blanco, la hace parpadear o hace que se cierre, activa Configuración → Avanzado → Desactivar la aceleración por hardware y reinicia Hive. Si la ventana no se dibuja en absoluto, inicia Hive una vez con --disable-gpu.",
   "tips.hardwareAcceleration.title": "¿La ventana se ve en blanco o parpadea?",

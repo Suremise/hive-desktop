@@ -355,6 +355,10 @@ export interface HiveRequests {
   'session:allowLockedEdit': (projectPath: string, agentId: string, path: string) => void
   /** Continues one agent's work in another, of any provider: a handover from the source (optional), then the target picks it up. */
   'session:handOver': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
+  /** Queues a running agent's hand-over to a new conversation after this card (#1057): done by Hive at a good moment; null: not running. */
+  'session:handOverLater': (projectPath: string, agentId: string) => LiveSessionState['handOverAfter'] | null
+  /** Cancels an agent's queued hand-over. */
+  'session:cancelHandOverLater': (projectPath: string, agentId: string) => void
   /** Turns Plan mode on or off in a running agent, for providers where it is a toggle (Codex). */
   'session:setPlanMode': (projectPath: string, agentId: string, on: boolean) => void
   /** Stops the agent and resumes the same conversation in the given mode. */

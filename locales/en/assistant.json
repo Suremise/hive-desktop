@@ -551,10 +551,6 @@
     "defaultMessage": "Assistant",
     "description": "The Assistant panel's title, beside its coding agent's icon. Keep it short."
   },
-  "assistant.panel.transcriptAdvice": {
-    "defaultMessage": "Start a new conversation (⋯ → New Conversation) to keep things quick.",
-    "description": "The Assistant's footer, in the tooltip of a long conversation's size. ⋯ is the More button; New Conversation its menu item."
-  },
   "assistant.panel.watches": {
     "defaultMessage": "<b>{name}</b> watches over this workspace: ask it what the agents are doing, about any project, or for a plan or a review.",
     "description": "The Assistant's panel before it starts. {name} is its mode (Overseer…) or The Assistant; <b> is bold."

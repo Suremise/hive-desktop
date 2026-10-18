@@ -43,6 +43,8 @@
   "actions.duration.hoursMinutes": "{h, number} h {m} min",
   "actions.duration.minutes": "{m} min",
   "actions.duration.seconds": "{s} s",
+  "actions.handOverLater.cancelFailed": "No se pudo cancelar el traspaso",
+  "actions.handOverLater.failed": "No se pudo programar el traspaso",
   "actions.keys.ctrl": "Ctrl",
   "actions.keys.delete": "Supr",
   "actions.keys.shift": "Mayús",

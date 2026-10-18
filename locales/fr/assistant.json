@@ -135,7 +135,6 @@
   "assistant.panel.tellFailed": "Impossible de transmettre son mode à l’Assistant",
   "assistant.panel.theAssistant": "L’Assistant",
   "assistant.panel.title": "Assistant",
-  "assistant.panel.transcriptAdvice": "Démarre une nouvelle conversation (⋯ → Nouvelle conversation) pour garder de la réactivité.",
   "assistant.panel.watches": "<b>{name}</b> veille sur cet espace de travail : demande-lui ce que font les agents, interroge-le sur n’importe quel projet, ou demande-lui un plan ou une relecture.",
   "assistant.panel.workingOn": "Travaille sur la carte #{number} {title}",
   "assistant.panel.workspace": "Espace de travail",

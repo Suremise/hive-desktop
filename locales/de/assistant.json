@@ -135,7 +135,6 @@
   "assistant.panel.tellFailed": "Dem Assistenten konnte der Modus nicht mitgeteilt werden",
   "assistant.panel.theAssistant": "Der Assistent",
   "assistant.panel.title": "Assistent",
-  "assistant.panel.transcriptAdvice": "Beginne eine neue Unterhaltung (⋯ → Neue Unterhaltung), damit es schnell bleibt.",
   "assistant.panel.watches": "<b>{name}</b> behält diesen Arbeitsbereich im Blick: Frag, was die Agenten tun, nach einem beliebigen Projekt oder nach einem Plan oder Review.",
   "assistant.panel.workingOn": "Arbeitet an #{number} {title}",
   "assistant.panel.workspace": "Arbeitsbereich",

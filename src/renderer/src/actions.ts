@@ -20,6 +20,16 @@ import { AgentsDetail, batchAgentsData, projectAgentsData, tableText } from './c
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
+/** Queues an agent's hand-over to a new conversation after this card (#1057), which Hive does at a good moment. */
+export async function handOverLater(path: string, agentId: string): Promise<void> {
+  await attempt(tr(msg({ id: 'actions.handOverLater.failed', defaultMessage: "Couldn't queue the hand-over", description: "An error's title: queuing an agent's hand-over after its card (Hand Over After This Card) failed." })), () => call('session:handOverLater', path, agentId))
+}
+
+/** Cancels an agent's queued hand-over. */
+export async function cancelHandOverLater(path: string, agentId: string): Promise<void> {
+  await attempt(tr(msg({ id: 'actions.handOverLater.cancelFailed', defaultMessage: "Couldn't cancel the hand-over", description: "An error's title: cancelling an agent's queued hand-over failed." })), () => call('session:cancelHandOverLater', path, agentId))
+}
+
 export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
   try {
     return await fn()

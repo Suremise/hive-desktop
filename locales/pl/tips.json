@@ -124,7 +124,7 @@
   "tips.group.files": "Pliki",
   "tips.group.sessions": "Sesje",
   "tips.group.shortcuts": "Skróty",
-  "tips.handoverSelf.text": "Gdy rozmiar transkrypcji agenta zmieni kolor na bursztynowy, kliknij go i wybierz samego agenta: napisze przekazanie, a nowa rozmowa podejmie od niego pracę, znów krótka i szybka.",
+  "tips.handoverSelf.text": "Gdy rozmiar transkrypcji agenta zmieni kolor na bursztynowy, kliknij go: bezczynny, wybierz samego agenta w Przekaż pracę…; zajęty lub w pętli kart, przekaże pracę po tej karcie. Napisze przekazanie, a nowa rozmowa podejmie od niego pracę, krótka i szybka.",
   "tips.handoverSelf.title": "Długa rozmowa? Niech agent przekaże ją sam sobie",
   "tips.hardwareAcceleration.text": "Jeśli przez sterownik grafiki okno Hive jest puste, migocze albo ulega awarii, włącz Ustawienia → Zaawansowane → Nie używaj akceleracji sprzętowej i uruchom Hive ponownie. Okno w ogóle się nie rysuje? Uruchom Hive raz z --disable-gpu.",
   "tips.hardwareAcceleration.title": "Puste lub migoczące okno?",
