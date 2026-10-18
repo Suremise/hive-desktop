@@ -221,6 +221,24 @@ describe('the size cap, as little as it takes (#1031 round 1)', () => {
     expect(j.readEntry(h, ids[0])).toBeNull()
   })
 
+  it('mixed sizes: when the oldest large entry is enough, it is the only one to go; important ones never (#1031 round 2)', () => {
+    const h = home()
+    const free = { ...all, capMB: null }
+    for (let i = 0; i < 3000; i++) write(h, { summary: `Important ${i}`, importance: 2 }, free)
+    const big = write(h, { summary: 'Oldest and large', detail: noise(60_000) }, free)
+    const small: number[] = []
+    for (let i = 0; i < 99; i++) small.push(write(h, { summary: `Small ${i}` }, free))
+    age(h, big, new Date(Date.now() - 30 * 86_400_000).toISOString())
+    // A few kilobytes over: the large entry alone frees far more.
+    const cap = (j.journalSize(h)!.bytes - 4096) / (1024 * 1024)
+    expect(j.pruneJournal(h, { ...all, capMB: cap })).toBe(1)
+    expect(j.readEntry(h, big)).toBeNull()
+    for (const id of small) expect(j.readEntry(h, id)).not.toBeNull()
+    expect(j.journalSize(h)!.bytes).toBeLessThanOrEqual(cap * 1024 * 1024)
+    // Only that one went: the 3000 important entries and the 99 newer ones are all there.
+    expect(j.journalSize(h)!.entries).toBe(3099)
+  })
+
   it('an entry made bigger by an update is held to the cap too; its retention applies once its importance drops', () => {
     const h = home()
     const settings = { ...all, capMB: 5 }

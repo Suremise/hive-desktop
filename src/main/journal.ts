@@ -426,8 +426,8 @@ export function journalSize(home: string): { bytes: number; entries: number } | 
 
 /**
  * Retention and the size cap: everyday entries (importance under 2, not digests) older than the retention go; past the
- * cap, the oldest everyday entries go first, as many as the excess needs by their average size (at least one), the size
- * read again after each step, until it fits or none is left (digests and important entries are never pruned). Space
+ * cap, the oldest everyday entries go first, as many as hold the excess by their own size (at least one), the size read
+ * again after each step, until it fits or none is left (digests and important entries are never pruned). Space
  * freed is given back to the file. Returns how many went.
  */
 export function pruneJournal(home: string, settings: JournalSettings, now = new Date()): number {
@@ -442,13 +442,22 @@ export function pruneJournal(home: string, settings: JournalSettings, now = new 
       const free = (w.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count
       return (pages - free) * (w.prepare('PRAGMA page_size').get() as { page_size: number }).page_size
     }
+    // The oldest everyday entries with what each holds (its text and compressed detail): a step takes just as many of
+    // them, oldest first, as hold the excess, at least one, and the size is read again (#1031 round 2: never guessed from
+    // other entries, so one large old entry that frees enough is the only one to go).
+    const oldest = w.prepare(`SELECT id, length(summary) + coalesce(length(detail), 0) + coalesce(length(detail_z), 0) + coalesce(length(why), 0) AS bytes FROM entries WHERE ${everyday} ORDER BY at, id LIMIT 500`)
+    const remove = w.prepare('DELETE FROM entries WHERE id = ?')
     for (let over = used() - cap; over > 0; over = used() - cap) {
-      const count = (w.prepare('SELECT count(*) AS n FROM entries').get() as { n: number }).n
-      // As many of the oldest as the excess is worth at the average entry's size, at least one.
-      const take = Math.max(1, Math.ceil(over / Math.max(1, used() / Math.max(1, count))))
-      const n = transaction(w, () => Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT id FROM entries WHERE ${everyday} ORDER BY at, id LIMIT ?)`).run(take).changes))
-      if (!n) break
-      gone += n
+      const rows = oldest.all() as { id: number; bytes: number }[]
+      if (!rows.length) break
+      const take: number[] = []
+      let held = 0
+      for (const r of rows) {
+        take.push(r.id)
+        held += r.bytes
+        if (held >= over) break
+      }
+      gone += transaction(w, () => take.reduce((n, id) => n + Number(remove.run(id).changes), 0))
     }
   }
   if (gone) {
