@@ -287,6 +287,8 @@ interface State {
   setupOpen: ProviderId | true | false
   /** Repair… for a moved workspace (#146), and the move whose banner was hidden (until Hive restarts). */
   moveRepairOpen: boolean
+  /** The Review… dialog for cards an older Hive saved (#1044). */
+  setAsideOpen: boolean
   moveBannerHidden: string | null
   shortcutsOpen: boolean
   dialog: DialogRequest | null
@@ -476,6 +478,7 @@ export const useStore = create<State>(() => ({
   updateOpen: false,
   setupOpen: false,
   moveRepairOpen: false,
+  setAsideOpen: false,
   moveBannerHidden: null,
   shortcutsOpen: false,
   dialog: null,

@@ -450,6 +450,13 @@ const COMMAND_DEFS: CommandDef[] = [
     run: () => void exportBoard()
   },
   {
+    id: 'task.reviewSetAside',
+    name: msg({ id: 'shell.command.task.reviewSetAside', defaultMessage: 'Review Cards Made by an Older Hive…', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category: opens the dialog listing cards an older version of Hive saved, set aside, to add each to the board or discard it. The … says it opens a dialog first: keep it." }),
+    category: 'tasks',
+    when: hasWorkspace,
+    run: () => set({ setAsideOpen: true })
+  },
+  {
     id: 'task.undoArchive',
     name: msg({ id: 'shell.command.task.undoArchive', defaultMessage: 'Undo Archive', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Tasks category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
     category: 'tasks',

@@ -1604,6 +1604,51 @@ textarea.input {
 .moved-banner .btn + .icon-btn {
   flex-shrink: 0;
 }
+/* Cards made by an older Hive, set aside (#1044). */
+.set-aside-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.set-aside-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.set-aside-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.set-aside-number {
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+.set-aside-title {
+  overflow-wrap: anywhere;
+}
+.set-aside-preview {
+  max-height: 7.5em;
+  overflow: hidden;
+  font-size: 0.95em;
+}
+.set-aside-number-note .codicon {
+  vertical-align: -2px;
+}
+.set-aside-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
 /* Repair a Moved Workspace (#146). */
 .move-repair section + section {
   margin-top: 10px;

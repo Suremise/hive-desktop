@@ -123,6 +123,7 @@ interface HiveMessageValues {
   'shell.command.settings.open': undefined
   'shell.command.settings.providers': undefined
   'shell.command.task.new': undefined
+  'shell.command.task.reviewSetAside': undefined
   'shell.command.task.undoArchive': undefined
   'shell.command.template.addAgent': undefined
   'shell.command.template.load': undefined

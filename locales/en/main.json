@@ -60,12 +60,16 @@
     "description": "A notice as Hive moved the board's cards into its database: some card files weren't valid. {n} is how many."
   },
   "main.board.foundBody": {
-    "defaultMessage": "They are kept, unchanged, in {folder}. Nothing on the board was changed for them.",
+    "defaultMessage": "They are kept, unchanged, in {folder}. Nothing on the board was changed for them: Review… adds each to the board or discards it.",
     "description": "The notice about cards an older Hive saved: {folder} is the folder where they are kept."
   },
   "main.board.foundTitle": {
     "defaultMessage": "{n, plural, one {# card made by an older Hive was found: review it} other {# cards made by an older Hive were found: review them}}",
     "description": "A notice: this workspace was opened in an older Hive meanwhile, and it saved cards; they weren't added to the board, but kept for the user to review. {n} is how many."
+  },
+  "main.board.review": {
+    "defaultMessage": "Review…",
+    "description": "A button on the notice about cards an older Hive saved: opens a dialog listing them, to add each to the board or discard it."
   },
   "main.console.noWorkspace": {
     "defaultMessage": "Open a workspace first: the developer console shows a workspace's agents and Hive's work there.",

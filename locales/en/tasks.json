@@ -5,7 +5,7 @@
   },
   "tasks.by.repair": {
     "defaultMessage": "Repair",
-    "description": "Who made a change on a card (beside a history line): Hive's Repair, which gave cards of a renamed or moved project back to it. Short."
+    "description": "Who made a change on a card (beside a history line): Hive's Repair, which gave cards of a renamed or moved project back to it, or added a card an older Hive made. Short."
   },
   "tasks.by.you": {
     "defaultMessage": "You",
@@ -203,6 +203,10 @@
     "defaultMessage": "{agent} is already reviewing #{n} (since {since} UTC).",
     "description": "An error: another agent ({agent}, its name) is already reviewing card #{n} (a number), since {since} (a date and time, UTC)."
   },
+  "tasks.error.setAsideGone": {
+    "defaultMessage": "That set-aside card is gone, or isn't a card: it can only be discarded.",
+    "description": "An error in the Review… dialog for cards an older Hive saved: the card's file was removed meanwhile, or can't be read as a card."
+  },
   "tasks.error.staysInProject": {
     "defaultMessage": "Cards stay in your project ({project}).",
     "description": "An error: an agent tried to move a card to another project, or to the whole workspace; its cards stay in its own project ({project}, its folder name)."
@@ -302,6 +306,10 @@
   "tasks.history.description": {
     "defaultMessage": "Changed the description",
     "description": "A line in a card's history: the card's description was edited."
+  },
+  "tasks.history.fromOlder": {
+    "defaultMessage": "Added from an older Hive, where it was made as #{was}",
+    "description": "A line in a card's history, by Repair: the card was made in an older version of Hive (which saved it after the board moved to its database), set aside, and the user added it to the board from Review…; {was} is the number it had there (it keeps it when no card here has it)."
   },
   "tasks.history.given": {
     "defaultMessage": "Given to {agent}",

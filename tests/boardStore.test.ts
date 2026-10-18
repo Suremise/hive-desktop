@@ -264,6 +264,90 @@ describe("cards an older Hive saved meanwhile (#1017 downgrade, Darren's decisio
   })
 })
 
+describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the only way they reach the board)', () => {
+  async function asideWith(board: Record<string, string>, stubFiles: Record<string, string>): Promise<{ ws: string; w: WS }> {
+    const ws = workspaceWith(board)
+    const first = await open(ws)
+    await inWorkspace(first, () => tasks.allTasks(first))
+    await disposeWorkspaceService(first)
+    for (const [f, text] of Object.entries(stubFiles)) writeFileSync(join(ws, '.hive', 'tasks', f), text)
+    const w = await open(ws)
+    await inWorkspace(w, () => tasks.allTasks(w))
+    return { ws, w }
+  }
+  const older = (num: number, fields: Record<string, unknown> = {}) => fileOf(card(num, { createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-05T00:00:00.000Z', ...fields }))
+  const asideIn = (ws: string): string[] => readdirSync(join(ws, '.hive', store.SET_ASIDE)).sort()
+
+  it('lists each with its old number, whether it is free, who made it and a preview; a file that is not a card only as unreadable', async () => {
+    const { w } = await asideWith({ '1.json': fileOf(card(1)) }, { '1.json': older(1, { title: 'Clashes' }), '7.json': older(7, { title: 'Free', description: 'x'.repeat(2000), column: 'review' }), '8.json': '{ damaged' })
+    const list = await inWorkspace(w, () => tasks.setAsideCards(w))
+    expect(list.map((c) => [c.file, c.number, c.free, c.readable, c.title])).toEqual([
+      ['1.json', 1, false, true, 'Clashes'],
+      ['7.json', 7, true, true, 'Free'],
+      ['8.json', 8, true, false, '8.json']
+    ])
+    expect(list[1]).toMatchObject({ createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', project: 'p', column: 'review', comments: 1 })
+    expect(list[1].preview).toHaveLength(600)
+  })
+
+  it('Add keeps a free old number, everything the card had and its links as they were, with a line by Repair; the file goes and it is never listed again', async () => {
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)), '2.json': fileOf(card(2, { links: [7] })) }, { '7.json': older(7, { title: 'Made in rc.3', links: [1, 40], labels: ['old'], decisions: [{ id: 'd1', text: 'Keep it', decidedBy: 'user', recordedBy: 'You', at: '2026-10-05T00:00:00.000Z' }] }) })
+    const added = await inWorkspace(w, () => tasks.addSetAsideCard(w, '7.json'))
+    expect(added.number).toBe(7)
+    const c = await inWorkspace(w, () => tasks.getTask(7, w))
+    expect(c).toMatchObject({ title: 'Made in rc.3', labels: ['old'], createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', comments: [expect.objectContaining({ text: 'Note 7' })], decisions: [expect.objectContaining({ text: 'Keep it' })] })
+    // Its links as saved (a gone card's left out when read, never rewritten); #2's link to #7 now finds it.
+    expect(store.cardDoc(w, 7)!.links).toEqual([1, 40])
+    expect((await inWorkspace(w, () => tasks.getTask(2, w))).links).toEqual([7])
+    expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #7' })
+    expect(asideIn(ws)).toEqual([])
+    expect(await inWorkspace(w, () => tasks.setAsideCards(w))).toEqual([])
+    // The same file back (it couldn't leave the stub): set aside again at the next open, but never listed or added twice.
+    await disposeWorkspaceService(w)
+    writeFileSync(join(ws, '.hive', 'tasks', '7.json'), older(7, { title: 'Made in rc.3', links: [1, 40], labels: ['old'], decisions: [{ id: 'd1', text: 'Keep it', decidedBy: 'user', recordedBy: 'You', at: '2026-10-05T00:00:00.000Z' }] }))
+    const w2 = await open(ws)
+    expect(await inWorkspace(w2, () => tasks.setAsideCards(w2))).toEqual([])
+    expect(asideIn(ws)).toEqual([])
+  })
+
+  it('Add gives the next free number when the old one is taken, placed last in its column; the card on the board and links to the old number unchanged', async () => {
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1, { title: 'On the board' })), '5.json': fileOf(card(5, { links: [1] })) }, { '1.json': older(1, { title: 'Made as #1', column: 'todo' }) })
+    const before = store.cardDoc(w, 1)
+    const added = await inWorkspace(w, () => tasks.addSetAsideCard(w, '1.json'))
+    expect(added.number).toBe(6)
+    expect(store.cardDoc(w, 1)).toEqual(before)
+    expect(store.cardDoc(w, 5)!.links).toEqual([1])
+    const c = await inWorkspace(w, () => tasks.getTask(6, w))
+    expect(c.title).toBe('Made as #1')
+    expect(c.order).toBeGreaterThan((await inWorkspace(w, () => tasks.getTask(5, w))).order)
+    expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #1' })
+    expect(asideIn(ws)).toEqual([])
+    // A new card after it takes the next number on.
+    expect((await inWorkspace(w, () => tasks.createTask({ title: 'After', project: 'p' }, user))).number).toBe(7)
+  })
+
+  it('Discard moves the file to the trash, nothing on the board changes; a damaged file is refused by Add; names outside the folder are refused', async () => {
+    const trashDir = join(base, `trash-${++n}`)
+    process.env.HIVE_TEST_TRASH_DIR = trashDir
+    try {
+      const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '3.json': older(3), '4.json': '{ damaged' })
+      await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '4.json'))).rejects.toThrow(/can only be discarded/)
+      await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '..\\..\\p\\.hive\\project.json'))).rejects.toThrow(/can only be discarded/)
+      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '..\\tasks\\board.json'))
+      expect(existsSync(join(ws, '.hive', 'tasks', 'board.json'))).toBe(true)
+      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '3.json'))
+      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '4.json'))
+      expect(asideIn(ws)).toEqual([])
+      expect(readdirSync(trashDir).filter((f) => f.endsWith('.json') && f !== 'trash.jsonl')).toHaveLength(2)
+      expect(await titlesOf(w)).toEqual(['#1 Card 1'])
+    } finally {
+      delete process.env.HIVE_TEST_TRASH_DIR
+    }
+  })
+})
+
+const titlesOf = async (w: WS): Promise<string[]> => (await inWorkspace(w, () => tasks.allTasks(w))).map((c) => `#${c.number} ${c.title}`).sort()
+
 describe('numbers an older Hive could take (#1017 round 1)', () => {
   it("the stub's next number moves on as each number is taken, before Hive closes (ended without closing, an older Hive never reuses one)", async () => {
     const ws = workspaceWith({ '1.json': fileOf(card(1)) })
