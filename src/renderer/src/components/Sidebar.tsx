@@ -115,7 +115,7 @@ const M = {
   newServerMessage: msg({ id: 'assistant.sidebar.newServerMessage', defaultMessage: 'Creates {file} in the workspace from a template you can edit.', description: 'New MCP Server. {file} is .hive/mcp/<name>.json, <name> standing for the name you type.' }),
   serverNameRule: msg({ id: 'assistant.sidebar.serverNameRule', defaultMessage: 'Use letters, numbers, "-" and "_". "hive" is reserved.', description: "New MCP Server: a name that can't be used. Keep hive as it is (the built-in server's name)." }),
   createServerFailed: msg({ id: 'assistant.sidebar.createServerFailed', defaultMessage: 'Could not create server', description: "An error notice: New MCP Server couldn't create the server's file; the reason follows." }),
-  mcpTip: msg({ id: 'assistant.sidebar.mcpTip', defaultMessage: "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions.", description: 'Tooltip on MCP Servers. Keep .hive/mcp as it is.' }),
+  mcpTip: msg({ id: 'assistant.sidebar.mcpTip', defaultMessage: "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run in a project only when on here (its switch, which asks for the projects) and on in that project's MCP tab. Changes apply to new sessions.", description: 'Tooltip on MCP Servers. Keep .hive/mcp as it is.' }),
   newServer: msg({ id: 'assistant.sidebar.newServer', defaultMessage: 'New MCP Server…', description: "A button over the MCP servers: creates a server from a template." }),
   serverFromFile: msg({ id: 'assistant.sidebar.serverFromFile', defaultMessage: 'Add MCP Server from File (.json or .zip)…', description: 'The MCP sidebar: a button. Keep .json and .zip as they are.' }),
   openMcpFolder: msg({ id: 'assistant.sidebar.openMcpFolder', defaultMessage: 'Open MCP Folder', description: 'The MCP sidebar: a button that opens .hive/mcp in Explorer.' }),
@@ -825,11 +825,11 @@ function McpPanel() {
               <Tooltip
                 content={
                   m.globallyEnabled
-                    ? tr(msg({ id: 'mcp.list.allOnTip', defaultMessage: 'On for all projects (new sessions), except projects that turned it off. Click to turn it off for all projects: projects that turned it on themselves keep it.', description: "The tooltip of a server's switch in the MCP view while it is on for all projects." }))
-                    : tr(msg({ id: 'mcp.list.allOffTip', defaultMessage: "Click to turn it on for all projects (new sessions). To use it in one project, turn it on in that project's MCP tab.", description: "The tooltip of a server's switch in the MCP view while it isn't on for all projects." }))
+                    ? tr(msg({ id: 'mcp.list.allOnTip', defaultMessage: 'On in the workspace: it runs in the projects that have it on (new sessions). Click to turn it off everywhere; the projects keep their choices for when it is on again.', description: "The tooltip of a server's switch in the MCP view while it is on in the workspace." }))
+                    : tr(msg({ id: 'mcp.list.allOffTip', defaultMessage: 'Off in the workspace: it runs nowhere. Click to turn it on and choose the projects it runs in.', description: "The tooltip of a server's switch in the MCP view while it is off in the workspace." }))
                 }
               >
-                <Switch small checked={m.globallyEnabled} disabled={!!m.error} label={tr(msg({ id: 'mcp.list.allSwitch', defaultMessage: '{name}: on for all projects', description: "A server's switch in the MCP view, for screen readers. {name} is the server." }), { name: m.name })} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
+                <Switch small checked={m.globallyEnabled} disabled={!!m.error} label={tr(msg({ id: 'mcp.list.allSwitch', defaultMessage: '{name}: on in the workspace', description: "A server's switch in the MCP view, for screen readers. {name} is the server." }), { name: m.name })} onChange={(v) => void actions.setMcpServerEnabled(m, v).then(load)} />
               </Tooltip>
             </div>
           ))}

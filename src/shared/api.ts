@@ -52,7 +52,6 @@ import type {
   McpFileServer,
   McpShown,
   McpProjectServer,
-  McpTurnOn,
   McpServerDef,
   McpServerInfo,
   MergeResult,
@@ -494,9 +493,13 @@ export interface HiveRequests {
   'skills:openFolder': () => void
 
   'mcp:list': () => McpServerInfo[]
-  /** On or off for all projects (#713). Turning it on with `expected` (the server the user was shown): refused if it has been replaced or edited since. */
-  'mcp:setGlobal': (name: string, enabled: boolean, expected?: McpShown) => void
-  /** On or off in one project, its own choice (#713); `expected` as for mcp:setGlobal. */
+  /**
+   * On or off in the workspace (#1093, its master switch; off keeps the projects' choices). Turning it on with
+   * `expected` (the server the user was shown): refused if it has been replaced or edited since; `projects` (path → on)
+   * sets those projects' own choices in the same change.
+   */
+  'mcp:setGlobal': (name: string, enabled: boolean, expected?: McpShown, projects?: Record<string, boolean>) => void
+  /** On or off in one project, its own choice (#1093: it runs there while it is on in the workspace too); `expected` as for mcp:setGlobal. */
   'mcp:setProject': (projectPath: string, name: string, enabled: boolean, expected?: McpShown) => void
   'mcp:create': (name: string) => McpServerInfo
   'mcp:read': (name: string) => string
@@ -513,11 +516,10 @@ export interface HiveRequests {
   /** What adding the file would add: its name, what it runs, whether the name is taken. Adds nothing. */
   'mcp:previewFile': (file: string) => McpFileServer
   /**
-   * Adds it as `name`, on where `turnOn` says (#713; default none) and off elsewhere; a name in use is refused unless
-   * `replace` (the old one goes to the Recycle Bin). `shown`: the preview's hash, needed to turn it on anywhere;
-   * refused if the file has changed since.
+   * Adds it as `name`, off in the workspace and in every project (#1093); a name in use is refused unless `replace` (the
+   * old one goes to the Recycle Bin).
    */
-  'mcp:addFromFile': (file: string, name: string, replace: boolean, turnOn?: McpTurnOn, shown?: string) => McpServerInfo
+  'mcp:addFromFile': (file: string, name: string, replace: boolean) => McpServerInfo
 
   'notes:tree': () => NoteFile[]
   'notes:create': (relPath: string, isDir: boolean) => string

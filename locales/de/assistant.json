@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "Als nicht in Arbeit markieren",
   "assistant.sidebar.markWorking": "Als in Arbeit markieren",
   "assistant.sidebar.mcpServers": "MCP-Server",
-  "assistant.sidebar.mcpTip": "Im Arbeitsbereich bereitgestellte MCP-Server (.hive/mcp) stehen jedem Projekt zur Verfügung und laufen nur dort, wo sie aktiviert sind: Aktiviere einen im Tab „MCP“ eines Projekts oder mit seinem Schalter hier für alle Projekte. Änderungen gelten für neue Sitzungen.",
+  "assistant.sidebar.mcpTip": "Im Arbeitsbereich bereitgestellte MCP-Server (.hive/mcp) stehen jedem Projekt zur Verfügung und laufen in einem Projekt nur, wenn sie hier an sind (ihr Schalter, der nach den Projekten fragt) und im Tab „MCP“ dieses Projekts. Änderungen gelten für neue Sitzungen.",
   "assistant.sidebar.needYou": "{count, plural, one {# Agent braucht dich} other {# Agenten brauchen dich}}",
   "assistant.sidebar.newFolder": "Neuer Ordner",
   "assistant.sidebar.newFolderButton": "Neuer Ordner…",

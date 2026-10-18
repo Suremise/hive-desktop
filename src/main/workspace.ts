@@ -9,6 +9,7 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
+import { migratedProjectMcp, migratedWorkspaceMcp } from '../shared/agentMcp'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
 import { advancedDef, checkAdvanced } from '../shared/advanced'
 import { fmt, msg, tr } from '../shared/i18n'
@@ -42,7 +43,7 @@ This folder is managed by [Hive](https://github.com/) and is meant to be committ
 - \`shared/\` — notes, instructions and handovers shared across AI sessions and projects.
 - \`skills/\` — Hive skills (one folder per skill, each with a \`SKILL.md\`). Every agent in every project gets them.
 - \`mcp/\` — MCP server definitions (one \`<name>.json\` per server). Enable them in Hive.
-- \`workspace.json\` — which MCP servers are enabled for all projects.
+- \`workspace.json\` — which MCP servers are on in the workspace (each runs only in the projects that turn it on too).
 - \`hive.db\` — the task board (Hive's database). It is this machine's, like the Assistant's sessions: \`.gitignore\` keeps it out of git.
 
 MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
@@ -250,6 +251,8 @@ export class WorkspaceService {
     for (const p of await this.listProjectPaths()) await this.ensureProject(p).catch((e) => log.warn(`ensureProject ${userText(p)}`, e))
     // Every project has its id (#508) before the board, lanes and watches are read by it.
     await this.projectIds().catch((e) => log.warn('reading the project ids', e))
+    // Before any session starts with them: MCP settings from before #1093 move to its model.
+    await this.migrateMcpModel().catch((e) => log.warn('moving the MCP settings to the workspace and project switches', e))
     try {
       await this.ensureProject(this.assistantHome)
       // The Assistant's conversations and backups are this machine's: kept out of git if the workspace is a repository.
@@ -408,6 +411,32 @@ export class WorkspaceService {
   /** The cards' folder before 0.9 (#1017): now the stub an older Hive looks at, and the import's source. */
   get tasksDir(): string {
     return join(this.hiveDir, 'tasks')
+  }
+
+  /**
+   * MCP settings from before #1093 moved to its model, once, so what ran still runs and nothing new starts: a server on
+   * for all projects is on in the workspace and in every project that didn't turn it off; one a project turned on is on
+   * in the workspace and that project (migratedWorkspaceMcp, migratedProjectMcp). The projects (hidden ones too) are
+   * written first, keeping their old `disabled` lists, so a move cut short does the same again; then workspace.json
+   * says it's done, and the old lists are emptied.
+   */
+  private async migrateMcpModel(): Promise<void> {
+    if (this.wsConfig.mcp.model === 2) return
+    const allProjects = this.wsConfig.mcp.enabled
+    const paths = [...(await this.listProjectPaths()), ...(await this.listProjectPaths({ hidden: true }))]
+    const configs = await Promise.all(paths.map((p) => this.projectConfig(p).then((c) => c.mcp, () => null)))
+    for (const [i, p] of paths.entries()) {
+      const was = configs[i]
+      if (!was) continue
+      const now = migratedProjectMcp(allProjects, was)
+      if (JSON.stringify(now) !== JSON.stringify(was.enabled)) await this.mutateProjectConfig(p, (c) => ({ mcp: { ...c.mcp, enabled: migratedProjectMcp(allProjects, c.mcp) } }))
+    }
+    const enabled = migratedWorkspaceMcp(allProjects, configs)
+    await this.saveWorkspaceConfigWith(() => ({ mcp: { enabled, model: 2 } }))
+    for (const [i, p] of paths.entries()) {
+      if (configs[i]?.disabled?.length) await this.mutateProjectConfig(p, (c) => ({ mcp: { ...c.mcp, disabled: [] } })).catch((e) => log.warn(`emptying the old MCP list of ${userText(p)}`, e))
+    }
+    log.info(`MCP settings moved to the workspace and project switches (#1093): ${enabled.length} on in the workspace`)
   }
 
   /** Saves of workspace.json queued or running, and the text of the last one: the watcher sees Hive's own writes too. */

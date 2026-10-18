@@ -1464,7 +1464,7 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
     <div className="scroll-page">
       <div className="page-narrow">
         <h2 className="section">{tr(C.mcpHeading)}</h2>
-        <p className="hint">{tr(msg({ id: 'mcp.tab.hint', defaultMessage: "Every MCP server in the workspace is available here: turn on the ones this project's agents need. A server on for all projects is on here unless you turn it off.", description: "Under Workspace MCP servers in a project's MCP tab." }))}</p>
+        <p className="hint">{tr(msg({ id: 'mcp.tab.hint', defaultMessage: "Every MCP server in the workspace is available here: turn on the ones this project's agents need. A server runs here only while it is on in the workspace too (its switch in the MCP view).", description: "Under Workspace MCP servers in a project's MCP tab." }))}</p>
         <ChangesApplyNote project={project} />
         {error && servers && <StaleNote what={tr(C.mcpTarget)} error={error} at={loaded.at} onRetry={load} />}
         {!servers ? (
@@ -1483,18 +1483,21 @@ export function ProjectMcpTab({ project }: { project: ProjectInfo }) {
           <div className="toggle-list">
             {servers.map((m) => {
               const on = serverOnIn(m, project.config.mcp)
+              // The project's own choice (#1093), kept while the workspace has the server off.
+              const chosen = project.config.mcp.enabled.includes(m.name)
+              const gated = !m.globallyEnabled && !m.error
               const given = givenTo(m.name)
               return (
-                <div key={m.name} className={cx('toggle-item', !on && 'disabled')} data-mcp={m.name}>
+                <div key={m.name} className={cx('toggle-item', !on && 'disabled')} data-mcp={m.name} data-gated={gated || undefined}>
                   <Icon name={m.def?.url ? 'globe' : 'plug'} />
                   <div className="ti-text">
                     <div className="ti-name">
-                      {m.name} <span className="badge">{tr(msg({ id: 'mcp.tab.workspaceBadge', defaultMessage: 'workspace', description: "A badge on a server in a project's MCP tab: it is one of the workspace's servers." }))}</span> {m.globallyEnabled && <span className="badge">{tr(msg({ id: 'mcp.tab.allBadge', defaultMessage: 'on for all projects', description: "A badge on a server in a project's MCP tab: it is on in every project unless one turns it off." }))}</span>} {m.error && <span className="badge error">{tr(C.invalid)}</span>}
+                      {m.name} <span className="badge">{tr(msg({ id: 'mcp.tab.workspaceBadge', defaultMessage: 'workspace', description: "A badge on a server in a project's MCP tab: it is one of the workspace's servers." }))}</span> {gated && <span className="badge mcp-gated">{tr(actions.MCP_OFF_IN_WORKSPACE)}</span>} {m.error && <span className="badge error">{tr(C.invalid)}</span>}
                     </div>
                     <div className="ti-desc">{m.error ?? m.def?.description ?? m.def?.command}</div>
                     {on && given && <div className="ti-desc">{given}</div>}
                   </div>
-                  <Switch checked={on} disabled={!!m.error} label={tr(msg({ id: 'mcp.tab.switch', defaultMessage: '{name} on in {project}', description: "A server's switch in a project's MCP tab, for screen readers. {name} is the server, {project} the project." }), { name: m.name, project: project.name })} onChange={(v) => void actions.setMcpServerInProject(project, m, v)} />
+                  <Switch checked={chosen} disabled={!!m.error} label={tr(msg({ id: 'mcp.tab.switch', defaultMessage: '{name} on in {project}', description: "A server's switch in a project's MCP tab, for screen readers. {name} is the server, {project} the project." }), { name: m.name, project: project.name })} onChange={(v) => void actions.setMcpServerInProject(project, m, v)} />
                 </div>
               )
             })}

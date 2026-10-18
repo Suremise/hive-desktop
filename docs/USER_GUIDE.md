@@ -831,16 +831,16 @@ A server you add or change is used by sessions started afterwards; restart a run
 
 ### Turning servers on where they're needed
 
-A server in the workspace is **available** to every project, and runs only in the projects where it is **on**, so a big server you need in one project doesn't fill every other project's agents' context with its tools:
+A server in the workspace is **available** to every project, and runs in a project only when it is **on in the workspace and on in that project**, so a big server you need in one project doesn't fill every other project's agents' context with its tools. A server you add starts off everywhere.
 
-- **In a project:** its **MCP** tab lists every workspace server with a switch. Turn on the ones that project's agents need.
-- **In all projects:** the switch beside a server in the MCP view (**All projects** in the server's own view) turns it on everywhere. A project can still turn it off in its **MCP** tab, and a project's own choice stays when you turn all projects on or off.
+- **In the workspace:** the switch beside a server in the MCP view (**Workspace** in the server's own view) is its master switch. Turning it on shows what the server runs and asks which projects to turn it on in: the selected project, and any project that had it on before, are ticked; **All** and **None** tick or untick every project. Turning it off turns it off everywhere at once, and each project keeps its choice, so turning it on again shows the same projects ticked.
+- **In a project:** its **MCP** tab lists every workspace server with that project's own switch. Turn on the ones that project's agents need. While a server is off in the workspace, its row there is greyed and says **Off in the workspace**: the project's switch keeps its state, but no session gets the server until the workspace turns it on.
 
-Each server in the MCP view says where it is on ("On in Amberlight", "On in all projects", "Not on in any project"). Turning a server on shows what it runs and asks first. Sessions of every provider use **only** the servers on in their project.
+New projects start with every server off. Each server in the MCP view says where it runs ("On in Amberlight", "On in no project", "Off in the workspace"). Sessions of every provider use **only** the servers on in the workspace and in their project.
 
-Servers you had turned on before this change stay on where they were: nothing changes until you change it.
+Upgrading from 0.9.0 or earlier changes nothing that runs: a server that was on for all projects is on in the workspace and in every project that hadn't turned it off, and one you had turned on in some projects is on in the workspace and those projects.
 
-If a project has its own `.mcp.json` (or, for Codex, `.codex/config.toml` servers), Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled. **Copy to workspace** shows what each runs, then copies it and turns it on in that project straight away (other projects can turn it on in their **MCP** tab).
+If a project has its own `.mcp.json` (or, for Codex, `.codex/config.toml` servers), Hive tells you which of its servers aren't in the workspace and offers to copy them there; until then they stay disabled. **Copy to workspace** shows what each runs, then copies it and turns it on in the workspace and in that project straight away (other projects can turn it on in their **MCP** tab).
 
 ### Giving a server to some agents only
 
@@ -859,7 +859,7 @@ By default every agent in a project gets all the servers on in its project. To k
 - a **`.json`** definition, in the format above: it becomes `.hive/mcp/<name>.json`;
 - a **`.zip`** of a server's folder: its code is unpacked to `.hive/mcp/<name>/` and its definition becomes `.hive/mcp/<name>.json`. The definition is a file named `hive-mcp.json` (or `hive-mcp.example.json`) at the top of the zip, or inside one folder at its top. It refers to the server's code through `${HIVE_MCP_DIR}`, for example `"args": ["${HIVE_MCP_DIR}/notes/server.js"]` for a zip of a `notes` folder holding `hive-mcp.json` and `server.js`. Added under another name, Hive changes those references to the new folder.
 
-Before adding it, Hive shows the name it will have (the file's or the folder's, which you can change) and **what it runs**: the command and its arguments, or the address it connects to, and the names of its environment variables and headers (a `${NAME}` reference shown as itself, never a value). A name already in use asks whether to **Replace** that server (the old one goes to the Recycle Bin) or choose another name. **Turn on for** says where it runs: the project selected in Hive (the default), **All projects**, or **None yet** (turn it on later in a project's **MCP** tab). Replacing a server turns the new one on only where you choose, even where the old one was on. Turning a server on later shows what it runs again and asks first. A server's view shows what it runs above its definition, and deleting a server added from a `.zip` also moves its folder to the Recycle Bin.
+Before adding it, Hive shows the name it will have (the file's or the folder's, which you can change) and **what it runs**: the command and its arguments, or the address it connects to, and the names of its environment variables and headers (a `${NAME}` reference shown as itself, never a value). A name already in use asks whether to **Replace** that server (the old one goes to the Recycle Bin) or choose another name. It is added **turned off**, in the workspace and in every project, so nothing runs until you turn it on with its switch in the MCP view, which shows what it runs again and asks which projects to turn it on in (see [Turning servers on where they're needed](#turning-servers-on-where-theyre-needed)). Replacing a server adds the new one turned off too, even where the old one was on. A server's view shows what it runs above its definition, and deleting a server added from a `.zip` also moves its folder to the Recycle Bin.
 
 Nothing in the file runs while it's added. Hive refuses a zip with files that would land outside the server's folder (`..`, a drive or a leading `/`), names Windows can't hold, links, more than 5,000 files or more than 200 MB unpacked, and a definition without a `command` or `url`.
 

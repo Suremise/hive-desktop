@@ -263,7 +263,7 @@
   "assistant.sidebar.markNotWorking": "Mark as Not Working On",
   "assistant.sidebar.markWorking": "Mark as Working On",
   "assistant.sidebar.mcpServers": "MCP Servers",
-  "assistant.sidebar.mcpTip": "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions.",
+  "assistant.sidebar.mcpTip": "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run in a project only when on here (its switch, which asks for the projects) and on in that project's MCP tab. Changes apply to new sessions.",
   "assistant.sidebar.needYou": "{count, plural, one {# agent needs you} other {# agents need you}}",
   "assistant.sidebar.newFolder": "New Folder",
   "assistant.sidebar.newFolderButton": "New Folder…",

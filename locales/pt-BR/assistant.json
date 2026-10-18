@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "Marcar como inativo",
   "assistant.sidebar.markWorking": "Marcar como ativo",
   "assistant.sidebar.mcpServers": "Servidores MCP",
-  "assistant.sidebar.mcpTip": "Os servidores MCP implantados no espaço de trabalho (.hive/mcp) ficam disponíveis para todos os projetos e só rodam onde estão ativados: ative um na aba MCP de um projeto, ou para todos os projetos com o seu interruptor aqui. As alterações valem para novas sessões.",
+  "assistant.sidebar.mcpTip": "Os servidores MCP implantados no espaço de trabalho (.hive/mcp) ficam disponíveis para todos os projetos e só rodam em um projeto quando estão ativados aqui (o interruptor deles, que pergunta pelos projetos) e na aba MCP desse projeto. As alterações valem para novas sessões.",
   "assistant.sidebar.needYou": "{count, plural, =0 {# agentes precisam de você} one {# agente precisa de você} other {# agentes precisam de você}}",
   "assistant.sidebar.newFolder": "Nova pasta",
   "assistant.sidebar.newFolderButton": "Nova pasta…",
