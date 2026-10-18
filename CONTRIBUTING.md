@@ -4,6 +4,12 @@ Thank you for helping. This page is mostly about **translations**: fixing a word
 adding a new language. You can do a small fix in GitHub's web editor without installing anything. The checks run on
 your pull request. Code changes are covered briefly at the end.
 
+**Found a bug, or have an idea?** [Open an issue](https://github.com/Suremise/hive-desktop/issues/new/choose): there
+are forms for a bug report (with **Help → Copy Diagnostics…**), a feature request, a translation and anything else.
+A **security problem** goes privately, never in an issue: see [SECURITY.md](.github/SECURITY.md). Pull requests start
+from [a short template](.github/PULL_REQUEST_TEMPLATE.md). Everyone taking part follows the
+[code of conduct](.github/CODE_OF_CONDUCT.md).
+
 Hive's languages besides English are **drafted by AI**, and Hive marks them so: *Deutsch (KI)*, *Polski
 (AI)*. They are a starting point. A native speaker who fixes what reads badly is exactly what they need.
 
