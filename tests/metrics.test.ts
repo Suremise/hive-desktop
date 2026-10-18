@@ -559,7 +559,7 @@ describe('moved into the workspace database (#1019)', () => {
     // applied, and measurements dropped (a project's and untracked owners'), each counted in the reports' losses.
     const saved = metricsSaved(srcPath)!
     const last = saved.buckets.length - 1
-    const buckets = saved.buckets.map((b, i) => (i === last ? { ...b, dropped: 5, droppedBy: { alpha: 3, ' untracked': 2 } } : b))
+    const buckets = saved.buckets.map((b, i) => (i === last ? { ...b, dropped: 5, droppedBy: { alpha: 3, '\u0000untracked': 2 } } : b))
     const data = { ...saved, buckets, evictedThrough: hourOf(T0 - 14 * DAY), renamesApplied: 4 }
     expect(new Set(data.buckets.map((b) => b.span))).toEqual(new Set(['hour', 'day']))
     expect(data.observed.length).toBeGreaterThan(1)
