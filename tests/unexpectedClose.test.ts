@@ -3,8 +3,8 @@
 // and a merge left half done with the folder to check. #987: the marker keeps what the agents' launches had started, each
 // process by id and start time (one without either isn't kept), within bounds, and the notice says how many still run.
 // #1008: a hive-progress run (a test run left over) is one item of the notice, named by its title.
-import { describe, expect, it } from 'vitest'
-import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, parseRunMarker, projectsOf, resumeFailedLine, stillRunningLine, stopLeftovers, stopStillRunning, unexpectedCloseText, type RunningAgent } from '../src/shared/unexpectedClose'
+import { describe, expect, it, vi } from 'vitest'
+import { MAX_MARKER_LAUNCHES, MAX_MARKER_PROCESSES, parseRunMarker, projectsOf, resumeFailedLine, LeftoverStops, stillRunningLine, stopLeftovers, stopStillRunning, unexpectedCloseText, type RunningAgent } from '../src/shared/unexpectedClose'
 import { setDateStyle } from '../src/shared/dates'
 import { groupProgressRuns, progressRunTitle, progressRunsIn, type AgentProcess } from '../src/shared/agentProcesses'
 
@@ -193,6 +193,45 @@ describe('a hive-progress run left running is one item, named by its title (#100
     expect(asked).toEqual([])
     // Ids reported by two clicks are kept once.
     expect((await stopLeftovers({ running: [tree[1]], unverified: [4242] }, tree, { ...ops, endTrees: async () => ({ failed: [], unverified: [4242, 4250] }) })).left.unverified).toEqual([4242, 4250])
+  })
+
+  it("two Stop Them clicks that overlap take turns: the second sees what the first kept, and is no success over it", async () => {
+    const calls: number[][] = []
+    let finish: (r: { failed: AgentProcess[]; unverified: number[] }) => void = () => undefined
+    const stops = new LeftoverStops({
+      // The first click's tree is held open until the second click has been made.
+      endTrees: (roots) => (calls.push(roots.map((x) => x.pid)), new Promise((resolve) => (finish = resolve))),
+      endExact: async () => undefined,
+      stillRunning: async () => []
+    })
+    stops.set(tree.filter((x) => [12, 13].includes(x.pid)), tree)
+    const a = stops.click()
+    const b = stops.click()
+    // Only the first has asked Windows anything: the second waits for it.
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    finish({ failed: [], unverified: [4242] })
+    expect(await a).toEqual({ stopped: 2, tried: 2, left: { running: [], unverified: [4242] } })
+    // The second finds nothing left to try, and 4242 still there (lastRun throws notChecked on it): not a stale success.
+    expect(await b).toEqual({ stopped: 0, tried: 0, left: { running: [], unverified: [4242] } })
+    expect(calls).toHaveLength(1)
+    // And a later click still has it to report.
+    expect((await stops.click()).left.unverified).toEqual([4242])
+    expect(stops.leftovers).toEqual({ running: [], unverified: [4242] })
+  })
+
+  it('a Stop Them click that fails lets the next one run', async () => {
+    let fail = true
+    const stops = new LeftoverStops({
+      endTrees: async () => ({ failed: [], unverified: [] }),
+      endExact: async () => {
+        if (fail) throw new Error('host gone')
+      },
+      stillRunning: async () => []
+    })
+    stops.set([tree[4]], tree)
+    await expect(stops.click()).rejects.toThrow('host gone')
+    fail = false
+    expect(await stops.click()).toEqual({ stopped: 1, tried: 1, left: { running: [], unverified: [] } })
   })
 
   it("the marker keeps each process's parent and run title; bad ones are left out", () => {

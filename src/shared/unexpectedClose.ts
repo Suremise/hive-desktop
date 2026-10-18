@@ -192,6 +192,41 @@ export async function stopLeftovers(left: Leftovers, kept: readonly AgentProcess
   return { stopped: r.stopped, left: { running: r.still, unverified: [...new Set([...left.unverified, ...r.unverified])] } }
 }
 
+/**
+ * What the notice's Stop Them has left, and its clicks (#1028): one at a time, each on what the one before it left, so a
+ * click that overlaps another (twice quickly, or from two windows) can't put back a list that no longer holds the ids
+ * the other kept, or report a success over them.
+ */
+export class LeftoverStops {
+  private left: Leftovers = { running: [], unverified: [] }
+  private kept: readonly AgentProcess[] = []
+  private last: Promise<unknown> = Promise.resolve()
+
+  constructor(private readonly ops: StopProcesses) {}
+
+  /** What still runs as the notice is given, and all the marker kept (for the runs among them). */
+  set(running: readonly AgentProcess[], kept: readonly AgentProcess[]): void {
+    this.left = { running: [...running], unverified: [] }
+    this.kept = kept
+  }
+
+  get leftovers(): Leftovers {
+    return this.left
+  }
+
+  /** One click, once those before it have ended: how many it stopped, what is left, and how many it tried. */
+  click(): Promise<{ stopped: number; left: Leftovers; tried: number }> {
+    const run = this.last.then(async () => {
+      const tried = this.left.running.length
+      const r = await stopLeftovers(this.left, this.kept, this.ops)
+      this.left = r.left
+      return { ...r, tried }
+    })
+    this.last = run.catch(() => undefined)
+    return run
+  }
+}
+
 /** The notice's text: when, what was running, what became of it, what it started that still runs, a crash dump, merges left half done. */
 export function unexpectedCloseText(c: { lastSeen: string; agents: readonly RunningAgent[]; dump: boolean; merges: readonly LeftMerge[]; stillRunning?: readonly AgentProcess[]; kept?: readonly AgentProcess[] }, r: ResumeReport | null): string {
   const lines = [tr(msg({ id: 'main.unexpectedClose.when', defaultMessage: 'Hive was last seen on {date} at {time}.', description: 'The notice at start that the last run of Hive ended without quitting (its title says so): when that run was last seen running ({date}, {time}).' }), { date: formatDate(c.lastSeen), time: formatTime(c.lastSeen) })]

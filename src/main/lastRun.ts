@@ -4,8 +4,7 @@ import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync }
 import { join } from 'path'
 import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { fmt, msg, tr } from '../shared/i18n'
-import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, resumeFailedLine, stopLeftovers, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
-import type { AgentProcess } from '../shared/agentProcesses'
+import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, LeftoverStops, resumeFailedLine, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
 import type { ToastAction } from '../shared/types'
 import { endProcessesExactly, endTreesExactly, runningProcesses, stillRunningOf } from './agentProcesses'
 import { assistantHome } from './assistantControl'
@@ -65,12 +64,12 @@ async function startupDone(): Promise<void> {
 }
 /** The agents left to resume from the notice (once). */
 let toResume: RunningAgent[] = []
-/** What the agents had started that still ran as the notice was given, for its Stop Them (#987); those that end go. */
-let leftRunning: AgentProcess[] = []
-/** All the marker kept of what they had started, for the hive-progress runs among them (#1008). */
-let leftKept: AgentProcess[] = []
-/** The ids of a run's children Stop Them could neither end nor check (#1028): said by every click after, never tried again. */
-let leftUnverified: number[] = []
+/**
+ * What the agents had started that still ran as the notice was given, for its Stop Them (#987; those that end go), with
+ * all the marker kept of it (the hive-progress runs among them, #1008), and the ids of a run's children Stop Them could
+ * neither end nor check (#1028: said by every click after, never tried again).
+ */
+const leftovers = new LeftoverStops({ endTrees: endTreesExactly, endExact: endProcessesExactly, stillRunning: stillRunningOf })
 let startedAt = ''
 let ended = false
 let timer: NodeJS.Timeout | null = null
@@ -270,8 +269,8 @@ export async function tellUnexpectedClose(): Promise<void> {
   if (r) toResume = []
   // What the agents had started that still runs as the same processes (#987): listed, never stopped unasked.
   const kept = c.processes.flatMap((l) => l.processes)
-  leftRunning = (await stillRunningOf(kept).catch(() => null)) ?? []
-  leftKept = kept
+  const leftRunning = (await stillRunningOf(kept).catch(() => null)) ?? []
+  leftovers.set(leftRunning, kept)
   if (kept.length) log.info(`Of ${kept.length} process(es) the agents had started, ${leftRunning.length} still run${leftRunning.length ? `: ${userText(leftRunning.map((p) => p.label).join('; '))}` : ''}`) // i18n-ignore: a line of hive.log
   told = true
   const actions: ToastAction[] = []
@@ -291,17 +290,15 @@ export async function tellUnexpectedClose(): Promise<void> {
  * may still run (#1028: no click can find it again, so the error says where to look instead of to try again).
  */
 export async function stopLeftAfterClose(): Promise<number> {
-  if (!leftRunning.length && !leftUnverified.length) return 0
-  const tried = leftRunning.length
-  const { stopped, left } = await stopLeftovers({ running: leftRunning, unverified: leftUnverified }, leftKept, { endTrees: endTreesExactly, endExact: endProcessesExactly, stillRunning: stillRunningOf })
-  leftRunning = left.running
-  leftUnverified = left.unverified
+  // After any click still going (#1028): it sees what that one left, never a list from before it.
+  const { stopped, left, tried } = await leftovers.click()
   if (stopped) log.info(`Stopped ${stopped} process(es) the agents had started before Hive closed unexpectedly`)
   const n = left.running.length
   const u = left.unverified.length
   if (n) log.warn(`Couldn't stop ${n} process(es) the agents had started before Hive closed unexpectedly`)
   if (u && tried) log.warn(`${u} process(es) a test run had started may still run: Windows let Hive neither end nor check them (ids ${left.unverified.join(', ')})`)
   // A test run's child Hive could neither end nor check may still run: never a success (#1008), on any click (#1028).
+  if (!n && !u && !tried) return 0
   const ids = fmt.list(left.unverified.map(String))
   if (n && u) throw hiveError(msg({ id: 'main.unexpectedClose.notStoppedNorChecked', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it; Stop Them in the notice tries again.} other {# processes are still running: Windows didn't let Hive end them; Stop Them in the notice tries again.}} {u, plural, one {Another, started by a test run, may still be running: Windows let Hive neither end nor check it, so Hive can't find it again. Look for process ID {ids} in Task Manager's Details.} other {# others, started by a test run, may still be running: Windows let Hive neither end nor check them, so Hive can't find them again. Look for process IDs {ids} in Task Manager's Details.}}", description: "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run, which Stop Them (the notice's button) tries again; {u} is how many more, started by a test run, Windows let Hive neither end nor check, so Hive can't tell them from other processes any more: {ids} lists their process IDs (\"4242, 4250\"), to look for in Task Manager's Details tab." }), { n, u, ids })
   if (n) throw hiveError(msg({ id: 'main.unexpectedClose.notStopped', defaultMessage: "{n, plural, one {# process is still running: Windows didn't let Hive end it.} other {# processes are still running: Windows didn't let Hive end them.}} Stop Them in the notice tries again.", description: "Stopping the processes the agents had started before Hive closed unexpectedly failed for some. {n} is how many still run; Stop Them is the notice's button." }), { n })
@@ -315,5 +312,6 @@ export function lastRunDiagnostics(): string {
   const c = found
   if (!c) return '- The last run quit normally (or this is the first).' // i18n-ignore: Copy Diagnostics' report, in English
   const kept = c.processes.reduce((n, l) => n + l.processes.length, 0)
-  return `- The last run ended without quitting: last seen ${c.lastSeen}${c.startedAt ? `, started ${c.startedAt}` : ''}; ${c.agents.length} agent(s) were running; ${c.dump ? 'a crash dump of it was kept' : 'no crash dump'}${c.merges.length ? `; ${c.merges.length} merge(s) left half done` : ''}${kept ? `; the agents had started ${kept} process(es), ${leftRunning.length} still running now${leftUnverified.length ? `, ${leftUnverified.length} more Stop Them could neither end nor check (ids ${leftUnverified.join(', ')})` : ''}` : ''}` // i18n-ignore: Copy Diagnostics' report, in English
+  const left = leftovers.leftovers
+  return `- The last run ended without quitting: last seen ${c.lastSeen}${c.startedAt ? `, started ${c.startedAt}` : ''}; ${c.agents.length} agent(s) were running; ${c.dump ? 'a crash dump of it was kept' : 'no crash dump'}${c.merges.length ? `; ${c.merges.length} merge(s) left half done` : ''}${kept ? `; the agents had started ${kept} process(es), ${left.running.length} still running now${left.unverified.length ? `, ${left.unverified.length} more Stop Them could neither end nor check (ids ${left.unverified.join(', ')})` : ''}` : ''}` // i18n-ignore: Copy Diagnostics' report, in English
 }
