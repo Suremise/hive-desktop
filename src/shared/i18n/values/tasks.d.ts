@@ -52,6 +52,7 @@ interface HiveMessageValues {
   'tasks.error.reviewNotInReview': { n: string | number; column: string }
   'tasks.error.reviewOnItsOwn': undefined
   'tasks.error.reviewTaken': { agent: string | number; n: string | number; since: string | number }
+  'tasks.error.setAsideGone': undefined
   'tasks.error.staysInProject': { project: string | number }
   'tasks.error.tooLong': { what: string; max: number }
   'tasks.error.tooManyDecisions': { max: string | number }
@@ -77,6 +78,7 @@ interface HiveMessageValues {
   'tasks.history.decisionsTold': { agent: string | number; count: number }
   'tasks.history.dependsOn': { cards: string | number }
   'tasks.history.description': undefined
+  'tasks.history.fromOlder': { was: string | number }
   'tasks.history.given': { agent: string | number }
   'tasks.history.imported': { project: string | number; was: string | number }
   'tasks.history.labels': { labels: string | number }

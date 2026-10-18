@@ -7,11 +7,11 @@ import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
 import { providerMessage } from '../shared/providers'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
-import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, putCard, setArchiveBatches, takeNumber, type CardQuery } from './boardStore'
+import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
 import { config } from './config'
 import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
@@ -400,6 +400,96 @@ export function moveOrphanCards(ws: WorkspaceService, m: { from: string; to: str
     }
     return n
   })
+}
+
+/** The start of a set-aside card's description the Review… dialog shows. */
+const PREVIEW_CHARS = 600
+
+/** A set-aside file's card as the older Hive saved it, or null when it isn't one. */
+function setAsideDoc(text: string | null): Record<string, unknown> | null {
+  if (text === null) return null
+  try {
+    const v = JSON.parse(text) as unknown
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The cards an older Hive saved after the board moved to its database, set aside in `.hive/tasks.set-aside` (#1017's
+ * downgrade, #1044): what the Review… dialog lists, oldest number first. A file that isn't a card is listed as unreadable.
+ */
+export async function setAsideCards(ws: WorkspaceService = workspace): Promise<SetAsideCard[]> {
+  if (!ws.path) return []
+  const ids = await ws.projectIds()
+  const numbers = cardNumbers(ws)
+  return setAsideFiles(ws).map(({ file, number, text }) => {
+    const raw = setAsideDoc(text)
+    const c = raw ? clean(raw, number, ids) : null
+    return {
+      file,
+      number,
+      free: !numbers.has(number),
+      readable: !!c,
+      title: c?.title ?? file,
+      preview: c ? c.description.slice(0, PREVIEW_CHARS) : '',
+      project: c?.project ?? '',
+      column: c?.column ?? 'todo',
+      createdBy: c?.createdBy ?? '',
+      createdAt: c?.createdAt ?? '',
+      comments: c?.comments.length ?? 0
+    }
+  })
+}
+
+/**
+ * Adds a set-aside card to the board (#1044, Darren's decision on #1017): under its old number if no card has it, else
+ * the next free one, with everything it had (comments, decisions, links as they were: nothing else is rewritten), placed
+ * last in its column and a line in its history by Repair saying where it came from. In one board change, the file read
+ * again there; its content is recorded as added in the same transaction, so it is never added twice.
+ */
+export function addSetAsideCard(ws: WorkspaceService, file: string): Promise<TaskCard> {
+  return boardLock(ws, async () => {
+    const path = setAsideFile(ws, file)
+    const entry = path ? setAsideFiles(ws).find((f) => f.file === file) : undefined
+    const raw = setAsideDoc(entry?.text ?? null)
+    if (!entry || !raw) throw hiveError(msg({ id: 'tasks.error.setAsideGone', defaultMessage: 'That set-aside card is gone, or isn\'t a card: it can only be discarded.', description: "An error in the Review… dialog for cards an older Hive saved: the card's file was removed meanwhile, or can't be read as a card." }), undefined, { kind: 'notFound' })
+    const ids = await ws.projectIds()
+    const was = entry.number
+    const n = hasCard(ws, was) ? await nextNumber(ws) : was
+    const now = new Date().toISOString()
+    const c = clean(raw, n, ids)
+    // Every field the older Hive stored is kept (#1044 round 1: its own fields, past holds for its cost), Hive's own
+    // fields as read (round 2: one of the wrong type gets its safe default, as on any read, so it can't stop the card
+    // coming back; the original stays in the Recycle Bin): but its number, place, history and date. A review under way
+    // there isn't one here (saveCard ends its reviewer's hold).
+    const { review: _review, ...known } = c
+    // Hive's optional fields only as read: one left out as broken isn't kept from the stored card either.
+    const { agentName: _a, review: _r, archivedFor: _f, archivedBatch: _b, decisions: _d, held: _h, ...stored } = raw
+    const card = {
+      ...stored,
+      ...known,
+      number: n,
+      order: orderIn(await boardPlaces(ws), c.column, null, null),
+      history: [...c.history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
+      updatedAt: now
+    } as TaskCard
+    await saveCard(ws, n, card)
+    setAsideAdded(ws, file, entry.text!)
+    log.info(`#${n} added from ${SET_ASIDE} (made in an older Hive as #${was}): ${userText(card.title)}`)
+    changed(ws)
+    return clean(card, n, ids)
+  })
+}
+
+/** Discards a set-aside card (#1044): its file goes to the Recycle Bin. The window asks first. */
+export async function discardSetAsideCard(ws: WorkspaceService, file: string): Promise<void> {
+  const path = setAsideFile(ws, file)
+  if (!path) return
+  await trash(path)
+  log.info(`discarded ${file} from ${SET_ASIDE}`)
+  changed(ws)
 }
 
 /** The next card number, never reused (in a board change). */

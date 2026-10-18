@@ -17,6 +17,7 @@ import { BusyButton, Icon, IconButton, InfoTip, Markdown, Modal, SearchInput, ST
 import { DataTable, type DataColumn } from './DataTable'
 import { DialogList } from './Overlays'
 import { EXPORT_BOARD, exportBoard, reportArchived, unarchiveBatch } from '../boardBatches'
+import { SET_ASIDE_ITEM } from './SetAside'
 import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
 import { CardCostLine } from './CardCost'
@@ -934,6 +935,19 @@ export function BoardToolbar({
 }) {
   useLanguage()
   const count = useStore((s) => (s.tasks ?? NO_TASKS).filter((c) => c.archived && (project === null || c.project.toLowerCase() === project.toLowerCase())).length)
+  // How many cards an older Hive saved are set aside (#1044): the ⋯ menu offers them while any are. Read again as the board changes.
+  const tasks = useStore((s) => s.tasks)
+  const [aside, setAside] = useState(0)
+  useEffect(() => {
+    let live = true
+    call('tasks:setAside').then(
+      (a) => live && setAside(a.length),
+      () => undefined
+    )
+    return () => {
+      live = false
+    }
+  }, [tasks])
   const menu = useContextMenu()
   return (
     <div className="board-toolbar">
@@ -955,7 +969,11 @@ export function BoardToolbar({
           className="board-more"
           onClick={(e) => {
             const b = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            menu.openAt(b.left, b.bottom, [archiveAllItem(get().tasks, { column: null, project, scope, query }), { label: tr(EXPORT_BOARD), icon: 'export', onClick: () => void exportBoard() }])
+            menu.openAt(b.left, b.bottom, [
+              archiveAllItem(get().tasks, { column: null, project, scope, query }),
+              { label: tr(EXPORT_BOARD), icon: 'export', onClick: () => void exportBoard() },
+              ...(aside ? [{ label: tr(SET_ASIDE_ITEM, { n: aside }), icon: 'archive', onClick: () => set({ setAsideOpen: true }) }] : [])
+            ])
           }}
         />
       )}

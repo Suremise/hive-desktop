@@ -2,14 +2,16 @@
 // files into it (once, checked, the folder kept as a backup and a stub left for older versions), cards an older Hive saved
 // meanwhile, Export Board to JSON (an export read back is the same board), and the window's board with archived cards in short.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
-import { join } from 'path'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { join, sep } from 'path'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DatabaseSync } from 'node:sqlite'
 import { tempDir } from './tempDir'
 import type { BoardNotice } from '../src/main/boardStore'
 
 const base = tempDir('hive-board-store-')
+// The longest a wait here waits for what it waits on: a bound for a hung run (tests/README.md).
+const HUNG_MS = 10_000
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
@@ -263,6 +265,153 @@ describe("cards an older Hive saved meanwhile (#1017 downgrade, Darren's decisio
     expect(await titlesOf(w)).toEqual(['#1 Card 1'])
   })
 })
+
+describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the only way they reach the board)', () => {
+  // Added and discarded files go to the Recycle Bin: a test trash folder here.
+  const trashDir = join(base, 'set-aside-trash')
+  beforeAll(() => {
+    process.env.HIVE_TEST_TRASH_DIR = trashDir
+  })
+  afterAll(() => {
+    delete process.env.HIVE_TEST_TRASH_DIR
+  })
+  const trashedFrom = (ws: string): string[] => {
+    try {
+      return readFileSync(join(trashDir, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).from as string).filter((f) => f.startsWith(ws + sep)).map((f) => f.slice(ws.length + 1))
+    } catch {
+      return []
+    }
+  }
+  async function asideWith(board: Record<string, string>, stubFiles: Record<string, string>): Promise<{ ws: string; w: WS }> {
+    const ws = workspaceWith(board)
+    const first = await open(ws)
+    await inWorkspace(first, () => tasks.allTasks(first))
+    await disposeWorkspaceService(first)
+    for (const [f, text] of Object.entries(stubFiles)) writeFileSync(join(ws, '.hive', 'tasks', f), text)
+    const w = await open(ws)
+    await inWorkspace(w, () => tasks.allTasks(w))
+    return { ws, w }
+  }
+  const older = (num: number, fields: Record<string, unknown> = {}) => fileOf(card(num, { createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', updatedAt: '2026-10-05T00:00:00.000Z', ...fields }))
+  const asideIn = (ws: string): string[] => readdirSync(join(ws, '.hive', store.SET_ASIDE)).sort()
+
+  it('lists each with its old number, whether it is free, who made it and a preview; a file that is not a card only as unreadable', async () => {
+    const { w } = await asideWith({ '1.json': fileOf(card(1)) }, { '1.json': older(1, { title: 'Clashes' }), '7.json': older(7, { title: 'Free', description: 'x'.repeat(2000), column: 'review' }), '8.json': '{ damaged' })
+    const list = await inWorkspace(w, () => tasks.setAsideCards(w))
+    expect(list.map((c) => [c.file, c.number, c.free, c.readable, c.title])).toEqual([
+      ['1.json', 1, false, true, 'Clashes'],
+      ['7.json', 7, true, true, 'Free'],
+      ['8.json', 8, true, false, '8.json']
+    ])
+    expect(list[1]).toMatchObject({ createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', project: 'p', column: 'review', comments: 1 })
+    expect(list[1].preview).toHaveLength(600)
+  })
+
+  it('Add keeps a free old number, everything the card had and its links as they were, with a line by Repair; the file goes and it is never listed again', async () => {
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)), '2.json': fileOf(card(2, { links: [7] })) }, { '7.json': older(7, { title: 'Made in rc.3', links: [1, 40], labels: ['old'], decisions: [{ id: 'd1', text: 'Keep it', decidedBy: 'user', recordedBy: 'You', at: '2026-10-05T00:00:00.000Z' }] }) })
+    const added = await inWorkspace(w, () => tasks.addSetAsideCard(w, '7.json'))
+    expect(added.number).toBe(7)
+    const c = await inWorkspace(w, () => tasks.getTask(7, w))
+    expect(c).toMatchObject({ title: 'Made in rc.3', labels: ['old'], createdBy: 'Assistant', createdAt: '2026-10-05T00:00:00.000Z', comments: [expect.objectContaining({ text: 'Note 7' })], decisions: [expect.objectContaining({ text: 'Keep it' })] })
+    // Its links as saved (a gone card's left out when read, never rewritten); #2's link to #7 now finds it.
+    expect(store.cardDoc(w, 7)!.links).toEqual([1, 40])
+    expect((await inWorkspace(w, () => tasks.getTask(2, w))).links).toEqual([7])
+    expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #7' })
+    // The older Hive's file goes to the Recycle Bin, recoverable.
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+    expect(await inWorkspace(w, () => tasks.setAsideCards(w))).toEqual([])
+    // The same file back (it couldn't leave the stub): set aside again at the next open, but never listed or added twice.
+    await disposeWorkspaceService(w)
+    writeFileSync(join(ws, '.hive', 'tasks', '7.json'), older(7, { title: 'Made in rc.3', links: [1, 40], labels: ['old'], decisions: [{ id: 'd1', text: 'Keep it', decidedBy: 'user', recordedBy: 'You', at: '2026-10-05T00:00:00.000Z' }] }))
+    const w2 = await open(ws)
+    expect(await inWorkspace(w2, () => tasks.setAsideCards(w2))).toEqual([])
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+  })
+
+  it('Add gives the next free number when the old one is taken, placed last in its column; the card on the board and links to the old number unchanged', async () => {
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1, { title: 'On the board' })), '5.json': fileOf(card(5, { links: [1] })) }, { '1.json': older(1, { title: 'Made as #1', column: 'todo' }) })
+    const before = store.cardDoc(w, 1)
+    const added = await inWorkspace(w, () => tasks.addSetAsideCard(w, '1.json'))
+    expect(added.number).toBe(6)
+    expect(store.cardDoc(w, 1)).toEqual(before)
+    expect(store.cardDoc(w, 5)!.links).toEqual([1])
+    const c = await inWorkspace(w, () => tasks.getTask(6, w))
+    expect(c.title).toBe('Made as #1')
+    expect(c.order).toBeGreaterThan((await inWorkspace(w, () => tasks.getTask(5, w))).order)
+    expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #1' })
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    // A new card after it takes the next number on.
+    expect((await inWorkspace(w, () => tasks.createTask({ title: 'After', project: 'p' }, user))).number).toBe(7)
+  })
+
+  it('Add keeps every field the older Hive stored: its own fields and past holds for its cost; a review under way there ends (#1044 round 1)', async () => {
+    const holds = [
+      { agent: 'a-past', name: 'Past Builder', role: 'build', from: '2026-10-05T01:00:00.000Z', to: '2026-10-05T02:00:00.000Z' },
+      { agent: 'a-rev', name: 'Past Reviewer', role: 'review', from: '2026-10-05T03:00:00.000Z' }
+    ]
+    const text = older(7, { custom: { keep: 'must survive recovery' }, column: 'review', review: { agent: 'a-rev', agentName: 'Past Reviewer', since: '2026-10-05T03:00:00.000Z' }, held: holds })
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '7.json': text })
+    await inWorkspace(w, () => tasks.addSetAsideCard(w, '7.json'))
+    const doc = store.cardDoc(w, 7)!
+    const was = JSON.parse(text) as Record<string, unknown>
+    expect(doc.custom).toEqual({ keep: 'must survive recovery' })
+    expect(doc.review).toBeUndefined()
+    // The finished hold as it was; the review under way there ended as it was added.
+    const held = doc.held as Record<string, unknown>[]
+    expect(held[0]).toEqual(holds[0])
+    expect(held[1]).toEqual({ ...holds[1], to: expect.any(String) })
+    // Every other field as stored, and its history with the line by Repair after it.
+    for (const k of Object.keys(was).filter((f) => !['number', 'order', 'history', 'updatedAt', 'review', 'held'].includes(f))) expect([k, doc[k]]).toEqual([k, was[k]])
+    expect((doc.history as unknown[]).slice(0, -1)).toEqual(was.history)
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+  })
+
+  it('Add brings back a card whose own fields are of the wrong type, as any read would show it: a broken cost or history field never stops it (#1044 round 2)', async () => {
+    const goodHold = { agent: 'a-past', name: 'Past Builder', role: 'build', from: '2026-10-05T01:00:00.000Z', to: '2026-10-05T02:00:00.000Z' }
+    const files = {
+      // held not a list; held with broken entries beside a good one; history not a list, with no holds to work out from it.
+      '7.json': older(7, { title: 'Held not a list', held: 'not an array' }),
+      '8.json': older(8, { title: 'Broken holds', held: [null, 'x', { name: 'No role' }, goodHold], custom: 1 }),
+      '9.json': older(9, { title: 'History not a list', history: 'nope', column: 'doing', agent: 'a1' }),
+      '10.json': older(10, { title: 'Broken history entries', history: [null, { at: '2026-10-05T00:00:00.000Z' }, { at: '2026-10-05T00:00:00.000Z', by: 'You', what: 'Created in Todo', id: 'h1' }] }),
+      // A partial card: only a title and a field of its own.
+      '11.json': JSON.stringify({ title: 'Only a title', mine: { kept: true } })
+    }
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, files)
+    expect((await inWorkspace(w, () => tasks.setAsideCards(w))).map((c) => [c.number, c.readable])).toEqual([7, 8, 9, 10, 11].map((x) => [x, true]))
+    for (const f of Object.keys(files)) await inWorkspace(w, () => tasks.addSetAsideCard(w, f))
+    const got = async (x: number) => inWorkspace(w, () => tasks.getTask(x, w))
+    expect((await got(7)).title).toBe('Held not a list')
+    expect(store.cardDoc(w, 7)!.held).toBeUndefined()
+    expect(store.cardDoc(w, 8)!.held).toEqual([goodHold])
+    expect(store.cardDoc(w, 8)!.custom).toBe(1)
+    expect((await got(9)).history.map((h) => h.by)).toEqual(['Repair'])
+    expect((await got(10)).history.map((h) => h.what)).toEqual(['Created in Todo', 'Added from an older Hive, where it was made as #10'])
+    const partial = await got(11)
+    expect(partial).toMatchObject({ title: 'Only a title', description: '', column: 'todo', comments: [] })
+    expect(store.cardDoc(w, 11)!.mine).toEqual({ kept: true })
+    // Each original in the Recycle Bin, recoverable as it was.
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws).sort()).toEqual(Object.keys(files).map((f) => join('.hive', store.SET_ASIDE, f)).sort())
+  })
+
+  it('Discard moves the file to the trash, nothing on the board changes; a damaged file is refused by Add; names outside the folder are refused', async () => {
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '3.json': older(3), '4.json': '{ damaged' })
+    await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '4.json'))).rejects.toThrow(/can only be discarded/)
+    await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '..\\..\\p\\.hive\\project.json'))).rejects.toThrow(/can only be discarded/)
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '..\\tasks\\board.json'))
+    expect(existsSync(join(ws, '.hive', 'tasks', 'board.json'))).toBe(true)
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '3.json'))
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '4.json'))
+    expect(asideIn(ws)).toEqual([])
+    expect(trashedFrom(ws).sort()).toEqual([join('.hive', store.SET_ASIDE, '3.json'), join('.hive', store.SET_ASIDE, '4.json')])
+    expect(await titlesOf(w)).toEqual(['#1 Card 1'])
+  })
+})
+
+const titlesOf = async (w: WS): Promise<string[]> => (await inWorkspace(w, () => tasks.allTasks(w))).map((c) => `#${c.number} ${c.title}`).sort()
 
 describe('numbers an older Hive could take (#1017 round 1)', () => {
   it("the stub's next number moves on as each number is taken, before Hive closes (ended without closing, an older Hive never reuses one)", async () => {

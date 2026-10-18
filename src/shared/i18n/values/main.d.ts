@@ -18,6 +18,7 @@ interface HiveMessageValues {
   'main.board.damagedTitle': { n: number }
   'main.board.foundBody': { folder: string | number }
   'main.board.foundTitle': { n: number }
+  'main.board.review': undefined
   'main.console.noWorkspace': undefined
   'main.console.title': { workspace: string | number }
   'main.corrupt.damaged': { file: string | number }

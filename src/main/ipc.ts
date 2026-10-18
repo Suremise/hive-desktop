@@ -610,6 +610,9 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'tasks:unarchiveBatch': (id) => tasks.unarchiveBatch(id, { kind: 'user' }),
     'tasks:archiveBatches': () => tasks.archiveBatches(),
+    'tasks:setAside': () => tasks.setAsideCards(currentWorkspace()),
+    'tasks:addSetAside': (file) => tasks.addSetAsideCard(currentWorkspace(), file),
+    'tasks:discardSetAside': (file) => tasks.discardSetAsideCard(currentWorkspace(), file),
     'tasks:delete': (n) => tasks.deleteTask(n),
     'tasks:start': async (n, target) => {
       const r = await startTask(n, target, { kind: 'user' })

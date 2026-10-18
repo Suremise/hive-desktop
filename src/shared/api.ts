@@ -2,6 +2,7 @@ import type { AgentLeftovers } from './agentProcesses'
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
 import type {
   ArchiveBatch,
+  SetAsideCard,
   ArchiveRequest,
   ArchiveResult,
   UnarchiveResult,
@@ -276,6 +277,10 @@ export interface HiveRequests {
   'tasks:list': (fullArchive?: boolean) => TaskCard[]
   /** Exports the board to a folder of JSON files the user picks (#1017); null when the user cancelled. */
   'tasks:export': () => { dir: string; cards: number } | null
+  /** Cards an older Hive saved, set aside for review (#1044): listed, added to the board, discarded (by file name). */
+  'tasks:setAside': () => SetAsideCard[]
+  'tasks:addSetAside': (file: string) => TaskCard
+  'tasks:discardSetAside': (file: string) => void
   'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard

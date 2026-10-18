@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'async_hooks'
+import { createHash } from 'crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'original-fs'
 import { mkdir, writeFile } from 'original-fs/promises'
 import { join } from 'path'
@@ -10,6 +11,7 @@ import type { ArchiveBatch } from '../shared/types'
 import { openDb, type Db, type Migration } from './db'
 import { emit } from './events'
 import { withFileLock } from './fsutil'
+import { trash } from './trash'
 import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import type { WorkspaceService } from './workspace'
@@ -302,6 +304,78 @@ function setAsideStub(b: Board, hive: string): void {
   }
   writeStub(hive, nextOf(db))
 }
+
+/** A set-aside file's name as setAsideStub gives it: `<n>.json`, or `<n>.<time>-<i>.json` beside one of that name. */
+const SET_ASIDE_NAME = /^(\d+)(?:\.[0-9TZ-]+)?\.json$/
+const textHash = (text: string): string => createHash('sha256').update(text).digest('hex')
+
+/**
+ * The files set aside in `.hive/tasks.set-aside` (#1044), oldest number first: each one's name, the number its name
+ * gives and its text (null when it can't be read). One already added to the board (its content recorded as added, its
+ * file not moved yet: Windows held it) isn't listed, and goes to the Recycle Bin now.
+ */
+export function setAsideFiles(ws: WorkspaceService): { file: string; number: number; text: string | null }[] {
+  if (!ws.path) return []
+  const dir = join(ws.path, HIVE_DIR, SET_ASIDE)
+  let names: string[]
+  try {
+    names = readdirSync(dir).filter((f) => SET_ASIDE_NAME.test(f))
+  } catch {
+    return []
+  }
+  const b = boardOf(ws.path)
+  const added = new Set<string>(JSON.parse(meta(b.db.writer, 'setAsideAdded') ?? '[]') as string[])
+  const out: { file: string; number: number; text: string | null }[] = []
+  for (const file of names) {
+    let text: string | null = null
+    try {
+      text = readFileSync(join(dir, file), 'utf8')
+    } catch (e) {
+      log.warn(`couldn't read ${file} in ${SET_ASIDE}`, e)
+    }
+    if (text !== null && added.has(textHash(text))) {
+      removeAdded(dir, file)
+      continue
+    }
+    out.push({ file, number: Number(SET_ASIDE_NAME.exec(file)![1]), text })
+  }
+  return out.sort((a, c) => a.number - c.number || (a.file < c.file ? -1 : 1))
+}
+
+/** The path of a set-aside file named by the window: only a name of the folder's own form, never a path out of it. */
+export function setAsideFile(ws: WorkspaceService, file: string): string | null {
+  if (!ws.path || !SET_ASIDE_NAME.test(file)) return null
+  const p = join(ws.path, HIVE_DIR, SET_ASIDE, file)
+  return existsSync(p) ? p : null
+}
+
+/**
+ * A set-aside file's card was added to the board (inside boardWrite): its content is recorded as added in the same
+ * transaction, so it is never listed or added again, and its file moved to the Recycle Bin once the change commits (or,
+ * held, at the next listing).
+ */
+export function setAsideAdded(ws: WorkspaceService, file: string, text: string): void {
+  writeOp(ws, (b) => {
+    const db = b.db.writer
+    const added = new Set<string>(JSON.parse(meta(db, 'setAsideAdded') ?? '[]') as string[])
+    added.add(textHash(text))
+    setMeta(db, 'setAsideAdded', JSON.stringify([...added]))
+  })
+  const dir = join(ws.path!, HIVE_DIR, SET_ASIDE)
+  afterBoardWrite(ws, () => removeAdded(dir, file))
+}
+
+/** A set-aside file whose card is on the board goes to the Recycle Bin (#1044 round 1): the older Hive's copy stays recoverable. */
+function removeAdded(dir: string, file: string): void {
+  const p = join(dir, file)
+  // Once: a listing while its move is under way leaves it to that move.
+  if (removing.has(p)) return
+  removing.add(p)
+  trash(p)
+    .catch((e) => log.warn(`couldn't move ${file} from ${SET_ASIDE} to the Recycle Bin (its card is on the board): tried again later`, e))
+    .finally(() => removing.delete(p))
+}
+const removing = new Set<string>()
 
 const hiveVersion = (): string => {
   try {

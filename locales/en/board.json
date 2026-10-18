@@ -1655,6 +1655,90 @@
     "defaultMessage": "{run} · waiting",
     "description": "A run in a few words, for an agent's status line: {run} is its title and steps (\"e2e 4/12\"); it is waiting (for a test slot, say)."
   },
+  "board.setAside.add": {
+    "defaultMessage": "Add to Board",
+    "description": "Button: adds the set-aside card to the board as a new card."
+  },
+  "board.setAside.added": {
+    "defaultMessage": "Added as #{n}",
+    "description": "A notification: the set-aside card was added to the board with this number."
+  },
+  "board.setAside.adding": {
+    "defaultMessage": "Adding…",
+    "description": "The Add to Board button while the card is being added."
+  },
+  "board.setAside.close": {
+    "defaultMessage": "Close",
+    "description": "Button: closes the dialog listing set-aside cards."
+  },
+  "board.setAside.discard": {
+    "defaultMessage": "Discard…",
+    "description": "Button: discards the set-aside card (asks first). The … says it asks: keep it."
+  },
+  "board.setAside.discardButton": {
+    "defaultMessage": "Discard",
+    "description": "Button in the confirmation: discards the set-aside card."
+  },
+  "board.setAside.discardMessage": {
+    "defaultMessage": "It doesn't reach the board: its file goes to the Recycle Bin{readable, select, yes {, with its comments and history} other {}}.",
+    "description": "The confirmation before a set-aside card is discarded; readable (yes) when it is a card, not a damaged file. Recycle Bin is Windows' name for it."
+  },
+  "board.setAside.discardTitle": {
+    "defaultMessage": "Discard \"{title}\"?",
+    "description": "Title of the confirmation before a set-aside card is discarded. {title} is its title."
+  },
+  "board.setAside.discarding": {
+    "defaultMessage": "Discarding…",
+    "description": "The Discard button while the card is being discarded."
+  },
+  "board.setAside.intro": {
+    "defaultMessage": "This workspace was opened in an older Hive, which saved these cards where it keeps them. They were set aside, unchanged, and not added to the board. Add each one, or discard it.",
+    "description": "The top of the dialog listing cards an older Hive saved."
+  },
+  "board.setAside.keeps": {
+    "defaultMessage": "Add keeps #{n}",
+    "description": "Beside a set-aside card: its old number {n} is free on this board, so Add gives it that number."
+  },
+  "board.setAside.links": {
+    "defaultMessage": "Nothing is rewritten for them: a card here that links to one by its old number keeps that number, and a card added under a new number keeps its own links as they were.",
+    "description": "A note in the dialog listing cards an older Hive saved: Hive changes no references between cards when adding them."
+  },
+  "board.setAside.loading": {
+    "defaultMessage": "Reading the set-aside cards…",
+    "description": "The dialog listing cards an older Hive saved, while it reads them."
+  },
+  "board.setAside.made": {
+    "defaultMessage": "Made by {by} on {when}",
+    "description": "Who made a set-aside card ({by}: a name, You or Assistant) and when ({when}: a date and time)."
+  },
+  "board.setAside.menu": {
+    "defaultMessage": "Set-Aside Cards ({n, number})…",
+    "description": "An item of the board's ⋯ menu, shown while cards an older Hive saved are set aside: opens the dialog to add or discard them. {n} is how many. The … says it opens a dialog: keep it."
+  },
+  "board.setAside.none": {
+    "defaultMessage": "No cards are set aside.",
+    "description": "The dialog listing cards an older Hive saved, when none are left."
+  },
+  "board.setAside.number": {
+    "defaultMessage": "#{n} in the older Hive",
+    "description": "A set-aside card's number as the older Hive gave it. {n} is the number (after #)."
+  },
+  "board.setAside.taken": {
+    "defaultMessage": "#{n} is taken here: Add gives the next free number",
+    "description": "Beside a set-aside card: a card on this board has its old number {n}, so Add gives it a new one."
+  },
+  "board.setAside.title": {
+    "defaultMessage": "Cards Made by an Older Hive",
+    "description": "Title of the dialog listing cards an older version of Hive saved in this workspace after the board moved to its database; they were kept aside, not added to the board."
+  },
+  "board.setAside.unreadable": {
+    "defaultMessage": "This file isn't a card Hive can read: it can only be discarded.",
+    "description": "A set-aside file that is not a valid card."
+  },
+  "board.setAside.where": {
+    "defaultMessage": "{project, select, none {The workspace} other {{project}}} · {column} · {comments, plural, =0 {no comments} one {# comment} other {# comments}}",
+    "description": "A set-aside card's project (a folder name; none: about the whole workspace), its board column, and how many comments it has."
+  },
   "board.slots.agentMerging": {
     "defaultMessage": "{agent} is merging{cards, select, none {} other { {cards}}}",
     "description": "Who holds the merge slot: an agent ({agent}) merging, then the cards it merges ({cards}: \"#305, #306\"; none: leave that branch empty)."
