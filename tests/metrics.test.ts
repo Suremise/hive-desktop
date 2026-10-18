@@ -445,6 +445,46 @@ describe('moved into the workspace database (#1019)', () => {
   const histogram = (count: number) => Array.from({ length: LATENCY_BOUNDS_MS.length + 1 }, (_, i) => (i === LATENCY_BOUNDS_MS.length ? count : 0))
   const whole = (w: WS) => metrics.queryMetrics(w, { scope: { kind: 'workspace' }, from: new Date(T0 - 30 * DAY).toISOString(), trend: true })
 
+  it("a metrics.json that can't be read at the first open is not moved, marked or saved over: the next open moves it in, its numbers whole (#1019 round 1)", async () => {
+    const path = fresh()
+    const series = { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', count: 2, totalMs: 6, maxMs: 4, histogram: histogram(2), requestBytes: 20, responseBytes: 200 }
+    const text = JSON.stringify({ version: 1, buckets: [{ start: hourOf(T0) - HOUR, span: 'hour', projects: { alpha: { api: { 'GET /v1/tasks agent ok': series } } } }], observed: [[T0 - 2 * HOUR, T0 - HOUR]] })
+    const file = join(dirOf(path), 'metrics.json')
+    // A folder where the file is: reading it fails as a file Windows holds open would, not as "there is none".
+    mkdirSync(file)
+    const w = createWorkspaceService()
+    await w.open(path)
+    metrics.recordApi(metrics.metricsHandle(w), 'beta', { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', requestBytes: 1, responseBytes: 2, ms: 3 })
+    await w.close()
+    await metrics.flushMetrics()
+    expect(metricsSaved(path)).toBeNull()
+    expect(backups(path)).toEqual([])
+    // Readable again: moved in at the next open, with what it held.
+    rmSync(file, { recursive: true })
+    writeFileSync(file, text)
+    await w.open(path)
+    expect(whole(w).projects.alpha.api[0].count).toBe(2)
+    await metrics.flushMetrics()
+    expect(metricsSaved(path)?.buckets).toHaveLength(1)
+    expect(backups(path).map((f) => readFileSync(join(dirOf(path), f), 'utf8'))).toEqual([text])
+    await disposeWorkspaceService(w)
+  })
+
+  it('a metrics.json too big or not JSON at the first open is set aside as it was, and the metrics start again', async () => {
+    for (const [why, text] of [['too-big', ' '.repeat(metrics.METRICS_LIMITS.fileBytes + 1)], ['damaged', '{"version":1,"buckets":[']] as const) {
+      const path = fresh()
+      writeFileSync(join(dirOf(path), 'metrics.json'), text)
+      const w = createWorkspaceService()
+      await w.open(path)
+      expect(whole(w).projects).toEqual({})
+      await metrics.flushMetrics()
+      const aside = readdirSync(dirOf(path)).filter((f) => f.startsWith(`metrics.json.${why}-`))
+      expect(aside.map((f) => readFileSync(join(dirOf(path), f), 'utf8'))).toEqual([text])
+      expect(metricsSaved(path)?.buckets).toEqual([])
+      await disposeWorkspaceService(w)
+    }
+  })
+
   it("metrics whose saved rows can't be read are never saved over, however much is recorded (a save would replace them with nothing)", async () => {
     const path = fresh()
     const series = { route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', count: 3, totalMs: 9, maxMs: 4, histogram: histogram(3), requestBytes: 30, responseBytes: 300 }

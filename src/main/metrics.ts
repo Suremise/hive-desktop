@@ -1,8 +1,8 @@
-import { closeSync, existsSync, openSync, readSync } from 'original-fs'
+import { closeSync, existsSync, openSync, readSync, renameSync } from 'original-fs'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
 import { config } from './config'
-import { createLogger } from './logger'
+import { createLogger, userText } from './logger'
 import { keepAsBackup, readStore, saveStore } from './storeRows'
 import { englishText } from '../shared/advanced'
 import { msg } from '../shared/i18n'
@@ -303,6 +303,26 @@ function readCappedSync(file: string, max: number): string | null {
   }
 }
 
+/** A metrics.json that isn't Hive's (too big, damaged) renamed `metrics.json.<why>-<time>`, kept as it was; false if Windows refused. */
+function setAside(file: string, why: 'too-big' | 'damaged'): boolean {
+  const to = `${file}.${why}-${Date.now()}`
+  for (let i = 0; i < 5; i++) {
+    try {
+      renameSync(file, to)
+      log.warn(`metrics.json was ${why === 'too-big' ? 'too big' : 'damaged'}: set aside as ${userText(to)}`)
+      return true
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY') {
+        log.warn('setting metrics.json aside', e)
+        return false
+      }
+    }
+  }
+  log.warn("couldn't set metrics.json aside (held open): tried again when the workspace opens next")
+  return false
+}
+
 /** Saved observation stretches: [start, end] pairs of finite times, in order, at most the cap (the newest kept). */
 function readStretches(v: unknown): [number, number][] {
   if (!Array.isArray(v)) return []
@@ -423,18 +443,40 @@ class Store {
       return
     }
     // Not moved in yet: the next save moves in what it has (metrics.json's buckets, or none) and marks it (#1019).
-    this.importing = true
+    let text: string | null
     try {
-      if (!existsSync(this.file)) return
-      this.dirty = true
-      const text = readCappedSync(this.file, METRICS_LIMITS.fileBytes)
-      if (text === null) return
-      const data = obj(JSON.parse(text))
-      if (data?.version !== 1 || !Array.isArray(data.buckets)) return
-      this.fromSaved(data)
-    } catch {
-      // Unreadable: start again (only aggregates are lost).
+      text = readCappedSync(this.file, METRICS_LIMITS.fileBytes)
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.importing = true
+        return
+      }
+      // Can't be read now (held open, no permission; #1019 round 1): nothing is marked, moved or saved over, and the next
+      // open reads it again.
+      log.warn('Could not read metrics.json to move it into the workspace database: tried again when the workspace opens next; nothing is saved meanwhile', e)
+      this.unreadable = true
+      return
     }
+    let data: Record<string, unknown> | null = null
+    try {
+      data = text === null ? null : obj(JSON.parse(text))
+    } catch {
+      data = null
+    }
+    if (!data || data.version !== 1 || !Array.isArray(data.buckets)) {
+      // Too big or not Hive's metrics: set aside as it is (renamed, never deleted), and the metrics start again; if it
+      // can't be set aside, nothing is saved over it, as above.
+      if (!setAside(this.file, text === null ? 'too-big' : 'damaged')) {
+        this.unreadable = true
+        return
+      }
+      this.importing = true
+      this.dirty = true
+      return
+    }
+    this.importing = true
+    this.dirty = true
+    this.fromSaved(data)
   }
 
   /** The buckets and observation as saved, each checked. */
