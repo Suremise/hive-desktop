@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 57
+const FIXTURES_VERSION = 58
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -2651,6 +2651,165 @@ module.exports.SCENARIOS.push(
     },
     // Only the fake Claude Code acts out wakes (fake-wakes-<agent>.txt); the told-the-user check needs a model.
     fakeSkips: (p) => (p === 'fake' ? ['told the user both are done'] : ["Hive's first wake said lanes are still running, to watch them all again", "woken by Builder2's lane ending, it watched Coder's lane's end again", "woken again by Coder's lane ending", 'both lanes ended', 'swept the board on a wake (cards, lanes or agents, after its first watch)', 'told the user both are done'])
+  }
+)
+
+// A natural break (#1082, #1080 gaps 1 and 3): the Assistant suggests starting fresh once every lane has ended or a solo
+// agent's card is done with nothing else running, never while work, a question or a watch remains, and saves what is
+// open to its journal first. Guidance only: it suggests, and starts nothing fresh itself.
+/** A reply that suggests starting fresh conversations or sessions. */
+const FRESH = /\b(fresh|new)\b[^.?!\n]{0,40}\b(conversations?|sessions?|start)\b|\bstart(ing)?\s+(over|afresh|fresh)\b|\bfresh start\b/i
+const suggestsFresh = (o) => FRESH.test(o.finalReply ?? '')
+/** It restarted or stopped nothing itself: no new conversation, no agent started or stopped. */
+const restartedNothing = (o) => !ran(o, 'hive_prompt_agent').some((x) => argsOf(x).newConversation === true) && !['hive_start_agent', 'hive_stop_agent', 'hive_start_task'].some((t) => ran(o, t).length > 0)
+/**
+ * The cards' work, committed (greet.js with its test, the README's Usage), so git backs the board when the Assistant
+ * checks a merge (run-lanes, Verify): a board saying merged over an empty repository is a problem, not a natural break.
+ */
+function landWork(c, readme = true) {
+  c.git('config', 'user.email', 'agent@example.com')
+  c.git('config', 'user.name', 'Agent')
+  c.git('config', 'core.autocrlf', 'false')
+  require('fs').mkdirSync(require('path').join(c.alpha, 'src'), { recursive: true })
+  c.write('src/greet.js', "module.exports = (name) => `Hi, ${String(name).trim()}`\n")
+  c.write('src/greet.test.js', "const assert = require('assert')\nassert.strictEqual(require('./greet')('  Ada '), 'Hi, Ada')\n")
+  if (readme) c.write('README.md', "# alpha\n\n## Usage\n\n```js\nrequire('./src/greet')('Ada') // 'Hi, Ada'\n```\n")
+  c.git('add', '-A')
+  c.git('commit', '-qm', readme ? 'greet() says Hi and trims the name; README: usage' : 'greet() says Hi and trims the name')
+  return c.git('rev-parse', 'HEAD').trim()
+}
+/** Ends the scenario's lanes whose builder is one of `builders`, merged at the work's commit (as Hive records a lane's end). */
+async function endLanes(c, builders) {
+  c.merged ??= landWork(c)
+  for (const l of (await c.api('GET', '/v1/lanes')).body ?? []) {
+    if (!builders.includes(l.builder?.name) || l.state === 'ended') continue
+    const r = await c.api('POST', `/v1/lanes/${encodeURIComponent(l.id)}/end`, { mergeCommit: c.merged })
+    if (r.status !== 200) throw new Error(`setup: lane ${l.id} didn't end: ${r.text}`)
+  }
+}
+/** Hive's lane wake for lanes that ended, with agents waiting for the user (laneWakeLine in src/shared/laneWatch.ts). */
+const lanesEndedWake = async (c, builders, waits = []) => {
+  const lanes = ((await c.api('GET', '/v1/lanes')).body ?? []).filter((l) => builders.includes(l.builder?.name))
+  const parts = [...lanes.map((l) => `Lane ${l.name ?? l.id}: ended (merged)`), waits.map((w) => `${w.name} (${w.project}) is waiting for the user${w.card ? ` on #${w.card}` : ''}${w.what ? `: "${w.what}"` : ''}`).join('; ')].filter(Boolean)
+  const tell = waits.length ? 'tell the user what an agent waits for (hive_notify) and never answer it for them, ' : ''
+  return `[Hive] ${parts.join(' | ')}. Your lane watch has ended: read the cards named (hive_read_task), act on them, ${tell}then watch the lanes again (hive_wait_for_tasks with lanes).`
+}
+module.exports.SCENARIOS.push(
+  {
+    id: 'fresh-start-lanes-ended',
+    title: 'Coordinator mode woken as the last lanes end, nothing else running (#1082): says so and suggests starting fresh, once, and restarts nothing itself',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c)
+      for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
+      await endLanes(c, ['Coder', 'Builder2'])
+      c.wake = await lanesEndedWake(c, ['Coder', 'Builder2'])
+    },
+    prompt: (c) => c.wake,
+    fake: 'skill run-lanes then hive hive_lane {"action":"list"}',
+    expect: (o) => [
+      ['said the lanes are done', /done|finished|ended|complete|merged/i.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
+      ['suggested starting fresh conversations', suggestsFresh(o), (o.finalReply ?? '').slice(0, 300)],
+      ['restarted and stopped nothing itself (the user decides)', restartedNothing(o), o.hiveCalls.map((x) => x.tool).join(',')]
+    ],
+    fakeSkips: ['said the lanes are done', 'suggested starting fresh conversations']
+  },
+  {
+    id: 'fresh-start-lane-running',
+    title: 'Coordinator mode woken as one lane ends while another still runs (#1082): no fresh-start suggestion yet; it watches the running lane again',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c)
+      for (const k of ['a', 'b']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
+      c.merged = landWork(c, false)
+      await endLanes(c, ['Coder'])
+      // Builder2's lane carries on: its card in Doing, Builder2 working on it.
+      await c.api('PATCH', `/v1/tasks/${c.cards.c}`, { column: 'doing' })
+      await busyCoder(c, 20, 600, c.agents.builder2)
+      c.running = ((await c.api('GET', '/v1/lanes')).body ?? []).find((l) => l.builder?.name === 'Builder2')?.id
+      c.wake = await lanesEndedWake(c, ['Coder'])
+    },
+    prompt: (c) => c.wake,
+    fake: 'skill run-lanes then hive hive_wait_for_tasks {"lanes":["all"],"wake":true,"limitMinutes":360}',
+    expect: (o, c) => [
+      ['no fresh-start suggestion while a lane runs', !suggestsFresh(o), (o.finalReply ?? '').slice(0, 300)],
+      ['ended its turn watching the running lane (a lane watch on it, or its card)', liveWatchCovers(o, [c.cards.c]) || (o.status === 'watching' && (o.watch?.lanes ?? []).includes(c.running)), liveWatch(o)],
+      ['restarted and stopped nothing itself', restartedNothing(o), o.hiveCalls.map((x) => x.tool).join(',')]
+    ],
+    fakeSkips: ['no fresh-start suggestion while a lane runs']
+  },
+  {
+    id: 'fresh-start-question-waits',
+    title: 'Coordinator mode woken as the last lanes end while an agent waits for the user (#1082): passes the question on, never answers it, and no fresh-start suggestion yet',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c)
+      for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
+      await endLanes(c, ['Coder', 'Builder2'])
+      // A card outside the lanes, Coder on it, waiting for the user's answer.
+      const ask = 'should greet() throw on an empty name (A) or return "Hi" (B)?'
+      await c.card('q', { title: 'greet() and empty names', description: 'src/greet.js: decide and implement what greet("") does.', agent: 'coder', column: 'doing' })
+      await c.api('PATCH', `/v1/tasks/${c.cards.q}`, { blocked: `Question for the user: ${ask}` })
+      await coderTask(c, '')
+      c.wake = await lanesEndedWake(c, ['Coder', 'Builder2'], [{ name: 'Coder', project: 'alpha', card: c.cards.q, what: ask }])
+    },
+    prompt: (c) => c.wake,
+    fake: (c) => `hive hive_read_task {"number":${c.cards.q},"latestComment":true}`,
+    expect: (o) => [
+      ['passed the question on to the user', /empty name/i.test(o.finalReply ?? '') || ran(o, 'hive_notify').length > 0, (o.finalReply ?? '').slice(0, 300)],
+      ["didn't answer for the user: no decision, nothing typed into Coder", !(o.cards.q?.decisions ?? []).length && called(o, 'hive_prompt_agent').length === 0, JSON.stringify(o.cards.q?.decisions ?? [])],
+      ['no fresh-start suggestion while a question waits', !suggestsFresh(o), (o.finalReply ?? '').slice(0, 300)],
+      ['restarted and stopped nothing itself', restartedNothing(o), o.hiveCalls.map((x) => x.tool).join(',')]
+    ],
+    fakeSkips: ['passed the question on to the user', 'no fresh-start suggestion while a question waits']
+  },
+  {
+    id: 'fresh-start-solo-done',
+    title: "The Assistant, one agent and no lanes, woken as the agent's card reaches Done with nothing else running (#1082, coordinate-agents): suggests starting fresh, once, and restarts nothing",
+    role: 'assistant',
+    control: 'agents',
+    async setup(c) {
+      landWork(c)
+      await c.card('a', { title: 'greet() says Hi', description: 'src/greet.js: greet(name) returns "Hi, <name>".', agent: 'coder', column: 'done', comments: ['Done: greet() returns "Hi, <name>", with a test. Committed.'] })
+    },
+    prompt: (c) => `[Hive] #${c.cards.a} (Coder's card) is in Done; latest comment by Coder: "Done: greet() returns "Hi, <name>", with a test. Committed." Your card watch has ended: carry on (hive_read_task with latestComment for the comment in full).`,
+    fake: (c) => `skill coordinate-agents then hive hive_read_task {"number":${c.cards.a},"latestComment":true}`,
+    expect: (o) => [
+      ['suggested starting fresh conversations', suggestsFresh(o), (o.finalReply ?? '').slice(0, 300)],
+      ['restarted and stopped nothing itself', restartedNothing(o), o.hiveCalls.map((x) => x.tool).join(',')]
+    ],
+    fakeSkips: ['suggested starting fresh conversations']
+  },
+  {
+    id: 'fresh-start-saves-first',
+    title: 'Coordinator mode, the lanes done, told of a half-formed idea that is in no card (#1082, journal): writes it to its journal before suggesting a fresh start',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'coordinator',
+    async setup(c) {
+      await twoLanes(c)
+      for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
+      await endLanes(c, ['Coder', 'Builder2'])
+    },
+    prompt: "Both lanes in alpha are done, thanks. Next I'm thinking about a dark mode for alpha, but I haven't decided whether it follows Windows or gets its own switch, so no card for it yet. That's all from me for this block.",
+    fake: 'skill journal then hive hive_journal_write {"kind":"plan","summary":"Darren: dark mode for alpha next; open: follows Windows or its own switch","project":"alpha","importance":1}',
+    expect: (o) => {
+      const writes = ran(o, 'hive_journal_write')
+      const saved = writes.some((x) => /dark/i.test(String(x.args)))
+      return [
+        ['wrote the idea to its journal (hive_journal_write, which worked)', saved, writes.map((x) => String(x.args).slice(0, 200)).join(' | ')],
+        ["kept it open: the journal entry says it isn't decided (Windows or its own switch)", writes.some((x) => /dark/i.test(String(x.args)) && /windows|switch|toggle|undecided|open|not decided/i.test(String(x.args)))],
+        ['suggested starting fresh conversations', suggestsFresh(o), (o.finalReply ?? '').slice(0, 300)],
+        ['restarted and stopped nothing itself', restartedNothing(o), o.hiveCalls.map((x) => x.tool).join(',')]
+      ]
+    },
+    fakeSkips: ['suggested starting fresh conversations']
   }
 )
 
