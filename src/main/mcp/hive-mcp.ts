@@ -359,7 +359,7 @@ const tools: Tool[] = [
   {
     name: 'hive_hand_over',
     description:
-      "Hand one agent's work to another in the same project (Hand Over to…): Hive has `from` (running and idle) write a handover, waits for it, then starts `to` (or tells it, if idle) to read it and carry on. handover=false hands over the latest one instead. `to` the same as `from` carries on in a new conversation, making a long transcript short. Returns at once: follow with hive_wait_for_agents.",
+      "Hand one agent's work to another in the same project (Hand Over to…): Hive has `from` (running and idle) write a handover, waits for it, then starts `to` (or tells it, if idle) to read it and carry on. handover=false hands over the latest one instead. `to` the same as `from` carries on in a new conversation, making a long transcript short (refused while it works, merges or is on a running card loop's card). Returns at once: follow with hive_wait_for_agents.",
     inputSchema: { type: 'object', properties: { project: projectArg, from: agentArg, to: agentArg, handover: { type: 'boolean' } }, required: ['project', 'from', 'to'] },
     run: (a) => api('POST', `/v1/projects/${proj(a)}/handover`, { from: a.from, to: a.to, handover: a.handover })
   },

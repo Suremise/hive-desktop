@@ -23,7 +23,7 @@ const HUNG_MS = 15_000
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'alpha')
 type State = { runId: string; agentId: string; sessionId: string; status: string; turn?: { state: string; silentSince?: string } }
-type Launch = { state: State; ledger: { heard: number }; screen?: { text: () => string }; turnScreen?: (s: string) => 'idle' | 'working' | null }
+type Launch = { state: State; ledger: { heard: number }; looks?: Set<Promise<void>>; screen?: { text: () => string }; turnScreen?: (s: string) => 'idle' | 'working' | null }
 const s = sessions as unknown as {
   live: Map<string, Launch>
   runs: Map<string, string>
@@ -57,6 +57,14 @@ const hook = (st: State, body: Record<string, unknown>) =>
 const settled = async (st: State): Promise<void> => {
   for (let q = s.hookQueues.get(st.runId); q; q = s.hookQueues.get(st.runId)) await q
 }
+/** Until nothing any launch began runs: its hooks and what they queued, and its transcript's looks (backups). */
+const quiet = async (): Promise<void> => {
+  for (;;) {
+    const running = [...s.hookQueues.values(), ...[...s.live.values()].flatMap((l) => [...(l.looks ?? [])])]
+    if (!running.length) return
+    await Promise.allSettled(running)
+  }
+}
 const pre = (turn: string, call: string) => ({ hook_event_name: 'PreToolUse', turn_id: turn, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_use_id: call })
 const post = (turn: string, call: string) => ({ hook_event_name: 'PostToolUse', turn_id: turn, tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_use_id: call })
 
@@ -75,6 +83,9 @@ describe('the turn ledger in a session', () => {
     delete process.env.HIVE_TEST_SILENT_MS
   })
   afterAll(async () => {
+    // What the tests' hooks began ends before their folder goes: a transcript backup still running then failed and logged
+    // after the file's teardown (#1054: "Closing rpc while onUserConsoleLog was pending", under load).
+    await quiet()
     s.live.clear()
     await disposeWorkspaceService(w)
   })

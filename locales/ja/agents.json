@@ -137,6 +137,7 @@
   "agents.handOver.off": "{cli}はオフになっています。",
   "agents.handOver.running": "実行中：現在のセッションでメッセージを受け取ります。",
   "agents.handOver.self": "{agent}（新しい会話で）",
+  "agents.handOver.selfLater": "マージ中、またはカードループのカードに取り組んでいます。作業が終わったら新しい会話で続けられます。",
   "agents.handOver.selfNote": "会話はここで終わり（「セッション履歴」タブに残ります）、新しい会話が引き継ぎメモから続けます。{size, select, none {} other {トランスクリプトのサイズは{size}です。}}",
   "agents.handOver.starts": "新しい{cli}セッションを開始します。",
   "agents.handOver.stopped": "{who, select, self {{from}は実行中ではないため、新しい会話が最新の引き継ぎメモから続けます。} other {{from}は実行中ではないため、{other}が最新の引き継ぎメモから続けます。} none {{from}は実行中ではないため、別のエージェントが最新の引き継ぎメモから続けます。}}新しい引き継ぎメモを書いてもらうには、先に{from}を再開してください。",

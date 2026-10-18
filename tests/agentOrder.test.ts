@@ -100,12 +100,18 @@ describe('saving the order', () => {
   })
 
   it('quick moves: a refresh that read the order before a later move never reports it (#999: the panes flickered)', async () => {
-    // Each move's own refresh is held once it has read the project, as refreshes slowed by running agents were, and let go
-    // in turn after all three moves have saved. Only the test's own: a refresh a move schedules runs outside `mine`.
-    const mine = new AsyncLocalStorage<boolean>()
+    // One refresh of each move is held once it has read the project, as refreshes slowed by running agents were, and let
+    // go in turn after all three moves have saved. Only one a move: the refresh its save schedules (250 ms on) runs in the
+    // move's context too, and on a loaded machine it fires before the next move (#1052: five held, not three); it and any
+    // refresh after the first run free, and must report the order saved as well.
+    const mine = new AsyncLocalStorage<{ taken: boolean }>()
     const held: (() => void)[] = []
     const live = (hold: boolean) => async (p: string, cfg: ProjectConfig) => {
-      if (hold && p === alpha && mine.getStore()) await new Promise<void>((r) => held.push(r))
+      const move = mine.getStore()
+      if (hold && p === alpha && move && !move.taken) {
+        move.taken = true
+        await new Promise<void>((r) => held.push(r))
+      }
       return { live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) }
     }
     // Each order reported, beside the order saved as it was reported.
@@ -117,7 +123,7 @@ describe('saving the order', () => {
     w.setLiveProvider(live(true))
     try {
       const [x, y, z] = saved().agents.map((a: { id: string }) => a.id)
-      const move = (fn: () => Promise<string[]>) => mine.run(true, () => inWorkspace(w, fn))
+      const move = (fn: () => Promise<string[]>) => mine.run({ taken: false }, () => inWorkspace(w, fn))
       const moves = [move(() => swapAgents(alpha, x, z))]
       await vi.waitFor(() => expect(held).toHaveLength(1), { timeout: HUNG_MS })
       moves.push(move(() => moveAgent(alpha, z, 1)))

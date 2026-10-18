@@ -10,6 +10,7 @@ import { serverOnIn } from '@shared/agentMcp'
 import { shownText } from '@shared/advanced'
 import { fmt, tr } from '@shared/i18n'
 import { msg } from '@shared/i18n/msg'
+import { HAND_OVER_TEXT } from '@shared/handOver'
 import type { McpServerInfo, McpTurnOn, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, SessionView, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
@@ -20,6 +21,16 @@ import { AgentsDetail, batchAgentsData, projectAgentsData, tableText } from './c
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
 /** Runs an async action and shows a toast if it fails. */
+/**
+ * A long conversation's Hand Over to… (the notice's button, the footer's size): the dialog, if the agent may still hand
+ * over now (#1057; Hive checks, knowing the lanes and merge slots as they are: a notice can be old by then), else a notice
+ * that it can when it has finished.
+ */
+export async function handOverLongConversation(path: string, agentId: string): Promise<void> {
+  if (await call('session:mayHandOverNow', path, agentId).catch(() => false)) set({ handOverFor: { project: path, agentId } })
+  else notify('info', tr(HAND_OVER_TEXT.notNow, { agent: findProject(get(), path)?.agents.find((a) => a.id === agentId)?.name ?? agentId }), tr(HAND_OVER_TEXT.notNowText))
+}
+
 export async function attempt<T>(title: string, fn: () => Promise<T>): Promise<T | undefined> {
   try {
     return await fn()

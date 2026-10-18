@@ -137,6 +137,7 @@
   "agents.handOver.off": "{cli} is turned off.",
   "agents.handOver.running": "Running: gets the message in its current session.",
   "agents.handOver.self": "{agent}, in a new conversation",
+  "agents.handOver.selfLater": "It merges or is on a card loop's card: it can carry on in a new conversation when it has finished.",
   "agents.handOver.selfNote": "Its conversation ends here (it stays in the Sessions tab) and a new one continues from the handover.{size, select, none {} other { Its transcript is {size}.}}",
   "agents.handOver.starts": "Starts a new {cli} session.",
   "agents.handOver.stopped": "{who, select, self {{from} isn't running, so a new conversation continues from the latest handover.} other {{from} isn't running, so {other} continues from the latest handover.} none {{from} isn't running, so the other agent continues from the latest handover.}} Resume {from} first to have it write a new one.",

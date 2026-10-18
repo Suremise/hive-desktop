@@ -65,6 +65,7 @@ import * as projectAgents from './projectAgents'
 import * as templates from './templates'
 import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
+import { mayHandOverNow } from './handOverCheck'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
 import * as storage from './storage'
@@ -87,7 +88,8 @@ import { isRecordingName, latestRecording, recordingOf, recordingsDir, startReco
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 import { capturedText, HiveError, hiveError, windowError } from './hiveError'
-import { deleteWorkspaceJournal, journalStatus, setJournalSettings } from './journalService'
+import { deleteJournalEntry, deleteWorkspaceJournal, editJournalEntry, forgetJournalEntries, forgetJournalPreview, journalEntry, journalStatus, setJournalSettings } from './journalService'
+import { browseJournal, journalProjects } from './journal'
 import { msg, tr } from '../shared/i18n'
 
 /**
@@ -614,6 +616,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'journal:status': () => journalStatus(currentWorkspace()),
     'journal:set': (patch) => setJournalSettings(currentWorkspace(), patch ?? {}),
     'journal:delete': () => deleteWorkspaceJournal(currentWorkspace()),
+    'journal:browse': (filter, offset, limit) => {
+      const ws = currentWorkspace()
+      return ws.path ? browseJournal(ws.assistantHome, filter ?? {}, offset, limit) : { rows: [], total: 0 }
+    },
+    'journal:projects': () => {
+      const ws = currentWorkspace()
+      return ws.path ? journalProjects(ws.assistantHome) : []
+    },
+    'journal:entry': (id) => journalEntry(currentWorkspace(), id),
+    'journal:edit': (id, edit) => editJournalEntry(currentWorkspace(), id, edit ?? {}),
+    'journal:deleteEntry': (id) => deleteJournalEntry(currentWorkspace(), id),
+    'journal:forgetPreview': (filter) => forgetJournalPreview(currentWorkspace(), filter),
+    'journal:forget': (filter, token) => forgetJournalEntries(currentWorkspace(), filter, token),
     'tasks:setAside': () => tasks.setAsideCards(currentWorkspace()),
     'tasks:addSetAside': (file) => tasks.addSetAsideCard(currentWorkspace(), file),
     'tasks:discardSetAside': (file) => tasks.discardSetAsideCard(currentWorkspace(), file),
@@ -707,6 +722,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'session:settleLeftovers': (p, agentId, how) => settleLeftovers(workspace.assertSessionHost(p), agentId, how === 'end' ? 'end' : 'keep'),
     'session:stopBackgroundAndResume': (p, agentId, jobId, sessionId) => sessions.stopBackgroundAndResume(p, agentId, jobId, sessionId),
     'session:handOver': (p, from, to, opts) => sessions.handOver(p, from, to, opts),
+    'session:mayHandOverNow': (p, agentId) => mayHandOverNow(workspace.assertSessionHost(p), String(agentId)),
     'session:allowLockedEdit': (p, agentId, path) => sessions.allowLockedEdit(p, agentId, path),
     'session:applyModes': () => sessions.applyModeSettings(),
     'session:compact': (p, focus, agentId) => sessions.compact(p, focus, agentId),

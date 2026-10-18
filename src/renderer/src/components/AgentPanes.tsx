@@ -16,6 +16,7 @@ import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { watchText } from '@shared/agentWatch'
 import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
+import { HAND_OVER_TEXT, handOverNow, onRunningLane } from '@shared/handOver'
 import { call, errorMessage } from '../api'
 import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
@@ -1395,6 +1396,10 @@ export function PaneFooter({
   const sizeLimit = transcriptWarnLimit(project.config, settings?.sessions.transcriptWarnMB ?? 0)
   const long = bytes !== undefined && sizeLimit > 0 && bytes >= sizeLimit * 1024 * 1024
   const tasks = live?.backgroundTasks ?? 0
+  // What a click on the size does, as the notice offers (#1057): Hand Over to… while it may hand over now (checked again
+  // when clicked), else nothing but its hover saying it can when it has finished.
+  const inLane = useStore((s) => onRunningLane(s.lanes, project.name, a.id))
+  const now = handOverNow(live, inLane)
   // The first time either turns amber: the tip about what to do.
   useEffect(() => void (long && offerTip('transcript-long')), [long])
   useEffect(() => void (over && offerTip('compact-suggested')), [over])
@@ -1411,7 +1416,7 @@ export function PaneFooter({
       {
         size: formatSize(size),
         limit: sizeLimit > 0 ? String(sizeLimit) : 'none',
-        advice: long ? (transcriptAdvice ?? tr(msg({ id: 'panes.footer.handOverAdvice', defaultMessage: 'Hand it over to a new conversation: click for Hand Over to…, and choose the agent itself.', description: "What to do about a long transcript, in its hover (pane footer). \"Hand Over to…\" is the agent menu's item: use its translation." }))) : 'none'
+        advice: long ? (transcriptAdvice ?? tr(HAND_OVER_TEXT.advice, { when: now ? 'now' : 'other' })) : 'none'
       }
     )
   // A dot between items, for the eye only.
@@ -1441,7 +1446,7 @@ export function PaneFooter({
       key: 'transcript',
       node: (
         <Tooltip key="transcript" content={transcriptTip(bytes)}>
-          <span className="pane-foot-item warn foot-transcript" onClick={() => (onTranscript ? onTranscript() : set({ handOverFor: { project: project.path, agentId: a.id } }))}>
+          <span className="pane-foot-item warn foot-transcript" onClick={() => (onTranscript ? onTranscript() : now ? void actions.handOverLongConversation(project.path, a.id) : undefined)}>
             <Icon name="warning" />
             <span className="fit-text size-text" data-give="3">
               {formatSize(bytes)}

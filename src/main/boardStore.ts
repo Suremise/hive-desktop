@@ -747,6 +747,8 @@ export function setArchiveBatches(ws: WorkspaceService, batches: ArchiveBatch[])
 export const workspaceDb = (workspacePath: string): Db => boardOf(workspacePath).db
 /** The lock the board's changes take, which the stores beside it take too. */
 export const boardLock = (workspacePath: string): string => `board-lock:${workspacePath}`
+/** Whether a workspace's database is open now (its workspace is, or something used it since). */
+export const boardOpen = (workspacePath: string): boolean => boards.has(keyOf(workspacePath))
 /** Whether this code runs inside a change of that workspace's board. */
 export const inBoardWrite = (workspacePath: string): boolean => inWrite(keyOf(workspacePath))
 

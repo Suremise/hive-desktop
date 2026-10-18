@@ -407,6 +407,10 @@
     "defaultMessage": "Focus Session Terminal",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
   },
+  "shell.command.session.handOverLongConversation": {
+    "defaultMessage": "Hand Over a Long Conversation",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It opens Hand Over to… if the agent is idle and on no card loop's card."
+  },
   "shell.command.session.handOverTo": {
     "defaultMessage": "Hand Over an Agent's Work",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name."
@@ -533,6 +537,10 @@
   },
   "shell.command.view.assistantImages": {
     "defaultMessage": "Show Assistant Attachments",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
+  "shell.command.view.assistantJournal": {
+    "defaultMessage": "Show Assistant Journal",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
   },
   "shell.command.view.board": {

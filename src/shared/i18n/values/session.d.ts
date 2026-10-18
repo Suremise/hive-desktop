@@ -39,9 +39,11 @@ interface HiveMessageValues {
   'session.handOver.asking': { agent: string | number }
   'session.handOver.busy': { agent: string | number }
   'session.handOver.didntStop': { agent: string | number; handover: string | number }
+  'session.handOver.momentLost': { agent: string | number; handover: string | number }
   'session.handOver.noTools': undefined
   'session.handOver.none': { project: string | number }
   'session.handOver.noneWritten': { agent: string | number }
+  'session.handOver.notNow': { agent: string | number }
   'session.handOver.notRunning': { agent: string | number }
   'session.handOver.other': { agent: string | number }
   'session.handOver.self': undefined
@@ -67,11 +69,10 @@ interface HiveMessageValues {
   'session.lock.body': { holder: string | number; agent: string | number }
   'session.lock.theAgent': undefined
   'session.lock.title': { agent: string | number; file: string | number }
-  'session.long.advice': undefined
-  'session.long.adviceAssistant': undefined
   'session.long.handOver': undefined
-  'session.long.notice': { size: string | number; advice: string | number }
-  'session.long.toast': { size: string | number; advice: string | number }
+  'session.long.notNow': { agent: string | number }
+  'session.long.notNowText': undefined
+  'session.long.noticeText': { size: string | number; limit: number; when: string }
   'session.mergeSlot.holding': { branch: string | number }
   'session.mergeSlot.waiting': undefined
   'session.mergeSlot.waitingForYou': undefined

@@ -42,7 +42,7 @@
   "panes.footer.costEstimated": "Kosten dieser Sitzung zu API-Preisen, von Hive aus den Tokens geschätzt",
   "panes.footer.costReported": "Kosten dieser Sitzung zu API-Preisen, wie vom Anbieter gemeldet",
   "panes.footer.ctxValue": "ctx {value}",
-  "panes.footer.handOverAdvice": "Übergib an eine neue Unterhaltung: Klicke für „Übergeben an…“ und wähle den Agenten selbst.",
+  "panes.footer.handOverWhen": "{when, select, now {Übergib an eine neue Unterhaltung: Klicke für Übergeben an… und wähle den Agenten selbst.} other {Der Agent kann an eine neue Unterhaltung übergeben, wenn er fertig ist: nicht, während er arbeitet, mergt oder auf einer Karte einer Kartenschleife ist.}}",
   "panes.footer.modelTip": "{chosenAs, select, none {} other {{model} · gewählt als {chosenAs}. }}{provider}: {effort, select, yes {Modell und Aufwand} other {Modell}} {live, select, yes {dieser Sitzung} other {für neue Sitzungen}}{reported, select, yes { (Aufwand laut Sitzung)} other {}}. Ändern kannst du sie in {where}.",
   "panes.footer.reading": "Nutzung dieser Unterhaltung wird gelesen…",
   "panes.footer.settingsName": "den Agent-Einstellungen oder den Projekteinstellungen",

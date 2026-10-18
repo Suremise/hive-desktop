@@ -44,7 +44,7 @@ interface HiveMessageValues {
   'panes.footer.costEstimated': undefined
   'panes.footer.costReported': undefined
   'panes.footer.ctxValue': { value: string | number }
-  'panes.footer.handOverAdvice': undefined
+  'panes.footer.handOverWhen': { when: string }
   'panes.footer.modelTip': { chosenAs: string; model: string | number; provider: string | number; effort: string; live: string; reported: string; where: string | number }
   'panes.footer.reading': undefined
   'panes.footer.settingsName': undefined

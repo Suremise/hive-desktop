@@ -72,6 +72,7 @@ import { agentTokenFile } from './agentTokens'
 import { progress, setTaskbarTestHook, startProgress } from './progressService'
 import { startMergeSlots } from './mergeSlotHost'
 import { startLanes } from './lanes'
+import { startHandOverCheck } from './handOverCheck'
 import { checkInstallDir } from './installDir'
 import { exitBy, logCrashDumps, startCrashDumps, startExitLog } from './exitLog'
 import { checkLastRun, startRunMarker, startupStep, tellUnexpectedClose } from './lastRun'
@@ -1006,6 +1007,7 @@ app.whenReady().then(async () => {
   startProgress()
   startMergeSlots()
   startLanes()
+  startHandOverCheck()
   // Test builds can record the taskbar's progress calls, which the page can't see.
   if (!app.isPackaged && process.env.HIVE_TEST_TASKBAR_LOG) {
     const file = process.env.HIVE_TEST_TASKBAR_LOG

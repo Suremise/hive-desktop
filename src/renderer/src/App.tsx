@@ -211,6 +211,9 @@ function handleEvent(e: HiveEvent): void {
     case 'personas-changed':
       set((s) => ({ personasVersion: s.personasVersion + 1 }))
       break
+    case 'journal-changed':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set((s) => ({ journalVersion: s.journalVersion + 1 }))
+      break
     case 'assistant-activity':
       set((s) => ({ assistantActions: [...s.assistantActions, e.action].slice(-200) }))
       break

@@ -79,3 +79,70 @@ export function weekStart(d: Date): Date {
   t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() || 7) - 1))
   return t
 }
+
+/**
+ * What the journal browser (#1033, the Assistant's view) shows: entries matching every filter given, newest first.
+ * `query`'s words must all be found (each a prefix); `project` '' is the workspace's own entries (no project).
+ */
+export interface JournalFilter {
+  query?: string
+  kinds?: JournalKind[]
+  project?: string
+  source?: JournalSource
+  /** ISO times, inclusive. */
+  since?: string
+  until?: string
+}
+
+/** A row of the browser's timeline. */
+export interface JournalRow {
+  id: number
+  at: string
+  kind: JournalKind
+  project: string | null
+  summary: string
+  importance: number
+  source: JournalSource
+  supersededBy: number | null
+  digestOf: string | null
+  links: { type: LinkType; ref: string }[]
+}
+
+/** A page of the timeline: its rows, and how many match in all. */
+export interface JournalPage {
+  rows: JournalRow[]
+  total: number
+}
+
+/**
+ * What Forget would delete (#1033 round 2): how many entries match, and a token for exactly that set. Forget deletes
+ * only while the set is still the one the user confirmed; any entry in or out since (written, edited, deleted), and it
+ * deletes nothing and says how many match now.
+ */
+export interface JournalForgetPreview {
+  count: number
+  token: string
+}
+
+export type JournalForgetResult = { gone: number } | { changed: JournalForgetPreview }
+
+/** An entry in full, for the browser. */
+export interface JournalEntryView extends JournalRow {
+  detail: string | null
+  why: string | null
+  updatedAt: string | null
+  tags: string[]
+  supersedes: number[]
+}
+
+/** What the browser's Edit changes. */
+export interface JournalEdit {
+  summary?: string
+  detail?: string | null
+  why?: string | null
+  importance?: number
+  kind?: JournalKind
+}
+
+/** The browser's page size, and the most one call gives. */
+export const BROWSE_LIMITS = { page: 100, max: 500 } as const

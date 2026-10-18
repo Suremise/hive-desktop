@@ -101,6 +101,7 @@
   "shell.command.session.backToTiles": "Voltar aos blocos",
   "shell.command.session.compact": "Compactar conversa…",
   "shell.command.session.focusTerminal": "Focar o terminal da sessão",
+  "shell.command.session.handOverLongConversation": "Passar uma conversa longa",
   "shell.command.session.handOverTo": "Passar o trabalho de um agente",
   "shell.command.session.new": "Nova sessão",
   "shell.command.session.permissionMode": "Trocar modo de permissão…",

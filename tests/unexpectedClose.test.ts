@@ -10,6 +10,7 @@ import { groupProgressRuns, progressRunTitle, progressRunsIn, type AgentProcess 
 
 const agent = (name: string, project: string, extra: Partial<RunningAgent> = {}): RunningAgent => ({ workspace: 'D:/ws', projectPath: `D:/ws/${project}`, project, agentId: name.toLowerCase(), agentName: name, provider: 'claude-code', sessionId: `s-${name}`, ...extra })
 const lastSeen = '2026-10-17T03:02:56.000Z'
+const HUNG_MS = 10_000
 const marker = (over: Record<string, unknown> = {}): string => JSON.stringify({ version: 1, pid: 42, startedAt: '2026-10-17T01:00:00.000Z', lastSeen: '2026-10-17T03:02:56.000Z', hive: '0.9.0', workspaces: ['D:/ws'], agents: [agent('B1', 'hive'), agent('R1', 'amberlight')], ...over })
 
 describe('the running marker (#984)', () => {
@@ -208,7 +209,7 @@ describe('a hive-progress run left running is one item, named by its title (#100
     const a = stops.click()
     const b = stops.click()
     // Only the first has asked Windows anything: the second waits for it.
-    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    await vi.waitFor(() => expect(calls).toHaveLength(1), { timeout: HUNG_MS })
     finish({ failed: [], unverified: [4242] })
     expect(await a).toEqual({ stopped: 2, tried: 2, left: { running: [], unverified: [4242] } })
     // The second finds nothing left to try, and 4242 still there (lastRun throws notChecked on it): not a stale success.

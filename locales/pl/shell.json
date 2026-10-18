@@ -101,6 +101,7 @@
   "shell.command.session.backToTiles": "Wróć do kafelków",
   "shell.command.session.compact": "Kompaktuj rozmowę…",
   "shell.command.session.focusTerminal": "Przejdź do terminala sesji",
+  "shell.command.session.handOverLongConversation": "Przekaż pracę z długiej rozmowy",
   "shell.command.session.handOverTo": "Przekaż pracę agenta",
   "shell.command.session.new": "Nowa sesja",
   "shell.command.session.permissionMode": "Zmień tryb uprawnień…",

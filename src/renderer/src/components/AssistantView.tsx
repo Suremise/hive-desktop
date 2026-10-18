@@ -10,11 +10,12 @@ import { PERIODS, costText, periodFrom, sumUsage, useSessions, type Period } fro
 import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
+import { JournalView } from './JournalView'
 import { msg, tr } from '@shared/i18n'
 
 /**
  * The Hive Assistant's view (activity bar): a summary of what it has used, then its modes, its conversations (the
- * same tree as a project's Sessions tab) and the files attached to them (a project's Attachments tab, for its home). Its
+ * same tree as a project's Sessions tab), its journal (#1033) and the files attached to them (a project's Attachments tab, for its home). Its
  * settings are in Settings → Assistant and its panel.
  */
 
@@ -31,6 +32,10 @@ const M = {
   conversations: msg({ id: 'assistant.view.conversations', defaultMessage: 'Conversations', description: "The Assistant view: the section of the Assistant's conversations." }),
   allConversations: msg({ id: 'assistant.view.allConversations', defaultMessage: 'All Conversations', description: "The Assistant view: the row that shows the Assistant's conversations." }),
   attachments: msg({ id: 'assistant.view.attachments', defaultMessage: 'Attachments', description: 'The Assistant view: the section of the files attached to its conversations.' }),
+  journal: msg({ id: 'assistant.view.journal', defaultMessage: 'Journal', description: "The Assistant view: the section of the Assistant's journal (its memory across sessions)." }),
+  journalTip: msg({ id: 'assistant.view.journalTip', defaultMessage: "What the Assistant keeps in its journal (decisions, plans, what happened and why) and Hive's own facts. Search it, correct it, or forget what you'd rather it didn't keep.", description: "The Assistant view: the info tip of its Journal section." }),
+  timeline: msg({ id: 'assistant.view.timeline', defaultMessage: 'Timeline', description: "The Assistant view, Journal: the row that shows every journal entry, newest first." }),
+  digests: msg({ id: 'assistant.view.digests', defaultMessage: 'Weekly Digests', description: "The Assistant view, Journal: the row that shows only the Assistant's weekly digests." }),
   allAttachments: msg({ id: 'assistant.view.allAttachments', defaultMessage: 'All Attachments', description: 'The Assistant view: the row that shows the files attached to its conversations.' }),
   usedSoFar: msg({ id: 'assistant.view.usedSoFar', defaultMessage: 'Used so far', description: "The Assistant view: the heading of what the Assistant has used (tokens, cost)." }),
   period: msg({ id: 'assistant.view.period', defaultMessage: 'Period', description: 'The Assistant view: the accessible name of the period buttons (Today, 7 days…).' }),
@@ -75,21 +80,44 @@ export function AssistantSidePanel() {
               <PersonaList />
             </Section>
             <Section title={tr(M.conversations)}>
-              <div className={cx('row', section === 'conversations' && 'selected')} onClick={() => set({ assistantSection: 'conversations' })}>
-                <Icon name="comment-discussion" />
-                <span className="label">{tr(M.allConversations)}</span>
-              </div>
+              <NavRow section="conversations" shown={section} icon="comment-discussion" label={tr(M.allConversations)} />
+            </Section>
+            <Section title={tr(M.journal)} tip={tr(M.journalTip)}>
+              <NavRow section="journal" shown={section} icon="notebook" label={tr(M.timeline)} />
+              <NavRow section="digests" shown={section} icon="calendar" label={tr(M.digests)} />
             </Section>
             <Section title={tr(M.attachments)}>
-              <div className={cx('row', section === 'images' && 'selected')} onClick={() => set({ assistantSection: 'images' })}>
-                <Icon name="attach" />
-                <span className="label">{tr(M.allAttachments)}</span>
-              </div>
+              <NavRow section="images" shown={section} icon="attach" label={tr(M.allAttachments)} />
             </Section>
           </>
         )}
       </div>
     </>
+  )
+}
+
+type ViewSection = 'conversations' | 'personas' | 'images' | 'journal' | 'digests'
+
+/** A row that shows a section in the main area: a tab stop, Enter or Space shows it, the one shown is the current page (#1033 round 2). */
+function NavRow({ section, shown, icon, label }: { section: ViewSection; shown: ViewSection; icon: string; label: string }) {
+  const show = (): void => set({ assistantSection: section })
+  return (
+    <div
+      className={cx('row', shown === section && 'selected')}
+      data-section={section}
+      role="button"
+      tabIndex={0}
+      aria-current={shown === section ? 'page' : undefined}
+      onClick={show}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        show()
+      }}
+    >
+      <Icon name={icon} />
+      <span className="label">{label}</span>
+    </div>
   )
 }
 
@@ -134,11 +162,12 @@ function Stat({ label, value, tip }: { label: string; value: string; tip?: strin
   return tip ? <Tooltip content={tip}>{body}</Tooltip> : body
 }
 
-/** The main area: the conversation browser, the attachments, or the selected persona. */
+/** The main area: the conversation browser, the attachments, the journal (#1033), or the selected persona. */
 export function AssistantMain() {
   const a = useStore((s) => s.workspace?.assistant ?? null)
   const section = useStore((s) => s.assistantSection)
   if (section === 'personas') return <PersonaView />
+  if (section === 'journal' || section === 'digests') return <JournalView key={section} digests={section === 'digests'} />
   if (section === 'images' && a) return <AttachmentsTab project={a} assistant />
   if (!a) {
     return (

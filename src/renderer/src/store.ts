@@ -228,7 +228,10 @@ interface State {
   selectedPersona: string | null
   /** What the Assistant view's main area shows: its conversations or the selected persona. */
   /** 'images' is its Attachments (#387; the id from before, kept). */
-  assistantSection: 'conversations' | 'personas' | 'images'
+  /** The Assistant view's main area: its conversations, a persona, its attachments, its journal or the journal's weekly digests (#1033). */
+  assistantSection: 'conversations' | 'personas' | 'images' | 'journal' | 'digests'
+  /** Bumped when this window's workspace's Assistant journal changes (#1033): its browser reads it again. */
+  journalVersion: number
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
   assistantOpen: boolean
   /** This window's workspace's progress runs (newest first), for the Progress panel. */
@@ -444,6 +447,7 @@ export const useStore = create<State>(() => ({
   selectedMcp: null,
   selectedPersona: null,
   assistantSection: 'conversations',
+  journalVersion: 0,
   assistantOpen: false,
   progressRuns: [],
   mergeSlots: [],
@@ -920,8 +924,8 @@ export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
   set({ activity: a, lastSideActivity: a, sidebarVisible: true })
 }
 
-/** Shows the Hive Assistant view (activity bar) on its conversations, its personas or its attachments ('images'). */
-export function showAssistantView(section: 'conversations' | 'personas' | 'images'): void {
+/** Shows the Hive Assistant view (activity bar) on its conversations, its personas, its attachments ('images') or its journal. */
+export function showAssistantView(section: 'conversations' | 'personas' | 'images' | 'journal' | 'digests'): void {
   set({ assistantSection: section })
   showView('assistant')
 }

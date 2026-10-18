@@ -661,6 +661,10 @@ kbd {
 .row:hover {
   background: var(--bg-hover);
 }
+.row[role='button']:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .row.selected {
   background: var(--bg-active);
   color: var(--fg-strong);
@@ -1627,6 +1631,304 @@ textarea.input {
 }
 .journal-settings .btn {
   align-self: flex-start;
+}
+/* The journal browser (#1033, the Assistant view's main area): a quiet timeline of one-line entries, newest first,
+   grouped by day; an entry opened beside it. Marks are codicons (shape, not colour alone), chips the board's. */
+.journal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-width: 0;
+}
+.journal-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.journal-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.journal-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100%;
+  color: var(--fg-muted);
+}
+.journal-search .search-box {
+  flex: 1;
+}
+.journal-filters .select {
+  width: auto;
+  max-width: 200px;
+}
+.journal-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.journal-date .input {
+  width: auto;
+}
+.journal-off {
+  margin: 8px 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.journal-count {
+  padding: 6px 14px 0 20px;
+  font-size: 11px;
+}
+.journal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+/* The rows of the search before (a new one is being read): shown, dimmed; Forget waits for the new ones. */
+.journal-scroll.pending {
+  opacity: 0.6;
+}
+.journal-timeline,
+.journal-day-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.journal-day-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 14px 4px 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  background: var(--bg);
+}
+.journal-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 14px;
+  border-left: 2px solid transparent;
+}
+.journal-row:hover {
+  background: var(--bg-hover);
+}
+.journal-row.selected {
+  background: var(--bg-active);
+  border-left-color: var(--accent);
+}
+.journal-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 0 0 18px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.journal-row-main:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.journal-time {
+  flex-shrink: 0;
+  width: 44px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.journal-kind-mark,
+.journal-source-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--fg-muted);
+}
+.journal-source-mark.assistant-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.journal-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.journal-row.superseded .journal-summary {
+  color: var(--fg-faint);
+  text-decoration: line-through;
+}
+.journal-row[data-kind='incident'] .journal-kind-mark {
+  color: var(--warning);
+}
+.journal-important {
+  flex-shrink: 0;
+  color: var(--accent-ink);
+}
+.journal-row-main .badge {
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.journal-row-main .journal-source-mark {
+  margin-left: auto;
+}
+.journal-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.journal-chips .card-chip {
+  height: 18px;
+}
+.journal-more {
+  margin: 8px 20px 0;
+}
+.journal-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0 14px 0 20px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+}
+.journal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.journal-link:hover {
+  text-decoration: underline;
+}
+.journal-link:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.journal-entry {
+  width: 420px;
+  max-width: 50%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--bg-sidebar);
+}
+.journal-entry-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.journal-entry-summary {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+.journal-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.journal-meta dt {
+  color: var(--fg-muted);
+}
+.journal-meta dd {
+  margin: 0;
+}
+.journal-meta dd.flex {
+  gap: 4px;
+}
+.journal-entry-body section {
+  margin-top: 12px;
+}
+.journal-entry-body h3 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.journal-why {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.journal-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+.journal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.journal-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.journal-edit-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.journal-edit-form .input,
+.journal-edit-form .select {
+  color: var(--fg);
+}
+.journal-edit-form textarea {
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+}
+/* Narrow: the entry over the timeline's lower half rather than squeezing it. */
+@media (max-width: 900px) {
+  .journal {
+    flex-direction: column;
+  }
+  .journal-entry {
+    width: auto;
+    max-width: none;
+    height: 50%;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
 }
 /* Cards made by an older Hive, set aside (#1044). */
 .set-aside-list {

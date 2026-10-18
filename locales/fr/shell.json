@@ -101,6 +101,7 @@
   "shell.command.session.backToTiles": "Retour aux tuiles",
   "shell.command.session.compact": "Compacter la conversation…",
   "shell.command.session.focusTerminal": "Aller au terminal de la session",
+  "shell.command.session.handOverLongConversation": "Passer le relais d’une longue conversation",
   "shell.command.session.handOverTo": "Passer le travail d’un agent",
   "shell.command.session.new": "Nouvelle session",
   "shell.command.session.permissionMode": "Changer de mode d’autorisation…",

@@ -1,6 +1,6 @@
 import type { AgentLeftovers } from './agentProcesses'
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
-import type { JournalSettings } from './journal'
+import type { JournalEdit, JournalEntryView, JournalFilter, JournalForgetPreview, JournalForgetResult, JournalPage, JournalSettings } from './journal'
 import type {
   ArchiveBatch,
   SetAsideCard,
@@ -282,6 +282,14 @@ export interface HiveRequests {
   'journal:status': () => { settings: JournalSettings; bytes: number; entries: number }
   'journal:set': (patch: Partial<JournalSettings>) => JournalSettings
   'journal:delete': () => void
+  /** The journal browser (#1033): a page of the timeline, the projects named, an entry, an edit, a delete, and Forget (previewed: a count and a token for that set; then deleted only while the set is unchanged). */
+  'journal:browse': (filter: JournalFilter, offset?: number, limit?: number) => JournalPage
+  'journal:projects': () => string[]
+  'journal:entry': (id: number) => JournalEntryView | null
+  'journal:edit': (id: number, edit: JournalEdit) => boolean
+  'journal:deleteEntry': (id: number) => boolean
+  'journal:forgetPreview': (filter: JournalFilter) => JournalForgetPreview
+  'journal:forget': (filter: JournalFilter, token: string) => JournalForgetResult
   /** Cards an older Hive saved, set aside for review (#1044): listed, added to the board, discarded (by file name). */
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard
@@ -360,6 +368,8 @@ export interface HiveRequests {
   'session:allowLockedEdit': (projectPath: string, agentId: string, path: string) => void
   /** Continues one agent's work in another, of any provider: a handover from the source (optional), then the target picks it up. */
   'session:handOver': (projectPath: string, fromAgentId: string, toAgentId: string, opts: { handover: boolean }) => void
+  /** Whether the agent may hand over to a new conversation of its own now (#1057): what a long conversation's Hand Over to… asks when clicked. */
+  'session:mayHandOverNow': (projectPath: string, agentId: string) => boolean
   /** Turns Plan mode on or off in a running agent, for providers where it is a toggle (Codex). */
   'session:setPlanMode': (projectPath: string, agentId: string, on: boolean) => void
   /** Stops the agent and resumes the same conversation in the given mode. */

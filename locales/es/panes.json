@@ -42,7 +42,7 @@
   "panes.footer.costEstimated": "Costo equivalente en la API de esta sesión, estimado por Hive a partir de sus tokens",
   "panes.footer.costReported": "Costo equivalente en la API de esta sesión, según lo informa el proveedor",
   "panes.footer.ctxValue": "ctx {value}",
-  "panes.footer.handOverAdvice": "Traspásala a una conversación nueva: haz clic para Traspasar a… y elige el mismo agente.",
+  "panes.footer.handOverWhen": "{when, select, now {Traspásalo a una conversación nueva: haz clic para Traspasar a… y elige el propio agente.} other {Puede traspasar a una conversación nueva cuando haya terminado: no mientras trabaja, fusiona o está en una tarjeta de un bucle de tarjetas.}}",
   "panes.footer.modelTip": "{chosenAs, select, none {} other {{model} · elegido como {chosenAs}. }}{effort, select, yes {Modelo y esfuerzo} other {Modelo}} de {provider} {live, select, yes {de esta sesión} other {para las sesiones nuevas}}{reported, select, yes { (el esfuerzo según lo informa la sesión)} other {}}. Se cambian en {where}.",
   "panes.footer.reading": "Leyendo el uso de esta conversación…",
   "panes.footer.settingsName": "Configuración del agente o configuración del proyecto",

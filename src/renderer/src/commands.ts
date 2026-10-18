@@ -274,6 +274,16 @@ const COMMAND_DEFS: CommandDef[] = [
     }
   },
   {
+    id: 'session.handOverLongConversation',
+    name: msg({ id: 'shell.command.session.handOverLongConversation', defaultMessage: 'Hand Over a Long Conversation', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name. It opens Hand Over to… if the agent is idle and on no card loop's card." }),
+    category: 'session',
+    // The long-conversation notice's Hand Over to…, which passes the agent: checked again when it is clicked.
+    internal: true,
+    run: (projectPath?: unknown, agentId?: unknown) => {
+      if (typeof projectPath === 'string' && typeof agentId === 'string') void actions.handOverLongConversation(projectPath, agentId)
+    }
+  },
+  {
     id: 'session.allowLockedEdit',
     name: msg({ id: 'shell.command.session.allowLockedEdit', defaultMessage: 'Allow a Locked Edit', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. It isn't in the menus or the palette: notifications and buttons run it by its name." }),
     category: 'session',
@@ -501,6 +511,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { id: 'view.assistantConversations', name: msg({ id: 'shell.command.view.assistantConversations', defaultMessage: 'Show Assistant Conversations', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('conversations') },
   { id: 'view.personas', name: msg({ id: 'shell.command.view.personas', defaultMessage: 'Show Assistant Modes', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('personas') },
   { id: 'view.assistantImages', name: msg({ id: 'shell.command.view.assistantImages', defaultMessage: 'Show Assistant Attachments', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('images') },
+  { id: 'view.assistantJournal', name: msg({ id: 'shell.command.view.assistantJournal', defaultMessage: 'Show Assistant Journal', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', run: () => showAssistantView('journal') },
   { id: 'assistant.toggle', name: msg({ id: 'shell.command.assistant.toggle', defaultMessage: 'Toggle Hive Assistant', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category.' }), category: 'assistant', keybinding: 'Mod+Alt+I', when: hasWorkspace, run: () => setAssistantOpen(!get().assistantOpen) }, // i18n-ignore: a shortcut's keys
   { id: 'assistant.settings', name: msg({ id: 'shell.command.assistant.settings', defaultMessage: 'Assistant Settings…', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category. The … says it opens a dialog first: keep it.' }), category: 'assistant', when: hasWorkspace, run: () => set({ assistantSettingsOpen: true }) },
   {

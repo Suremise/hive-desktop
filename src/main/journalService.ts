@@ -3,12 +3,16 @@ import { join } from 'path'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
 import { readKeptJson } from './fsutil'
-import { journalSettings, inScope, type JournalSettings, type LinkType } from '../shared/journal'
-import { closeJournal, deleteJournal, journalFile, journalFileBytes, journalSize, pruneJournal, writeEntry } from './journal'
+import { journalSettings, inScope, type JournalEdit, type JournalFilter, type JournalForgetPreview, type JournalForgetResult, type JournalSettings, type LinkType } from '../shared/journal'
+import { browseEntry, closeJournal, deleteEntry, deleteJournal, forgetJournal, forgetPreview, journalFile, journalFileBytes, journalSize, onJournalChange, pruneJournal, updateEntry, writeEntry } from './journal'
+import { emit } from './events'
 import { createLogger } from './logger'
 import type { WorkspaceService } from './workspace'
 
 const log = createLogger('journal')
+
+// The windows showing a workspace's journal browser (#1033) follow its changes: its Assistant home is `<workspace>/.hive/assistant`.
+onJournalChange((home) => emit({ type: 'journal-changed', workspacePath: join(home, '..', '..') }))
 const HIVE = { kind: 'hive', name: 'Hive' } as const
 
 /**
@@ -144,4 +148,38 @@ export function journalFact(ws: WorkspaceService | null | undefined, fact: Fact)
     log.warn('recording a fact in the journal', e)
     return false
   }
+}
+
+// The journal browser (#1033): what the user reads, corrects and deletes, on or off. Reading never makes a journal.
+
+/** The workspace's Assistant home (a browser's calls act on its window's own), or null with none open. */
+const homeOf = (ws: WorkspaceService): string | null => (ws.path ? ws.assistantHome : null)
+
+export function journalEntry(ws: WorkspaceService, id: number): ReturnType<typeof browseEntry> {
+  const home = homeOf(ws)
+  return home ? browseEntry(home, id) : null
+}
+
+/** The user's edit; the scope still decides the kinds (Settings → Assistant → Journal). */
+export function editJournalEntry(ws: WorkspaceService, id: number, edit: JournalEdit): boolean {
+  const home = homeOf(ws)
+  if (!home || !journalEntry(ws, id)) return false
+  return updateEntry(home, journalSettingsOf(ws), id, edit)
+}
+
+export function deleteJournalEntry(ws: WorkspaceService, id: number): boolean {
+  const home = homeOf(ws)
+  return !!home && !!journalEntry(ws, id) && deleteEntry(home, id)
+}
+
+/** What Forget would delete: how many, and a token for exactly that set. */
+export function forgetJournalPreview(ws: WorkspaceService, filter: JournalFilter): JournalForgetPreview {
+  const home = homeOf(ws)
+  return home ? forgetPreview(home, filter ?? {}) : { count: 0, token: '' }
+}
+
+/** Forget everything about X: exactly the set the user confirmed (its token), or nothing and the set as it is now. */
+export function forgetJournalEntries(ws: WorkspaceService, filter: JournalFilter, token: string): JournalForgetResult {
+  const home = homeOf(ws)
+  return home ? forgetJournal(home, filter ?? {}, String(token ?? '')) : { gone: 0 }
 }

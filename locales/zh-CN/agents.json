@@ -137,6 +137,7 @@
   "agents.handOver.off": "{cli} 已关闭。",
   "agents.handOver.running": "运行中：在当前会话中接收消息。",
   "agents.handOver.self": "{agent}，在新对话中",
+  "agents.handOver.selfLater": "它正在合并，或在卡片循环的卡片上：完成后可以在新对话中继续。",
   "agents.handOver.selfNote": "它的对话到此结束（保留在“会话历史”标签页中），由新对话根据交接说明继续。{size, select, none {} other {其会话记录大小为 {size}。}}",
   "agents.handOver.starts": "启动新的 {cli} 会话。",
   "agents.handOver.stopped": "{who, select, self {{from} 未在运行，因此由新对话从最新的交接说明继续。} other {{from} 未在运行，因此由 {other} 从最新的交接说明继续。} none {{from} 未在运行，因此由另一个智能体从最新的交接说明继续。}}如需它写一份新的交接说明，请先恢复 {from}。",

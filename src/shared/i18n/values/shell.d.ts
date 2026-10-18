@@ -103,6 +103,7 @@ interface HiveMessageValues {
   'shell.command.session.backToTiles': undefined
   'shell.command.session.compact': undefined
   'shell.command.session.focusTerminal': undefined
+  'shell.command.session.handOverLongConversation': undefined
   'shell.command.session.handOverTo': undefined
   'shell.command.session.new': undefined
   'shell.command.session.permissionMode': undefined
@@ -135,6 +136,7 @@ interface HiveMessageValues {
   'shell.command.view.assistant': undefined
   'shell.command.view.assistantConversations': undefined
   'shell.command.view.assistantImages': undefined
+  'shell.command.view.assistantJournal': undefined
   'shell.command.view.board': undefined
   'shell.command.view.compactSidebar': undefined
   'shell.command.view.devTools': undefined
