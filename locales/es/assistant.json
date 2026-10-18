@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "Desmarcar como activo",
   "assistant.sidebar.markWorking": "Marcar como activo",
   "assistant.sidebar.mcpServers": "Servidores MCP",
-  "assistant.sidebar.mcpTip": "Los servidores MCP del espacio de trabajo (.hive/mcp) están disponibles para todos los proyectos y solo se ejecutan donde están activados: actívalos en la pestaña MCP de un proyecto, o en todos los proyectos con su interruptor aquí. Los cambios se aplican a las sesiones nuevas.",
+  "assistant.sidebar.mcpTip": "Los servidores MCP del espacio de trabajo (.hive/mcp) están disponibles para todos los proyectos y solo se ejecutan en un proyecto cuando están activados aquí (su interruptor, que pregunta por los proyectos) y en la pestaña MCP de ese proyecto. Los cambios se aplican a las sesiones nuevas.",
   "assistant.sidebar.needYou": "{count, plural, one {# agente te necesita} many {# agentes te necesitan} other {# agentes te necesitan}}",
   "assistant.sidebar.newFolder": "Nueva carpeta",
   "assistant.sidebar.newFolderButton": "Nueva carpeta…",

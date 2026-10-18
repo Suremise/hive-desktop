@@ -7,15 +7,34 @@
 import type { AgentDef, McpServerInfo, ProjectConfig } from './types'
 
 /**
- * Whether a workspace MCP server is on in a project (#713). The workspace's servers are available to every project and
- * on only where turned on: the project's own choice (its MCP tab) wins, and a server it hasn't chosen is on when the
- * workspace has it on for all projects (`allProjects`, workspace.json's mcp.enabled). A list Hive can't read (a
- * hand-edited file) turns nothing on.
+ * Whether a workspace MCP server is on in a project (#1093): only when it is on in the workspace (its master switch,
+ * workspace.json's mcp.enabled) and on in the project (the project's own choice, its MCP tab: project.json's
+ * mcp.enabled). Turning the workspace off keeps the projects' choices. A list Hive can't read (a hand-edited file) turns
+ * nothing on.
  */
-export function mcpOnInProject(name: string, allProjects: readonly string[], project: Partial<ProjectConfig['mcp']> | null | undefined): boolean {
+export function mcpOnInProject(name: string, workspaceOn: readonly string[], project: Partial<ProjectConfig['mcp']> | null | undefined): boolean {
   const has = (list: unknown): boolean => Array.isArray(list) && list.includes(name)
-  if (has(project?.disabled)) return false
-  return has(project?.enabled) || has(allProjects)
+  return has(workspaceOn) && has(project?.enabled)
+}
+
+/** The names in a list from a config file (a hand-edited file may hold anything). */
+const listed = (list: unknown): string[] => (Array.isArray(list) ? list.filter((n): n is string => typeof n === 'string') : [])
+
+/**
+ * A project's choices moved to #1093's model, so what ran before still runs and nothing else starts: before, a server
+ * was on in a project when the project turned it on, or the workspace had it on for all projects (`allProjects`), unless
+ * the project turned it off (`disabled`, which won). Now it is on in the project wherever it ran there.
+ */
+export function migratedProjectMcp(allProjects: readonly string[], project: Partial<ProjectConfig['mcp']> | null | undefined): string[] {
+  const off = listed(project?.disabled)
+  return [...new Set([...listed(project?.enabled), ...listed(allProjects)])].filter((n) => !off.includes(n)).sort()
+}
+
+/** The workspace's switches moved to #1093's model: on for every server that ran anywhere (on for all projects, or turned on in a project). */
+export function migratedWorkspaceMcp(allProjects: readonly string[], projects: readonly (Partial<ProjectConfig['mcp']> | null | undefined)[]): string[] {
+  const on = new Set(listed(allProjects))
+  for (const p of projects) for (const n of listed(p?.enabled)) if (!listed(p?.disabled).includes(n)) on.add(n)
+  return [...on].sort()
 }
 
 /** A listed server (mcp:list, listMcp) on in a project: a valid definition, on there (mcpOnInProject). */

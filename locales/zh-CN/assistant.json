@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "标记为未在处理",
   "assistant.sidebar.markWorking": "标记为正在处理",
   "assistant.sidebar.mcpServers": "MCP 服务器",
-  "assistant.sidebar.mcpTip": "部署到工作区的 MCP 服务器（.hive/mcp）可供所有项目使用，但只在启用的地方运行：在项目的“MCP”标签页中启用，或用这里的开关为所有项目启用。更改对新会话生效。",
+  "assistant.sidebar.mcpTip": "部署到工作区的 MCP 服务器（.hive/mcp）可供所有项目使用，但只有在这里启用（它的开关，会询问项目）并且在该项目的“MCP”标签页中也启用时，才会在该项目中运行。更改对新会话生效。",
   "assistant.sidebar.needYou": "{count, plural, other {# 个智能体需要你}}",
   "assistant.sidebar.newFolder": "新建文件夹",
   "assistant.sidebar.newFolderButton": "新建文件夹…",

@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "作業対象から外す",
   "assistant.sidebar.markWorking": "作業対象にする",
   "assistant.sidebar.mcpServers": "MCPサーバー",
-  "assistant.sidebar.mcpTip": "ワークスペースに配置したMCPサーバー（.hive/mcp）は、どのプロジェクトでも使え、オンにした場所でだけ実行されます。プロジェクトの「MCP」タブでオンにするか、ここのスイッチで全プロジェクトに対してオンにします。変更は新しいセッションから適用されます。",
+  "assistant.sidebar.mcpTip": "ワークスペースに配置したMCPサーバー（.hive/mcp）は、どのプロジェクトでも使えます。プロジェクトで実行されるのは、ここでオン（スイッチ。プロジェクトを選べます）で、そのプロジェクトの「MCP」タブでもオンのときだけです。変更は新しいセッションから適用されます。",
   "assistant.sidebar.needYou": "{count, plural, other {#個のエージェントが対応を待っています}}",
   "assistant.sidebar.newFolder": "新しいフォルダー",
   "assistant.sidebar.newFolderButton": "新しいフォルダー…",

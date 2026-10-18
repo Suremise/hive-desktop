@@ -11,12 +11,13 @@ import { shownText } from '@shared/advanced'
 import { fmt, tr } from '@shared/i18n'
 import { msg } from '@shared/i18n/msg'
 import { HAND_OVER_TEXT } from '@shared/handOver'
-import type { McpServerInfo, McpTurnOn, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, SessionView, ToastAction } from '@shared/types'
+import type { McpServerInfo, OldWorktreeOutcome, ProjectInfo, ProjectProviderConfig, ProviderId, SessionLayout, SessionListItem, SessionView, ToastAction } from '@shared/types'
 import { TEMPLATE_NAME_MAX, type TemplateEntry, type TemplateScope } from '@shared/templates'
 import { oldWorktreesNotice, templateLoadDetail } from '@shared/templateLoad'
 import { formatTokens, type SessionAction } from './util'
 import { createElement } from 'react'
 import { TemplateLoadNames } from './components/TemplateLoad'
+import { McpProjectPicker } from './components/McpProjectPicker'
 import { AgentsDetail, batchAgentsData, projectAgentsData, tableText } from './components/AgentsTable'
 import { clearEditorDraft, clearEditorDraftsUnder } from './editorDrafts'
 
@@ -740,48 +741,43 @@ export async function archiveCurrent(path: string | null = get().selectedProject
 
 /** Deletes a workspace MCP server after asking; true when it was deleted. */
 /**
- * Turns a workspace MCP server on for all projects, or off (#713: a project that turned it on or off itself keeps its
- * choice). On asks first, showing what it runs (#550): new sessions start it, so the user sees the command and its
- * arguments, or the URL, before anything runs.
+ * Turns a workspace MCP server on or off in the workspace (#1093, its master switch). On asks first, showing what it
+ * runs (#550) and which projects to turn it on in: those that have it on (their choices, kept while it was off) and the
+ * selected project are ticked. Off turns it off everywhere at once and keeps the projects' choices.
  */
 export async function setMcpServerEnabled(server: Pick<McpServerInfo, 'name' | 'def' | 'revision' | 'runs' | 'secretWarnings'>, on: boolean): Promise<boolean> {
+  let picks: Record<string, boolean> | undefined
   if (on) {
+    const s = get()
+    const projects = s.workspace?.projects ?? []
+    const initial = projects.filter((p) => p.config.mcp.enabled.includes(server.name) || p.path === s.selectedProject).map((p) => p.path)
+    picks = Object.fromEntries(projects.map((p) => [p.path, initial.includes(p.path)]))
     const ok = await confirm({
-      title: tr(msg({ id: 'mcp.allProjects.confirmTitle', defaultMessage: 'Turn on {name} for all projects?', description: 'Title of the confirmation before an MCP server is turned on in every project. {name} is the server.' }), { name: server.name }),
-      message: tr(msg({ id: 'mcp.allProjects.confirmMessage', defaultMessage: "New sessions in every project start it, except in projects that turned it off in their MCP tab. To use it in one project only, turn it on in that project's MCP tab instead. It runs:", description: 'The confirmation before an MCP server is turned on in every project. Followed by the command it runs.' })),
+      title: tr(msg({ id: 'mcp.enable.confirmTitle', defaultMessage: 'Turn on {name}?', description: 'Title of the confirmation before an MCP server is turned on in the workspace. {name} is the server.' }), { name: server.name }),
+      message: tr(msg({ id: 'mcp.enable.confirmMessage', defaultMessage: 'New sessions in the projects you tick start it. It runs:', description: 'The confirmation before an MCP server is turned on in the workspace, above the command it runs and the projects to tick.' })),
       list: server.runs,
-      detail: server.secretWarnings.length ? server.secretWarnings.join('\n') : undefined,
-      confirmLabel: tr(msg({ id: 'mcp.allProjects.confirmButton', defaultMessage: 'Turn On for All Projects', description: 'Button: turns the MCP server on in every project.' }))
+      content: createElement(McpProjectPicker, { projects, initial, warnings: server.secretWarnings, onChange: (now: Record<string, boolean>) => void (picks = now) }),
+      confirmLabel: tr(msg({ id: 'mcp.enable.confirmButton', defaultMessage: 'Turn On', description: 'Button: turns the MCP server on in the workspace and the projects ticked.' }))
     })
     if (!ok) return false
   }
-  const done = await attempt(tr(msg({ id: 'actions.mcp.updateFailed', defaultMessage: 'Could not update the server', description: "An error's title: turning an MCP server on or off for all projects failed." })), async () => {
+  const done = await attempt(tr(msg({ id: 'actions.mcp.updateFailed', defaultMessage: 'Could not update the server', description: "An error's title: turning an MCP server on or off in the workspace failed." })), async () => {
     // The definition shown: if it was replaced or edited meanwhile, Hive refuses, and the user looks again.
-    await call('mcp:setGlobal', server.name, on, on ? { def: server.def, revision: server.revision } : undefined)
+    await call('mcp:setGlobal', server.name, on, on ? { def: server.def, revision: server.revision } : undefined, picks)
     return true
   })
   set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
+  await refreshWorkspace()
   return !!done
 }
 
 /**
- * Turns a workspace MCP server on or off in one project (#713), the project's own choice. Turning on one that isn't on
- * for all projects asks first, showing what it runs (#550).
+ * Turns a workspace MCP server on or off in one project (#1093), the project's own choice: it runs there while it is on
+ * in the workspace too, whose enable showed what it runs.
  */
-export async function setMcpServerInProject(target: Pick<ProjectInfo, 'path' | 'name'>, server: Pick<McpServerInfo, 'name' | 'def' | 'revision' | 'runs' | 'secretWarnings' | 'globallyEnabled'>, on: boolean): Promise<boolean> {
-  const ask = on && !server.globallyEnabled
-  if (ask) {
-    const ok = await confirm({
-      title: tr(msg({ id: 'mcp.project.confirmTitle', defaultMessage: 'Turn on {name} in {project}?', description: "Title of the confirmation before an MCP server is turned on in one project (its MCP tab). {name} is the server, {project} the project." }), { name: server.name, project: target.name }),
-      message: tr(msg({ id: 'mcp.project.confirmMessage', defaultMessage: 'New sessions in {project} start it. It runs:', description: 'The confirmation before an MCP server is turned on in a project. Followed by the command it runs.' }), { project: target.name }),
-      list: server.runs,
-      detail: server.secretWarnings.length ? server.secretWarnings.join('\n') : undefined,
-      confirmLabel: tr(msg({ id: 'mcp.project.confirmButton', defaultMessage: 'Turn On', description: 'Button: turns the MCP server on in the project.' }))
-    })
-    if (!ok) return false
-  }
+export async function setMcpServerInProject(target: Pick<ProjectInfo, 'path' | 'name'>, server: Pick<McpServerInfo, 'name'>, on: boolean): Promise<boolean> {
   const done = await attempt(tr(msg({ id: 'mcp.project.updateFailed', defaultMessage: 'Could not update the server', description: "An error's title: turning an MCP server on or off in a project failed." })), async () => {
-    await call('mcp:setProject', target.path, server.name, on, ask ? { def: server.def, revision: server.revision } : undefined)
+    await call('mcp:setProject', target.path, server.name, on)
     return true
   })
   set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
@@ -793,38 +789,24 @@ export async function setMcpServerInProject(target: Pick<ProjectInfo, 'path' | '
 export const mcpErrorText = (server: Pick<McpServerInfo, 'error' | 'errorText'>): string | undefined => (server.errorText ? shownText(server.errorText) : server.error)
 
 /**
- * Where a workspace MCP server is on (#713), in words, from the projects as the window has them: "On in all projects
- * (not in mcp)", "On in Amberlight" or "Not on in any project".
+ * Where a workspace MCP server runs (#1093), in words, from the projects as the window has them: "Off in the
+ * workspace", "On in Amberlight" or "On in no project".
  */
 export function mcpWhereText(server: Pick<McpServerInfo, 'name' | 'def' | 'globallyEnabled'>, projects: readonly ProjectInfo[]): string {
+  if (!server.globallyEnabled) return tr(MCP_OFF_IN_WORKSPACE)
   const on = projects.filter((p) => serverOnIn(server, p.config.mcp)).map((p) => p.name)
-  if (server.globallyEnabled) {
-    const off = projects.filter((p) => !on.includes(p.name)).map((p) => p.name)
-    return off.length
-      ? tr(msg({ id: 'mcp.where.allExcept', defaultMessage: 'On in all projects (not in {projects})', description: 'Where an MCP server is on, under it in the MCP view. {projects} lists the projects that turned it off.' }), { projects: fmt.list(off) })
-      : tr(msg({ id: 'mcp.where.all', defaultMessage: 'On in all projects', description: 'Where an MCP server is on, under it in the MCP view.' }))
-  }
   return on.length
     ? tr(msg({ id: 'mcp.where.some', defaultMessage: 'On in {projects}', description: 'Where an MCP server is on, under it in the MCP view. {projects} lists the projects.' }), { projects: fmt.list(on) })
-    : tr(msg({ id: 'mcp.where.none', defaultMessage: 'Not on in any project', description: 'Where an MCP server is on, under it in the MCP view: nowhere yet.' }))
+    : tr(msg({ id: 'mcp.where.none', defaultMessage: 'On in no project', description: 'Where an MCP server is on, under it in the MCP view: on in the workspace, but no project has it on.' }))
 }
 
-/** Where an MCP server added to the workspace is turned on (#713): the add dialog's choices, the selected project's first. */
-function mcpTurnOnChoice(): { options: { label: string; value: string }[]; initial: string; selected: ProjectInfo | null } {
-  const s = get()
-  const selected = s.selectedProject ? (s.workspace?.projects.find((p) => p.path === s.selectedProject) ?? null) : null
-  const options = [
-    ...(selected ? [{ label: tr(msg({ id: 'mcp.turnOn.selected', defaultMessage: '{project} (the selected project)', description: "A choice in Add MCP Server from File's Turn on for: the project selected in Hive. {project} is its name." }), { project: selected.name }), value: 'project' }] : []),
-    { label: tr(msg({ id: 'mcp.turnOn.all', defaultMessage: 'All projects', description: "A choice in Add MCP Server from File's Turn on for." })), value: 'all' },
-    { label: tr(msg({ id: 'mcp.turnOn.none', defaultMessage: 'None yet', description: "A choice in Add MCP Server from File's Turn on for: on in no project until one turns it on." })), value: 'none' }
-  ]
-  return { options, initial: selected ? 'project' : 'none', selected }
-}
+/** "Off in the workspace": a server whose workspace switch is off (#1093), so it runs nowhere. */
+export const MCP_OFF_IN_WORKSPACE = msg({ id: 'mcp.where.off', defaultMessage: 'Off in the workspace', description: "Where an MCP server is on, under it in the MCP view, and beside a project's switch for it in its MCP tab: the workspace has it off, so it runs in no project." })
 
 /**
  * Add MCP Server from File (#550): a .json definition, or a .zip of a server folder. The dialog shows what it runs and
- * the name it gets (the file's, editable); a name in use asks to replace it or choose another. It is turned on where
- * the dialog's Turn on for says (#713): the selected project, all projects, or none yet.
+ * the name it gets (the file's, editable); a name in use asks to replace it or choose another. It is added off in the
+ * workspace and in every project (#1093): turning it on in the workspace chooses the projects.
  */
 export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
   const file = await attempt(tr(msg({ id: 'actions.mcp.openFailed', defaultMessage: 'Could not open the file', description: "An error's title: picking an MCP server's file failed." })), () => call('mcp:pickFile'))
@@ -832,15 +814,13 @@ export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
   const server = await attempt(addServerFailed(), () => call('mcp:previewFile', file))
   if (!server) return null
   let name = server.name
-  const places = mcpTurnOnChoice()
-  let where = places.initial
   for (;;) {
     const picked = await prompt({
       title: tr(msg({ id: 'actions.mcp.addTitle', defaultMessage: 'Add MCP Server from File', description: 'Title of the Add MCP Server from File dialog (the command of the same name). MCP is a name: keep it.' })),
       message: tr(
         msg({
           id: 'mcp.addFile.message',
-          defaultMessage: 'Adds {file} to the workspace (.hive/mcp){files, plural, =0 {} one {, with its file in a folder of its own} other {, with its # files in a folder of its own}}. Every project can turn it on in its MCP tab; it runs only where it is on. It runs:',
+          defaultMessage: 'Adds {file} to the workspace (.hive/mcp){files, plural, =0 {} one {, with its file in a folder of its own} other {, with its # files in a folder of its own}}, turned off. Turn it on in the MCP view to choose the projects it runs in. It runs:',
           description: 'Add MCP Server from File, above the command the server runs. {file} is the file added; {files} how many files a .zip brings. Keep .hive/mcp as it is.'
         }),
         { file: basename(file), files: server.files }
@@ -850,7 +830,6 @@ export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
       placeholder: tr(msg({ id: 'actions.mcp.namePlaceholder', defaultMessage: 'server-name', description: "Placeholder of the server's name box: an example name (lower case, a dash)." })),
       initial: name,
       confirmLabel: tr(msg({ id: 'actions.mcp.add', defaultMessage: 'Add', description: 'Button: adds the MCP server to the workspace.' })),
-      select: { label: tr(msg({ id: 'mcp.addFile.turnOnFor', defaultMessage: 'Turn on for', description: "Add MCP Server from File: the label of the list of where to turn the server on." })), options: places.options, initial: where, set: (v) => (where = v) },
       validate: (v) => (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(v.trim()) && v.trim().toLowerCase() !== 'hive' ? null : tr(msg({ id: 'actions.mcp.badName', defaultMessage: 'Use letters, numbers, "-" and "_". "hive" is reserved.', description: "Why an MCP server's name can't be used. Keep \"hive\" as it is: it is the built-in server's name." })))
     })
     if (!picked) return null
@@ -861,7 +840,7 @@ export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
       const choice = await choose({
         title: tr(msg({ id: 'actions.mcp.replaceTitle', defaultMessage: 'Replace {name}?', description: 'Title of the question when the workspace already has an MCP server of that name ({name}).' }), { name }),
         message: tr(msg({ id: 'actions.mcp.replaceMessage', defaultMessage: 'The workspace has a server named {name}.', description: 'The question when the workspace already has an MCP server of that name ({name}).' }), { name }),
-        detail: tr(msg({ id: 'mcp.addFile.replaceDetail', defaultMessage: 'Replace moves it (and the folder of one added from a .zip) to the Recycle Bin and adds this one, on only where you chose: projects that had the old one on lose it. Or choose another name.', description: 'When a server of that name exists, under Replace or Choose Another Name.' })),
+        detail: tr(msg({ id: 'mcp.addFile.replaceDetail', defaultMessage: 'Replace moves it (and the folder of one added from a .zip) to the Recycle Bin and adds this one, turned off: projects that had the old one on lose it. Or choose another name.', description: 'When a server of that name exists, under Replace or Choose Another Name.' })),
         danger: true,
         choices: [
           { label: tr(msg({ id: 'actions.mcp.rename', defaultMessage: 'Choose Another Name', description: 'Button: goes back to choose another name for the MCP server.' })), value: 'rename' },
@@ -872,9 +851,7 @@ export async function addMcpServerFromFile(): Promise<McpServerInfo | null> {
       if (choice === 'rename') continue
       replace = true
     }
-    const turnOn: McpTurnOn = where === 'all' ? 'all' : where === 'project' && places.selected ? { project: places.selected.path } : 'none'
-    // The copy of the file the dialog showed: a file changed since is refused, and the user adds it again to see it.
-    const added = await attempt(addServerFailed(), () => call('mcp:addFromFile', file, name, replace, turnOn, server.hash))
+    const added = await attempt(addServerFailed(), () => call('mcp:addFromFile', file, name, replace))
     if (!added) return null
     set((s) => ({ skillsVersion: s.skillsVersion + 1, selectedMcp: added.name }))
     await refreshWorkspace()
@@ -1373,7 +1350,7 @@ export async function importProjectMcp(path: string, names: string[]): Promise<v
       ? tr(
           msg({
             id: 'mcp.import.changed',
-            defaultMessage: "{count, plural, one {{names} changed in the project's config after you saw it, so it was copied turned off: check what it runs and turn it on in the MCP tab.} other {{names} changed in the project's config after you saw them, so they were copied turned off: check what they run and turn them on in the MCP tab.}}",
+            defaultMessage: "{count, plural, one {{names} changed in the project's config after you saw it, so it was copied turned off: check what it runs and turn it on with its switch in the MCP view.} other {{names} changed in the project's config after you saw them, so they were copied turned off: check what they run and turn them on with their switches in the MCP view.}}",
             description: 'After Copy to workspace, when servers changed between the confirmation and the copy. {names} lists them, {count} how many.'
           }),
           { count: off.length, names: fmt.list(off) }

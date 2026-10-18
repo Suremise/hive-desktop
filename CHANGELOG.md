@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **MCP servers: a workspace switch and each project's own choice.** A server now runs in a project only when it's on in the workspace and on in that project. Adding a server adds it turned off, with no questions. Turning its switch on in the MCP view shows what it runs and asks which projects to turn it on in (the selected project ticked); turning it off stops it everywhere and keeps each project's choice for next time. New projects start with servers off, and a project's MCP tab says **Off in the workspace** where its switch is waiting on the workspace. Upgrading changes nothing that runs: servers on for all projects stay on wherever they were.
+
 - **Start small, finish a block, start fresh.** The user guide's Getting started now says how to keep a plan's usage down: one agent to begin with, a lighter model for routine work on project agents (not the Assistant), work in blocks of a few hours, then start every session fresh. The Assistant suggests it once, in a line, when every lane has ended or an agent's card is done with nothing else running, and checks its journal holds what is still open before it does.
 - **The Assistant's start view stays short on a big board.** What waits on you now shows at most ten lines; past that, agents asking now and cards blocked on a question first, then On Hold cards waiting on a decision of yours, before those waiting for a later version, then a count of the rest. The other sections are capped too, so a board with sixty On Hold cards no longer adds thousands of tokens to every new Assistant conversation (#1078).
 

@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "Oznacz jako nieaktywny",
   "assistant.sidebar.markWorking": "Oznacz jako aktywny",
   "assistant.sidebar.mcpServers": "Serwery MCP",
-  "assistant.sidebar.mcpTip": "Serwery MCP wdrożone w obszarze roboczym (.hive/mcp) są dostępne dla każdego projektu i działają tylko tam, gdzie są włączone: włącz serwer w zakładce MCP projektu albo dla wszystkich projektów jego przełącznikiem tutaj. Zmiany obowiązują w nowych sesjach.",
+  "assistant.sidebar.mcpTip": "Serwery MCP wdrożone w obszarze roboczym (.hive/mcp) są dostępne dla każdego projektu i działają w projekcie tylko wtedy, gdy są włączone tutaj (ich przełącznik, który pyta o projekty) i w zakładce MCP tego projektu. Zmiany obowiązują w nowych sesjach.",
   "assistant.sidebar.needYou": "{count, plural, one {# agent Cię potrzebuje} few {# agentów Cię potrzebuje} many {# agentów Cię potrzebuje} other {# agenta Cię potrzebuje}}",
   "assistant.sidebar.newFolder": "Nowy folder",
   "assistant.sidebar.newFolderButton": "Nowy folder…",

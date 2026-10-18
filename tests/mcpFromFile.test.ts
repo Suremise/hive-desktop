@@ -123,7 +123,8 @@ describe('Add MCP Server from File', () => {
 
   it('adds a .json definition turned off, named after the file, and says what it runs', async () => {
     // Enabled once under this name (its definition since deleted by hand): added, it is still off.
-    await run(() => mcp.setMcpGlobal('github', true))
+    w.config.mcp.enabled = ['github']
+    await w.saveWorkspaceConfig()
     const f = file('github.json', JSON.stringify(GITHUB))
     const preview = await run(() => mcp.previewMcpFile(f))
     expect(preview).toMatchObject({ name: 'github', files: 0, exists: false, runs: ['Runs: npx -y @modelcontextprotocol/server-github', 'Environment: GITHUB_TOKEN=${GITHUB_TOKEN}'] })

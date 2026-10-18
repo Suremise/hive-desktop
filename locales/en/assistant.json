@@ -1024,7 +1024,7 @@
     "description": "The heading of the MCP sidebar: the workspace's MCP servers."
   },
   "assistant.sidebar.mcpTip": {
-    "defaultMessage": "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run only where they are on: turn one on in a project's MCP tab, or for all projects with its switch here. Changes apply to new sessions.",
+    "defaultMessage": "MCP servers deployed to the workspace (.hive/mcp) are available to every project and run in a project only when on here (its switch, which asks for the projects) and on in that project's MCP tab. Changes apply to new sessions.",
     "description": "Tooltip on MCP Servers. Keep .hive/mcp as it is."
   },
   "assistant.sidebar.needYou": {
