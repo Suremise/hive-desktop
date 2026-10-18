@@ -1,0 +1,33 @@
+name: Feature request
+description: An idea for something Hive could do, or do better.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the idea. Please check the [open issues](https://github.com/Suremise/hive-desktop/issues) first: someone may have asked for it already.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: "What you were trying to do, and what got in the way. Start here rather than with the solution: there may be more than one way to solve it."
+      placeholder: When I run several agents on one project, I can't tell …
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What you would like Hive to do about it.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do now
+      description: How you work around it today, or other ways you thought of.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, sketches, or how another app does it.

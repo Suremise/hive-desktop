@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in Hive doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting it. Please check the [open issues](https://github.com/Suremise/hive-desktop/issues) first: someone may have reported it already.
+        A security problem? Don't open an issue: report it privately, as [SECURITY.md](https://github.com/Suremise/hive-desktop/blob/main/.github/SECURITY.md) says.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      description: What you did, step by step, so someone else can see it too. Say if it happens every time or only now and then.
+      placeholder: |
+        1. Open a project and add a Claude Code agent
+        2. Click …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: hive-version
+    attributes:
+      label: Hive version
+      description: Help → About Hive Desktop shows it.
+      placeholder: "0.9.0"
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Settings → System → About, under Windows specifications.
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: clis
+    attributes:
+      label: Coding agents
+      description: Which CLIs the problem involves, and their versions (Agent Setup shows them, and so do the diagnostics below).
+      placeholder: |
+        Claude Code 2.1.302
+        Codex 0.162.1
+  - type: dropdown
+    id: language
+    attributes:
+      label: Hive's language
+      description: Settings → General → Language.
+      options:
+        - English
+        - Deutsch
+        - Español
+        - Français
+        - Polski
+        - Português (Brasil)
+        - 日本語
+        - 简体中文
+        - Another language
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In Hive, click **Help → Copy Diagnostics…**, look at what it shows, click **Copy** and paste it here. It has Hive's and Windows' versions, your coding agents, the settings that change how Hive behaves and the last lines of its log. Your own text is left out: folders, workspace, project and agent names, card titles, what you asked agents to do, and anything that looks like a key or token.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If you can show it, paste or drag screenshots here. Check that they show nothing private.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Anything else that may help, such as a crash dump Help → Copy Diagnostics names (attach the file).
