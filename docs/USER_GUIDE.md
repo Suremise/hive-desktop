@@ -512,7 +512,7 @@ Each agent's footer shows its model and **effort**, e.g. *Opus 5.5 (default) · 
 
 ### Performance metrics
 
-Hive counts what its own parts cost, for each workspace: its Agent API's requests (how many, how long, how big), its tools' replies as the agents got them, what each session was given at launch (Hive's guidance, the Assistant's mode, the skills), and its skill service's work, alongside the providers' own reported token usage. Only totals are kept, never prompts, replies, tokens or paths, for 30 days, in the workspace's `.hive/metrics` folder (kept out of git). Hive doesn't guess token counts: what it measures is exact bytes and characters, and token usage is what the providers report.
+Hive counts what its own parts cost, for each workspace: its Agent API's requests (how many, how long, how big), its tools' replies as the agents got them, what each session was given at launch (Hive's guidance, the Assistant's mode, the skills), and its skill service's work, alongside the providers' own reported token usage. Only totals are kept, never prompts, replies, tokens or paths, for 30 days, in the workspace's database, `.hive/hive.db` (kept out of git; before 0.9, `.hive/metrics/metrics.json`, which moves in the first time 0.9 opens the workspace, with the same numbers). Hive doesn't guess token counts: what it measures is exact bytes and characters, and token usage is what the providers report.
 
 It's on by default: **Settings → Sessions → Record performance metrics** turns it off (what was recorded stays), and **Reset performance metrics** clears the workspace's. Scripts can read them with the Agent API (`GET /v1/metrics`).
 

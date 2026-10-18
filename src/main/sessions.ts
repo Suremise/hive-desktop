@@ -460,10 +460,13 @@ async function transcriptSize(path: string | null | undefined): Promise<number |
 
 /**
  * A live transcript's bytes from start up to size (its size at a stat just before), as text; null when it went since
- * that stat (removed or moved: nothing to read, as when the stat finds none, #1034). Other errors are the caller's.
+ * that stat (removed or moved: nothing to read, as when the stat finds none, #1034). A file removed while the CLI
+ * still holds it open is pending deletion on Windows, and its open is refused (EPERM) rather than not found: gone
+ * too, once nothing is at the path (#1064). Other errors are the caller's.
  */
 async function readSpan(path: string, start: number, size: number): Promise<string | null> {
-  const fh = await open(path, 'r').catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? null : Promise.reject(e)))
+  const gone = (e: NodeJS.ErrnoException): boolean => e.code === 'ENOENT' || ((e.code === 'EPERM' || e.code === 'EACCES') && !existsSync(path))
+  const fh = await open(path, 'r').catch((e: NodeJS.ErrnoException) => (gone(e) ? null : Promise.reject(e)))
   if (!fh) return null
   try {
     const buf = Buffer.alloc(size - start)
