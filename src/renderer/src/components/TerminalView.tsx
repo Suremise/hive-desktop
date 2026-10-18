@@ -155,6 +155,8 @@ export function terminalMinWidth(): number {
   const cell = ctx?.measureText('W').width || 8
   return Math.ceil((MIN_COLS + 2) * cell) + PANE_EXTRA_PX
 }
+/** terminalMinWidth(), for tests (#1050: the focus view's strip is at its least before a pane is at this). */
+;(window as unknown as { __hiveTerminalMinWidth?: () => number }).__hiveTerminalMinWidth = () => terminalMinWidth()
 /** A layout that is still settling (a view shown again re-renders its header as it measures it) is fitted once, at its final size. */
 const FIT_SETTLE_MS = 100
 /** How long after a fit, or being shown, a terminal following its output is held at the bottom (see TerminalView). */

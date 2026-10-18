@@ -236,8 +236,11 @@ function sizes(home) {
   check('narrow: the focus view shows its agent fitted, the strip giving way', !!(await lib.until(async () => (await page.locator('.tile-strip').count()) === 0 && (await panes()) === 1 && (await fitted()) && (await inside()), HUNG_MS)), JSON.stringify({ strip: await page.locator('.tile-strip').count(), panes: await panes(), inside: await inside() }))
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-narrow.png') })
   // Wide, the strip widened by its edge (#1021: as far as the pane beside it leaves room for); narrower, it narrows so the pane keeps a terminal's
-  // width, then gives way altogether; wide again, it is as wide as it was made.
+  // width, then gives way altogether; wide again, it is as wide as it was made. The Progress panel closed, for the room to
+  // widen it (the strip takes at most 40% of the Session tab, #1050).
   const stripWidth = () => page.evaluate(() => Math.round(document.querySelector('.tile-strip')?.getBoundingClientRect().width ?? 0))
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) === 0, HUNG_MS)
   await lib.fitWindow(app, page, { width: 1400, height: 650 })
   await lib.until(async () => (await stripWidth()) === 200, HUNG_MS)
   const edge = await page.locator('.tile-strip > .pane-resizer').boundingBox()
@@ -247,17 +250,44 @@ function sizes(home) {
   await page.mouse.up()
   check('focus: the strip widened', !!(await lib.until(async () => (await stripWidth()) >= 380, HUNG_MS)), String(await stripWidth()))
   const made = await stripWidth()
-  await toggleProgress()
-  await lib.until(async () => (await page.locator('.progress-panel').count()) === 0, HUNG_MS)
   await lib.fitWindow(app, page, { width: 900, height: 650 })
   check('focus, 900 px, no Progress: the strip narrower than chosen, the terminal fitted inside its pane', !!(await lib.until(async () => { const w = await stripWidth(); return w >= 170 && w < made && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
   await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-strip.png') })
+  // The terminal comes first (#1050): the strip takes at most 40% of the Session tab (never below its 170 px), and is at
+  // its least while the terminal beside it still has 24 px over its own least (min), whatever the font; the chosen
+  // width is kept.
+  const share = () => page.evaluate(() => {
+    const strip = document.querySelector('.tile-strip')
+    const tab = strip?.closest('.tab-body')
+    return strip && tab ? { strip: Math.round(strip.getBoundingClientRect().width), tab: Math.round(tab.getBoundingClientRect().width), pane: Math.round(document.querySelector('.agents-area.tile-focus').getBoundingClientRect().width), min: window.__hiveTerminalMinWidth() } : null
+  })
+  const shared = (w) => !!w && w.strip <= Math.min(made, Math.max(170, Math.floor(w.tab * 0.4))) + 1 && w.pane >= w.min - 1 && (w.strip <= 170 || w.pane >= w.min + 23)
+  check('focus, 900 px: the strip at most 40% of the tab, the terminal wider than it', !!(await lib.until(async () => { const w = await share(); return shared(w) && w.pane > w.strip }, HUNG_MS)), JSON.stringify({ ...(await share()), made }))
+  await lib.fitWindow(app, page, { width: 800, height: 650 })
+  check('focus, 800 px: the strip at its least, the terminal still wider than its least', !!(await lib.until(async () => { const w = await share(); return w?.strip === 170 && shared(w) && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify(await share()))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-least.png') })
+  // A large terminal font (HR4's case: 24 px, a terminal's least 342 px): the strip still at its least before the terminal.
+  const fontWas = (await inv('settings:get')).appearance?.terminalFontSize
+  await inv('settings:update', { appearance: { terminalFontSize: 24 } })
+  for (const width of [950, 900]) {
+    await lib.fitWindow(app, page, { width, height: 650 })
+    check(`focus, 24 px font, ${width} px: the strip narrower first, the terminal over its least`, !!(await lib.until(async () => { const w = await share(); return w?.min > 300 && shared(w) && (await fitted()) && (await inside()) }, HUNG_MS)), JSON.stringify(await share()))
+  }
+  check('focus, 24 px font, 900 px: the strip at its least', (await share())?.strip === 170, JSON.stringify(await share()))
+  await page.screenshot({ path: path.join(lib.WORK, 'termsize-focus-font24.png') })
+  await inv('settings:update', { appearance: { terminalFontSize: fontWas } })
+  await lib.until(async () => (await share())?.min < 300, HUNG_MS)
+  await lib.fitWindow(app, page, { width: 900, height: 650 })
   await toggleProgress()
   check('focus, 900 px, Progress open: the strip gives way, the terminal inside', !!(await lib.until(async () => (await stripWidth()) === 0 && (await fitted()) && (await inside()), HUNG_MS)), JSON.stringify({ strip: await stripWidth(), inside: await inside() }))
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) === 0, HUNG_MS)
   await lib.fitWindow(app, page, { width: 1400, height: 650 })
   check('focus, wide again: the strip as wide as it was made', !!(await lib.until(async () => (await stripWidth()) === made && (await inside()), HUNG_MS)), `${await stripWidth()}, made ${made}`)
   await page.locator('.tile-strip > .pane-resizer').dblclick()
   await lib.until(async () => (await stripWidth()) === 200, HUNG_MS)
+  await toggleProgress()
+  await lib.until(async () => (await page.locator('.progress-panel').count()) > 0, HUNG_MS)
   await lib.fitWindow(app, page, { width: 900, height: 650 })
   await page.locator('.view-switch [data-view="panes"]').click()
   check('narrow: Panes again, still one pane', !!(await fewer(1)), String(await panes()))
