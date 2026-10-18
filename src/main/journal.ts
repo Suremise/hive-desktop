@@ -97,6 +97,8 @@ function setup(db: DatabaseSync, isNew: boolean): void {
   // Set before the file has pages of its own (WAL mode made its first): a new file is vacuumed into it at once.
   if (isNew) db.exec('PRAGMA auto_vacuum = INCREMENTAL; VACUUM')
   db.function('journal_text', { deterministic: true }, (detail, z) => detailText(detail, z) ?? '')
+  // An entry's ISO week, as a digest names it (#1032: originals a digest covers rank lower).
+  db.function('journal_week', { deterministic: true }, (at) => isoWeek(new Date(String(at))))
 }
 
 const hiveVersion = (): string => {
@@ -278,8 +280,9 @@ function matchOf(q: string): string | null {
 /**
  * Recalls entries: newest first, or best first for a query; at most `limit` (default 10). A match's rank is its relevance
  * (bm25; the summary weighs most) times 1 + importance/2, over 1 + ln(1 + age/90 days): recency and importance nudge it,
- * so an essential entry from months ago still outranks a trivial one from today. Ties (a small journal, where bm25 gives
- * every match nought) go by importance, then the newest.
+ * so an essential entry from months ago still outranks a trivial one from today; an original whose week has a digest
+ * counts half (#1032: the digest keeps its gist). Ties (a small journal, where bm25 gives every match nought) go by
+ * importance, then the newest.
  */
 export function recall(home: string, q: RecallQuery): RecallRow[] {
   const limit = q.limit === undefined ? ENTRY_LIMITS.recallDefault : Number.isInteger(q.limit) && q.limit > 0 && q.limit <= ENTRY_LIMITS.recallMax ? q.limit : fail(`limit is 1 to ${ENTRY_LIMITS.recallMax}.`)
@@ -311,7 +314,8 @@ export function recall(home: string, q: RecallQuery): RecallRow[] {
   const { reader } = journalOf(home)
   const sql = match
     ? `SELECT ${cols} FROM entries_fts f JOIN entries e ON e.id = f.rowid WHERE entries_fts MATCH ?${where.length ? ` AND ${where.join(' AND ')}` : ''}
-       ORDER BY bm25(entries_fts, 3.0, 1.0, 1.5) * (1 + 0.5 * e.importance) / (1 + ln(1 + max(0, julianday('now') - julianday(e.at)) / 90.0)), e.importance DESC, e.at DESC LIMIT ?`
+       ORDER BY bm25(entries_fts, 3.0, 1.0, 1.5) * (1 + 0.5 * e.importance) / (1 + ln(1 + max(0, julianday('now') - julianday(e.at)) / 90.0))
+         * (CASE WHEN e.kind <> 'digest' AND EXISTS (SELECT 1 FROM entries d WHERE d.kind = 'digest' AND d.digest_of = journal_week(e.at)) THEN 0.5 ELSE 1 END), e.importance DESC, e.at DESC LIMIT ?`
     : `SELECT ${cols} FROM entries e${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY e.at DESC, e.id DESC LIMIT ?`
   const rows = reader.prepare(sql).all(...(match ? [match] : []), ...args, limit) as unknown as (Omit<RecallRow, 'hasDetail'> & { hasDetail: number })[]
   return rows.map((r) => ({ ...r, hasDetail: !!r.hasDetail }))

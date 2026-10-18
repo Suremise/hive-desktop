@@ -7,7 +7,7 @@ import { randomBytes } from 'crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { tempDir } from './tempDir'
-import { DEFAULT_JOURNAL, journalSettings, type JournalSettings } from '../src/shared/journal'
+import { DEFAULT_JOURNAL, isoWeek, journalSettings, weekStart, type JournalSettings } from '../src/shared/journal'
 
 const base = tempDir('hive-journal-')
 const j = await import('../src/main/journal')
@@ -154,6 +154,21 @@ describe('recall', () => {
     // Deleting the newer one makes the old current again.
     j.deleteEntry(h, important)
     expect(j.readEntry(h, old)!.supersededBy).toBeNull()
+  })
+
+  it("ranks an original lower once its week has a digest (#1032: the digest keeps its gist)", () => {
+    const h = home()
+    for (let i = 0; i < 20; i++) write(h, { summary: `Other work ${i} on the board`, kind: 'event' })
+    const digested = write(h, { summary: 'Picked the merge order for the lanes', kind: 'plan' })
+    const earlier = write(h, { summary: 'Picked the merge order for the lanes, earlier', kind: 'plan' })
+    const week = weekStart(new Date(Date.now() - 14 * 86_400_000))
+    age(h, digested, new Date(week.getTime() + 86_400_000).toISOString())
+    age(h, earlier, new Date(week.getTime() - 3 * 86_400_000).toISOString())
+    expect(j.recall(h, { query: 'merge order lanes' }).map((r) => r.id)).toEqual([digested, earlier])
+    const digest = write(h, { summary: 'The week in brief', kind: 'digest', digestOf: isoWeek(week) })
+    expect(j.recall(h, { query: 'merge order lanes' }).map((r) => r.id)).toEqual([earlier, digested])
+    // Newest first (no query) is by time alone.
+    expect(j.recall(h, { limit: 3 }).map((r) => r.id)[0]).toBe(digest)
   })
 
   it('an entry in full: detail, why, links, tags; updates add links and tags', () => {
