@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.9.1 — 18 October 2026
 
 - **MCP servers: a workspace switch and each project's own choice.** A server now runs in a project only when it's on in the workspace and on in that project. Adding a server adds it turned off, with no questions. Turning its switch on in the MCP view shows what it runs and asks which projects to turn it on in (the selected project ticked); turning it off stops it everywhere and keeps each project's choice for next time. New projects start with servers off, and a project's MCP tab says **Off in the workspace** where its switch is waiting on the workspace. Upgrading changes nothing that runs: servers on for all projects stay on wherever they were.
 
