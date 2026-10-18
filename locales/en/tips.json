@@ -111,6 +111,14 @@
     "defaultMessage": "What you've attached to the Assistant",
     "description": "A tip's title."
   },
+  "tips.assistantJournal.text": {
+    "defaultMessage": "The Assistant keeps a journal in each workspace: decisions, plans and what happened, recalled a few lines at a time after a restart. Settings → Assistant → Journal chooses what it may store, or turns it off.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantJournal.title": {
+    "defaultMessage": "The Assistant remembers",
+    "description": "A tip's title."
+  },
   "tips.assistantLaneWatch.text": {
     "defaultMessage": "Running several lanes, the Assistant waits on all of them at once and is woken only for a failed review, a blocked or stalled card, a lane ready to merge or one that ended.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

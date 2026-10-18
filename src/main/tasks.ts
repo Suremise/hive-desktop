@@ -17,6 +17,7 @@ import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import { workspace, type WorkspaceService } from './workspace'
 import { trash } from './trash'
+import { journalFact } from './journalService'
 
 const log = createLogger('tasks')
 
@@ -804,6 +805,8 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
   const by = actorName(actor)
   const comment = opts.comment === undefined ? null : commentText(opts.comment)
   let handoff: LoopEvent['kind'] | null = null
+  // Moved into Done: merged, a fact for the Assistant's journal (#1031) once it is saved.
+  let intoDone = false
   const result = await (async () => {
     const card = await getTask(n, ws)
     const scope = scopeOf(actor)
@@ -902,6 +905,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       const order = place.order
       reordered = order !== card.order
       card.order = order
+      if (column === 'done' && card.column !== 'done') intoDone = true
       card.column = column
     }
     if (patch.decision !== undefined) {
@@ -954,6 +958,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       log.warn('a loop handoff', e)
     }
   }
+  if (intoDone) afterBoardWrite(ws, () => journalFact(ws, { summary: `#${n} "${result.title}" is Done (merged), moved there by ${by}`, project: result.project || null, links: [{ type: 'card', ref: String(n) }], tags: ['done'] })) // i18n-ignore: a journal fact (the Assistant's, English)
   return result
 }
 

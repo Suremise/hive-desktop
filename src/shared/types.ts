@@ -1,5 +1,6 @@
 // Types shared by the main process, preload bridge and renderer.
 
+import type { JournalSettings } from './journal'
 import type { Text, TextPart } from './advanced'
 import type { AvOffer } from './antivirus'
 import type { ActivityTarget } from './assistantActivity'
@@ -570,6 +571,8 @@ export interface WorkspaceConfig {
   flaggedAgentNames?: string[]
   /** The workspace's own advanced values (#367: Settings → Advanced, This workspace), for those a workspace can set. */
   advanced?: Record<string, unknown>
+  /** The Assistant's journal (#1031: Settings → Assistant → Journal); absent: on, work only, 90 days, 50 MB. */
+  journal?: JournalSettings
 }
 
 /** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */

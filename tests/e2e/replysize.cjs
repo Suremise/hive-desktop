@@ -110,7 +110,7 @@ const prose = (seed, n) => {
 
   /** One hive tool call through hive-mcp.js: the text the agent gets (role 'assistant+settings': with Change settings on). */
   const tool = (name, args, role = 'agent') => {
-    const extra = { HIVE_DEV_CONSOLE: '1', ...(role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_ASSISTANT_SETTINGS: role === 'assistant+settings' ? '1' : '0', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
+    const extra = { HIVE_DEV_CONSOLE: '1', ...(role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_ASSISTANT_SETTINGS: role === 'assistant+settings' ? '1' : '0', HIVE_JOURNAL: '1', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) + '\n',
       env: lib.childEnv({ HIVE_API_URL: API, HIVE_WORKSPACE: ws, ...extra }),
@@ -121,7 +121,7 @@ const prose = (seed, n) => {
   }
   /** A tool's description as the agent (or the Assistant) is given it. */
   const toolDescription = (name, role = 'agent') => {
-    const extra = { HIVE_DEV_CONSOLE: '1', ...(role === 'assistant' ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
+    const extra = { HIVE_DEV_CONSOLE: '1', ...(role.startsWith('assistant') ? { HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'projects', HIVE_JOURNAL: role === 'assistant-nojournal' ? '0' : '1', HIVE_API_TOKEN_FILE: asTokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' } : { HIVE_API_TOKEN: apiToken, HIVE_PROJECT: 'alpha', HIVE_AGENT_ID: coder.id }) }
     const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
       input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) + '\n',
       env: lib.childEnv({ HIVE_API_URL: API, HIVE_WORKSPACE: ws, ...extra }),
@@ -332,6 +332,27 @@ const prose = (seed, n) => {
   const refusedOwn = tool('hive_update_setting', { id: 'assistant.control', value: 'projects' }, 'assistant+settings')
   check('its own Control is refused, saying where the user changes it', refusedOwn.isError && /Settings → Assistant → Control/.test(refusedOwn.text), refusedOwn.text)
   await inv('settings:update', { sessions: { transcriptWarnMB: 20 }, assistant: { changeSettings: false } })
+
+  // The Assistant's journal (#1031): its tools only while it is on, for the Assistant; a recall is a line an entry, at
+  // most ten by default, and an entry in full only on request.
+  check("the journal's tools are the Assistant's, offered while it is on", !!toolDescription('hive_journal_recall', 'assistant') && !toolDescription('hive_journal_recall') && !toolDescription('hive_journal_recall', 'assistant-nojournal'))
+  await inv('journal:set', { scope: ['decision', 'plan', 'event', 'incident', 'insight'] })
+  for (let i = 0; i < 30; i++) tool('hive_journal_write', { kind: i % 2 ? 'decision' : 'insight', summary: `Entry ${i}: ${prose(i, 400).split('\n')[1].slice(0, 140)}`, detail: prose(300 + i, 2500), why: prose(400 + i, 300).split('\n')[1].slice(0, 200), project: PROJECTS[i % 4], links: [{ type: 'card', ref: String(numbers[i]) }], tags: ['seed'] }, 'assistant')
+  const entryWritten = measure('hive_journal_write', tool('hive_journal_write', { kind: 'plan', summary: 'Measure the journal replies', why: 'Each reply stays small' }, 'assistant'), 60)
+  const recalled = measure('hive_journal_recall', tool('hive_journal_recall', {}, 'assistant'), 2400)
+  check('a recall gives ten one-line rows, the newest first', recalled.split('\n').length === 10 && /^#\d+ \d{4}-\d\d-\d\d plan: Measure the journal replies/.test(recalled), recalled)
+  measure('hive_journal_recall (query)', tool('hive_journal_recall', { query: 'settings window reloads', limit: 10 }, 'assistant'), 2400)
+  const firstId = Number(/^#(\d+)/.exec(recalled.split('\n').at(-1))[1])
+  measure('hive_journal_entry', tool('hive_journal_entry', { id: firstId }, 'assistant'), 3500)
+  measure('hive_journal_update', tool('hive_journal_update', { id: firstId, importance: 2 }, 'assistant'), 60)
+  check('…written and changed are a line each', /^Entry #\d+ written\.$/.test(entryWritten) && tool('hive_journal_update', { id: firstId, addTags: ['kept'] }, 'assistant').text === `Entry #${firstId} updated.`)
+  const outOfScope = tool('hive_journal_write', { kind: 'moment', summary: 'A nice moment' }, 'assistant')
+  check("a kind the user's scope leaves out is refused, saying what is allowed", outOfScope.isError && /scope doesn't include moment entries .*allows: decision, plan, event, incident, insight/.test(outOfScope.text), outOfScope.text)
+  await inv('journal:set', { enabled: false })
+  const whileOff = tool('hive_journal_recall', {}, 'assistant')
+  check('turned off meanwhile, a call is refused, saying the entries are kept', whileOff.isError && /journal is off .*entries are kept/.test(whileOff.text), whileOff.text)
+  await inv('journal:set', { enabled: true })
+  check('on again, every entry is there', tool('hive_journal_recall', { limit: 50 }, 'assistant').text.split('\n').length >= 31)
   // A long last turn in Coder's transcript (as Claude Code writes one): a 5,000-character task, 12 tool calls with long
   // summaries and a 7,000-character reply, longer than either form of the reply gives.
   const coderSession = (await live(alpha, coder.id)).sessionId

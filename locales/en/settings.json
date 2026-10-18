@@ -995,6 +995,18 @@
     "defaultMessage": "Enter ends the pause",
     "description": "A setting's title (Settings → Assistant)."
   },
+  "settings.assistant.journal.desc": {
+    "defaultMessage": "The Assistant keeps a journal in this workspace: decisions, plans, events and what it learned, recalled a few lines at a time instead of reading a long handover. Hive adds facts: lanes, merges, unexpected closes.",
+    "description": "What the setting \"Journal\" does, under its title (Settings → Assistant)."
+  },
+  "settings.assistant.journal.tip": {
+    "defaultMessage": "For this workspace. Turning it off keeps the entries; Delete Journal… removes them. The Assistant's journal tools follow a change at its next start; it is told at once.",
+    "description": "The info tip of the setting \"Journal\" (Settings → Assistant): more on what it does and when it applies."
+  },
+  "settings.assistant.journal.title": {
+    "defaultMessage": "Journal",
+    "description": "A setting's title (Settings → Assistant): the Assistant's journal, its memory across sessions."
+  },
   "settings.assistant.panelSide.desc": {
     "defaultMessage": "Which side of the window the Assistant's panel is on, in every workspace.",
     "description": "What the setting \"Panel side\" does, under its title (Settings → Assistant)."
@@ -1498,6 +1510,106 @@
   "settings.general.userName.title": {
     "defaultMessage": "Your name",
     "description": "A setting's title (Settings → General)."
+  },
+  "settings.journal.cap": {
+    "defaultMessage": "Size cap",
+    "description": "A label before the journal's size limit in MB (Settings → Assistant → Journal)."
+  },
+  "settings.journal.days": {
+    "defaultMessage": "days (digests and important entries stay)",
+    "description": "After the number of days everyday journal entries are kept."
+  },
+  "settings.journal.delete": {
+    "defaultMessage": "Delete Journal…",
+    "description": "A button: deletes the Assistant's journal of this workspace (asks first). The … says it asks: keep it."
+  },
+  "settings.journal.deleteButton": {
+    "defaultMessage": "Delete",
+    "description": "Button of the confirmation: deletes the journal."
+  },
+  "settings.journal.deleteMessage": {
+    "defaultMessage": "All {entries, plural, one {# entry} other {# entries}} of this workspace go to the Recycle Bin. The Assistant starts again with an empty journal.",
+    "description": "The question before the journal is deleted; {entries} is how many entries it has. Recycle Bin is Windows' name for it."
+  },
+  "settings.journal.deleteTitle": {
+    "defaultMessage": "Delete the Assistant's journal?",
+    "description": "Title of the question before the Assistant's journal is deleted."
+  },
+  "settings.journal.deleted": {
+    "defaultMessage": "Journal deleted",
+    "description": "A notice after the Assistant's journal was deleted."
+  },
+  "settings.journal.failed": {
+    "defaultMessage": "Couldn't change the journal",
+    "description": "An error's title: saving the journal settings or deleting the journal failed (why follows)."
+  },
+  "settings.journal.kind.decision": {
+    "defaultMessage": "Decisions",
+    "description": "A kind of entry the Assistant may keep in its journal (Settings → Assistant → Journal): what was decided."
+  },
+  "settings.journal.kind.event": {
+    "defaultMessage": "Events",
+    "description": "A kind of journal entry: what happened (Hive records lanes, merges and unexpected closes as events too)."
+  },
+  "settings.journal.kind.incident": {
+    "defaultMessage": "Incidents",
+    "description": "A kind of journal entry: something that went wrong."
+  },
+  "settings.journal.kind.insight": {
+    "defaultMessage": "Insights",
+    "description": "A kind of journal entry: something learned."
+  },
+  "settings.journal.kind.moment": {
+    "defaultMessage": "Moments",
+    "description": "A kind of journal entry: a memorable moment of working together. Off by default."
+  },
+  "settings.journal.kind.plan": {
+    "defaultMessage": "Plans",
+    "description": "A kind of journal entry: what is planned."
+  },
+  "settings.journal.kind.preference": {
+    "defaultMessage": "Your preferences",
+    "description": "A kind of journal entry: how the user likes things done. Off by default."
+  },
+  "settings.journal.local": {
+    "defaultMessage": "Kept on this computer only, in .hive/assistant/journal.db, and never sent anywhere.",
+    "description": "A note under the journal settings (privacy). Keep the file path as it is."
+  },
+  "settings.journal.mb": {
+    "defaultMessage": "MB (past it, the oldest everyday entries go first)",
+    "description": "After the journal's size limit in megabytes."
+  },
+  "settings.journal.noLimit": {
+    "defaultMessage": "No limit",
+    "description": "A checkbox: the journal has no size limit."
+  },
+  "settings.journal.noWorkspace": {
+    "defaultMessage": "Open a workspace to set its Assistant's journal.",
+    "description": "Settings → Assistant → Journal with no workspace open."
+  },
+  "settings.journal.none": {
+    "defaultMessage": "No journal yet.",
+    "description": "The journal before the Assistant or Hive has written anything."
+  },
+  "settings.journal.offKeeps": {
+    "defaultMessage": "Off, nothing is written and the Assistant's journal tools go at its next start; the entries are kept.",
+    "description": "Under the journal switch when it is off."
+  },
+  "settings.journal.on": {
+    "defaultMessage": "Keep a journal",
+    "description": "A switch (Settings → Assistant → Journal): the Assistant keeps a journal in this workspace. Off keeps what is there."
+  },
+  "settings.journal.retention": {
+    "defaultMessage": "Keep everyday entries for",
+    "description": "A label before a number of days (Settings → Assistant → Journal). Digests and important entries are kept longer."
+  },
+  "settings.journal.scope": {
+    "defaultMessage": "What it may store",
+    "description": "A heading (Settings → Assistant → Journal): the kinds of entries the Assistant may keep."
+  },
+  "settings.journal.size": {
+    "defaultMessage": "Now {size}, {entries, plural, one {# entry} other {# entries}}.",
+    "description": "The journal's size on disk ({size}: \"1.2 MB\") and how many entries it has."
   },
   "settings.keybindings.editor.desc": {
     "defaultMessage": "Click the pencil (or double-click a shortcut), then press the new keys. Wait a moment after the first combination, or press a second one for a chord such as Ctrl+K Ctrl+S.",
