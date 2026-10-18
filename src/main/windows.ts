@@ -97,6 +97,7 @@ function forEvent(e: HiveEvent): BrowserWindow[] {
     case 'agent-leftovers':
       return wins([windowForPath(e.leftovers.projectPath)])
     case 'tasks-changed':
+    case 'journal-changed':
       return wins([windowForPath(e.workspacePath)])
     case 'progress-changed':
       return wins([windowShowing(e.workspacePath)])

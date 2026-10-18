@@ -1,6 +1,6 @@
 import type { AgentLeftovers } from './agentProcesses'
 import type { AntivirusStatus, AvAction, AvChangeResult, AvSuggestionReply } from './antivirus'
-import type { JournalSettings } from './journal'
+import type { JournalEdit, JournalEntryView, JournalFilter, JournalPage, JournalSettings } from './journal'
 import type {
   ArchiveBatch,
   SetAsideCard,
@@ -282,6 +282,13 @@ export interface HiveRequests {
   'journal:status': () => { settings: JournalSettings; bytes: number; entries: number }
   'journal:set': (patch: Partial<JournalSettings>) => JournalSettings
   'journal:delete': () => void
+  /** The journal browser (#1033): a page of the timeline, the projects named, an entry, an edit, a delete, and Forget (what a search matched up to `upTo`, the count's newest id). */
+  'journal:browse': (filter: JournalFilter, offset?: number, limit?: number) => JournalPage
+  'journal:projects': () => string[]
+  'journal:entry': (id: number) => JournalEntryView | null
+  'journal:edit': (id: number, edit: JournalEdit) => boolean
+  'journal:deleteEntry': (id: number) => boolean
+  'journal:forget': (filter: JournalFilter, upTo: number) => number
   /** Cards an older Hive saved, set aside for review (#1044): listed, added to the board, discarded (by file name). */
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard

@@ -712,6 +712,17 @@ It is in **Settings → Assistant → Journal**, for the workspace you have open
 
 The journal is a file in the workspace, `.hive/assistant/journal.db`, kept on this computer only and never sent anywhere (it stays out of git with the Assistant's other files). Long entries are kept compressed, and a search finds words in summaries, details and reasons.
 
+### Reading and correcting the journal
+
+The **Journal** section of the Assistant view (or **Show Assistant Journal** in the command palette) shows the journal itself. **Timeline** lists every entry newest first, a line each under its day: the time, a mark for its kind, the summary, its project, a star for an important one, who wrote it (the Assistant's mark, or Hive's for its own facts) and the cards it links to as the board's chips, which open the card. A superseded entry is struck through. **Weekly Digests** lists only the Assistant's weekly summaries.
+
+- **Search** finds entries with every word you type (the start of a word is enough) in their summary, detail or reason. The filters narrow it by **kind**, **project** (or the workspace's own entries), who wrote it (**Hive** or **the Assistant**) and a **From** and **To** day. **Clear Filters** shows everything again.
+- **Click an entry** (or **Enter** on it; the arrow keys move along the timeline, **Ctrl+F** goes to the search) to open it beside the timeline: its detail, why it mattered, when, project, importance, links (cards, commits, notes, the entries it supersedes) and tags.
+- **Edit** corrects its summary, kind, importance, detail or reason. The kinds offered are those the journal may store (Settings → Assistant → Journal) and its own.
+- **Delete…** deletes it after asking. **Forget These…** deletes everything the search and filters found, after saying how many: "forget everything about X" is a search for X, then Forget. Deleted entries are gone for good (they don't go to the Recycle Bin), and the Assistant can no longer recall them. To delete the whole journal, use **Delete Journal…** in Settings.
+
+The footer shows the journal's size, how many entries it has, how long everyday entries are kept and its size cap, with **Journal Settings** to change them. While the journal is off, the browser says so with **Turn On**; its entries can still be read, corrected and deleted. The browser follows changes as they happen: an entry the Assistant or Hive writes shows at once.
+
 ### The Assistant and Hive's settings
 
 Hive has a lot of settings. Ask the Assistant what one does (*"what does Warn when a transcript is over do?"*) or how to make Hive behave differently (*"the chime is driving me mad"*), and it finds the setting, explains it and says where it is. It reads the same descriptions Settings shows. When it notices something a setting would help with, such as a transcript growing very large or several agents editing the same files, it suggests that setting in a line, and changes nothing unless you agree.

@@ -2274,6 +2274,8 @@ export type HiveEvent =
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }
   | { type: 'personas-changed' }
+  /** A workspace's Assistant journal changed (#1033: its browser reads it again). */
+  | { type: 'journal-changed'; workspacePath: string }
   /** The Hive Assistant acted, or asks the user something (its home's path names the window). */
   | { type: 'assistant-activity'; projectPath: string; action: AssistantAction }
   | { type: 'assistant-questions'; projectPath: string; questions: AssistantQuestion[] }

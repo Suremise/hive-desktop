@@ -119,6 +119,14 @@
     "defaultMessage": "The Assistant remembers",
     "description": "A tip's title."
   },
+  "tips.assistantJournalBrowser.text": {
+    "defaultMessage": "The Assistant view's Journal shows what the Assistant keeps in its journal, newest first. Search it, open an entry to correct or delete it, or use Forget These… to remove everything a search finds.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.assistantJournalBrowser.title": {
+    "defaultMessage": "Read what the Assistant remembers",
+    "description": "A tip's title."
+  },
   "tips.assistantLaneWatch.text": {
     "defaultMessage": "Running several lanes, the Assistant waits on all of them at once and is woken only for a failed review, a blocked or stalled card, a lane ready to merge or one that ended.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

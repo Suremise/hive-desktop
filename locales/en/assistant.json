@@ -1,4 +1,328 @@
 {
+  "assistant.journal.allKinds": {
+    "defaultMessage": "All kinds",
+    "description": "The journal browser's kind filter: every kind of entry."
+  },
+  "assistant.journal.allProjects": {
+    "defaultMessage": "All projects",
+    "description": "The journal browser's project filter: entries of every project and of the workspace."
+  },
+  "assistant.journal.allSources": {
+    "defaultMessage": "Hive and the Assistant",
+    "description": "The journal browser's source filter: entries written by either."
+  },
+  "assistant.journal.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The journal browser: leaves the entry's edit without saving."
+  },
+  "assistant.journal.clearFilters": {
+    "defaultMessage": "Clear Filters",
+    "description": "The journal browser: a button that empties the search and resets every filter."
+  },
+  "assistant.journal.close": {
+    "defaultMessage": "Close",
+    "description": "The journal browser: closes the entry shown beside the timeline."
+  },
+  "assistant.journal.count": {
+    "defaultMessage": "{total, plural, one {# entry} other {# entries}}",
+    "description": "Above the journal timeline: how many entries match."
+  },
+  "assistant.journal.countOf": {
+    "defaultMessage": "{shown, number} of {total, plural, one {# entry} other {# entries}}",
+    "description": "Above the journal timeline when only some are shown: how many of how many."
+  },
+  "assistant.journal.delete": {
+    "defaultMessage": "Delete…",
+    "description": "The journal browser: a button that deletes the entry shown, after asking. The … says it asks: keep it."
+  },
+  "assistant.journal.deleteButton": {
+    "defaultMessage": "Delete",
+    "description": "The button of the question before a journal entry is deleted."
+  },
+  "assistant.journal.deleteMessage": {
+    "defaultMessage": "“{summary}” is deleted for good (not to the Recycle Bin), and the Assistant can no longer recall it.",
+    "description": "The question before a journal entry is deleted; {summary} is its one line. Recycle Bin is Windows' name for it."
+  },
+  "assistant.journal.deleteTitle": {
+    "defaultMessage": "Delete this journal entry?",
+    "description": "Title of the question before a journal entry is deleted."
+  },
+  "assistant.journal.deleted": {
+    "defaultMessage": "Journal entry deleted",
+    "description": "A notice after a journal entry was deleted."
+  },
+  "assistant.journal.detail": {
+    "defaultMessage": "Detail",
+    "description": "A journal entry's detail (a heading in the entry, and a label when editing it)."
+  },
+  "assistant.journal.digestOf": {
+    "defaultMessage": "Sums up {period}",
+    "description": "A weekly digest in the journal: the period it sums up ({period}: \"2026-W42\")."
+  },
+  "assistant.journal.digestsTitle": {
+    "defaultMessage": "Weekly Digests",
+    "description": "The heading of the journal browser showing only the Assistant's weekly digests."
+  },
+  "assistant.journal.edit": {
+    "defaultMessage": "Edit",
+    "description": "The journal browser: a button that edits the entry shown."
+  },
+  "assistant.journal.edited": {
+    "defaultMessage": "edited {when}",
+    "description": "After when a journal entry was written: when it was last changed."
+  },
+  "assistant.journal.empty": {
+    "defaultMessage": "No entries yet. The Assistant writes decisions, plans and what it learns as it works, and Hive adds its own facts: lanes, merges, unexpected closes.",
+    "description": "The journal browser when the journal has no entries."
+  },
+  "assistant.journal.emptyDigests": {
+    "defaultMessage": "No weekly digests yet: the Assistant sums up each week in one.",
+    "description": "The journal browser showing digests when there are none."
+  },
+  "assistant.journal.entryLink": {
+    "defaultMessage": "Entry {id}",
+    "description": "A link from a journal entry to another entry ({id}): opens it."
+  },
+  "assistant.journal.failed": {
+    "defaultMessage": "Couldn't change the journal",
+    "description": "An error's title: an edit, a delete or Forget in the journal browser failed (why follows)."
+  },
+  "assistant.journal.filters": {
+    "defaultMessage": "Filters",
+    "description": "The accessible name of the journal browser's filters (kind, project, source, dates)."
+  },
+  "assistant.journal.footer": {
+    "defaultMessage": "{size} · {entries, plural, one {# entry} other {# entries}} · everyday entries kept {days, plural, one {# day} other {# days}} · {cap, select, none {no size cap} other {cap {cap} MB}}",
+    "description": "The journal browser's footer: its size on disk ({size}: \"1.2 MB\"), how many entries, how long everyday entries are kept, and the size cap in MB (none: no cap)."
+  },
+  "assistant.journal.footerNone": {
+    "defaultMessage": "No journal yet · everyday entries kept {days, plural, one {# day} other {# days}} · {cap, select, none {no size cap} other {cap {cap} MB}}",
+    "description": "The journal browser's footer before anything is written: how long everyday entries are kept and the size cap in MB (none: no cap)."
+  },
+  "assistant.journal.forget": {
+    "defaultMessage": "Forget These…",
+    "description": "The journal browser: a button that deletes every entry the search and filters found, after asking. The … says it asks: keep it."
+  },
+  "assistant.journal.forgetButton": {
+    "defaultMessage": "Forget {count, plural, one {# Entry} other {# Entries}}",
+    "description": "The button of the question before Forget: deletes that many entries."
+  },
+  "assistant.journal.forgetMessage": {
+    "defaultMessage": "{count, plural, one {# entry matches} other {# entries match}} this search and its filters. {count, plural, one {It is} other {They are}} deleted for good (not to the Recycle Bin), and the Assistant can no longer recall {count, plural, one {it} other {them}}.",
+    "description": "The question before Forget deletes entries: how many. Recycle Bin is Windows' name for it."
+  },
+  "assistant.journal.forgetNeedsFilter": {
+    "defaultMessage": "Search or filter first: Forget deletes what they find. To delete the whole journal, use Settings → Assistant → Journal.",
+    "description": "The tooltip of the journal browser's \"Forget These…\" button while no search or filter is set."
+  },
+  "assistant.journal.forgetTip": {
+    "defaultMessage": "Forget everything this search found: every matching entry is deleted, after asking.",
+    "description": "The tooltip of the journal browser's \"Forget These…\" button."
+  },
+  "assistant.journal.forgetTitle": {
+    "defaultMessage": "{query, select, none {Forget {count, plural, one {# entry} other {# entries}}?} other {Forget everything about “{query}”?}}",
+    "description": "Title of the question before Forget deletes entries: with a search ({query}, the user's words), \"everything about\" it; without one (none), how many."
+  },
+  "assistant.journal.forgot": {
+    "defaultMessage": "Forgot {count, plural, one {# entry} other {# entries}}",
+    "description": "A notice after Forget deleted entries."
+  },
+  "assistant.journal.from": {
+    "defaultMessage": "From",
+    "description": "The journal browser's first date filter: entries on or after this day."
+  },
+  "assistant.journal.gone": {
+    "defaultMessage": "This entry is no longer in the journal.",
+    "description": "The journal browser: the entry opened was deleted meanwhile (or pruned)."
+  },
+  "assistant.journal.importance": {
+    "defaultMessage": "Importance",
+    "description": "A journal entry's importance (a label in the entry and when editing it)."
+  },
+  "assistant.journal.importance.0": {
+    "defaultMessage": "Trivia",
+    "description": "A journal entry's importance, the lowest: goes first when the journal is pruned."
+  },
+  "assistant.journal.importance.1": {
+    "defaultMessage": "Everyday",
+    "description": "A journal entry's importance, the default: kept for the retention (Settings → Assistant → Journal)."
+  },
+  "assistant.journal.importance.2": {
+    "defaultMessage": "Important",
+    "description": "A journal entry's importance: kept past the retention and the size cap."
+  },
+  "assistant.journal.importance.3": {
+    "defaultMessage": "Essential",
+    "description": "A journal entry's importance, the highest: kept past the retention and the size cap."
+  },
+  "assistant.journal.kind.decision": {
+    "defaultMessage": "Decision",
+    "description": "A kind of entry in the Assistant's journal: something decided."
+  },
+  "assistant.journal.kind.digest": {
+    "defaultMessage": "Digest",
+    "description": "A kind of journal entry: the Assistant's summary of a week."
+  },
+  "assistant.journal.kind.event": {
+    "defaultMessage": "Event",
+    "description": "A kind of journal entry: something that happened (Hive records lanes, merges and unexpected closes as events)."
+  },
+  "assistant.journal.kind.incident": {
+    "defaultMessage": "Incident",
+    "description": "A kind of journal entry: something that went wrong."
+  },
+  "assistant.journal.kind.insight": {
+    "defaultMessage": "Insight",
+    "description": "A kind of journal entry: something learned."
+  },
+  "assistant.journal.kind.moment": {
+    "defaultMessage": "Moment",
+    "description": "A kind of journal entry: a memorable moment of working together."
+  },
+  "assistant.journal.kind.plan": {
+    "defaultMessage": "Plan",
+    "description": "A kind of journal entry: something planned."
+  },
+  "assistant.journal.kind.preference": {
+    "defaultMessage": "Preference",
+    "description": "A kind of journal entry: how the user likes things done."
+  },
+  "assistant.journal.kindLabel": {
+    "defaultMessage": "Kind",
+    "description": "The accessible name of the journal browser's kind filter, and the label of an entry's kind when editing it."
+  },
+  "assistant.journal.links": {
+    "defaultMessage": "Links",
+    "description": "A journal entry's links (cards, commits, notes, other entries): a heading in the entry."
+  },
+  "assistant.journal.loadFailed": {
+    "defaultMessage": "Couldn't read the journal",
+    "description": "An error's title: the journal browser couldn't read the journal (why follows)."
+  },
+  "assistant.journal.more": {
+    "defaultMessage": "Show More",
+    "description": "The journal timeline: a button at its end that shows older entries."
+  },
+  "assistant.journal.noMatch": {
+    "defaultMessage": "No entries match.",
+    "description": "The journal browser when nothing matches the search and filters."
+  },
+  "assistant.journal.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its Assistant's journal.",
+    "description": "The journal browser with no workspace open."
+  },
+  "assistant.journal.off": {
+    "defaultMessage": "The journal is off: the Assistant doesn't write to it and Hive records nothing. What it has is kept, and you can still read, correct and delete it here.",
+    "description": "A note at the top of the journal browser while the journal is off (Settings → Assistant → Journal)."
+  },
+  "assistant.journal.openEntry": {
+    "defaultMessage": "{kind}, {when}: {summary}",
+    "description": "A journal timeline row's accessible name: its kind, when, and its one line."
+  },
+  "assistant.journal.projectLabel": {
+    "defaultMessage": "Project",
+    "description": "The accessible name of the journal browser's project filter."
+  },
+  "assistant.journal.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "The journal browser: a button that reads the journal again."
+  },
+  "assistant.journal.save": {
+    "defaultMessage": "Save",
+    "description": "The journal browser: saves the edited entry."
+  },
+  "assistant.journal.search": {
+    "defaultMessage": "Search the journal: summaries, details, why",
+    "description": "The journal browser's search box: what it searches (every word must be found)."
+  },
+  "assistant.journal.settings": {
+    "defaultMessage": "Journal Settings",
+    "description": "A link in the journal browser's footer: opens Settings → Assistant → Journal."
+  },
+  "assistant.journal.source.assistant": {
+    "defaultMessage": "The Assistant",
+    "description": "Who wrote a journal entry: the Hive Assistant."
+  },
+  "assistant.journal.source.hive": {
+    "defaultMessage": "Hive",
+    "description": "Who wrote a journal entry: Hive itself (its own facts: lanes, merges, unexpected closes). Hive's name stays as it is."
+  },
+  "assistant.journal.sourceLabel": {
+    "defaultMessage": "Written by",
+    "description": "The accessible name of the journal browser's source filter (Hive or the Assistant), and a label in an entry's detail."
+  },
+  "assistant.journal.summary": {
+    "defaultMessage": "Summary",
+    "description": "A journal entry's one line (a label when editing it)."
+  },
+  "assistant.journal.summaryRequired": {
+    "defaultMessage": "An entry needs a summary.",
+    "description": "The journal browser: saving an edited entry with an empty summary."
+  },
+  "assistant.journal.superseded": {
+    "defaultMessage": "Superseded",
+    "description": "A mark on a journal entry replaced by a newer one."
+  },
+  "assistant.journal.supersededBy": {
+    "defaultMessage": "Superseded by entry {id}",
+    "description": "A journal entry replaced by a newer one ({id}): a link that opens it."
+  },
+  "assistant.journal.supersedes": {
+    "defaultMessage": "Supersedes entry {id}",
+    "description": "A journal entry that replaced an older one ({id}): a link that opens it."
+  },
+  "assistant.journal.tags": {
+    "defaultMessage": "Tags",
+    "description": "A journal entry's tags: a heading in the entry."
+  },
+  "assistant.journal.timeline": {
+    "defaultMessage": "Journal entries, newest first",
+    "description": "The journal timeline's accessible name."
+  },
+  "assistant.journal.title": {
+    "defaultMessage": "Journal",
+    "description": "The heading of the Assistant's journal browser (the Assistant view's main area)."
+  },
+  "assistant.journal.titleTip": {
+    "defaultMessage": "What the Assistant keeps in its journal in this workspace, and Hive's own facts (lanes, merges, unexpected closes), newest first. Open an entry to read it in full, correct it or delete it. It stays on this computer.",
+    "description": "The info tip of the journal browser's heading."
+  },
+  "assistant.journal.to": {
+    "defaultMessage": "To",
+    "description": "The journal browser's second date filter: entries on or before this day."
+  },
+  "assistant.journal.today": {
+    "defaultMessage": "Today",
+    "description": "A day's heading in the journal timeline."
+  },
+  "assistant.journal.turnOn": {
+    "defaultMessage": "Turn On",
+    "description": "A button in the note that the journal is off: turns it on."
+  },
+  "assistant.journal.turnedOn": {
+    "defaultMessage": "Journal on: the Assistant's journal tools come with its next start.",
+    "description": "A notice after the journal browser turned the journal on."
+  },
+  "assistant.journal.when": {
+    "defaultMessage": "When",
+    "description": "A label in a journal entry: when it was written."
+  },
+  "assistant.journal.why": {
+    "defaultMessage": "Why it mattered",
+    "description": "A journal entry's why (a heading in the entry, and a label when editing it)."
+  },
+  "assistant.journal.workspace": {
+    "defaultMessage": "Workspace",
+    "description": "A journal entry's project when it is about the workspace as a whole."
+  },
+  "assistant.journal.workspaceOnly": {
+    "defaultMessage": "The workspace (no project)",
+    "description": "The journal browser's project filter: entries about the workspace as a whole, not one project."
+  },
+  "assistant.journal.yesterday": {
+    "defaultMessage": "Yesterday",
+    "description": "A day's heading in the journal timeline."
+  },
   "assistant.loadNames.blocked": {
     "defaultMessage": "Agent names are unique across the workspace: change the marked names first.",
     "description": "Load template: why its button can't be used yet."
@@ -2043,6 +2367,18 @@
     "defaultMessage": "Conversations",
     "description": "The Assistant view: the section of the Assistant's conversations."
   },
+  "assistant.view.digests": {
+    "defaultMessage": "Weekly Digests",
+    "description": "The Assistant view, Journal: the row that shows only the Assistant's weekly digests."
+  },
+  "assistant.view.journal": {
+    "defaultMessage": "Journal",
+    "description": "The Assistant view: the section of the Assistant's journal (its memory across sessions)."
+  },
+  "assistant.view.journalTip": {
+    "defaultMessage": "What the Assistant keeps in its journal (decisions, plans, what happened and why) and Hive's own facts. Search it, correct it, or forget what you'd rather it didn't keep.",
+    "description": "The Assistant view: the info tip of its Journal section."
+  },
   "assistant.view.modes": {
     "defaultMessage": "Modes",
     "description": "The Assistant view: the section of the Assistant's modes (how it works: Advisor, Builder…)."
@@ -2094,6 +2430,10 @@
   "assistant.view.summaryTip": {
     "defaultMessage": "What this workspace's Assistant has used across its conversations, in the period chosen (by calendar day: Today is since midnight). It isn't counted in any project's Overview. The cost is what the work would have cost at API prices: on a subscription you are not charged this.",
     "description": "The Assistant view: tooltip on Used so far. Today and Overview as Hive names them."
+  },
+  "assistant.view.timeline": {
+    "defaultMessage": "Timeline",
+    "description": "The Assistant view, Journal: the row that shows every journal entry, newest first."
   },
   "assistant.view.title": {
     "defaultMessage": "Hive Assistant",

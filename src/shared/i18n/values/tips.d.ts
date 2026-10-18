@@ -31,6 +31,8 @@ interface HiveMessageValues {
   'tips.assistantImages.title': undefined
   'tips.assistantJournal.text': undefined
   'tips.assistantJournal.title': undefined
+  'tips.assistantJournalBrowser.text': undefined
+  'tips.assistantJournalBrowser.title': undefined
   'tips.assistantLaneWatch.text': undefined
   'tips.assistantLaneWatch.title': undefined
   'tips.assistantLanes.text': undefined

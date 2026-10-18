@@ -61,3 +61,59 @@ export function journalSettings(v: unknown): JournalSettings {
 
 /** Whether the scope lets a kind be stored (a digest always may). */
 export const inScope = (s: Pick<JournalSettings, 'scope'>, kind: JournalKind): boolean => kind === 'digest' || (s.scope as string[]).includes(kind)
+
+/**
+ * What the journal browser (#1033, the Assistant's view) shows: entries matching every filter given, newest first.
+ * `query`'s words must all be found (each a prefix); `project` '' is the workspace's own entries (no project).
+ */
+export interface JournalFilter {
+  query?: string
+  kinds?: JournalKind[]
+  project?: string
+  source?: JournalSource
+  /** ISO times, inclusive. */
+  since?: string
+  until?: string
+}
+
+/** A row of the browser's timeline. */
+export interface JournalRow {
+  id: number
+  at: string
+  kind: JournalKind
+  project: string | null
+  summary: string
+  importance: number
+  source: JournalSource
+  supersededBy: number | null
+  digestOf: string | null
+  links: { type: LinkType; ref: string }[]
+}
+
+/** A page of the timeline: its rows, how many match in all, and the newest id when it was read (what Forget may delete). */
+export interface JournalPage {
+  rows: JournalRow[]
+  total: number
+  upTo: number
+}
+
+/** An entry in full, for the browser. */
+export interface JournalEntryView extends JournalRow {
+  detail: string | null
+  why: string | null
+  updatedAt: string | null
+  tags: string[]
+  supersedes: number[]
+}
+
+/** What the browser's Edit changes. */
+export interface JournalEdit {
+  summary?: string
+  detail?: string | null
+  why?: string | null
+  importance?: number
+  kind?: JournalKind
+}
+
+/** The browser's page size, and the most one call gives. */
+export const BROWSE_LIMITS = { page: 100, max: 500 } as const

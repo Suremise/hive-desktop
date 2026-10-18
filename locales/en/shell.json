@@ -535,6 +535,10 @@
     "defaultMessage": "Show Assistant Attachments",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
   },
+  "shell.command.view.assistantJournal": {
+    "defaultMessage": "Show Assistant Journal",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
   "shell.command.view.board": {
     "defaultMessage": "Show Task Board",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."

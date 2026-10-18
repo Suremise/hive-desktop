@@ -1,6 +1,87 @@
 // Generated from locales/en/assistant.json: do not edit. Each message's placeholders and their types, for tr(): a
 // global script, so its interface merges with every other area's (shared/i18n/msg.ts).
 interface HiveMessageValues {
+  'assistant.journal.allKinds': undefined
+  'assistant.journal.allProjects': undefined
+  'assistant.journal.allSources': undefined
+  'assistant.journal.cancel': undefined
+  'assistant.journal.clearFilters': undefined
+  'assistant.journal.close': undefined
+  'assistant.journal.count': { total: number }
+  'assistant.journal.countOf': { shown: number; total: number }
+  'assistant.journal.delete': undefined
+  'assistant.journal.deleteButton': undefined
+  'assistant.journal.deleteMessage': { summary: string | number }
+  'assistant.journal.deleteTitle': undefined
+  'assistant.journal.deleted': undefined
+  'assistant.journal.detail': undefined
+  'assistant.journal.digestOf': { period: string | number }
+  'assistant.journal.digestsTitle': undefined
+  'assistant.journal.edit': undefined
+  'assistant.journal.edited': { when: string | number }
+  'assistant.journal.empty': undefined
+  'assistant.journal.emptyDigests': undefined
+  'assistant.journal.entryLink': { id: string | number }
+  'assistant.journal.failed': undefined
+  'assistant.journal.filters': undefined
+  'assistant.journal.footer': { size: string | number; entries: number; days: number; cap: string }
+  'assistant.journal.footerNone': { days: number; cap: string }
+  'assistant.journal.forget': undefined
+  'assistant.journal.forgetButton': { count: number }
+  'assistant.journal.forgetMessage': { count: number }
+  'assistant.journal.forgetNeedsFilter': undefined
+  'assistant.journal.forgetTip': undefined
+  'assistant.journal.forgetTitle': { query: string; count: number }
+  'assistant.journal.forgot': { count: number }
+  'assistant.journal.from': undefined
+  'assistant.journal.gone': undefined
+  'assistant.journal.importance': undefined
+  'assistant.journal.importance.0': undefined
+  'assistant.journal.importance.1': undefined
+  'assistant.journal.importance.2': undefined
+  'assistant.journal.importance.3': undefined
+  'assistant.journal.kind.decision': undefined
+  'assistant.journal.kind.digest': undefined
+  'assistant.journal.kind.event': undefined
+  'assistant.journal.kind.incident': undefined
+  'assistant.journal.kind.insight': undefined
+  'assistant.journal.kind.moment': undefined
+  'assistant.journal.kind.plan': undefined
+  'assistant.journal.kind.preference': undefined
+  'assistant.journal.kindLabel': undefined
+  'assistant.journal.links': undefined
+  'assistant.journal.loadFailed': undefined
+  'assistant.journal.more': undefined
+  'assistant.journal.noMatch': undefined
+  'assistant.journal.noWorkspace': undefined
+  'assistant.journal.off': undefined
+  'assistant.journal.openEntry': { kind: string | number; when: string | number; summary: string | number }
+  'assistant.journal.projectLabel': undefined
+  'assistant.journal.refresh': undefined
+  'assistant.journal.save': undefined
+  'assistant.journal.search': undefined
+  'assistant.journal.settings': undefined
+  'assistant.journal.source.assistant': undefined
+  'assistant.journal.source.hive': undefined
+  'assistant.journal.sourceLabel': undefined
+  'assistant.journal.summary': undefined
+  'assistant.journal.summaryRequired': undefined
+  'assistant.journal.superseded': undefined
+  'assistant.journal.supersededBy': { id: string | number }
+  'assistant.journal.supersedes': { id: string | number }
+  'assistant.journal.tags': undefined
+  'assistant.journal.timeline': undefined
+  'assistant.journal.title': undefined
+  'assistant.journal.titleTip': undefined
+  'assistant.journal.to': undefined
+  'assistant.journal.today': undefined
+  'assistant.journal.turnOn': undefined
+  'assistant.journal.turnedOn': undefined
+  'assistant.journal.when': undefined
+  'assistant.journal.why': undefined
+  'assistant.journal.workspace': undefined
+  'assistant.journal.workspaceOnly': undefined
+  'assistant.journal.yesterday': undefined
   'assistant.loadNames.blocked': undefined
   'assistant.loadNames.sameTwice': undefined
   'assistant.loadNames.taken': { project: string | number; name: string | number }
@@ -512,6 +593,9 @@ interface HiveMessageValues {
   'assistant.view.allConversations': undefined
   'assistant.view.attachments': undefined
   'assistant.view.conversations': undefined
+  'assistant.view.digests': undefined
+  'assistant.view.journal': undefined
+  'assistant.view.journalTip': undefined
   'assistant.view.modes': undefined
   'assistant.view.newMode': undefined
   'assistant.view.noWorkspace': undefined
@@ -525,6 +609,7 @@ interface HiveMessageValues {
   'assistant.view.statPrompts': undefined
   'assistant.view.statTokens': undefined
   'assistant.view.summaryTip': undefined
+  'assistant.view.timeline': undefined
   'assistant.view.title': undefined
   'assistant.view.titleTip': undefined
   'assistant.view.unpriced': { count: number }

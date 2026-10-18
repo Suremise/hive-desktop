@@ -3,7 +3,7 @@ import { existsSync, statSync } from 'original-fs'
 import { join } from 'path'
 import type { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
-import { ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, type JournalKind, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
+import { BROWSE_LIMITS, ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, type JournalFilter, type JournalKind, type JournalPage, type JournalRow, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
 import { openDb, transaction, type Db, type Migration } from './db'
 import { createLogger, userText } from './logger'
 import { trash } from './trash'
@@ -147,6 +147,24 @@ export class JournalError extends Error {}
 /** The journal is being deleted (a moment): nothing reads or writes it meanwhile. */
 export class JournalBusy extends JournalError {}
 
+/** Who is told when a journal changes (the windows' browsers, #1033): by its Assistant home. */
+const listeners = new Set<(home: string) => void>()
+
+export function onJournalChange(fn: (home: string) => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+function told(home: string): void {
+  for (const fn of listeners) {
+    try {
+      fn(home)
+    } catch (e) {
+      log.warn('telling of a journal change', e)
+    }
+  }
+}
+
 const fail = (text: string): never => {
   throw new JournalError(text)
 }
@@ -232,6 +250,7 @@ export function writeEntry(home: string, settings: JournalSettings, input: Entry
     return n
   })
   pruneSoon(home, settings)
+  told(home)
   return id
 }
 
@@ -354,9 +373,10 @@ export function readEntry(home: string, id: number): JournalEntry | null {
   }
 }
 
-/** A change to an entry: corrected words, importance, superseded by a newer entry (null: no longer), more links or tags. */
+/** A change to an entry: corrected words, its kind, importance, superseded by a newer entry (null: no longer), more links or tags. */
 export interface EntryPatch {
   summary?: string
+  kind?: string
   detail?: string | null
   why?: string | null
   importance?: number
@@ -374,6 +394,11 @@ export function updateEntry(home: string, settings: JournalSettings, id: number,
     args.push(value)
   }
   if (patch.summary !== undefined) set('summary = ?', oneLine(checkText('summary', patch.summary, ENTRY_LIMITS.summary, true)!))
+  if (patch.kind !== undefined) {
+    if (!JOURNAL_KINDS.includes(patch.kind as JournalKind)) fail(`kind is one of: ${JOURNAL_KINDS.join(', ')}.`)
+    if (!inScope(settings, patch.kind as JournalKind)) fail(`The user's journal scope doesn't include ${patch.kind} entries (Settings → Assistant → Journal allows: ${settings.scope.join(', ') || 'none'}).`)
+    set('kind = ?', patch.kind)
+  }
   if (patch.detail !== undefined) {
     const d = storedDetail(checkText('detail', patch.detail, ENTRY_LIMITS.detail))
     sets.push('detail = ?', 'detail_z = ?')
@@ -388,7 +413,7 @@ export function updateEntry(home: string, settings: JournalSettings, id: number,
   }
   const links = checkLinks(patch.addLinks)
   const tags = checkTags(patch.addTags)
-  if (!sets.length && !links.length && !tags.length) fail('Nothing to change: give summary, detail, why, importance, supersededBy, addLinks or addTags.')
+  if (!sets.length && !links.length && !tags.length) fail('Nothing to change: give summary, kind, detail, why, importance, supersededBy, addLinks or addTags.')
   const { writer: w } = journalOf(home)
   const changed = transaction(w, () => {
     if (!w.prepare('SELECT 1 FROM entries WHERE id = ?').get(id)) return false
@@ -400,7 +425,10 @@ export function updateEntry(home: string, settings: JournalSettings, id: number,
     for (const t of tags) tag.run(id, t)
     return true
   })
-  if (changed) pruneJournal(home, settings)
+  if (changed) {
+    pruneJournal(home, settings)
+    told(home)
+  }
   return changed
 }
 
@@ -408,7 +436,10 @@ export function updateEntry(home: string, settings: JournalSettings, id: number,
 export function deleteEntry(home: string, id: number): boolean {
   const { writer: w } = journalOf(home)
   const gone = transaction(w, () => Number(w.prepare('DELETE FROM entries WHERE id = ?').run(id).changes) > 0)
-  if (gone) w.exec('PRAGMA incremental_vacuum')
+  if (gone) {
+    w.exec('PRAGMA incremental_vacuum')
+    told(home)
+  }
   return gone
 }
 
@@ -454,6 +485,7 @@ export function pruneJournal(home: string, settings: JournalSettings, now = new 
   }
   if (gone) {
     w.exec('PRAGMA incremental_vacuum')
+    told(home)
     log.info(`pruned ${gone} journal entr${gone === 1 ? 'y' : 'ies'} (retention ${settings.retentionDays} days, cap ${settings.capMB ?? 'none'} MB)`)
   }
   w.prepare('INSERT INTO journal_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('prunedAt', now.toISOString())
@@ -492,6 +524,7 @@ export async function deleteJournal(home: string): Promise<void> {
     deleting.delete(k)
   }
   log.info(`deleted the journal in ${userText(home)}`)
+  told(home)
 }
 
 /** The journal's file size on disk (with its WAL), for Settings; 0 when there is none. */
@@ -506,4 +539,91 @@ export function journalFileBytes(home: string): number {
     }
   }
   return n
+}
+
+// The journal browser (#1033): the user's view of every entry, under the Assistant's view. It reads the journal whether
+// it is on or off (off keeps the data readable), never makes one that isn't there, and deletes what a search found.
+
+/** Whether a home has a journal to read (without making one). */
+const hasJournal = (home: string): boolean => {
+  const k = keyOf(journalFile(home))
+  return !deleting.has(k) && (open.has(k) || existsSync(journalFile(home)))
+}
+
+/** The words of a browser search as an FTS5 expression: each a prefix, all of them (what Forget deletes is what it shows). */
+function allWordsOf(q: string): string | null {
+  const words = q.match(/[\p{L}\p{N}_]+/gu) ?? []
+  return words.length ? words.slice(0, 20).map((w) => `"${w}"*`).join(' ') : null
+}
+
+/** A filter as SQL over `entries e`. */
+function filterSql(f: JournalFilter): { where: string[]; args: (string | number)[] } {
+  const where: string[] = []
+  const args: (string | number)[] = []
+  const add = (clause: string, ...values: (string | number)[]): void => {
+    where.push(clause)
+    args.push(...values)
+  }
+  const match = f.query ? allWordsOf(f.query) : null
+  if (match) add('e.id IN (SELECT rowid FROM entries_fts WHERE entries_fts MATCH ?)', match)
+  if (f.kinds?.length) {
+    const kinds = f.kinds.filter((k) => JOURNAL_KINDS.includes(k))
+    add(kinds.length ? `e.kind IN (${kinds.map(() => '?').join(', ')})` : '0', ...kinds)
+  }
+  if (f.project === '') add('e.project IS NULL')
+  else if (f.project) add('e.project = ? COLLATE NOCASE', f.project)
+  if (f.source === 'hive' || f.source === 'assistant') add('e.source = ?', f.source)
+  const since = isoOrFail('since', f.since)
+  const until = isoOrFail('until', f.until)
+  if (since) add('e.at >= ?', since)
+  if (until) add('e.at <= ?', until)
+  return { where, args }
+}
+
+/** A page of the timeline, newest first: the rows with their links, how many match, and the newest id now. */
+export function browseJournal(home: string, f: JournalFilter, offset = 0, limit: number = BROWSE_LIMITS.page): JournalPage {
+  if (!hasJournal(home)) return { rows: [], total: 0, upTo: 0 }
+  const { reader } = journalOf(home)
+  const { where, args } = filterSql(f)
+  const w = where.length ? ` WHERE ${where.join(' AND ')}` : ''
+  const n = Math.min(BROWSE_LIMITS.max, Math.max(1, Math.floor(limit) || BROWSE_LIMITS.page))
+  const total = (reader.prepare(`SELECT count(*) AS n FROM entries e${w}`).get(...args) as { n: number }).n
+  const upTo = (reader.prepare('SELECT coalesce(max(id), 0) AS n FROM entries').get() as { n: number }).n
+  const rows = reader
+    .prepare(`SELECT e.id, e.at, e.kind, e.project, e.summary, e.importance, e.source, e.superseded_by AS supersededBy, e.digest_of AS digestOf FROM entries e${w} ORDER BY e.at DESC, e.id DESC LIMIT ? OFFSET ?`)
+    .all(...args, n, Math.max(0, Math.floor(offset) || 0)) as unknown as Omit<JournalRow, 'links'>[]
+  const links = new Map<number, JournalRow['links']>()
+  if (rows.length) {
+    const all = reader.prepare(`SELECT entry_id AS id, type, ref FROM links WHERE entry_id IN (${rows.map(() => '?').join(', ')}) ORDER BY type, ref`).all(...rows.map((r) => r.id)) as unknown as { id: number; type: LinkType; ref: string }[]
+    for (const l of all) links.set(l.id, [...(links.get(l.id) ?? []), { type: l.type, ref: l.ref }])
+  }
+  return { rows: rows.map((r) => ({ ...r, links: links.get(r.id) ?? [] })), total, upTo }
+}
+
+/** The projects the journal's entries name, for the browser's filter. */
+export function journalProjects(home: string): string[] {
+  if (!hasJournal(home)) return []
+  return (journalOf(home).reader.prepare('SELECT DISTINCT project FROM entries WHERE project IS NOT NULL ORDER BY project COLLATE NOCASE').all() as { project: string }[]).map((r) => r.project)
+}
+
+/** An entry in full for the browser, or null (none, or no journal). */
+export function browseEntry(home: string, id: number): JournalEntry | null {
+  return hasJournal(home) ? readEntry(home, id) : null
+}
+
+/**
+ * Forget everything about X (#1033): deletes every entry the filter matches that was there when the user saw the count
+ * (`upTo`: none written since goes with them), in one transaction. Returns how many went.
+ */
+export function forgetJournal(home: string, f: JournalFilter, upTo: number): number {
+  if (!hasJournal(home)) return 0
+  const { writer: w } = journalOf(home)
+  const { where, args } = filterSql(f)
+  const gone = transaction(w, () => Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT e.id FROM entries e WHERE ${[...where, 'e.id <= ?'].join(' AND ')})`).run(...args, upTo).changes))
+  if (gone) {
+    w.exec('PRAGMA incremental_vacuum')
+    log.info(`forgot ${gone} journal entr${gone === 1 ? 'y' : 'ies'}`)
+    told(home)
+  }
+  return gone
 }

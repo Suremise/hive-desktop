@@ -87,7 +87,8 @@ import { isRecordingName, latestRecording, recordingOf, recordingsDir, startReco
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 import { capturedText, HiveError, hiveError, windowError } from './hiveError'
-import { deleteWorkspaceJournal, journalStatus, setJournalSettings } from './journalService'
+import { deleteJournalEntry, deleteWorkspaceJournal, editJournalEntry, forgetJournalEntries, journalEntry, journalStatus, setJournalSettings } from './journalService'
+import { browseJournal, journalProjects } from './journal'
 import { msg, tr } from '../shared/i18n'
 
 /**
@@ -614,6 +615,18 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'journal:status': () => journalStatus(currentWorkspace()),
     'journal:set': (patch) => setJournalSettings(currentWorkspace(), patch ?? {}),
     'journal:delete': () => deleteWorkspaceJournal(currentWorkspace()),
+    'journal:browse': (filter, offset, limit) => {
+      const ws = currentWorkspace()
+      return ws.path ? browseJournal(ws.assistantHome, filter ?? {}, offset, limit) : { rows: [], total: 0, upTo: 0 }
+    },
+    'journal:projects': () => {
+      const ws = currentWorkspace()
+      return ws.path ? journalProjects(ws.assistantHome) : []
+    },
+    'journal:entry': (id) => journalEntry(currentWorkspace(), id),
+    'journal:edit': (id, edit) => editJournalEntry(currentWorkspace(), id, edit ?? {}),
+    'journal:deleteEntry': (id) => deleteJournalEntry(currentWorkspace(), id),
+    'journal:forget': (filter, upTo) => forgetJournalEntries(currentWorkspace(), filter, upTo),
     'tasks:setAside': () => tasks.setAsideCards(currentWorkspace()),
     'tasks:addSetAside': (file) => tasks.addSetAsideCard(currentWorkspace(), file),
     'tasks:discardSetAside': (file) => tasks.discardSetAsideCard(currentWorkspace(), file),
