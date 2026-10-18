@@ -50,7 +50,8 @@ const check = (name, ok, extra = '') => {
     const res = await fetch(`http://127.0.0.1:${PORT}${p}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
     return { status: res.status, body: await res.json().catch(() => null) }
   }
-  const all = () => inv('tasks:list')
+  // Archived cards in full (#1017: the window has them in short until its Archived view opens).
+  const all = () => inv('tasks:list', true)
   // A column's cards on the board, top to bottom.
   const order = async (col) =>
     (await all())

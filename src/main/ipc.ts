@@ -39,6 +39,7 @@ import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
 import { endLane, listLanes, stampLaneProjects } from './lanes'
 import { sweepWorkspaceLeftovers } from './leftovers'
+import { exportBoard } from './boardStore'
 import { cardCosts, laneCosts } from './cardCosts'
 import { badgeDescription } from '../shared/taskbar'
 import * as files from './files'
@@ -124,6 +125,8 @@ const M = {
   createWorkspaceTitle: msg({ id: 'errors.dialog.createWorkspaceTitle', defaultMessage: 'Choose or create a folder for the new workspace', description: "Title of Windows' folder picker for a new workspace." }),
   createWorkspace: msg({ id: 'errors.dialog.createWorkspace', defaultMessage: 'Create Workspace', description: "Button of Windows' folder picker for a new workspace." }),
   exportMetrics: msg({ id: 'errors.dialog.exportMetrics', defaultMessage: 'Export Performance Metrics', description: "Title of Windows' save dialog for exporting the Performance view." }),
+  exportBoard: msg({ id: 'errors.dialog.exportBoard', defaultMessage: 'Export Board to JSON: Choose a Folder', description: "Title of Windows' folder picker for Export Board to JSON: the board's cards are saved as JSON files in a new folder inside the one chosen." }),
+  exportBoardButton: msg({ id: 'errors.dialog.exportBoardButton', defaultMessage: 'Export Here', description: "The button of Windows' folder picker for Export Board to JSON." }),
   importBenchmark: msg({ id: 'errors.dialog.importBenchmark', defaultMessage: 'Import a Benchmark or Performance Export', description: "Title of Windows' file picker in Performance → Compare." }),
   locateWorktree: msg({ id: 'errors.dialog.locateWorktree', defaultMessage: "Locate {agent}'s worktree", description: "Title of Windows' folder picker in Repair, for an agent's moved worktree. {agent} is the agent's name." }),
   locateAgentWorktree: msg({ id: 'errors.dialog.locateAgentWorktree', defaultMessage: "Locate the agent's worktree", description: "Title of Windows' folder picker in Repair, for a moved worktree whose agent is gone." }),
@@ -586,7 +589,15 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'project:restore': (name) => removal.restoreProject(name),
     'project:forget': (name) => removal.forgetHidden(name),
     'project:takeRemovedData': (p, keep) => removal.takeRemovedData(p, keep),
-    'tasks:list': () => tasks.allTasks(),
+    'tasks:list': (fullArchive) => tasks.windowTasks(workspace, fullArchive === true),
+    'tasks:export': async () => {
+      // The board as this window shows it now; the files go in a folder of their own inside the one chosen.
+      const ws = currentWorkspace()
+      const r = await dialog.showOpenDialog(win(), { title: tr(M.exportBoard), buttonLabel: tr(M.exportBoardButton), defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'] })
+      if (r.canceled || !r.filePaths[0]) return null
+      const dir = join(r.filePaths[0], `hive-board-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`)
+      return { dir, cards: await exportBoard(ws, dir) }
+    },
     'tasks:create': (input) => tasks.createTask(input, { kind: 'user' }),
     'tasks:update': (n, patch) => tasks.updateTask(n, patch, { kind: 'user' }),
     'tasks:comment': (n, text) => tasks.commentTask(n, text, { kind: 'user' }),

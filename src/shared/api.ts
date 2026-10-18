@@ -272,7 +272,10 @@ export interface HiveRequests {
   'project:takeRemovedData': (projectPath: string, keep: boolean) => { handovers: number; cards: number }
 
   /** Every card on the workspace's board, archived ones too. */
-  'tasks:list': () => TaskCard[]
+  /** The board as the window shows it: archived cards in short (TaskCard.summary) unless `fullArchive` (#1017). */
+  'tasks:list': (fullArchive?: boolean) => TaskCard[]
+  /** Exports the board to a folder of JSON files the user picks (#1017); null when the user cancelled. */
+  'tasks:export': () => { dir: string; cards: number } | null
   'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard

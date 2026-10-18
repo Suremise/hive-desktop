@@ -35,6 +35,14 @@
     "defaultMessage": "Choose or create a folder for the new workspace",
     "description": "Title of Windows' folder picker for a new workspace."
   },
+  "errors.dialog.exportBoard": {
+    "defaultMessage": "Export Board to JSON: Choose a Folder",
+    "description": "Title of Windows' folder picker for Export Board to JSON: the board's cards are saved as JSON files in a new folder inside the one chosen."
+  },
+  "errors.dialog.exportBoardButton": {
+    "defaultMessage": "Export Here",
+    "description": "The button of Windows' folder picker for Export Board to JSON."
+  },
   "errors.dialog.exportMetrics": {
     "defaultMessage": "Export Performance Metrics",
     "description": "Title of Windows' save dialog for exporting the Performance view."

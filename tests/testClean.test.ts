@@ -1,6 +1,7 @@
 // Test housekeeping (#253, tests/e2e/clean.mjs and evidence.cjs): what goes from %LOCALAPPDATA%\hive-test and what
 // always stays, whichever deletes it: the clean-up, the e2e runner (suite folders, log pruning) or the scenario runner.
 import { createRequire } from 'module'
+import { DatabaseSync } from 'node:sqlite'
 import { appendFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -15,7 +16,7 @@ import { finishRunDirs, keepSuiteFiles, newRunDir, omittedLine, pruneRunDirs, pr
 import { tempDir } from './tempDir'
 
 const require = createRequire(import.meta.url)
-const { citedBy, readCards, evidence, freshFolder, clearDir, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
+const { citedBy, findBoard, readCards, evidence, freshFolder, clearDir, finishSuiteDir, recordKept, releaseKept, claimedByRuns, MAX_COPIES } = require('./e2e/evidence.cjs')
 const { probeDir } = require('./e2e/lib.cjs')
 const { pruneResults, saveBaseline } = require('./scenarios/benchmark.cjs')
 
@@ -133,6 +134,36 @@ describe('what cards cite (they keep it)', () => {
     expect(damaged.why).toMatch(/card 5\.json .* can't be read/)
     const ev = evidence({ tasksDir: dir, testRoot: 'C:\\hive-test' })
     expect(ev.protects('C:\\hive-test\\e2e\\anything')).toMatch(/can't be read/)
+  })
+
+  it("reads a board in its database (#1017) as it reads card files; one it can't open means nothing may go", () => {
+    const dir = temp('hive-clean-db-')
+    const file = join(dir, 'hive.db')
+    const db = new DatabaseSync(file)
+    db.exec('CREATE TABLE cards (number INTEGER PRIMARY KEY, doc TEXT NOT NULL)')
+    const put = db.prepare('INSERT INTO cards (number, doc) VALUES (?, ?)')
+    const add = (n: number, c: object): void => void put.run(n, JSON.stringify({ number: n, title: 't', description: '', comments: [], column: 'todo', ...c }))
+    add(1, { description: 'hive-test\\e2e\\a.png' })
+    add(2, { column: 'done', description: 'hive-test\\e2e\\b.png' })
+    add(3, { archived: true, description: 'hive-test\\e2e\\c.png' })
+    add(4, { column: 'passed', comments: [{ text: 'e2e\\D.png' }] })
+    db.close()
+    const read = readCards(file)
+    expect(read.ok).toBe(true)
+    expect(read.cards.map((c: Card) => c.number).sort()).toEqual([1, 4])
+    expect(citedBy('e2e/d.png', read.cards)).toBe(4)
+    const missing = readCards(join(dir, 'gone.db'))
+    expect(missing.ok).toBe(false)
+    expect(evidence({ tasksDir: join(dir, 'gone.db'), testRoot: 'C:\\hive-test' }).protects('C:\\hive-test\\e2e\\anything')).toMatch(/can't be read/)
+  })
+
+  it('finds the database before the stub folder an older Hive reads (#1017): a moved board never reads as empty', () => {
+    const ws = temp('hive-clean-find-')
+    mkdirSync(join(ws, '.hive', 'tasks'), { recursive: true })
+    writeFileSync(join(ws, '.hive', 'tasks', 'board.json'), '{"next":9}')
+    expect(findBoard(ws)).toBe(join(ws, '.hive', 'tasks'))
+    writeFileSync(join(ws, '.hive', 'hive.db'), '')
+    expect(findBoard(ws)).toBe(join(ws, '.hive', 'hive.db'))
   })
 })
 

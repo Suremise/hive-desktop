@@ -59,6 +59,9 @@ function commits(wt, n) {
   const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
+  // The smallest terminal font, so two columns stay two down to 150 px panes: narrower than a terminal fits, they would
+  // show one at a time (#1037).
+  cfg.settings.appearance = { ...cfg.settings.appearance, terminalFontSize: 8 }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47908), CLAUDE_CONFIG_DIR: claudeHome })

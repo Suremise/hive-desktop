@@ -144,7 +144,7 @@ const check = (name, ok, extra = '') => {
   await sleep(500)
   await page.getByText('demo', { exact: true }).first().click()
   await sleep(600)
-  await page.keyboard.press('Alt+8')
+  await lib.openMoreTab(page, 'Skills')
   const pick = page.locator('.skill-provider-pick select')
   await lib.until(async () => (await pick.count()) === 1, 10000)
   const pickOptions = await pick.locator('option').allInnerTexts()
@@ -179,7 +179,7 @@ const check = (name, ok, extra = '') => {
   await hiveToggle.click()
   await page.keyboard.press('Alt+1')
   await sleep(300)
-  await page.keyboard.press('Alt+8')
+  await lib.openMoreTab(page, 'Skills')
   await lib.until(async () => (await pick.count()) === 1, 5000)
   const saved = await inv('ui:get')
   const savedPick = saved.skillsProvider ?? {}

@@ -199,6 +199,14 @@
     "defaultMessage": "{kind, select, waiting {is waiting for you} question {has a question for you} safeguard {changed models after a safeguard stop} other {has finished}}",
     "description": "The Assistant's overview: what an agent that needs you is doing, after its project and name. Lower case: it follows them."
   },
+  "assistant.panel.attentionDismiss": {
+    "defaultMessage": "Dismiss: {name} {kind, select, safeguard {changed models after a safeguard stop} other {has finished}}",
+    "description": "The × on a row in the Assistant's overview for an agent that has finished (its tooltip and name for screen readers): removes the row without going to the agent. {name}: the agent, or its project when it has one agent."
+  },
+  "assistant.panel.attentionOpen": {
+    "defaultMessage": "{dismiss, select, yes {Click to open {name} and dismiss} other {Click to open {name}}}",
+    "description": "Tooltip of a row in the Assistant's overview for an agent that needs you ({name}: the agent, or its project when it has one agent). \"and dismiss\" when going there also removes the row (it has finished)."
+  },
   "assistant.panel.cancel": {
     "defaultMessage": "Cancel",
     "description": "The Assistant Settings dialog's button that closes it without saving."

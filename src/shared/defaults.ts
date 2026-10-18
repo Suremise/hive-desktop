@@ -288,6 +288,35 @@ export function projectLayout(cfg: Pick<ProjectConfig, 'agents' | 'layout'>): Se
 /** How many agents a page of this project's Session tab holds. */
 export const projectPerPage = (cfg: Pick<ProjectConfig, 'agents' | 'layout'>): number => agentsPerPage(projectLayout(cfg))
 
+/** How many panes a layout has side by side. */
+export function layoutColumns(layout: SessionLayout): number {
+  return layout === 'grid' ? 2 : layout === 'grid6' ? 3 : layoutPanes(layout)
+}
+
+/** The layout with a column fewer: the grids keep two rows, then one at a time. */
+const NARROWER: Record<SessionLayout, SessionLayout> = { single: 'single', columns2: 'single', columns3: 'columns2', grid: 'single', grid6: 'grid' }
+
+/**
+ * How many panes fit side by side in `width`, each `paneMin` wide, given how many did (`was`): fewer as soon as they
+ * don't fit, more only `margin` past where they would, so a pixel either way at the boundary doesn't flip the layout.
+ */
+export function paneColumnsFor(width: number, paneMin: number, was: number | null, margin: number): number {
+  const fit = Math.max(1, Math.floor(width / paneMin))
+  if (was === null || fit < was) return fit
+  return Math.max(was, Math.floor((width - margin) / paneMin))
+}
+
+/**
+ * The layout shown for the one chosen when only `columns` panes fit side by side (#1037: narrower, a terminal can't be
+ * fitted to its pane): it drops columns until they fit, down to one at a time. null: no limit.
+ */
+export function layoutFitting(layout: SessionLayout, columns: number | null): SessionLayout {
+  if (columns === null) return layout
+  let l = layout
+  while (l !== 'single' && layoutColumns(l) > columns) l = NARROWER[l]
+  return l
+}
+
 /**
  * The Session tab's view for a project (#975): the one its Panes | Tiles toggle chose, else Settings → Sessions → Default
  * session view, else Panes.
