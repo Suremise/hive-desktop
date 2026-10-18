@@ -8,8 +8,9 @@ import { withValues, type Text } from '../shared/advanced'
 import { msg } from '../shared/i18n'
 import { HiveError } from './hiveError'
 import { onHiveEvent } from './events'
-import { readJson, withFileLock } from './fsutil'
-import { openStore, readStore, saveStore } from './storeRows'
+import { readFile } from 'original-fs/promises'
+import { renameRetrying, withFileLock } from './fsutil'
+import { openStore, readStore, rowsOf, saveStore } from './storeRows'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName } from '../shared/projectIds'
 import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
@@ -82,6 +83,39 @@ async function read(ws: WorkspaceService): Promise<LaneRecord[]> {
 const opened = new Set<string>()
 
 /**
+ * lanes.json from before #1018, read to move it in (#1018 round 1): null only when there is none. One that can't be read
+ * now (Windows holding it, no permission) is an error, so nothing is marked moved and the next open tries again; one that
+ * isn't JSON lanes is set aside (`lanes.json.damaged-<time>`, renamed, never deleted) and none are moved in, or, if it
+ * can't be set aside, that is an error too and it is left as it is.
+ */
+export async function readLanesFile(file: string): Promise<{ rows: { key: string; doc: string }[] } | null> {
+  let text: string
+  try {
+    text = await readFile(file, 'utf8')
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new Error(`Could not read the lanes (${(e as Error).message})`, { cause: e }) // i18n-ignore: a system error moving lanes.json in, logged; as the watches' and deliveries' own
+  }
+  let v: unknown
+  try {
+    v = JSON.parse(text)
+  } catch {
+    v = null
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v) || ((v as { lanes?: unknown }).lanes !== undefined && !Array.isArray((v as { lanes?: unknown }).lanes))) {
+    const to = `${file}.damaged-${Date.now()}`
+    try {
+      await renameRetrying(file, to)
+    } catch (e) {
+      throw new Error(`The lanes file is damaged and couldn't be set aside (${(e as Error).message}): it was left as it is`, { cause: e }) // i18n-ignore: as above
+    }
+    log.warn(`The lanes file was damaged: set aside as ${userText(to)}`)
+    return { rows: [] }
+  }
+  return { rows: rowsOf((v as { lanes?: unknown[] }).lanes ?? []) }
+}
+
+/**
  * The lanes as saved, in the form lanes.json had (`{ version, lanes }`): the workspace database's rows, after moving the
  * file in the first time (#1018). Read under the lanes' lock.
  */
@@ -91,20 +125,7 @@ async function savedLanes(ws: WorkspaceService): Promise<{ version: 1; lanes: Re
   const file = fileOf(ws)
   const data = opened.has(key)
     ? readStore(path, 'lanes')
-    : await openStore(path, 'lanes', '', file, async () => {
-        const v = await readJson<unknown>(file, null)
-        if (v === null) return null
-        const raw = v && typeof v === 'object' && Array.isArray((v as { lanes?: unknown }).lanes) ? ((v as { lanes: unknown[] }).lanes as unknown[]) : []
-        const keys = new Set<string>()
-        return {
-          rows: raw.map((l, i) => {
-            const id = l && typeof l === 'object' && typeof (l as { id?: unknown }).id === 'string' ? (l as { id: string }).id : ''
-            const k = id && !keys.has(id) ? id : `imported-${i}`
-            keys.add(k)
-            return { key: k, doc: JSON.stringify(l) }
-          })
-        }
-      })
+    : await openStore(path, 'lanes', '', file, () => readLanesFile(file))
   opened.add(key)
   return { version: 1, lanes: data.rows.map((r) => JSON.parse(r.doc) as Record<string, unknown>) }
 }
@@ -129,7 +150,7 @@ async function write(ws: WorkspaceService, lanes: LaneRecord[]): Promise<void> {
     const { id, project: _shown, ...rest } = l
     return { id, project: saved, ...(projectId ? { projectId } : {}), ...rest }
   })
-  await saveStore(ws.path!, 'lanes', '', stamped.map((l) => ({ key: l.id, doc: JSON.stringify(l) })))
+  await saveStore(ws.path!, 'lanes', '', rowsOf(stamped))
   for (const fn of writtenListeners) fn()
 }
 

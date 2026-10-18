@@ -33,7 +33,7 @@ import * as assistant from './assistantControl'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, readJson, renameRetrying } from './fsutil'
-import { openStore, readStore, saveStore } from './storeRows'
+import { openStore, readStore, rowsOf, saveStore } from './storeRows'
 import { canTypeLine, typeLine, whyNoLine } from './lineWriter'
 import { createLogger, userText } from './logger'
 import { readyFor } from './readiness'
@@ -350,13 +350,7 @@ async function readSaved(host: string, place: Store['place']): Promise<{ records
   const data = await openStore(place.workspace, 'deliveries', place.scope, file, async () => {
     const got = await readFileOf(host)
     if (!got) return null
-    const keys = new Set<string>()
-    const rows = got.deliveries.map((v, i) => {
-      const id = v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string' ? (v as { id: string }).id : ''
-      const key = id && !keys.has(id) ? id : `imported-${i}`
-      keys.add(key)
-      return { key, doc: JSON.stringify(v) }
-    })
+    const rows = rowsOf(got.deliveries)
     const meta: Record<string, string> = { ...(got.next !== undefined ? { next: JSON.stringify(got.next) } : {}), ...(got.invalid.length ? { invalid: JSON.stringify(got.invalid) } : {}) }
     return { rows, meta }
   })
@@ -451,7 +445,7 @@ async function save(store: Store, d: Draft): Promise<void> {
   for (const r of d.records) if (!readDelivery(JSON.parse(JSON.stringify(r)))) throw new Error(`delivery ${r.id} isn't one Hive could read back`)
   const text = fileText(d)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('too many deliveries to keep in this project')
-  const rows = d.records.map((r) => ({ key: r.id, doc: JSON.stringify(r) }))
+  const rows = rowsOf(d.records)
   await saveStore(store.place.workspace, 'deliveries', store.place.scope, rows, { next: JSON.stringify(d.next), invalid: d.invalid.length ? JSON.stringify(d.invalid) : null })
 }
 

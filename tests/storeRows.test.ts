@@ -1,7 +1,7 @@
 // The workspace's small stores in its database (#1018, storeRows.ts): a store's file moved in once and kept as a backup,
 // a file found after that kept and never read, saves that write only what changed and are all or nothing, never inside a
 // change of the board, and a database from before (the board's schema 1) migrated with its cards kept.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
@@ -16,6 +16,7 @@ const HUNG_MS = 10_000
 
 const rows = await import('../src/main/storeRows')
 const board = await import('../src/main/boardStore')
+const lanes = await import('../src/main/lanes')
 const { openDb, schemaVersion } = await import('../src/main/db')
 
 let n = 0
@@ -84,6 +85,50 @@ describe("a store's file moved in", () => {
     await rows.saveStore(ws, 'deliveries', 'assistant', [{ key: 'm1', doc: '{"a":2}' }])
     await rows.saveStore(ws, 'lanes', '', [{ key: 'm1', doc: '{"a":3}' }])
     expect([docs(ws, 'deliveries', 'p-1'), docs(ws, 'deliveries', 'assistant'), docs(ws, 'lanes')]).toEqual([[{ a: 1 }], [{ a: 2 }], [{ a: 3 }]])
+  })
+})
+
+describe('moving a file in, when it goes wrong (#1018 round 1)', () => {
+  it("a file that can't be read now is not marked moved: it stays, and the next open moves it in", async () => {
+    const ws = workspace()
+    const file = join(ws, '.hive', 'lanes.json')
+    // A folder where the file is: reading it fails as a file Windows holds open would (not "there is none").
+    mkdirSync(file)
+    await expect(rows.openStore(ws, 'lanes', '', file, () => lanes.readLanesFile(file))).rejects.toThrow(/Could not read the lanes/)
+    expect(rows.readStore(ws, 'lanes').meta.has('imported')).toBe(false)
+    expect(existsSync(file)).toBe(true)
+    rmSync(file, { recursive: true })
+    writeFileSync(file, JSON.stringify({ version: 1, lanes: [{ id: 'lane-a', state: 'running' }] }))
+    const got = await rows.openStore(ws, 'lanes', '', file, () => lanes.readLanesFile(file))
+    expect(got.rows.map((r) => JSON.parse(r.doc))).toEqual([{ id: 'lane-a', state: 'running' }])
+  })
+
+  it('a damaged lanes file is set aside, kept as it was, and none are moved in', async () => {
+    const ws = workspace()
+    const file = join(ws, '.hive', 'lanes.json')
+    writeFileSync(file, '{ not json')
+    const got = await rows.openStore(ws, 'lanes', '', file, () => lanes.readLanesFile(file))
+    expect(got.rows).toEqual([])
+    const aside = files(ws).find((f) => f.startsWith('lanes.json.damaged-'))!
+    expect(readFileSync(join(ws, '.hive', aside), 'utf8')).toBe('{ not json')
+  })
+
+  it("every entry moved in has a row of its own, whatever ids the file gives (one another's fallback, the same twice, none)", async () => {
+    const ws = workspace()
+    const file = join(ws, '.hive', 'lanes.json')
+    const list = [{ id: '#1', n: 0 }, { n: 1 }, { id: 'a', n: 2 }, { id: 'a', n: 3 }, { id: '#1', n: 4 }, { id: '#3', n: 5 }]
+    writeFileSync(file, JSON.stringify({ version: 1, lanes: list }))
+    const got = await rows.openStore(ws, 'lanes', '', file, () => lanes.readLanesFile(file))
+    expect(got.rows.map((r) => JSON.parse(r.doc))).toEqual(list)
+    expect(new Set(got.rows.map((r) => r.key)).size).toBe(list.length)
+    expect(JSON.parse(got.meta.get('imported')!)).toMatchObject({ rows: list.length })
+  })
+
+  it('two rows of one change with the same key are refused, nothing saved (the second would replace the first)', async () => {
+    const ws = workspace()
+    await expect(rows.saveStore(ws, 'lanes', '', [{ key: 'k', doc: '1' }, { key: 'k', doc: '2' }])).rejects.toThrow(/same key/)
+    await expect(rows.openStore(ws, 'lanes', '', join(ws, '.hive', 'none.json'), async () => ({ rows: [{ key: 'k', doc: '1' }, { key: 'k', doc: '2' }] }))).rejects.toThrow(/same key/)
+    expect(rows.readStore(ws, 'lanes').meta.has('imported')).toBe(false)
   })
 })
 

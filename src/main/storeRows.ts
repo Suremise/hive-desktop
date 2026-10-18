@@ -26,6 +26,33 @@ export interface StoreData {
   meta: Map<string, string>
 }
 
+/**
+ * Row keys for a store's entries, one each and never the same twice (#1018 round 1): an entry's own id where it has one
+ * not taken yet, else `#<its place>` (made unique too). An entry's id comes from its file or memory, so it can be
+ * anything, a `#1` or another's id included: nothing an entry says can make two share a key.
+ */
+export function rowKeys(entries: readonly unknown[]): string[] {
+  const used = new Set<string>()
+  return entries.map((e, i) => {
+    const id = e && typeof e === 'object' && typeof (e as { id?: unknown }).id === 'string' ? (e as { id: string }).id : ''
+    let key = id && !used.has(id) ? id : `#${i}`
+    while (used.has(key)) key += '#'
+    used.add(key)
+    return key
+  })
+}
+
+/** Rows for a store's entries: each its key (rowKeys) and its JSON. */
+export const rowsOf = (entries: readonly unknown[]): { key: string; doc: string }[] => {
+  const keys = rowKeys(entries)
+  return entries.map((e, i) => ({ key: keys[i], doc: JSON.stringify(e) }))
+}
+
+/** A mistake in Hive's code: two rows of a change with one key (the second would replace the first). */
+function assertUnique(store: StoreName, rows: readonly { key: string }[]): void {
+  if (new Set(rows.map((r) => r.key)).size !== rows.length) throw new Error(`Two of the ${store} have the same key: nothing was saved`) // i18n-ignore: a mistake in Hive's code, logged
+}
+
 /** For tests: a save that fails as it is written (a full disk). */
 export const storeTestHooks: { failSave: ((store: StoreName, scope: string) => boolean) | null } = { failSave: null }
 
@@ -47,6 +74,7 @@ export async function saveStore(workspacePath: string, store: StoreName, scope: 
   const path = resolve(workspacePath)
   // Its lock is the board's: inside a board change it would wait for itself.
   if (inBoardWrite(path)) throw new Error(`The ${store} were saved inside a change of the board`) // i18n-ignore: a mistake in Hive's code, never shown
+  assertUnique(store, rows)
   await withFileLock(boardLock(path), async () => {
     guard?.()
     const db = workspaceDb(path).writer
@@ -95,9 +123,11 @@ function keepAsBackup(file: string): boolean {
 }
 
 /**
- * Opens a store, moving its file in the first time (#1018): `readFile` reads the file as the store always has (setting a
- * damaged or too-big one aside itself, null when there is none) and gives its entries; they go into the database in one
- * transaction with the mark that they did, and the file is then renamed `<file>.imported-<time>`, kept as a backup. A
+ * Opens a store, moving its file in the first time (#1018): `readFile` reads the file as the store always has and gives
+ * its entries (rowsOf), null only when there is no file; one that can't be read now (held open, no permission) throws, and
+ * nothing is marked, so the next open tries again (round 1); a damaged or too-big one it sets aside itself and gives none.
+ * They go into the database in one transaction with the mark that they did, checked there (every entry a row, as read),
+ * and the file is then renamed `<file>.imported-<time>`, kept as a backup. A
  * file found there after that (a rename refused before, or one an older Hive wrote since) is renamed the same way and
  * not read again: the store's entries are the database's. Returns the store's entries.
  */
@@ -106,6 +136,7 @@ export async function openStore(workspacePath: string, store: StoreName, scope: 
   const first = !readStore(path, store, scope).meta.has('imported')
   if (first) {
     const got = await readFile()
+    if (got) assertUnique(store, got.rows)
     // Moved in under the lock, checked again there: a second open meanwhile moved it already.
     await withFileLock(boardLock(path), async () => {
       if (readStore(path, store, scope).meta.has('imported')) return
@@ -113,6 +144,10 @@ export async function openStore(workspacePath: string, store: StoreName, scope: 
       transaction(db, () => {
         const put = db.prepare('INSERT OR REPLACE INTO store_rows (store, scope, key, ord, doc) VALUES (?, ?, ?, ?, ?)') // i18n-ignore: SQL
         got?.rows.forEach((r, i) => put.run(store, scope, r.key, i, r.doc))
+        // Checked before it commits: each entry read is a row, as it was read (and nothing else is there).
+        const now = db.prepare('SELECT key, doc FROM store_rows WHERE store = ? AND scope = ? ORDER BY ord').all(store, scope) as { key: string; doc: string }[] // i18n-ignore: SQL
+        const want = got?.rows ?? []
+        if (now.length !== want.length || now.some((r, i) => r.key !== want[i].key || r.doc !== want[i].doc)) throw new Error(`${now.length} ${store} rows in the database, ${want.length} entries read: nothing was moved in`) // i18n-ignore: an internal check's error, logged
         for (const [k, v] of Object.entries(got?.meta ?? {})) setMeta(db, store, scope, k, v)
         setMeta(db, store, scope, 'imported', JSON.stringify({ at: new Date().toISOString(), rows: got?.rows.length ?? 0, file: got ? file : null }))
       })

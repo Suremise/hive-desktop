@@ -12,7 +12,7 @@ import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { config } from './config'
 import { onHiveEvent } from './events'
 import { readCapped, renameRetrying } from './fsutil'
-import { openStore, saveStore } from './storeRows'
+import { openStore, rowsOf, saveStore } from './storeRows'
 import { coalesced } from './coalesce'
 import { createLogger, userText } from './logger'
 import { listLanes } from './lanes'
@@ -404,13 +404,7 @@ async function readSaved(path: string, open: () => boolean): Promise<FileRead> {
   const data = await openStore(path, 'watches', '', fileOf(path), async () => {
     const got = await readFileOf(path, open)
     if (!got) return null
-    const keys = new Set<string>()
-    const rows = got.watches.map((v, i) => {
-      const id = v && typeof v === 'object' && typeof (v as { id?: unknown }).id === 'string' ? (v as { id: string }).id : ''
-      const key = id && !keys.has(id) ? id : `imported-${i}`
-      keys.add(key)
-      return { key, doc: JSON.stringify(v) }
-    })
+    const rows = rowsOf(got.watches)
     const meta: Record<string, string> = got.invalid.length ? { invalid: JSON.stringify(got.invalid) } : {}
     return { rows, meta }
   })
@@ -650,12 +644,7 @@ async function save(store: Store): Promise<void> {
   checkAlive(store)
   const text = fileText(store, store.list)
   if (Buffer.byteLength(text) > MAX_FILE_BYTES) throw new Error('Too many card watches to keep in this workspace')
-  const keys = new Set<string>()
-  const rows = store.list.map((r, i) => {
-    const key = keys.has(r.id) ? `${r.id}-${i}` : r.id
-    keys.add(key)
-    return { key, doc: JSON.stringify(entryOf(r)) }
-  })
+  const rows = rowsOf(store.list.map(entryOf))
   await saveStore(store.path, 'watches', '', rows, { invalid: store.invalid.length ? JSON.stringify(store.invalid) : null }, () => checkAlive(store))
   store.dirty = false
 }
