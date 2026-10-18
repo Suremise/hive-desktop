@@ -5,7 +5,8 @@
 // urgent one's mark, and its ▾ lists them most urgent first, each with its state, status and card: a menu that holds the
 // focus, its chosen entry named as the active descendant, the chip expanded while it is open; choosing one shows that
 // agent (another page too). + Add ▾ has Configure Agent and Add…, Add Agent, Add Agent from Template and Templates. No
-// agent tabs are left. Four agents run the fake Claude Code (fake-claude/): one waits for a permission, one works.
+// agent tabs are left. At the narrowest window (#1046) it folds to icons, nothing cut. Four agents run the fake Claude
+// Code (fake-claude/): one waits for a permission, one works.
 // Throwaway profile, workspace and CLAUDE_CONFIG_DIR; a quiet test copy.
 const lib = require('./lib.cjs')
 const fs = require('fs')
@@ -210,6 +211,37 @@ const check = (name, ok, extra = '') => {
     await inv('session:start', alpha, { agentId: f.id })
     await lib.until(async () => ['ready', 'waiting'].includes((await live(f.id))?.status), HUNG_MS)
     check('fixed and started: no longer stalled', !!(await lib.until(async () => !/stalled/.test(await chipText()) && !/stalled/.test(await headerLine()), HUNG_MS)), `${await chipText()} / ${await headerLine()}`)
+
+    // --- The narrowest window (#1046): 900 px with the sidebar and the Progress panel open leave the toolbar about 265 px.
+    // It folds further: + Add to its +, then Panes | Tiles to their icons (their names on hover and for screen readers),
+    // then the chip's counts are cut (five agents' "1 waiting · 1 working · 3 idle" go that far); nothing of it is past
+    // its edge or cut inside a button. Widened, all comes back.
+    const toggleProgress = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('hive:event', { type: 'menu-command', command: 'progress.toggle', args: [] }))
+    const toolbar = () => page.evaluate(() => {
+      const bar = document.querySelector('.session-toolbar')
+      const right = bar.getBoundingClientRect().right
+      const buttons = [...bar.querySelectorAll('button')]
+      return {
+        width: Math.round(bar.getBoundingClientRect().width),
+        past: buttons.filter((b) => b.getBoundingClientRect().right > right + 0.5 || b.scrollWidth > b.clientWidth + 1).map((b) => b.getAttribute('aria-label') || b.innerText.trim()),
+        add: { label: bar.querySelector('.add-menu')?.getAttribute('aria-label') ?? null, text: bar.querySelector('.add-menu')?.innerText.trim() },
+        views: [...bar.querySelectorAll('.view-switch button')].map((b) => `${b.getAttribute('aria-label') ?? ''}:${b.innerText.trim()}`).join(' ')
+      }
+    })
+    await lib.fitWindow(app, page, { width: 900, height: 650 })
+    if (!(await page.locator('.progress-panel').count())) await toggleProgress()
+    for (const view of ['panes', 'tiles']) {
+      await page.locator(`.view-switch [data-view="${view}"]`).click()
+      check(`narrowest, ${view}: + Add its +, Panes | Tiles their icons (named for screen readers), nothing past the edge`, !!(await lib.until(async () => { const t = await toolbar(); return t.width < 300 && t.past.length === 0 && t.add.label === 'Add' && t.add.text === '' && t.views === 'Panes: Tiles:' }, HUNG_MS)), JSON.stringify(await toolbar()))
+      await page.screenshot({ path: path.join(lib.WORK, `sessiontoolbar-narrowest-${view}.png`) })
+    }
+    await page.locator('.view-switch [data-view="panes"]').hover()
+    check("…Panes' icon names its view on hover", !!(await lib.until(async () => (await page.locator('.tip', { hasText: /^Panes$/ }).count()) === 1, HUNG_MS)))
+    await page.mouse.move(5, 5)
+    await page.locator('.view-switch [data-view="panes"]').click()
+    await toggleProgress()
+    await lib.fitWindow(app, page, { width: 1500, height: 900 })
+    check('wide again: Panes | Tiles and + Add in words', !!(await lib.until(async () => { const t = await toolbar(); return t.views === ':Panes :Tiles' && t.add.label === null && t.add.text === 'Add' && t.past.length === 0 }, HUNG_MS)), JSON.stringify(await toolbar()))
   } finally {
     await inv('session:stop', alpha).catch(() => undefined)
     await lib.until(async () => (await inv('session:live').catch(() => [])).length === 0, HUNG_MS)

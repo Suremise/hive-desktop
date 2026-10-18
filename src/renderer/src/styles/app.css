@@ -4726,6 +4726,13 @@ body.pane-resizing .monaco-editor {
 .view-switch button {
   padding: 0 10px;
 }
+/* Folded to icons (#1046): each in a tooltip, so the line between them is drawn on the second's button. */
+.view-switch.icons button {
+  padding: 0 7px;
+}
+.view-switch.icons .tip-wrap + .tip-wrap > button {
+  border-left: 1px solid var(--border);
+}
 /* The summary chip: the most urgent state's mark, then the counts ("1 waiting · 2 working · 3 idle"); ▾ lists the agents. */
 .summary-chip {
   display: inline-flex;
@@ -4740,6 +4747,14 @@ body.pane-resizing .monaco-editor {
   color: var(--fg);
   font-size: 12px;
   cursor: pointer;
+}
+/* The chip gives way last (#1046): its tooltip's wrapper, the toolbar's item, may narrow, so its counts are cut. */
+.session-toolbar > .tip-wrap:has(> .summary-chip) {
+  display: flex;
+  min-width: 0;
+}
+.summary-chip {
+  max-width: 100%;
 }
 .summary-chip:hover {
   background: var(--bg-hover);
