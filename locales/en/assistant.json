@@ -107,6 +107,10 @@
     "defaultMessage": "Forget {count, plural, one {# Entry} other {# Entries}}",
     "description": "The button of the question before Forget: deletes that many entries."
   },
+  "assistant.journal.forgetChanged": {
+    "defaultMessage": "Nothing was forgotten: the entries matching this search changed while you were asked. {count, plural, =0 {None match now.} one {# entry matches now.} other {# entries match now.}} Check them and use Forget These… again.",
+    "description": "A notice after Forget: an entry was written, changed or deleted meanwhile, so the confirmed set no longer matched and nothing was deleted. {count} is how many match now. Forget These… is the button: use its translation."
+  },
   "assistant.journal.forgetMessage": {
     "defaultMessage": "{count, plural, one {# entry matches} other {# entries match}} this search and its filters. {count, plural, one {It is} other {They are}} deleted for good (not to the Recycle Bin), and the Assistant can no longer recall {count, plural, one {it} other {them}}.",
     "description": "The question before Forget deletes entries: how many. Recycle Bin is Windows' name for it."
@@ -114,6 +118,10 @@
   "assistant.journal.forgetNeedsFilter": {
     "defaultMessage": "Search or filter first: Forget deletes what they find. To delete the whole journal, use Settings → Assistant → Journal.",
     "description": "The tooltip of the journal browser's \"Forget These…\" button while no search or filter is set."
+  },
+  "assistant.journal.forgetNone": {
+    "defaultMessage": "Nothing matches this search now: nothing to forget.",
+    "description": "A notice: Forget was clicked, but no entry matches the search and filters any more."
   },
   "assistant.journal.forgetTip": {
     "defaultMessage": "Forget everything this search found: every matching entry is deleted, after asking.",

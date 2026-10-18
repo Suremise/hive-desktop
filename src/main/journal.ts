@@ -1,9 +1,10 @@
 import { brotliCompressSync, brotliDecompressSync } from 'zlib'
+import { createHash } from 'crypto'
 import { existsSync, statSync } from 'original-fs'
 import { join } from 'path'
 import type { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
-import { BROWSE_LIMITS, ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, type JournalFilter, type JournalKind, type JournalPage, type JournalRow, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
+import { BROWSE_LIMITS, ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, type JournalFilter, type JournalForgetPreview, type JournalForgetResult, type JournalKind, type JournalPage, type JournalRow, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
 import { openDb, transaction, type Db, type Migration } from './db'
 import { createLogger, userText } from './logger'
 import { trash } from './trash'
@@ -544,6 +545,9 @@ export function journalFileBytes(home: string): number {
 // The journal browser (#1033): the user's view of every entry, under the Assistant's view. It reads the journal whether
 // it is on or off (off keeps the data readable), never makes one that isn't there, and deletes what a search found.
 
+/** No journal: nothing matches (the set of none, and its token). */
+const NONE: JournalForgetPreview = { count: 0, token: createHash('sha256').update('').digest('hex') }
+
 /** Whether a home has a journal to read (without making one). */
 const hasJournal = (home: string): boolean => {
   const k = keyOf(journalFile(home))
@@ -582,13 +586,12 @@ function filterSql(f: JournalFilter): { where: string[]; args: (string | number)
 
 /** A page of the timeline, newest first: the rows with their links, how many match, and the newest id now. */
 export function browseJournal(home: string, f: JournalFilter, offset = 0, limit: number = BROWSE_LIMITS.page): JournalPage {
-  if (!hasJournal(home)) return { rows: [], total: 0, upTo: 0 }
+  if (!hasJournal(home)) return { rows: [], total: 0 }
   const { reader } = journalOf(home)
   const { where, args } = filterSql(f)
   const w = where.length ? ` WHERE ${where.join(' AND ')}` : ''
   const n = Math.min(BROWSE_LIMITS.max, Math.max(1, Math.floor(limit) || BROWSE_LIMITS.page))
   const total = (reader.prepare(`SELECT count(*) AS n FROM entries e${w}`).get(...args) as { n: number }).n
-  const upTo = (reader.prepare('SELECT coalesce(max(id), 0) AS n FROM entries').get() as { n: number }).n
   const rows = reader
     .prepare(`SELECT e.id, e.at, e.kind, e.project, e.summary, e.importance, e.source, e.superseded_by AS supersededBy, e.digest_of AS digestOf FROM entries e${w} ORDER BY e.at DESC, e.id DESC LIMIT ? OFFSET ?`)
     .all(...args, n, Math.max(0, Math.floor(offset) || 0)) as unknown as Omit<JournalRow, 'links'>[]
@@ -597,7 +600,7 @@ export function browseJournal(home: string, f: JournalFilter, offset = 0, limit:
     const all = reader.prepare(`SELECT entry_id AS id, type, ref FROM links WHERE entry_id IN (${rows.map(() => '?').join(', ')}) ORDER BY type, ref`).all(...rows.map((r) => r.id)) as unknown as { id: number; type: LinkType; ref: string }[]
     for (const l of all) links.set(l.id, [...(links.get(l.id) ?? []), { type: l.type, ref: l.ref }])
   }
-  return { rows: rows.map((r) => ({ ...r, links: links.get(r.id) ?? [] })), total, upTo }
+  return { rows: rows.map((r) => ({ ...r, links: links.get(r.id) ?? [] })), total }
 }
 
 /** The projects the journal's entries name, for the browser's filter. */
@@ -611,19 +614,37 @@ export function browseEntry(home: string, id: number): JournalEntry | null {
   return hasJournal(home) ? readEntry(home, id) : null
 }
 
+/** The entries a filter matches now, as a count and a token for exactly that set (their ids). */
+function matchSet(db: DatabaseSync, f: JournalFilter): JournalForgetPreview {
+  const { where, args } = filterSql(f)
+  const ids = (db.prepare(`SELECT e.id FROM entries e${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY e.id`).all(...args) as { id: number }[]).map((r) => r.id)
+  return ids.length ? { count: ids.length, token: createHash('sha256').update(ids.join(',')).digest('hex') } : NONE
+}
+
+/** What Forget would delete: shown to the user to confirm. */
+export function forgetPreview(home: string, f: JournalFilter): JournalForgetPreview {
+  return hasJournal(home) ? matchSet(journalOf(home).reader, f) : NONE
+}
+
 /**
- * Forget everything about X (#1033): deletes every entry the filter matches that was there when the user saw the count
- * (`upTo`: none written since goes with them), in one transaction. Returns how many went.
+ * Forget everything about X (#1033): deletes, in one transaction, every entry the filter matches, only while that set is
+ * exactly the one the user confirmed (`token`, from forgetPreview). Changed since (an entry written, edited into or out
+ * of the match, deleted), nothing goes and the set as it is now is returned, to ask again.
  */
-export function forgetJournal(home: string, f: JournalFilter, upTo: number): number {
-  if (!hasJournal(home)) return 0
+export function forgetJournal(home: string, f: JournalFilter, token: string): JournalForgetResult {
+  if (!hasJournal(home)) return token === NONE.token ? { gone: 0 } : { changed: NONE }
   const { writer: w } = journalOf(home)
   const { where, args } = filterSql(f)
-  const gone = transaction(w, () => Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT e.id FROM entries e WHERE ${[...where, 'e.id <= ?'].join(' AND ')})`).run(...args, upTo).changes))
+  const r = transaction(w, (): JournalForgetResult => {
+    const now = matchSet(w, f)
+    if (now.token !== token) return { changed: now }
+    return { gone: Number(w.prepare(`DELETE FROM entries WHERE id IN (SELECT e.id FROM entries e${where.length ? ` WHERE ${where.join(' AND ')}` : ''})`).run(...args).changes) }
+  })
+  const gone = 'gone' in r ? r.gone : 0
   if (gone) {
     w.exec('PRAGMA incremental_vacuum')
     log.info(`forgot ${gone} journal entr${gone === 1 ? 'y' : 'ies'}`)
     told(home)
   }
-  return gone
+  return r
 }

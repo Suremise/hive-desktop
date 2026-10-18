@@ -66,6 +66,8 @@ const M = {
   forgetTitle: msg({ id: 'assistant.journal.forgetTitle', defaultMessage: '{query, select, none {Forget {count, plural, one {# entry} other {# entries}}?} other {Forget everything about “{query}”?}}', description: 'Title of the question before Forget deletes entries: with a search ({query}, the user\'s words), "everything about" it; without one (none), how many.' }),
   forgetMessage: msg({ id: 'assistant.journal.forgetMessage', defaultMessage: '{count, plural, one {# entry matches} other {# entries match}} this search and its filters. {count, plural, one {It is} other {They are}} deleted for good (not to the Recycle Bin), and the Assistant can no longer recall {count, plural, one {it} other {them}}.', description: "The question before Forget deletes entries: how many. Recycle Bin is Windows' name for it." }),
   forgetButton: msg({ id: 'assistant.journal.forgetButton', defaultMessage: 'Forget {count, plural, one {# Entry} other {# Entries}}', description: 'The button of the question before Forget: deletes that many entries.' }),
+  forgetNone: msg({ id: 'assistant.journal.forgetNone', defaultMessage: 'Nothing matches this search now: nothing to forget.', description: 'A notice: Forget was clicked, but no entry matches the search and filters any more.' }),
+  forgetChanged: msg({ id: 'assistant.journal.forgetChanged', defaultMessage: 'Nothing was forgotten: the entries matching this search changed while you were asked. {count, plural, =0 {None match now.} one {# entry matches now.} other {# entries match now.}} Check them and use Forget These… again.', description: 'A notice after Forget: an entry was written, changed or deleted meanwhile, so the confirmed set no longer matched and nothing was deleted. {count} is how many match now. Forget These… is the button: use its translation.' }),
   forgot: msg({ id: 'assistant.journal.forgot', defaultMessage: 'Forgot {count, plural, one {# entry} other {# entries}}', description: 'A notice after Forget deleted entries.' }),
   failed: msg({ id: 'assistant.journal.failed', defaultMessage: "Couldn't change the journal", description: "An error's title: an edit, a delete or Forget in the journal browser failed (why follows)." }),
   loadFailed: msg({ id: 'assistant.journal.loadFailed', defaultMessage: "Couldn't read the journal", description: "An error's title: the journal browser couldn't read the journal (why follows)." }),
@@ -152,7 +154,8 @@ export function JournalView({ digests }: { digests: boolean }) {
   const version = useStore((s) => s.journalVersion)
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [query, setQuery] = useState('')
-  const [page, setPage] = useState<JournalPage | null>(null)
+  // A page knows the workspace and filter it was read for (`key`): until the current one's arrives, it is only shown.
+  const [page, setPage] = useState<(JournalPage & { key: string }) | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
   const [projects, setProjects] = useState<string[]>([])
   const [selected, setSelected] = useState<number | null>(null)
@@ -170,15 +173,18 @@ export function JournalView({ digests }: { digests: boolean }) {
   // Read again from the top on any change (the filters, the journal itself), keeping as many rows as were shown.
   const keep = useRef<number>(BROWSE_LIMITS.page)
   keep.current = Math.max(BROWSE_LIMITS.page, shown)
-  const filterKey = JSON.stringify(filter)
-  const lastKey = useRef(filterKey)
+  const key = JSON.stringify([workspace, filter])
+  const keyNow = useRef(key)
+  keyNow.current = key
+  // The rows shown are the search's as it is now, typing settled: only then may Forget act on it (#1033 round 2).
+  const current = page?.key === key && query === filters.query
   useEffect(() => {
     if (!workspace) return
     let live = true
-    const fresh = lastKey.current !== filterKey
-    lastKey.current = filterKey
+    const at = key
+    const fresh = page?.key !== at
     void call('journal:browse', filter, 0, fresh ? BROWSE_LIMITS.page : Math.min(BROWSE_LIMITS.max, keep.current)).then(
-      (p) => live && setPage(p),
+      (p) => live && keyNow.current === at && setPage({ ...p, key: at }),
       (e) => live && notify('error', tr(M.loadFailed), errorMessage(e))
     )
     void call('journal:status').then((s) => live && setStatus(s), () => {})
@@ -186,31 +192,44 @@ export function JournalView({ digests }: { digests: boolean }) {
     return () => {
       live = false
     }
-    // filter is filterKey's object.
+    // key is the workspace and filter; page is read for whether this is a new search.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace, filterKey, version])
+  }, [key, version])
   const showMore = (): void => {
-    if (!page) return
+    if (!page || !current) return
+    const at = key
+    // Only onto the rows of the search it was asked for: a change meanwhile drops it.
     void call('journal:browse', filter, page.rows.length).then(
-      (p) => setPage((was) => (was ? { ...p, rows: [...was.rows, ...p.rows.filter((r) => !was.rows.some((x) => x.id === r.id))] } : p)),
+      (p) => keyNow.current === at && setPage((was) => (was?.key === at ? { ...p, key: at, rows: [...was.rows, ...p.rows.filter((r) => !was.rows.some((x) => x.id === r.id))] } : was)),
       (e) => notify('error', tr(M.loadFailed), errorMessage(e))
     )
   }
   const reload = (): void => set((s) => ({ journalVersion: s.journalVersion + 1 }))
 
-  const forget = (): void => {
-    if (!page?.total) return
-    const count = page.total
-    void confirm({ title: tr(M.forgetTitle, { query: filter.query ?? 'none', count }), message: tr(M.forgetMessage, { count }), confirmLabel: tr(M.forgetButton, { count }), danger: true }).then((ok) => {
-      if (!ok) return
-      setBusy(true)
-      void call('journal:forget', filter, page.upTo)
-        .then((n) => {
-          notify('info', tr(M.forgot, { count: n }))
-          setSelected(null)
-        }, (e) => notify('error', tr(M.failed), errorMessage(e)))
-        .finally(() => setBusy(false))
-    })
+  // Forget asks main what this search matches now (a count, and a token for exactly that set), asks the user, and main
+  // deletes only that set: an entry in or out of it meanwhile, and nothing goes (#1033 round 2).
+  const forget = async (): Promise<void> => {
+    if (!current) return
+    const f = filter
+    setBusy(true)
+    try {
+      const seen = await call('journal:forgetPreview', f)
+      if (!seen.count) return notify('info', tr(M.forgetNone))
+      const count = seen.count
+      if (!(await confirm({ title: tr(M.forgetTitle, { query: f.query ?? 'none', count }), message: tr(M.forgetMessage, { count }), confirmLabel: tr(M.forgetButton, { count }), danger: true }))) return
+      const r = await call('journal:forget', f, seen.token)
+      if ('gone' in r) {
+        notify('info', tr(M.forgot, { count: r.gone }))
+        setSelected(null)
+      } else {
+        notify('warning', tr(M.forgetChanged, { count: r.changed.count }))
+        reload()
+      }
+    } catch (e) {
+      notify('error', tr(M.failed), errorMessage(e))
+    } finally {
+      setBusy(false)
+    }
   }
   const turnOn = (): void => {
     setBusy(true)
@@ -234,6 +253,17 @@ export function JournalView({ digests }: { digests: boolean }) {
     else if (e.key === 'ArrowUp') go(at < 0 ? 0 : at - 1)
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(rows.length - 1)
+    else if (e.key === 'Escape' && selected !== null) {
+      e.preventDefault()
+      e.stopPropagation()
+      closeEntry()
+    }
+  }
+  /** Closes the open entry, the keyboard back on its row. */
+  const closeEntry = (): void => {
+    const id = selected
+    setSelected(null)
+    requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-entry="${id}"] .journal-row-main`)?.focus())
   }
 
   if (!workspace) {
@@ -263,7 +293,7 @@ export function JournalView({ digests }: { digests: boolean }) {
           <InfoTip text={tr(M.titleTip)} />
           <div className="actions">
             <Tooltip content={tr(filtered ? M.forgetTip : M.forgetNeedsFilter)}>
-              <button className="btn small subtle journal-forget" disabled={busy || !filtered || !page?.total} onClick={forget}>
+              <button className="btn small subtle journal-forget" disabled={busy || !filtered || !current || !page?.total} onClick={() => void forget()}>
                 <Icon name="trash" /> {tr(M.forget)}
               </button>
             </Tooltip>
@@ -340,8 +370,8 @@ export function JournalView({ digests }: { digests: boolean }) {
             </button>
           </div>
         )}
-        {page && page.total > 0 && <div className="journal-count faint" aria-live="polite">{shown < page.total ? tr(M.countOf, { shown, total: page.total }) : tr(M.count, { total: page.total })}</div>}
-        <div className="journal-scroll">
+        {page && current && page.total > 0 && <div className="journal-count faint" aria-live="polite">{shown < page.total ? tr(M.countOf, { shown, total: page.total }) : tr(M.count, { total: page.total })}</div>}
+        <div className={cx('journal-scroll', page && !current && 'pending')} aria-busy={!current || undefined}>
           {page && !page.rows.length && <div className="pane-empty journal-empty">{tr(filtered ? M.noMatch : digests ? M.emptyDigests : M.empty)}</div>}
           {page && page.rows.length > 0 && (
             <ul className="journal-timeline" aria-label={tr(M.timeline)} ref={listRef} onKeyDown={onListKey}>
@@ -359,7 +389,7 @@ export function JournalView({ digests }: { digests: boolean }) {
               ))}
             </ul>
           )}
-          {page && shown < page.total && (
+          {page && current && shown < page.total && (
             <button className="btn small subtle journal-more" onClick={showMore}>
               {tr(M.more)}
             </button>
@@ -385,12 +415,7 @@ export function JournalView({ digests }: { digests: boolean }) {
           version={version}
           scope={settings?.scope ?? []}
           onOpen={setSelected}
-          onClose={() => {
-            const id = selected
-            setSelected(null)
-            // Back to its row in the timeline, for the keyboard.
-            requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-entry="${id}"] .journal-row-main`)?.focus())
-          }}
+          onClose={closeEntry}
         />
       )}
     </div>

@@ -80,31 +80,44 @@ export function AssistantSidePanel() {
               <PersonaList />
             </Section>
             <Section title={tr(M.conversations)}>
-              <div className={cx('row', section === 'conversations' && 'selected')} onClick={() => set({ assistantSection: 'conversations' })}>
-                <Icon name="comment-discussion" />
-                <span className="label">{tr(M.allConversations)}</span>
-              </div>
+              <NavRow section="conversations" shown={section} icon="comment-discussion" label={tr(M.allConversations)} />
             </Section>
             <Section title={tr(M.journal)} tip={tr(M.journalTip)}>
-              <div className={cx('row', section === 'journal' && 'selected')} data-section="journal" onClick={() => set({ assistantSection: 'journal' })}>
-                <Icon name="notebook" />
-                <span className="label">{tr(M.timeline)}</span>
-              </div>
-              <div className={cx('row', section === 'digests' && 'selected')} data-section="digests" onClick={() => set({ assistantSection: 'digests' })}>
-                <Icon name="calendar" />
-                <span className="label">{tr(M.digests)}</span>
-              </div>
+              <NavRow section="journal" shown={section} icon="notebook" label={tr(M.timeline)} />
+              <NavRow section="digests" shown={section} icon="calendar" label={tr(M.digests)} />
             </Section>
             <Section title={tr(M.attachments)}>
-              <div className={cx('row', section === 'images' && 'selected')} onClick={() => set({ assistantSection: 'images' })}>
-                <Icon name="attach" />
-                <span className="label">{tr(M.allAttachments)}</span>
-              </div>
+              <NavRow section="images" shown={section} icon="attach" label={tr(M.allAttachments)} />
             </Section>
           </>
         )}
       </div>
     </>
+  )
+}
+
+type ViewSection = 'conversations' | 'personas' | 'images' | 'journal' | 'digests'
+
+/** A row that shows a section in the main area: a tab stop, Enter or Space shows it, the one shown is the current page (#1033 round 2). */
+function NavRow({ section, shown, icon, label }: { section: ViewSection; shown: ViewSection; icon: string; label: string }) {
+  const show = (): void => set({ assistantSection: section })
+  return (
+    <div
+      className={cx('row', shown === section && 'selected')}
+      data-section={section}
+      role="button"
+      tabIndex={0}
+      aria-current={shown === section ? 'page' : undefined}
+      onClick={show}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        show()
+      }}
+    >
+      <Icon name={icon} />
+      <span className="label">{label}</span>
+    </div>
   )
 }
 

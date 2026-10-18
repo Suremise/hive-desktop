@@ -3,8 +3,8 @@ import { join } from 'path'
 import { ASSISTANT_AGENT_ID, ASSISTANT_DIR } from '../shared/assistant'
 import { HIVE_DIR } from '../shared/defaults'
 import { readKeptJson } from './fsutil'
-import { journalSettings, inScope, type JournalEdit, type JournalFilter, type JournalSettings, type LinkType } from '../shared/journal'
-import { browseEntry, closeJournal, deleteEntry, deleteJournal, forgetJournal, journalFile, journalFileBytes, journalSize, onJournalChange, pruneJournal, updateEntry, writeEntry } from './journal'
+import { journalSettings, inScope, type JournalEdit, type JournalFilter, type JournalForgetPreview, type JournalForgetResult, type JournalSettings, type LinkType } from '../shared/journal'
+import { browseEntry, closeJournal, deleteEntry, deleteJournal, forgetJournal, forgetPreview, journalFile, journalFileBytes, journalSize, onJournalChange, pruneJournal, updateEntry, writeEntry } from './journal'
 import { emit } from './events'
 import { createLogger } from './logger'
 import type { WorkspaceService } from './workspace'
@@ -155,8 +155,14 @@ export function deleteJournalEntry(ws: WorkspaceService, id: number): boolean {
   return !!home && !!journalEntry(ws, id) && deleteEntry(home, id)
 }
 
-/** Forget everything about X: the entries a search matched when the user saw how many (up to `upTo`). */
-export function forgetJournalEntries(ws: WorkspaceService, filter: JournalFilter, upTo: number): number {
+/** What Forget would delete: how many, and a token for exactly that set. */
+export function forgetJournalPreview(ws: WorkspaceService, filter: JournalFilter): JournalForgetPreview {
   const home = homeOf(ws)
-  return home ? forgetJournal(home, filter ?? {}, upTo) : 0
+  return home ? forgetPreview(home, filter ?? {}) : { count: 0, token: '' }
+}
+
+/** Forget everything about X: exactly the set the user confirmed (its token), or nothing and the set as it is now. */
+export function forgetJournalEntries(ws: WorkspaceService, filter: JournalFilter, token: string): JournalForgetResult {
+  const home = homeOf(ws)
+  return home ? forgetJournal(home, filter ?? {}, String(token ?? '')) : { gone: 0 }
 }

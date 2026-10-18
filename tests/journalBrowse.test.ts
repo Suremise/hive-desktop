@@ -1,7 +1,7 @@
 // The journal browser's store calls (#1033): the timeline newest first with each row's links, every filter (all the
 // search's words as prefixes, kinds, project or the workspace's own, source, dates), pages and the total, reading
-// without making a journal, a kind edited within the scope, Forget deleting just what the search matched up to the
-// count's newest id, and the windows told of each change.
+// without making a journal, a kind edited within the scope, Forget deleting exactly the set the user confirmed (or nothing
+// when an entry moved into or out of it meanwhile), and the windows told of each change.
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
@@ -48,12 +48,11 @@ function seeded(): string {
 }
 
 describe('the timeline', () => {
-  it('is newest first, with each row its links, the total and the newest id', () => {
+  it('is newest first, with each row its links, and the total', () => {
     const h = seeded()
     const p = j.browseJournal(h, {})
     expect(summaries(p)).toEqual(['Themes need contrast', '#12 is Done', 'Plan the orange markers', 'Orange theme chosen', 'Week 42'])
     expect(p.total).toBe(5)
-    expect(p.upTo).toBe(5)
     expect(p.rows[3].links).toEqual([{ type: 'card', ref: '12' }, { type: 'commit', ref: 'abc123' }])
     expect(p.rows[4]).toMatchObject({ kind: 'digest', digestOf: '2026-W42', importance: 2, source: 'assistant' })
     expect(p.rows[1].source).toBe('hive')
@@ -69,10 +68,12 @@ describe('the timeline', () => {
 
   it('reads nothing, and makes no journal, where there is none', () => {
     const h = home()
-    expect(j.browseJournal(h, {})).toEqual({ rows: [], total: 0, upTo: 0 })
+    expect(j.browseJournal(h, {})).toEqual({ rows: [], total: 0 })
     expect(j.journalProjects(h)).toEqual([])
     expect(j.browseEntry(h, 1)).toBeNull()
-    expect(j.forgetJournal(h, { query: 'x' }, 10)).toBe(0)
+    const none = j.forgetPreview(h, { query: 'x' })
+    expect(none.count).toBe(0)
+    expect(j.forgetJournal(h, { query: 'x' }, none.token)).toEqual({ gone: 0 })
     expect(existsSync(j.journalFile(h))).toBe(false)
   })
 })
@@ -121,13 +122,12 @@ describe('editing', () => {
 })
 
 describe('Forget everything about X', () => {
-  it('deletes just what the search and filters matched, with their links and tags, and not what came after the count', () => {
+  it('deletes exactly the set confirmed, with their links, tags and index rows', () => {
     const h = seeded()
-    const seen = j.browseJournal(h, { query: 'orange' })
-    // Written after the user saw the count: it stays.
-    write(h, { summary: 'Orange again, later' })
-    expect(j.forgetJournal(h, { query: 'orange' }, seen.upTo)).toBe(3)
-    expect(summaries(j.browseJournal(h, {}))).toEqual(['Orange again, later', '#12 is Done', 'Week 42'])
+    const seen = j.forgetPreview(h, { query: 'orange' })
+    expect(seen.count).toBe(3)
+    expect(j.forgetJournal(h, { query: 'orange' }, seen.token)).toEqual({ gone: 3 })
+    expect(summaries(j.browseJournal(h, {}))).toEqual(['#12 is Done', 'Week 42'])
     j.closeJournal(h)
     const db = new DatabaseSync(j.journalFile(h), { readOnly: true })
     try {
@@ -141,8 +141,38 @@ describe('Forget everything about X', () => {
 
   it('with filters only', () => {
     const h = seeded()
-    expect(j.forgetJournal(h, { source: 'hive' }, 99)).toBe(1)
+    expect(j.forgetJournal(h, { source: 'hive' }, j.forgetPreview(h, { source: 'hive' }).token)).toEqual({ gone: 1 })
     expect(j.browseJournal(h, {}).total).toBe(4)
+  })
+
+  // HR6's round 1: an entry edited into the match while the question was open was deleted with the rest.
+  it('deletes nothing when an entry moved into the set meanwhile, saying what matches now', () => {
+    const h = seeded()
+    const seen = j.forgetPreview(h, { query: 'orange' })
+    // Entry 3 ("#12 is Done") is edited to match, as another window or the Assistant could.
+    j.updateEntry(h, all, 3, { summary: 'Orange unrelated newly edited entry' })
+    const r = j.forgetJournal(h, { query: 'orange' }, seen.token)
+    expect(r).toEqual({ changed: { count: 4, token: expect.any(String) } })
+    expect(j.browseJournal(h, {}).total).toBe(5)
+    // Asked again with the new set, it goes.
+    expect(j.forgetJournal(h, { query: 'orange' }, (r as { changed: { token: string } }).changed.token)).toEqual({ gone: 4 })
+  })
+
+  it('…or out of it, or one was written or deleted', () => {
+    const h = seeded()
+    const q = { query: 'orange' }
+    let seen = j.forgetPreview(h, q)
+    j.updateEntry(h, all, 2, { summary: 'Plan the amber markers' })
+    expect(j.forgetJournal(h, q, seen.token)).toMatchObject({ changed: { count: 2 } })
+    seen = j.forgetPreview(h, q)
+    write(h, { summary: 'Orange again, later' })
+    expect(j.forgetJournal(h, q, seen.token)).toMatchObject({ changed: { count: 3 } })
+    seen = j.forgetPreview(h, q)
+    j.deleteEntry(h, 1)
+    expect(j.forgetJournal(h, q, seen.token)).toMatchObject({ changed: { count: 2 } })
+    expect(j.browseJournal(h, {}).total).toBe(5)
+    // A token from another search never deletes this one's.
+    expect(j.forgetJournal(h, q, j.forgetPreview(h, { source: 'hive' }).token)).toMatchObject({ changed: { count: 2 } })
   })
 })
 
@@ -163,9 +193,10 @@ describe('the windows are told', () => {
       write(h, { summary: 'Two' })
       j.updateEntry(h, all, id, { importance: 2 })
       j.deleteEntry(h, id)
-      j.forgetJournal(h, { query: 'two' }, 99)
+      j.forgetJournal(h, { query: 'two' }, j.forgetPreview(h, { query: 'two' }).token)
       // Nothing changed: no word.
-      j.forgetJournal(h, { query: 'nothing' }, 99)
+      j.forgetJournal(h, { query: 'nothing' }, j.forgetPreview(h, { query: 'nothing' }).token)
+      j.forgetJournal(h, { query: 'one' }, 'stale')
       await j.deleteJournal(h)
       expect(told).toEqual([h, h, h, h, h, h])
     } finally {

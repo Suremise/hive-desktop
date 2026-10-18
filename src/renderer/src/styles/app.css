@@ -661,6 +661,10 @@ kbd {
 .row:hover {
   background: var(--bg-hover);
 }
+.row[role='button']:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
 .row.selected {
   background: var(--bg-active);
   color: var(--fg-strong);
@@ -1688,6 +1692,10 @@ textarea.input {
   min-height: 0;
   overflow: auto;
   padding-bottom: 12px;
+}
+/* The rows of the search before (a new one is being read): shown, dimmed; Forget waits for the new ones. */
+.journal-scroll.pending {
+  opacity: 0.6;
 }
 .journal-timeline,
 .journal-day-rows {

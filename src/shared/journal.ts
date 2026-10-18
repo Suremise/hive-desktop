@@ -90,12 +90,23 @@ export interface JournalRow {
   links: { type: LinkType; ref: string }[]
 }
 
-/** A page of the timeline: its rows, how many match in all, and the newest id when it was read (what Forget may delete). */
+/** A page of the timeline: its rows, and how many match in all. */
 export interface JournalPage {
   rows: JournalRow[]
   total: number
-  upTo: number
 }
+
+/**
+ * What Forget would delete (#1033 round 2): how many entries match, and a token for exactly that set. Forget deletes
+ * only while the set is still the one the user confirmed; any entry in or out since (written, edited, deleted), and it
+ * deletes nothing and says how many match now.
+ */
+export interface JournalForgetPreview {
+  count: number
+  token: string
+}
+
+export type JournalForgetResult = { gone: number } | { changed: JournalForgetPreview }
 
 /** An entry in full, for the browser. */
 export interface JournalEntryView extends JournalRow {

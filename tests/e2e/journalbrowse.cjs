@@ -180,6 +180,43 @@ function seed(cards) {
     check('Clear Filters shows the rest', !!(await lib.until(async () => (await rows.count()) === 4, HUNG_MS)))
     check('Forget needs a search or filter first', await view.locator('.journal-forget').isDisabled())
 
+    // HR6's round 1: a new filter's results are still being read (slow), the old ones only shown: Forget waits for them,
+    // and asks with the count of the filter as it is.
+    await app.evaluate(() => {
+      process.env.HIVE_TEST_SLOW_IPC = 'journal:browse=3000*1'
+    })
+    await view.locator('.journal-source').selectOption('hive')
+    check('while a new filter is read, the old rows are dimmed and Forget waits', !!(await lib.until(async () => (await view.locator('.journal-scroll.pending').count()) === 1 && (await view.locator('.journal-forget').isDisabled()) && (await rows.count()) === 4, HUNG_MS)), String(await rows.count()))
+    check('…then its own rows, and Forget', !!(await lib.until(async () => (await rows.count()) === 1 && (await view.locator('.journal-scroll.pending').count()) === 0 && !(await view.locator('.journal-forget').isDisabled()), HUNG_MS)))
+    await app.evaluate(() => {
+      delete process.env.HIVE_TEST_SLOW_IPC
+    })
+    await view.locator('.journal-forget').click()
+    const askHive = page.locator('.dialog', { hasText: 'Forget 1 entry?' })
+    check("Forget asks with the filter's own count", !!(await lib.until(async () => (await askHive.count()) === 1, HUNG_MS)) && /1 entry matches/.test(await askHive.innerText()), await page.locator('.dialog').innerText().catch(() => ''))
+    await askHive.getByRole('button', { name: 'Cancel' }).click()
+    await view.locator('.journal-source').selectOption('')
+    await lib.until(async () => (await rows.count()) === 4, HUNG_MS)
+
+    // HR6's round 1: an entry edited into the search while Forget asks: nothing is deleted, and it says how many match now.
+    await search.fill('timeline')
+    await lib.until(async () => (await rows.count()) === 1 && !(await view.locator('.journal-forget').isDisabled()), HUNG_MS)
+    await view.locator('.journal-forget').click()
+    const askOne = page.locator('.dialog', { hasText: 'Forget everything about “timeline”?' })
+    await lib.until(async () => (await askOne.count()) === 1, HUNG_MS)
+    check('Forget asks for the one entry', /1 entry matches/.test(await askOne.innerText()), await askOne.innerText())
+    const week = (await inv('journal:browse', { kinds: ['digest'] })).rows[0].id
+    await inv('journal:edit', week, { summary: 'Week 42: the journal store merged, the browser timeline started' })
+    await askOne.getByRole('button', { name: 'Forget 1 Entry' }).click()
+    check('…an entry edited into the search meanwhile: nothing is forgotten, and it says so', !!(await lib.until(async () => (await page.locator('.toast', { hasText: 'Nothing was forgotten' }).count()) === 1, HUNG_MS)) && /2 entries match now/.test(await page.locator('.toast', { hasText: 'Nothing was forgotten' }).innerText()))
+    check('…every entry is still there', (await inv('journal:status')).entries === 4 && !!(await inv('journal:entry', week)))
+    await view.locator('.journal-forget').click()
+    const askTwo = page.locator('.dialog', { hasText: 'Forget everything about “timeline”?' })
+    check('asked again, it counts both', !!(await lib.until(async () => (await askTwo.count()) === 1 && /2 entries match/.test(await askTwo.innerText()), HUNG_MS)))
+    await askTwo.getByRole('button', { name: 'Cancel' }).click()
+    await search.fill('')
+    await lib.until(async () => (await rows.count()) === 4 && (await view.locator('.journal-scroll.pending').count()) === 0, HUNG_MS)
+
     // Filters: kind, project, source, dates.
     await view.locator('.journal-kind').selectOption('plan')
     check('the kind filter', !!(await lib.until(async () => JSON.stringify(await summaries()) === JSON.stringify(['Ship the journal browser (edited)', 'Build the timeline first, then the entry pane']), HUNG_MS)), JSON.stringify(await summaries()))
@@ -190,7 +227,7 @@ function seed(cards) {
     await view.locator('.journal-project').selectOption('alpha')
     check('the project filter', !!(await lib.until(async () => (await rows.count()) === 3, HUNG_MS)), JSON.stringify(await summaries()))
     await view.locator('.journal-project').selectOption({ label: 'The workspace (no project)' })
-    check("…and the workspace's own entries", !!(await lib.until(async () => JSON.stringify(await summaries()) === JSON.stringify(['Week 42: the journal store merged, the browser started']), HUNG_MS)), JSON.stringify(await summaries()))
+    check("…and the workspace's own entries", !!(await lib.until(async () => JSON.stringify(await summaries()) === JSON.stringify(['Week 42: the journal store merged, the browser timeline started']), HUNG_MS)), JSON.stringify(await summaries()))
     await view.locator('.journal-project').selectOption('')
     const today = new Date()
     const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -199,18 +236,31 @@ function seed(cards) {
     await view.getByRole('button', { name: 'Clear Filters' }).click()
     await lib.until(async () => (await rows.count()) === 4, HUNG_MS)
 
+    // Escape on the open row closes the entry; Enter opens it again.
+    const build = rows.filter({ hasText: 'Build the timeline first' }).locator('.journal-row-main')
+    await build.click()
+    await lib.until(async () => (await pane.count()) === 1, HUNG_MS)
+    await page.keyboard.press('Escape')
+    check('Escape on its row closes the entry, the row keeping the keyboard', !!(await lib.until(async () => (await pane.count()) === 0, HUNG_MS)) && (await build.evaluate((b) => b === document.activeElement)))
+    await page.keyboard.press('Enter')
+    await lib.until(async () => (await pane.count()) === 1, HUNG_MS)
+
     // Delete one entry, after asking.
-    await rows.filter({ hasText: 'Build the timeline first' }).locator('.journal-row-main').click()
     await pane.getByRole('button', { name: 'Delete…' }).click()
     const del = page.locator('.dialog', { hasText: 'Delete this journal entry?' })
     check('Delete asks first, naming the entry', !!(await lib.until(async () => (await del.count()) === 1, HUNG_MS)) && /Build the timeline first/.test(await del.innerText()))
     await del.getByRole('button', { name: 'Delete', exact: true }).click()
     check('…then it is gone and the pane closes', !!(await lib.until(async () => (await rows.count()) === 3 && (await pane.count()) === 0, HUNG_MS)))
 
-    // Weekly Digests: only digests.
-    await page.locator('.row[data-section="digests"]').click()
+    // Weekly Digests: only digests, reached with the keyboard from the sidebar (HR6's round 1: the rows weren't tab stops).
+    await page.locator('.row[data-section="journal"]').focus()
+    await page.keyboard.press('Tab')
+    check('the sidebar rows are tab stops, Timeline the current one', (await page.evaluate(() => document.activeElement?.getAttribute('data-section'))) === 'digests' && (await page.locator('.row[data-section="journal"]').getAttribute('aria-current')) === 'page')
+    await page.keyboard.press('Enter')
     check('Weekly Digests shows only the digests', !!(await lib.until(async () => (await rows.count()) === 1 && /Week 42/.test(await rows.first().innerText()) && /2026-W42/.test(await rows.first().innerText()), HUNG_MS)), JSON.stringify(await summaries()))
-    await page.locator('.row[data-section="journal"]').click()
+    check('…and is the current one', (await page.locator('.row[data-section="digests"]').getAttribute('aria-current')) === 'page')
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press(' ')
     await lib.until(async () => (await rows.count()) === 3, HUNG_MS)
 
     // A new fact shows without a refresh (the journal tells the window).

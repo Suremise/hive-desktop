@@ -28,8 +28,10 @@ interface HiveMessageValues {
   'assistant.journal.footerNone': { days: number; cap: string }
   'assistant.journal.forget': undefined
   'assistant.journal.forgetButton': { count: number }
+  'assistant.journal.forgetChanged': { count: number }
   'assistant.journal.forgetMessage': { count: number }
   'assistant.journal.forgetNeedsFilter': undefined
+  'assistant.journal.forgetNone': undefined
   'assistant.journal.forgetTip': undefined
   'assistant.journal.forgetTitle': { query: string; count: number }
   'assistant.journal.forgot': { count: number }
