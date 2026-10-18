@@ -460,20 +460,25 @@ export function addSetAsideCard(ws: WorkspaceService, file: string): Promise<Tas
     const n = hasCard(ws, was) ? await nextNumber(ws) : was
     const now = new Date().toISOString()
     const c = clean(raw, n, ids)
-    // A review, or a hold for its cost, under way in the older Hive isn't one here.
-    const { review: _review, held: _held, ...kept } = c
-    const card: TaskCard = {
-      ...kept,
+    // The card as the older Hive stored it, every field kept (#1044 round 1: its own fields, past holds for its cost),
+    // but its number, place, history and date; a review under way there isn't one here (saveCard ends its reviewer's hold).
+    const { review: _review, ...stored } = raw
+    const history = Array.isArray(raw.history) ? (raw.history as TaskHistoryEntry[]) : []
+    const card = {
+      ...stored,
       number: n,
+      title: c.title,
+      description: c.description,
+      project: c.project,
       order: orderIn(await boardPlaces(ws), c.column, null, null),
-      history: [...c.history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
+      history: [...history, entryOf(now, BY.repair, storedText(HISTORY.fromOlder, { was }))].slice(-MAX_HISTORY),
       updatedAt: now
-    }
+    } as unknown as TaskCard
     await saveCard(ws, n, card)
     setAsideAdded(ws, file, entry.text!)
     log.info(`#${n} added from ${SET_ASIDE} (made in an older Hive as #${was}): ${userText(card.title)}`)
     changed(ws)
-    return card
+    return clean(card, n, ids)
   })
 }
 

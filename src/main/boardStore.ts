@@ -11,6 +11,7 @@ import type { ArchiveBatch } from '../shared/types'
 import { openDb, type Db, type Migration } from './db'
 import { emit } from './events'
 import { withFileLock } from './fsutil'
+import { trash } from './trash'
 import { hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
 import type { WorkspaceService } from './workspace'
@@ -311,7 +312,7 @@ const textHash = (text: string): string => createHash('sha256').update(text).dig
 /**
  * The files set aside in `.hive/tasks.set-aside` (#1044), oldest number first: each one's name, the number its name
  * gives and its text (null when it can't be read). One already added to the board (its content recorded as added, its
- * file not removed yet: Windows held it) isn't listed, and is removed now.
+ * file not moved yet: Windows held it) isn't listed, and goes to the Recycle Bin now.
  */
 export function setAsideFiles(ws: WorkspaceService): { file: string; number: number; text: string | null }[] {
   if (!ws.path) return []
@@ -350,8 +351,8 @@ export function setAsideFile(ws: WorkspaceService, file: string): string | null 
 
 /**
  * A set-aside file's card was added to the board (inside boardWrite): its content is recorded as added in the same
- * transaction, so it is never listed or added again, and its file removed once the change commits (or, held, at the next
- * listing).
+ * transaction, so it is never listed or added again, and its file moved to the Recycle Bin once the change commits (or,
+ * held, at the next listing).
  */
 export function setAsideAdded(ws: WorkspaceService, file: string, text: string): void {
   writeOp(ws, (b) => {
@@ -364,12 +365,9 @@ export function setAsideAdded(ws: WorkspaceService, file: string, text: string):
   afterBoardWrite(ws, () => removeAdded(dir, file))
 }
 
+/** A set-aside file whose card is on the board goes to the Recycle Bin (#1044 round 1): the older Hive's copy stays recoverable. */
 function removeAdded(dir: string, file: string): void {
-  try {
-    rmSync(join(dir, file), { force: true })
-  } catch (e) {
-    log.warn(`couldn't remove ${file} from ${SET_ASIDE} (its card is on the board): tried again later`, e)
-  }
+  trash(join(dir, file)).catch((e) => log.warn(`couldn't move ${file} from ${SET_ASIDE} to the Recycle Bin (its card is on the board): tried again later`, e))
 }
 
 const hiveVersion = (): string => {

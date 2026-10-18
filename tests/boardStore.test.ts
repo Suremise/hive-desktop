@@ -3,13 +3,15 @@
 // meanwhile, Export Board to JSON (an export read back is the same board), and the window's board with archived cards in short.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { DatabaseSync } from 'node:sqlite'
 import { tempDir } from './tempDir'
 import type { BoardNotice } from '../src/main/boardStore'
 
 const base = tempDir('hive-board-store-')
+// The longest a wait here waits for what it waits on: a bound for a hung run (tests/README.md).
+const HUNG_MS = 10_000
 ;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace } = await import('../src/main/workspace')
@@ -265,6 +267,21 @@ describe("cards an older Hive saved meanwhile (#1017 downgrade, Darren's decisio
 })
 
 describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the only way they reach the board)', () => {
+  // Added and discarded files go to the Recycle Bin: a test trash folder here.
+  const trashDir = join(base, 'set-aside-trash')
+  beforeAll(() => {
+    process.env.HIVE_TEST_TRASH_DIR = trashDir
+  })
+  afterAll(() => {
+    delete process.env.HIVE_TEST_TRASH_DIR
+  })
+  const trashedFrom = (ws: string): string[] => {
+    try {
+      return readFileSync(join(trashDir, 'trash.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l).from as string).filter((f) => f.startsWith(ws)).map((f) => f.slice(ws.length + 1))
+    } catch {
+      return []
+    }
+  }
   async function asideWith(board: Record<string, string>, stubFiles: Record<string, string>): Promise<{ ws: string; w: WS }> {
     const ws = workspaceWith(board)
     const first = await open(ws)
@@ -300,14 +317,16 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     expect(store.cardDoc(w, 7)!.links).toEqual([1, 40])
     expect((await inWorkspace(w, () => tasks.getTask(2, w))).links).toEqual([7])
     expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #7' })
-    expect(asideIn(ws)).toEqual([])
+    // The older Hive's file goes to the Recycle Bin, recoverable.
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
     expect(await inWorkspace(w, () => tasks.setAsideCards(w))).toEqual([])
     // The same file back (it couldn't leave the stub): set aside again at the next open, but never listed or added twice.
     await disposeWorkspaceService(w)
     writeFileSync(join(ws, '.hive', 'tasks', '7.json'), older(7, { title: 'Made in rc.3', links: [1, 40], labels: ['old'], decisions: [{ id: 'd1', text: 'Keep it', decidedBy: 'user', recordedBy: 'You', at: '2026-10-05T00:00:00.000Z' }] }))
     const w2 = await open(ws)
     expect(await inWorkspace(w2, () => tasks.setAsideCards(w2))).toEqual([])
-    expect(asideIn(ws)).toEqual([])
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
   })
 
   it('Add gives the next free number when the old one is taken, placed last in its column; the card on the board and links to the old number unchanged', async () => {
@@ -321,28 +340,45 @@ describe('reviewing the set-aside cards (#1044, Darren\'s decision on #1017: the
     expect(c.title).toBe('Made as #1')
     expect(c.order).toBeGreaterThan((await inWorkspace(w, () => tasks.getTask(5, w))).order)
     expect(c.history.at(-1)).toMatchObject({ by: 'Repair', what: 'Added from an older Hive, where it was made as #1' })
-    expect(asideIn(ws)).toEqual([])
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
     // A new card after it takes the next number on.
     expect((await inWorkspace(w, () => tasks.createTask({ title: 'After', project: 'p' }, user))).number).toBe(7)
   })
 
+  it('Add keeps every field the older Hive stored: its own fields and past holds for its cost; a review under way there ends (#1044 round 1)', async () => {
+    const holds = [
+      { agent: 'a-past', name: 'Past Builder', role: 'build', from: '2026-10-05T01:00:00.000Z', to: '2026-10-05T02:00:00.000Z' },
+      { agent: 'a-rev', name: 'Past Reviewer', role: 'review', from: '2026-10-05T03:00:00.000Z' }
+    ]
+    const text = older(7, { custom: { keep: 'must survive recovery' }, column: 'review', review: { agent: 'a-rev', agentName: 'Past Reviewer', since: '2026-10-05T03:00:00.000Z' }, held: holds })
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '7.json': text })
+    await inWorkspace(w, () => tasks.addSetAsideCard(w, '7.json'))
+    const doc = store.cardDoc(w, 7)!
+    const was = JSON.parse(text) as Record<string, unknown>
+    expect(doc.custom).toEqual({ keep: 'must survive recovery' })
+    expect(doc.review).toBeUndefined()
+    // The finished hold as it was; the review under way there ended as it was added.
+    const held = doc.held as Record<string, unknown>[]
+    expect(held[0]).toEqual(holds[0])
+    expect(held[1]).toEqual({ ...holds[1], to: expect.any(String) })
+    // Every other field as stored, and its history with the line by Repair after it.
+    for (const k of Object.keys(was).filter((f) => !['number', 'order', 'history', 'updatedAt', 'review', 'held'].includes(f))) expect([k, doc[k]]).toEqual([k, was[k]])
+    expect((doc.history as unknown[]).slice(0, -1)).toEqual(was.history)
+    await vi.waitFor(() => expect(asideIn(ws)).toEqual([]), { timeout: HUNG_MS })
+    expect(trashedFrom(ws)).toEqual([join('.hive', store.SET_ASIDE, '7.json')])
+  })
+
   it('Discard moves the file to the trash, nothing on the board changes; a damaged file is refused by Add; names outside the folder are refused', async () => {
-    const trashDir = join(base, `trash-${++n}`)
-    process.env.HIVE_TEST_TRASH_DIR = trashDir
-    try {
-      const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '3.json': older(3), '4.json': '{ damaged' })
-      await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '4.json'))).rejects.toThrow(/can only be discarded/)
-      await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '..\\..\\p\\.hive\\project.json'))).rejects.toThrow(/can only be discarded/)
-      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '..\\tasks\\board.json'))
-      expect(existsSync(join(ws, '.hive', 'tasks', 'board.json'))).toBe(true)
-      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '3.json'))
-      await inWorkspace(w, () => tasks.discardSetAsideCard(w, '4.json'))
-      expect(asideIn(ws)).toEqual([])
-      expect(readdirSync(trashDir).filter((f) => f.endsWith('.json') && f !== 'trash.jsonl')).toHaveLength(2)
-      expect(await titlesOf(w)).toEqual(['#1 Card 1'])
-    } finally {
-      delete process.env.HIVE_TEST_TRASH_DIR
-    }
+    const { ws, w } = await asideWith({ '1.json': fileOf(card(1)) }, { '3.json': older(3), '4.json': '{ damaged' })
+    await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '4.json'))).rejects.toThrow(/can only be discarded/)
+    await expect(inWorkspace(w, () => tasks.addSetAsideCard(w, '..\\..\\p\\.hive\\project.json'))).rejects.toThrow(/can only be discarded/)
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '..\\tasks\\board.json'))
+    expect(existsSync(join(ws, '.hive', 'tasks', 'board.json'))).toBe(true)
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '3.json'))
+    await inWorkspace(w, () => tasks.discardSetAsideCard(w, '4.json'))
+    expect(asideIn(ws)).toEqual([])
+    expect(trashedFrom(ws).sort()).toEqual([join('.hive', store.SET_ASIDE, '3.json'), join('.hive', store.SET_ASIDE, '4.json')])
+    expect(await titlesOf(w)).toEqual(['#1 Card 1'])
   })
 })
 
