@@ -315,7 +315,7 @@ Set `"append": true` to add to the end of an existing note. `expectedRevision` i
 { "project": "api", "title": "Auth refactor", "content": "## State\n…\n## Next steps\n…" }
 ```
 
-Returns `{ ok: true, path }`. Hive shows a notification with a link to the note. Hive writes the note's header (`# <title>`, project and date, in local time with UTC in brackets). An agent's `hive_create_handover` also passes `agent` (its id) and `agentProject`, and the Hive Assistant is known by its token; the header then adds `- **Author:** <agent> (<CLI>)` (or `Assistant`) and `- **Session:** <id>`, the conversation it was written in.
+Returns `{ ok: true, path }`. Hive shows a notification with a link to the note. Hive writes the note's header (`# <title>`, project and date, in local time with UTC in brackets). An agent's `hive_create_handover` also passes `agent` (its id) and `agentProject`, and the Hive Assistant is known by its token; the header then adds `- **Author:** <agent> (<CLI>)` (or `Assistant`) and `- **Session:** <id>`, the conversation it was written in. The Assistant's first handover in a workspace whose journal is off also returns `suggest`, the line asking it to suggest the journal to the user once (#1032); never again for that workspace.
 
 ### Task board
 

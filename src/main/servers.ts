@@ -27,7 +27,7 @@ import { addAgent, updateAgent } from './projectAgents'
 import { providerService } from './providerService'
 import { config } from './config'
 import { deleteEntry, JournalBusy, JournalError, readEntry, recall, updateEntry, writeEntry } from './journal'
-import { journalSettingsOf } from './journalService'
+import { journalSettingsOf, journalSuggestion } from './journalService'
 import type { JournalSettings } from '../shared/journal'
 import { emit, onHiveEvent, toast } from './events'
 import { msg, tr } from '../shared/i18n'
@@ -1621,7 +1621,9 @@ route('POST', '/v1/shared/handovers', async ({ body }) => {
   const file = await inWorkspace(ws, () => createHandover(name, String(body.title), String(body.content), by))
   emit({ type: 'notes-changed' })
   handoverCreatedToast(name, String(body.title), file)
-  return { ok: true, path: file }
+  // The Assistant with its journal off suggests it, once (#1032).
+  const suggest = assistantCaller() ? await journalSuggestion(ws).catch(() => null) : null
+  return { ok: true, path: file, ...(suggest ? { suggest } : {}) }
 })
 
 // ---------------------------------------------------------------------------

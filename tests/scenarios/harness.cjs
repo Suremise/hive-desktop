@@ -410,16 +410,30 @@ async function runScenario(sc, providerKey, opts = {}) {
        * hive MCP server with the Assistant's own token (the Assistant started first if it isn't); `extra`: more of the tool's
        * arguments (#652: `card`). Its reply's text.
        */
-      assistantMessage: async (key, text, extra = {}) => {
+      assistantMessage: async (key, text, extra = {}) => ctx.assistantTool('hive_message_agent', { project: 'alpha', agent: ctx.agents[key].name, text, ...extra }),
+      /**
+       * Calls a hive tool as the Assistant does: through the real hive MCP server with the Assistant's own token (the
+       * Assistant started first if it isn't), its journal's tools offered (#1032). The reply's text.
+       */
+      assistantTool: async (name, args) => {
         await ctx.startAssistant()
         const tokenFile = path.join(userData, 'assistant-api', `${require('crypto').createHash('sha256').update(ws.toLowerCase()).digest('hex').slice(0, 16)}.json`)
         const out = execFileSync(process.execPath, [path.join(lib.ROOT, 'out', 'main', 'hive-mcp.js')], {
-          input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'hive_message_agent', arguments: { project: 'alpha', agent: ctx.agents[key].name, text, ...extra } } }) + '\n',
-          env: lib.childEnv({ HIVE_API_URL: `http://127.0.0.1:${port}`, HIVE_WORKSPACE: ws, HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents', HIVE_API_TOKEN_FILE: tokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' }),
+          input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) + '\n',
+          env: lib.childEnv({ HIVE_API_URL: `http://127.0.0.1:${port}`, HIVE_WORKSPACE: ws, HIVE_ROLE: 'assistant', HIVE_ASSISTANT_CONTROL: 'agents', HIVE_JOURNAL: '1', HIVE_API_TOKEN_FILE: tokenFile, HIVE_API_TOKEN: '', HIVE_PROJECT: '' }),
           timeout: 60000
         }).toString()
         return JSON.parse(out.split('\n')[0]).result?.content?.[0]?.text ?? ''
       },
+      /** Stops the Assistant started in setup, so the scenario launches it afresh (a new conversation). */
+      stopAssistant: async () => {
+        const home = (await inv('workspace:refresh')).assistant.path
+        await inv('session:stop', home, 'assistant')
+        const gone = await lib.until(async () => !(await inv('session:live')).some((x) => x.projectPath.toLowerCase() === home.toLowerCase() && x.agentId === 'assistant'), 30000)
+        if (!gone) throw new Error("setup: the Assistant didn't stop within 30 s")
+      },
+      /** The fake Claude Code's home (CLAUDE_CONFIG_DIR), where it reads its scripts and writes its logs. */
+      fakeHome,
       /** An agent's deliveries (#647) as the Agent API gives them, newest last. */
       deliveries: async (key) => (await api('GET', `/v1/projects/alpha/agents/${encodeURIComponent(ctx.agents[key].name)}/deliveries?limit=50`)).body?.deliveries ?? []
     }

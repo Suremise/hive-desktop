@@ -15,7 +15,7 @@ import { Readable } from 'stream'
 import type { AppInfo, McpServerDef, QuitChoice, QuitScope, QuitSession, TaskCard, WindowState } from '../shared/types'
 import { providerService } from './providerService'
 import { checkGit } from './gitTool'
-import { handoverSession, hiveInstructions, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
+import { handoverSession, hiveInstructions, withJournal, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
 import { handoversFor } from './notes'
 import { assistantInstructions } from './personas'
 import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
@@ -65,6 +65,7 @@ import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { journalSettingsOf } from './journalService'
+import { assistantStartView } from './startView'
 import { hiveWindows, lastFocused, TITLE_BAR_OVERLAY, registerWindow, unregisterWindow, windowForPath, type HiveWindow } from './windows'
 import { abandonWindowStorage } from './storage'
 import { agentTokenFile } from './agentTokens'
@@ -863,6 +864,8 @@ app.whenReady().then(async () => {
           HIVE_ASSISTANT_SETTINGS: config.settings.assistant?.changeSettings === true ? '1' : '0',
           // Its journal's tools (#1031) only while the journal is on: a change is told to it, and applies at its next start.
           HIVE_JOURNAL: journalSettingsOf(workspaceOf(projectPath)).enabled ? '1' : '0',
+          // What it may store, for its session contract's journal rule (#1032).
+          HIVE_JOURNAL_SCOPE: journalSettingsOf(workspaceOf(projectPath)).scope.join(','),
           // The developer console's tool (hive_console) is offered only while Settings → Agent API lets agents read it.
           HIVE_DEV_CONSOLE: config.settings.agentApi.devConsole === true ? '1' : '0',
           ...mcpAdvancedEnv(),
@@ -909,11 +912,16 @@ app.whenReady().then(async () => {
   sessions.hiveGuidance = (projectPath) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       if (!sessions.hiveMcp(projectPath)) return ''
-      if (workspace.isAssistantHome(projectPath)) return hiveInstructions('', 'assistant')
+      if (workspace.isAssistantHome(projectPath)) {
+        const journal = journalSettingsOf(workspaceOf(projectPath))
+        return withJournal(hiveInstructions('', 'assistant'), journal.enabled ? journal.scope : null)
+      }
       const project = basename(projectPath)
       const latest = (await handoversFor(workspace, project))[0]
       return withLatestHandover(hiveInstructions(project, 'agent', wrapsLongCommands(config.settings.general)), latest?.relPath)
     })
+  // The Assistant's state view at each start and after each compaction, while its journal is on (#1032).
+  sessions.startContext = async (state, source) => (workspace.isAssistantHome(state.projectPath) ? assistantStartView(workspaceOf(state.projectPath), sessions.liveStates(), source) : null)
   sessions.recentHandovers = (projectPath, count) =>
     inWorkspace(workspaceOf(projectPath), async () => {
       const recent = (await handoversFor(workspace, basename(projectPath))).slice(0, count)

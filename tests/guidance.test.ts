@@ -6,7 +6,7 @@ import { execFileSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { controlRules, hiveInstructions, withLatestHandover } from '../src/shared/hiveGuidance'
+import { controlRules, hiveInstructions, journalRule, withJournal, withLatestHandover } from '../src/shared/hiveGuidance'
 import { taskPrompt } from '../src/shared/tasks'
 import { ASSISTANT_ONLY_TOOLS, assistantTools } from '../src/shared/assistantTools'
 import { parseSkillFrontmatter, skillFor } from '../src/main/skills'
@@ -68,6 +68,19 @@ describe('the session contract', () => {
     const card = { number: 7, title: 'T', description: 'D', blockedBy: [], comments: [] } as unknown as TaskCard
     expect(taskPrompt(card, true).length - taskPrompt(card, false).length).toBeLessThan(40)
   })
+
+  it("adds the journal's rule and scope while the journal is on, and nothing while it is off (#1032)", () => {
+    expect(withJournal(assistant, null)).toBe(assistant)
+    const on = withJournal(assistant, ['decision', 'plan'])
+    expect(on.startsWith(assistant)).toBe(true)
+    const rule = on.slice(assistant.length)
+    expect(rule).toMatch(/the journal skill/)
+    expect(rule).toMatch(/Its scope \(what the user lets you store\): decision, plan, and weekly digests/)
+    expect(rule).toMatch(/It replaces your handovers: asked for one, say why it isn't needed/)
+    expect(catalog.get('journal')?.audience).toBe('assistant')
+    for (const t of toolsNamed(rule)) expect(assistantTools('projects', false, true), t).toContain(t)
+    expect(journalRule(['decision', 'plan', 'event', 'incident', 'insight', 'preference', 'moment']).length).toBeLessThan(600)
+  })
 })
 
 describe('the bundled skills', () => {
@@ -96,7 +109,7 @@ describe('the bundled skills', () => {
 
   it("name only hive tools that exist, and that their audience has", () => {
     // Every tool an Assistant can have: the highest control level, with Change settings on.
-    const anyAssistant = new Set(assistantTools('projects', true))
+    const anyAssistant = new Set(assistantTools('projects', true, true))
     for (const [name, s] of catalog) {
       for (const t of toolsNamed(s.text)) {
         expect(TOOLS, `${name}: ${t}`).toContain(t)

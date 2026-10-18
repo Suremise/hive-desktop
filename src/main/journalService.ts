@@ -75,6 +75,23 @@ async function tellAssistant(ws: WorkspaceService, body: string): Promise<void> 
   await createDelivery(home, { agentId: ASSISTANT_AGENT_ID, kind: 'control', from: HIVE, body }).catch((e) => log.warn('telling the Assistant its journal settings changed', e))
 }
 
+/** What the Assistant is asked to suggest, once, when it writes a handover with its journal off (#1032). */
+export const JOURNAL_SUGGESTION = "Your journal is off. Suggest to the user once, in a line, that Settings → Assistant → Journal lets you remember decisions and plans across sessions without handovers; Hive won't ask again."
+
+/**
+ * The suggestion for a handover the Assistant writes (#1032, Darren's decision on #989): while its journal is off, the
+ * first time only (workspace.json `journalSuggested`, so it never nags); null otherwise.
+ */
+export async function journalSuggestion(ws: WorkspaceService): Promise<string | null> {
+  if (!ws.path) return null
+  let first = false
+  await ws.saveWorkspaceConfigWith((c) => {
+    first = !journalSettings(c.journal).enabled && !c.journalSuggested
+    return first ? { journalSuggested: true } : {}
+  })
+  return first ? JOURNAL_SUGGESTION : null
+}
+
 /** Deletes the workspace's journal (Settings: confirmed first); the Assistant is told. */
 export async function deleteWorkspaceJournal(ws: WorkspaceService): Promise<void> {
   if (!ws.path) return

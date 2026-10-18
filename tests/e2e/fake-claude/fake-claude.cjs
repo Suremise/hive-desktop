@@ -48,7 +48,9 @@
 //   from the launch's plugin folder (an error when it has none).
 // - "/compact [focus]" compacts as Claude Code does: PreCompact, a compaction boundary in the transcript after 1 s (N
 //   seconds when the focus has "hold N"), then PostCompact. With no messages yet it says "Not enough messages to compact."
-//   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction".
+//   and sends no hook; with "compactfail" in the focus it fails after PreCompact with "Error during compaction". A
+//   compaction that worked sends SessionStart (compact) before PostCompact, as Claude Code does. The context Hive gives
+//   in a SessionStart reply (#1032: the Assistant's state view) is logged in fake-start-context.jsonl.
 // - Idle, as Claude Code 2.1.296 is (#612): with fake-idle-notify.txt (N) in its home, N ms after a turn ends with no
 //   input since, it sends the Notification "Claude is waiting for your input" (idle_prompt) once, as Claude Code does a
 //   minute after a turn. A prompt with "loststop" ends its turn without a Stop reaching Hive, as one of HB3's did. When
@@ -318,6 +320,19 @@ async function hook(event, extra = {}) {
   } catch (e) {
     hookFailed(event, { error: String(e?.cause?.code ?? e?.cause?.message ?? e?.message ?? e) })
     return null
+  }
+}
+
+/**
+ * SessionStart, with the context Hive's reply carries (#1032: the Assistant's state view) logged in
+ * fake-start-context.jsonl in its home (agent, source, text).
+ */
+async function sessionStart(source) {
+  const reply = await hook('SessionStart', { source })
+  const text = reply?.hookSpecificOutput?.additionalContext
+  if (typeof text === 'string' && text && home) {
+    const agent = String(process.env.HIVE_AGENT || 'agent').replace(/[^\w-]/g, '_')
+    fs.appendFileSync(path.join(home, 'fake-start-context.jsonl'), JSON.stringify({ agent, source, text, when: new Date().toISOString() }) + '\n')
   }
 }
 
@@ -722,7 +737,7 @@ async function whileIdle() {
   write({ type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted', compactMetadata: { trigger: 'auto', preTokens: 30, postTokens: 10 } })
   // Until the test has seen it under way (two minutes at most, in case the test died).
   for (const end = Date.now() + 120_000; !take('fake-idle-compact-done') && Date.now() < end; ) await sleep(100)
-  await hook('SessionStart', { source: 'compact' })
+  await sessionStart('compact')
   await hook('PostCompact', { trigger: 'auto' })
   write({ type: 'system', subtype: 'informational', content: 'Compacted while idle, before the prompt cache expired', level: 'notice', isMeta: false })
   out('\r\nCompacted while idle, before the prompt cache expired\r\n')
@@ -787,6 +802,8 @@ async function compact(focus) {
     // The next request records the system prompt afresh.
     if (home) fs.rmSync(path.join(home, 'fake-prompts', `${sessionId}.txt`), { force: true })
     out('\r\nConversation compacted.\r\n')
+    // Claude Code starts the session again after a compaction, manual or not (SessionStart, source compact).
+    await sessionStart('compact')
     await hook('PostCompact', { trigger: 'manual' })
   }
   busy = false
@@ -972,7 +989,7 @@ async function main() {
     if (take('fake-title-untimed')) fs.appendFileSync(transcript, JSON.stringify({ type: 'custom-title', customTitle: opts['--name'], sessionId }) + '\n')
     else write({ type: 'custom-title', customTitle: opts['--name'] })
   }
-  await hook('SessionStart', { source: opts['--resume'] ? 'resume' : 'startup' })
+  await sessionStart(opts['--resume'] ? 'resume' : 'startup')
   promptLine()
   setInterval(() => void whileIdle(), 200)
   if (firstPrompt && take('fake-launch-hold')) while (!take('fake-launch-go')) await sleep(100)

@@ -136,7 +136,9 @@ const ROUTES = new Set<string>(['(no route)']) // i18n-ignore: a route label (a 
 export function knownRoute(template: string): void {
   ROUTES.add(template)
 }
-const TOOLS = new Set<string>(HIVE_TOOLS)
+/** The Assistant's state view at a session start (#1032), measured as a reply of Hive's own beside the tools'. */
+export const START_VIEW_METRIC = 'session start view' // i18n-ignore: a metrics key, shown as a tool name in the developer's Performance view
+const TOOLS = new Set<string>([...HIVE_TOOLS, START_VIEW_METRIC])
 const PROVIDER_IDS = new Set<string>(PROVIDERS.map((p) => p.id))
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 const ROLES = new Set(['agent', 'assistant', 'api', 'viewer', 'unknown'])

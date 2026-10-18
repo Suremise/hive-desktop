@@ -1896,6 +1896,49 @@ module.exports.SCENARIOS = [
     ]
   },
   {
+    id: 'assistant-journal-recall',
+    title: "The Assistant's journal (#1032): a fresh session gets Hive's short state view with last week's decision at its start and again after a compaction, and recalls the decision from its journal",
+    role: 'assistant',
+    control: 'agents',
+    async setup(c) {
+      const fs = require('fs')
+      const path = require('path')
+      await c.card('g', { title: 'Friendlier greeting', description: 'Change greeting.txt to the greeting Darren picks.', column: 'doing', agent: 'coder' })
+      // Last week's decision, written by the Assistant (its own tool), then dated six days back; then a fresh session.
+      const reply = await c.assistantTool('hive_journal_write', { kind: 'decision', summary: 'Darren: the greeting is "Welcome back!", not "Hi there!"', why: 'He wants returning users greeted', importance: 2, project: 'alpha', links: [{ type: 'card', ref: String(c.cards.g) }] })
+      const id = Number(/Entry #(\d+)/.exec(reply)?.[1])
+      if (!id) throw new Error(`setup: the journal entry wasn't written: ${reply}`)
+      const { DatabaseSync } = require('node:sqlite')
+      const db = new DatabaseSync(path.join(c.ws, '.hive', 'assistant', 'journal.db'))
+      db.prepare('UPDATE entries SET at = ? WHERE id = ?').run(new Date(Date.now() - 6 * 86_400_000).toISOString(), id)
+      db.close()
+      c.entry = id
+      await c.stopAssistant()
+      // The fake compacts while idle as soon as it starts (Claude Code's SessionStart, source compact, follows).
+      if (c.fake) for (const f of ['fake-idle-compact-Assistant', 'fake-idle-compact-done-Assistant']) fs.writeFileSync(path.join(c.fakeHome, f), '')
+    },
+    prompt: 'What did we decide about the greeting last week? Answer in a line.',
+    fake: 'hive hive_journal_recall {"query":"greeting","limit":3}',
+    expect: (o, c) => {
+      const fs = require('fs')
+      const path = require('path')
+      const log = c.fake ? path.join(c.fakeHome, 'fake-start-context.jsonl') : null
+      const views = log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((x) => x.agent === 'Assistant') : []
+      const after = views.filter((x) => x.source === 'compact')
+      const has = (x) => x.text.includes('"Welcome back!"') && x.text.includes(`#${c.entry} `) && x.text.includes(`#${c.cards.g} Doing`)
+      return [
+        ['Hive gave the state view at its start, with the board and last week\'s decision', views.some((x) => x.source === 'startup' && has(x)), views.map((x) => x.source).join(',')],
+        ['and again after the compaction', after.some(has), after.map((x) => x.text.slice(0, 200)).join(' | ')],
+        ['each view within its budget (9,000 bytes)', views.length > 0 && views.every((x) => Buffer.byteLength(x.text, 'utf8') <= 9000), views.map((x) => Buffer.byteLength(x.text, 'utf8')).join(',')],
+        ['recalled from its journal (hive_journal_recall worked), or answered from the view', ran(o, 'hive_journal_recall').length > 0 || /Welcome back/i.test(o.finalReply ?? ''), called(o, 'hive_journal_recall').length],
+        ['its answer names the decision', /Welcome back/i.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
+        ['changed nothing on the board', o.cards.g?.column === 'doing', o.cards.g?.column]
+      ]
+    },
+    // The fakes don't answer; only the fake Claude Code logs the context its SessionStart was given.
+    fakeSkips: (provider) => ['its answer names the decision', ...(provider === 'fake' ? [] : ["Hive gave the state view at its start, with the board and last week's decision", 'and again after the compaction', 'each view within its budget (9,000 bytes)'])]
+  },
+  {
     id: 'assistant-look',
     title: 'The Assistant at Look and advise: asked to start a card, it advises and changes nothing',
     role: 'assistant',

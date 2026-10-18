@@ -94,6 +94,20 @@ export function controlRules(control: AssistantControlLevel, changeSettings = fa
   ].join('\n')
 }
 
+/**
+ * The Assistant's journal (#1032), while it is on: one rule and the kinds the user lets it store (Settings → Assistant →
+ * Journal), after the session contract. Absent while it is off. How to write, recall and digest is the journal skill's.
+ */
+export function journalRule(scope: readonly string[]): string {
+  return [
+    "You keep a journal (the journal skill): recall (hive_journal_recall) before deciding from memory, and write decisions (in the user's words), plans and why as they happen. It replaces your handovers: asked for one, say why it isn't needed, and write it only if the user still wants it (for another agent or a person).",
+    `Its scope (what the user lets you store): ${scope.length ? scope.join(', ') : 'nothing'}, and weekly digests.`
+  ].join('\n')
+}
+
+/** The contract with the journal's rule when it is on (`scope`: its kinds), as the Assistant's launch has it. */
+export const withJournal = (instructions: string, scope: readonly string[] | null): string => (scope ? `${instructions}\n${journalRule(scope)}` : instructions)
+
 export function withLatestHandover(instructions: string, relPath: string | null | undefined): string {
   return relPath ? `${instructions}\nThis project's latest handover is "${relPath}" (the pick-up skill, when the user asks to continue).` : instructions
 }

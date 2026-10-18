@@ -547,6 +547,14 @@ export class ClaudeCodeAdapter implements ProviderAdapter {
     return { hookSpecificOutput: { hookEventName: event, additionalContext: text } }
   }
 
+  /**
+   * SessionStart's context (Claude Code's hooks reference: a command hook's JSON on stdout, which the forwarding curl
+   * prints): fires at a start, a resume, a /clear and after each compaction (source compact).
+   */
+  startContextReply(text: string): Record<string, unknown> {
+    return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }
+  }
+
   /** A Stop blocked, or given context, carries the turn on (2.1.296, #645's spike: both reach the model and it goes on). */
   stopContinues(reply: Record<string, any>): boolean {
     return reply.decision === 'block' || !!reply.hookSpecificOutput?.additionalContext

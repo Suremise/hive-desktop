@@ -573,6 +573,8 @@ export interface WorkspaceConfig {
   advanced?: Record<string, unknown>
   /** The Assistant's journal (#1031: Settings → Assistant → Journal); absent: on, work only, 90 days, 50 MB. */
   journal?: JournalSettings
+  /** The Assistant suggested its journal once, writing a handover while it was off (#1032): never again. */
+  journalSuggested?: boolean
 }
 
 /** A project folder Hive leaves out of the workspace, until it's restored in Settings → Workspace. */

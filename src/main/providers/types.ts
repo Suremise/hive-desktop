@@ -318,6 +318,11 @@ export interface ProviderAdapter {
    */
   noticeReply(event: string, text: string): Record<string, unknown> | null
   /**
+   * The reply to a session's start hook that puts context before the model (#1032: the Assistant's state view, at a
+   * start, a resume and after a compaction). Absent where it isn't verified: such a CLI's sessions get no view.
+   */
+  startContextReply?(text: string): Record<string, unknown>
+  /**
    * Whether the turn a drain carries on comes back to Hive as a new prompt hook, with the notice as its prompt (Copilot):
    * the turn ledger then takes it as Hive's own in the running turn, not a new one.
    */

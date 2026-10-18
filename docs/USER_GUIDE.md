@@ -710,6 +710,8 @@ It is in **Settings → Assistant → Journal**, for the workspace you have open
 - **Size cap**, 50 MB by default, or **No limit**. Past it, the oldest everyday entries go first. The journal's size and number of entries show below.
 - **Delete Journal…** asks first, then moves the journal to the Recycle Bin; the Assistant starts again with an empty one.
 
+**What it does for you.** Each time the Assistant starts, and again whenever its conversation is compacted, Hive gives it a short view of where things stand: what waits on you, the cards in Doing and Review, lanes and agents running, and the few journal entries that matter now (recent decisions and plans, incidents, entries about the cards in hand). It is kept small, about two thousand tokens, so the Assistant's context stays low; it recalls anything else from its journal when it needs it. It writes your decisions in your own words as you make them, and once a week a digest of the week before. Asked for a handover, it tells you one isn't needed (its journal carries on), and writes one only if you still want it, for another agent or a person. With the journal off, it writes handovers as before, and suggests the journal once.
+
 The journal is a file in the workspace, `.hive/assistant/journal.db`, kept on this computer only and never sent anywhere (it stays out of git with the Assistant's other files). Long entries are kept compressed, and a search finds words in summaries, details and reasons.
 
 ### The Assistant and Hive's settings

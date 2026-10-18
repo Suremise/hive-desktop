@@ -3562,6 +3562,7 @@ class SessionManager {
    * own); else nothing.
    */
   hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
+    if (body.hook_event_name === 'SessionStart') return this.startReply(runId, body)
     const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
     if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
@@ -3573,6 +3574,27 @@ class SessionManager {
     // An event this CLI can't carry a notice on is never asked about.
     if (!l.adapter.noticeReply(String(body.hook_event_name ?? ''), NOTICE_PREFIX)) return Promise.resolve(null)
     return new Promise((settle) => this.noticeReplies.set(body, settle))
+  }
+
+  /**
+   * Context for a session as it starts, resumes or comes back from a compaction (#1032: the Assistant's state view), or
+   * null for none. Given the launch's state and the start's source (startup, resume, clear, compact).
+   */
+  startContext: ((state: LiveSessionState, source: string | null) => Promise<string | null>) | null = null
+
+  /** A SessionStart's reply: the start context, where the CLI can carry it (startContextReply); never a sub-agent's. */
+  private async startReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
+    const l = this.findLaunch(runId, body.session_id)?.[1]
+    if (!l || !this.startContext || !l.adapter.startContextReply) return null
+    const hook = l.adapter.normalizeHook(body)
+    if (hook.ids.sub || hook.event.kind !== 'start') return null
+    try {
+      const text = await this.startContext(l.state, hook.event.source)
+      return text ? l.adapter.startContextReply(text) : null
+    } catch (e) {
+      log.warn('start context', e)
+      return null
+    }
   }
 
   /** Hook calls whose reply waits for its place in the launch's hook order (hookReply), by their body. */

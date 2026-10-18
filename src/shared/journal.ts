@@ -61,3 +61,21 @@ export function journalSettings(v: unknown): JournalSettings {
 
 /** Whether the scope lets a kind be stored (a digest always may). */
 export const inScope = (s: Pick<JournalSettings, 'scope'>, kind: JournalKind): boolean => kind === 'digest' || (s.scope as string[]).includes(kind)
+
+/** A date's ISO week, as a digest names its period ("2026-W42"; weeks start on Monday, in UTC). */
+export function isoWeek(d: Date): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const day = t.getUTCDay() || 7
+  // The week's Thursday decides its year.
+  t.setUTCDate(t.getUTCDate() + 4 - day)
+  const jan1 = Date.UTC(t.getUTCFullYear(), 0, 1)
+  const week = Math.ceil(((t.getTime() - jan1) / 86_400_000 + 1) / 7)
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+/** The Monday 00:00 UTC that starts a date's ISO week. */
+export function weekStart(d: Date): Date {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() || 7) - 1))
+  return t
+}

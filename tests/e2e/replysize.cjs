@@ -526,7 +526,10 @@ const prose = (seed, n) => {
   const g = (after.projects.alpha?.guidance ?? []).find((x) => x.provider === 'claude-code' && x.role === 'agent')
   check("metrics: each launch's guidance, exact sizes, by provider and role", g?.launches >= 1 && g.guidanceBytes > 1000 && g.guidanceChars > 1000 && g.skills >= 5 && g.skillCatalogBytes > 0 && g.skillBytes > g.skillCatalogBytes, JSON.stringify(g))
   const ga = (after.workspace?.guidance ?? []).find((x) => x.role === 'assistant')
-  check("metrics: the Assistant's launch is the workspace's own, its core, role and persona each measured", ga?.launches >= 1 && ga.guidanceBytes > 0 && ga.roleBytes > 0 && ga.personaBytes > 0 && ga.customBytes === 0, JSON.stringify(ga))
+  // Its custom part is the journal's rule (#1032: on by default, work only).
+  const journalBytes = Buffer.byteLength(`
+${require('../../src/shared/hiveGuidance.ts').journalRule(require('../../src/shared/journal.ts').DEFAULT_SCOPE)}`)
+  check("metrics: the Assistant's launch is the workspace's own, its core, role and persona each measured, and the journal's rule as its custom part", ga?.launches >= 1 && ga.guidanceBytes > 0 && ga.roleBytes > 0 && ga.personaBytes > 0 && ga.customBytes === journalBytes, `${JSON.stringify(ga)}; the journal's rule: ${journalBytes}`)
   check('metrics: a project agent has no role or persona', g?.roleBytes === 0 && g?.personaBytes === 0, JSON.stringify(g))
   const reported = (after.providers ?? []).find((x) => x.provider === 'claude-code' && x.role === 'agent')
   check("metrics: the providers' own reported usage for sessions in the range", reported?.sessions >= 1 && reported.inputTokens > 0, JSON.stringify(after.providers))

@@ -3,7 +3,7 @@ import { existsSync, statSync } from 'original-fs'
 import { join } from 'path'
 import type { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
-import { ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, type JournalKind, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
+import { ENTRY_LIMITS, JOURNAL_KINDS, KEPT_IMPORTANCE, LINK_TYPES, inScope, isoWeek, weekStart, type JournalKind, type JournalSettings, type JournalSource, type LinkType } from '../shared/journal'
 import { openDb, transaction, type Db, type Migration } from './db'
 import { createLogger, userText } from './logger'
 import { trash } from './trash'
@@ -422,6 +422,26 @@ export function journalSize(home: string): { bytes: number; entries: number } | 
   const size = (reader.prepare('PRAGMA page_size').get() as { page_size: number }).page_size
   const entries = (reader.prepare('SELECT count(*) AS n FROM entries').get() as { n: number }).n
   return { bytes: (pages - free) * size, entries }
+}
+
+/** Whether a home has a journal to read (without making one); false while it is being deleted. */
+export function hasJournal(home: string): boolean {
+  const k = keyOf(journalFile(home))
+  return !deleting.has(k) && (open.has(k) || existsSync(journalFile(home)))
+}
+
+/**
+ * The week before `now`'s (#1032: "2026-W41") when it has entries but no digest of it, else null: the state view asks
+ * for one then.
+ */
+export function digestDue(home: string, now = new Date()): string | null {
+  const end = weekStart(now)
+  const start = new Date(end.getTime() - 7 * 86_400_000)
+  const label = isoWeek(start)
+  const { reader } = journalOf(home)
+  const had = reader.prepare("SELECT 1 FROM entries WHERE kind <> 'digest' AND at >= ? AND at < ? LIMIT 1").get(start.toISOString(), end.toISOString())
+  if (!had) return null
+  return reader.prepare("SELECT 1 FROM entries WHERE kind = 'digest' AND digest_of = ? LIMIT 1").get(label) ? null : label
 }
 
 /**

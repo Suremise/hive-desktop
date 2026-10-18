@@ -11,7 +11,7 @@
 import { AsyncLocalStorage } from 'async_hooks'
 import { appendFileSync, readFileSync } from 'fs'
 import { createInterface } from 'readline'
-import { hiveInstructions, withLatestHandover } from '../../shared/hiveGuidance'
+import { hiveInstructions, withJournal, withLatestHandover } from '../../shared/hiveGuidance'
 import { AGENT_ONLY_TOOLS, ASSISTANT_ONLY_TOOLS, assistantTools, controlAllows } from '../../shared/assistantTools'
 import { COLUMN_IDS } from '../../shared/tasks'
 import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
@@ -202,9 +202,10 @@ const tools: Tool[] = [
     },
     // Hive writes the header (project, author, session, date) from the agent these tools belong to.
     run: async (a) => {
-      const r = (await api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT, ...(process.env.HIVE_AGENT_ID ? { agent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {}) })) as { path: string }
-      // Its path in the shared notes, as hive_read_shared_note takes it.
-      return `Handover saved as ${r.path.replace(/\\/g, '/').replace(/^.*\/\.hive\/shared\//, '')}.`
+      const r = (await api('POST', '/v1/shared/handovers', { title: a.title, content: a.content, project: a.project || PROJECT, ...(process.env.HIVE_AGENT_ID ? { agent: process.env.HIVE_AGENT_ID, agentProject: PROJECT } : {}) })) as { path: string; suggest?: string }
+      // Its path in the shared notes, as hive_read_shared_note takes it; for the Assistant with its journal off, once,
+      // the journal to suggest (#1032).
+      return `Handover saved as ${r.path.replace(/\\/g, '/').replace(/^.*\/\.hive\/shared\//, '')}.${r.suggest ? ` ${r.suggest}` : ''}`
     }
   },
   {
@@ -741,7 +742,9 @@ const tools: Tool[] = [
 const allowed = new Set(assistantTools(CONTROL, CHANGE_SETTINGS, JOURNAL))
 const offered = tools.filter((t) => (t.name !== 'hive_console' || DEV_CONSOLE) && (ASSISTANT ? (!ASSISTANT_ONLY_TOOLS.includes(t.name) || allowed.has(t.name)) && !AGENT_ONLY_TOOLS.includes(t.name) : !ASSISTANT_ONLY_TOOLS.includes(t.name)))
 
-const INSTRUCTIONS = hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0')
+// The Assistant's journal rule while its journal is on (#1032): the kinds it may store come from Hive.
+const JOURNAL_SCOPE = ASSISTANT && JOURNAL ? (process.env.HIVE_JOURNAL_SCOPE ?? '').split(',').filter(Boolean) : null
+const INSTRUCTIONS = withJournal(hiveInstructions(PROJECT, ASSISTANT ? 'assistant' : 'agent', process.env.HIVE_PROGRESS_COMMANDS !== '0'), JOURNAL_SCOPE)
 
 async function instructions(): Promise<string> {
   // Without a project (the Hive Assistant's session) there is no "latest handover for this project".
