@@ -101,7 +101,7 @@ Primary platform is Windows 11. Code avoids Windows-only assumptions where cheap
     tasks/                # what an older Hive reads: board.json (the next number) and a README (#1017)
     tasks.imported-<time>/ # the cards' files as they were, kept when they moved into hive.db
     .gitignore            # keeps hive.db and the board's backups out of git (written once, if there is none)
-    lanes.json.imported-<time>  # lanes.json, watches.json as they were, kept when they moved into hive.db (#1018); a project's deliveries.json likewise in its .hive
+    lanes.json.imported-<time>  # lanes.json, watches.json as they were, kept when they moved into hive.db (#1018); a project's deliveries.json likewise in its .hive. An older Hive after the move starts these files afresh; the next 0.9 open keeps them the same way, unread (loop bookkeeping and deliveries for running agents, not worth merging back)
     assistant/            # the Hive Assistant's home (§6.5); its own .gitignore keeps it out of git
       .hive/              # like a project's: project.json (its one agent), sessions.json, backups, launch-assistant/
     README.md             # explains the folder to humans browsing the repo
