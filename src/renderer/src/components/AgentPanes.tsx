@@ -994,7 +994,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
       {/* A radio group (#975): one tab stop, on the chosen view; the arrow keys (round, Home, End) move to the other and choose it. */}
       <div
-        className={cx('segmented view-switch', viewIcons && 'icons')}
+        className={cx('segmented', 'view-switch', viewIcons && 'icons')}
         role="radiogroup"
         // Busy while the choice saves (it shows meanwhile; a failed save goes back to the saved view).
         aria-busy={chosen?.path === project.path || undefined}
