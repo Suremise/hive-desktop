@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **Card loops review committed work.** The card-loop skill now has the builder commit each round before sending a card to Review and name the commit; a reviewer handed uncommitted work asks for a commit rather than failing the round over it (#1074).
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).

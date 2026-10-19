@@ -1830,7 +1830,7 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
     let kinds: WatchChange[] | 'gone'
     if (seen) {
       // From where the watch's view of the card ended (#224).
-      kinds = changesSince(card, { mark: rec.marks[n], seen, since: rec.since, self: rec.self }, rec.cond)
+      kinds = changesSince(card, { mark: rec.marks[n], seen, since: rec.since, self: rec.self, watcher: rec.watcherName }, rec.cond)
       if (kinds !== 'gone' && intoAsSeen && !kinds.includes('column') && (!rec.cond.changes.length || rec.cond.changes.includes('column'))) kinds.push('column')
     } else {
       // A watch saved before #224: a move into the column by its history since the watch began.

@@ -161,6 +161,18 @@ describe('the bundled skills', () => {
     expect(end).toMatch(/clear `blocked`/)
     expect(line('**Stop and ask**')).toMatch(/on a merge step that needs the user/)
   })
+
+  // #1074: reviewers split over uncommitted work (some failed the round, some reviewed it by fingerprint). The builder
+  // commits before Review and names the commit; a reviewer handed uncommitted work asks for the commit, and the
+  // builder's watch counts comments so the request wakes it.
+  it('the builder commits before Review and the reviewer asks for a commit rather than failing on that alone', () => {
+    const text = catalog.get('card-loop')!.text
+    const line = (starts: string): string => text.split(/\r?\n/).find((l) => l.startsWith(starts)) ?? ''
+    expect(line('1. Do its work')).toMatch(/\*\*Commit the card's work before moving it to Review\*\*, every round, and name the commit/)
+    expect(line('2. Review it')).toMatch(/\*\*Review the commit the builder names\.\*\* Work sent uncommitted .* isn't a failed round on that alone/)
+    expect(line('- builder: the card')).toMatch(/changes: \["verdict", "column", "comment"\]/)
+    expect(line('- reviewer, after asking for a commit')).toMatch(/changes: \["comment"\]/)
+  })
 })
 
 describe("Hive's development skills", () => {

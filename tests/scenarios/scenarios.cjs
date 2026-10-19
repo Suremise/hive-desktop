@@ -20,7 +20,7 @@ const argsOf = (x) => {
   }
 }
 /** A fake builder's watch for its card's verdict, as card-loop starts it (a hive tool call through the real server). */
-const verdictWatch = (n) => `hive hive_wait_for_tasks {"cards":[${n}],"changes":["verdict","column"],"column":"passed","wake":true}`
+const verdictWatch = (n) => `hive hive_wait_for_tasks {"cards":[${n}],"changes":["verdict","column","comment"],"column":"passed","wake":true}`
 const ran = (o, tool) => called(o, tool).filter((c) => c.ok)
 /**
  * Whether a reply or card puts a decision to the user: a question, or a request without a "?" ("Please choose the export
@@ -1776,7 +1776,7 @@ module.exports.SCENARIOS = [
     },
     prompt: (c) => `Work through cards #${c.cards.a} then #${c.cards.b} as their builder; Implementer reviews them.${v.said}`,
     fake: (c) =>
-      `skill card-loop then hive hive_lane ${JSON.stringify({ action: 'start', cards: [c.cards.a, c.cards.b], reviewer: 'Implementer', ...(v.said ? { rounds: v.rounds, waitMinutes: v.wait } : {}) })} then boardmove ${c.cards.a} doing then hive hive_wait_for_tasks ${JSON.stringify({ cards: [c.cards.a], changes: ['verdict', 'column'], column: 'passed', wake: true, limitMinutes: v.wait })} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+      `skill card-loop then hive hive_lane ${JSON.stringify({ action: 'start', cards: [c.cards.a, c.cards.b], reviewer: 'Implementer', ...(v.said ? { rounds: v.rounds, waitMinutes: v.wait } : {}) })} then boardmove ${c.cards.a} doing then hive hive_wait_for_tasks ${JSON.stringify({ cards: [c.cards.a], changes: ['verdict', 'column', 'comment'], column: 'passed', wake: true, limitMinutes: v.wait })} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
     expect: (o, c) => {
       // Its lanes as saved (#1018: the workspace's database).
       const lane = require('../e2e/storeDocs.cjs').storeDocs(c.ws, 'lanes').find((l) => l.cards?.includes(c.cards.a))
