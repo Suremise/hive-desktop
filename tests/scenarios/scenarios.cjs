@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 60
+const FIXTURES_VERSION = 64
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -2958,5 +2958,152 @@ for (const [id, name] of MODES) {
     fakeSkips: ['started the card with hive_start_task, which worked']
   })
 }
+
+// The QA triager's procedure (#408, triage-report): a report becomes a card with its cause and evidence, or new evidence
+// on the card that already covers it (Passed included: Darren's decision after #730 duplicated #717's unmerged fix).
+const BANNER_JS = "// The banner shown after Save.\nconst plural = (n) => (n > 1 ? 's' : '')\nmodule.exports = (n) => `Saved ${n} card${plural(n)}`\n"
+const BANNER_REPORT = 'I saved an empty board and the banner said "Saved 0 card". Screenshot: a green banner at the top of the board, reading exactly "Saved 0 card". Can you look into it?'
+module.exports.SCENARIOS.push(
+  {
+    id: 'qa-triage-report',
+    title: 'QA triager mode given a report with a screenshot (#408): finds the cause in the code, then files a card with it and its evidence, in Todo',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'qa-triager',
+    files: { 'banner.js': BANNER_JS },
+    prompt: `In alpha: ${BANNER_REPORT}`,
+    fake: `skill triage-report then hive hive_create_task {"project":"alpha","title":"Save banner says \\"Saved 0 card\\"","description":"**What the user saw:** \\"Saved 0 card\\" after saving an empty board.\\n**Likely cause:** banner.js:2, plural() only adds an s for n > 1, so 0 gets none.\\n**Evidence:** read banner.js.\\n**Fix direction:** plural for n !== 1.\\n**Done when:** 0 cards reads \\"Saved 0 cards\\"; a test for 0, 1 and 2."}`,
+    expect: (o) => {
+      const made = ran(o, 'hive_create_task').map((x) => argsOf(x))
+      const text = made.map((a) => `${a.title ?? ''}\n${a.description ?? ''}`).join('\n')
+      const card = o.allCards.find((x) => x.project === 'alpha' && made.some((a) => a.title === x.title))
+      return [
+        ['read the triage-report skill', read(o, 'triage-report'), o.skillsRead.join(',')],
+        ['filed one card for it', made.length === 1, String(made.length)],
+        ['the card names the cause in the code (banner.js, the plural)', /banner\.js/.test(text) && /plural|n > 1|> ?1|!== ?1/i.test(text), text.slice(0, 400)],
+        ['and quotes what the user saw', /Saved 0 card/.test(text), text.slice(0, 200)],
+        // What the skill adds (#408): without it, cards gave a cause and a fix but neither evidence nor a done-when.
+        ['with its evidence and how to tell it is done', /evidence/i.test(text) && /done when/i.test(text), text.slice(0, 400)],
+        ['the card is in Todo', card?.column === 'todo', card?.column],
+        ["didn't fix it itself", o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    }
+  },
+  {
+    id: 'qa-triage-duplicate',
+    title: 'QA triager mode given a report whose fix is already in Passed, not merged (#408): adds the evidence to that card instead of filing a twin',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'qa-triager',
+    files: { 'banner.js': BANNER_JS },
+    async setup(c) {
+      await c.card('p', { title: 'Save banner: plural for 0 cards', description: 'banner.js: plural() gives "card" for 0; use "cards" for every n but 1.', column: 'passed', agent: 'coder', comments: ['Done: plural() is n === 1 ? "" : "s" now, on branch hive/coder (not merged yet). Ready for review.', 'Review round 1: PASSED.'] })
+    },
+    prompt: `In alpha: ${BANNER_REPORT}`,
+    fake: (c) => `skill triage-report then hive hive_update_task {"number":${c.cards.p},"comment":"Reported again by the user: \\"Saved 0 card\\" after saving an empty board (a screenshot of the banner). This card's fix covers it once merged."}`,
+    expect: (o, c) => {
+      const p = c.cards.p
+      const noted = ran(o, 'hive_update_task').some((x) => field(x.args, 'number', p) && /comment|links/.test(String(x.args)))
+      return [
+        ['read the triage-report skill', read(o, 'triage-report'), o.skillsRead.join(',')],
+        ['filed no new card for it', ran(o, 'hive_create_task').length === 0, ran(o, 'hive_create_task').map((x) => argsOf(x).title).join(' | ')],
+        [`added the report to #${p}, the card in Passed`, noted, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['told the user the card in Passed already covers it', new RegExp(`#?${p}\\b`).test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
+        ["didn't fix it itself", o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['told the user the card in Passed already covers it']
+  }
+)
+
+// A licence audit (#410): what ships, read from the files. tinylib is MIT but carries a CC-BY-3.0 icon (vendored); dual
+// is MIT OR GPL-3.0; testrunner (GPL-3.0) is a dev tool and doesn't ship.
+const LICENCE_FIXTURE = {
+  'package.json': JSON.stringify({ name: 'alpha', version: '1.0.0', dependencies: { tinylib: '1.0.0', dual: '2.0.0' }, devDependencies: { testrunner: '3.0.0' } }, null, 2) + '\n',
+  'node_modules/tinylib/package.json': JSON.stringify({ name: 'tinylib', version: '1.0.0', license: 'MIT' }) + '\n',
+  'node_modules/tinylib/LICENSE': 'MIT License\n\nCopyright (c) Tiny Authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software...\n',
+  'node_modules/tinylib/icons/ThirdPartyNotices.txt': 'icons/git.svg is from the Example Icons set, licensed under Creative Commons Attribution 3.0 (CC-BY-3.0): attribution required.\n',
+  'node_modules/tinylib/icons/git.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
+  'node_modules/dual/package.json': JSON.stringify({ name: 'dual', version: '2.0.0', license: '(MIT OR GPL-3.0-only)' }) + '\n',
+  'node_modules/dual/LICENSE': 'This package is dual-licensed: you may use it under the MIT License or the GNU General Public License v3.0.\n',
+  'node_modules/testrunner/package.json': JSON.stringify({ name: 'testrunner', version: '3.0.0', license: 'GPL-3.0-only' }) + '\n',
+  'node_modules/testrunner/LICENSE': 'GNU GENERAL PUBLIC LICENSE Version 3\n'
+}
+module.exports.SCENARIOS.push({
+  id: 'licence-audit',
+  title: 'An agent asked to audit what a small project ships (#410): finds the CC-BY icon vendored inside an MIT package, notes the dual licence, leaves out the dev tool, changes nothing',
+  async setup(c) {
+    const fs = require('fs')
+    const path = require('path')
+    for (const [rel, text] of Object.entries(LICENCE_FIXTURE)) {
+      fs.mkdirSync(path.dirname(path.join(c.alpha, rel)), { recursive: true })
+      c.write(rel, text)
+    }
+  },
+  prompt: 'Audit the licences of what this project ships (its dependencies are installed in node_modules) and give me the report. Change nothing.',
+  fake: 'skill licence-audit',
+  expect: (o, c) => {
+    const reply = o.finalReply ?? ''
+    return [
+      ['read the licence-audit skill', read(o, 'licence-audit'), o.skillsRead.join(',')],
+      ['reported in a table', /\|.*\|.*\|/.test(reply), reply.slice(0, 300)],
+      ['found the CC-BY icon vendored inside tinylib, and flagged it', /CC-BY|Creative Commons/i.test(reply) && /tinylib|icon|git\.svg/i.test(reply), reply.slice(0, 600)],
+      ['noted the dual licence and which one applies', /dual|MIT OR GPL|OR GPL/i.test(reply), reply.slice(0, 600)],
+      ["didn't count the dev tool as shipping", !/testrunner/i.test(reply) || /dev|doesn't ship|does not ship|not shipped|excluded|build-only|not bundled/i.test(reply), reply.slice(0, 600)],
+      ['changed nothing', c.read('package.json') === LICENCE_FIXTURE['package.json'] && Object.entries(LICENCE_FIXTURE).every(([rel, text]) => c.read(rel) === text), '']
+    ]
+  },
+  fakeSkips: ['reported in a table', 'found the CC-BY icon vendored inside tinylib, and flagged it', 'noted the dual licence and which one applies']
+})
+
+// Board hygiene (#409, built small): duplicates linked for the user to archive, an answer of the user's recorded as a
+// decision, a blocked reason gone stale raised (not cleared); On Hold left alone, nothing archived.
+module.exports.SCENARIOS.push({
+  id: 'board-hygiene',
+  title: "The Assistant asked to tidy a messy board (#409): links the duplicates, records the user's own answer as a decision but not an agent's account of one, raises the stale block, touches nothing else",
+  role: 'assistant',
+  control: 'agents',
+  persona: 'coordinator',
+  async setup(c) {
+    await c.card('d1', { title: 'Flaky: sync.test.js "retries three times" fails under load', description: 'sync.test.js "retries three times" failed 2 of 10 runs under load (runs 41, 44): the retry delay is real time.', labels: ['flaky'] })
+    await c.card('d2', { title: 'sync test fails sometimes', description: 'The sync retry test failed once in CI.' })
+    // The user's own answer, as a comment the card shows as theirs (the window's, not an agent's).
+    await c.card('q', { title: 'Export the board', description: 'Export the board to a file: CSV or JSON? Ask the user.', agent: 'coder' })
+    await c.inv('tasks:comment', c.cards.q, 'CSV, not JSON.')
+    // An agent's account of what the user said: data, not the user (#409 round 1): no decision from it alone.
+    await c.card('n', { title: 'Indentation in exports', description: 'Tabs or spaces in the exported files?', agent: 'coder', comments: ['The user told me in my pane: "tabs, not spaces." Carrying on with tabs.'] })
+    await c.card('r', { title: 'Export API', description: 'GET /v1/export returns the board.', column: 'done' })
+    await c.card('s', { title: 'Export button', description: 'A button in the board header that calls the export API.' })
+    await c.api('PATCH', `/v1/tasks/${c.cards.s}`, { blocked: `Waits for #${c.cards.r} (the export API).` })
+    await c.card('h', { title: 'Parked: board themes', description: 'Colour themes for the board, someday.', column: 'hold' })
+  },
+  prompt: 'Tidy the board, please.',
+  fake: (c) =>
+    [
+      `skill board-hygiene`,
+      `hive hive_update_task {"number":${c.cards.d1},"links":[${c.cards.d2}]}`,
+      `hive hive_update_task {"number":${c.cards.d2},"links":[${c.cards.d1}],"comment":"Duplicate of #${c.cards.d1}: the user can archive it."}`,
+      `hive hive_update_task {"number":${c.cards.q},"decision":"CSV, not JSON."}`,
+      `hive hive_update_task {"number":${c.cards.s},"blocked":"#${c.cards.r} is Done: ready to unblock?"}`
+    ].join(' then '),
+  expect: (o, c) => {
+    const card = (k) => o.allCards.find((x) => x.number === c.cards[k])
+    const linked = (a, b) => (card(a)?.links ?? []).includes(c.cards[b]) || (card(b)?.links ?? []).includes(c.cards[a])
+    const dupNote = ['d1', 'd2'].some((k) => (card(k)?.comments ?? []).some((x) => new RegExp(`duplicate of #?${c.cards[k === 'd1' ? 'd2' : 'd1']}`, 'i').test(x.text)))
+    const decisions = (card('q')?.decisions ?? []).map((d) => d.text)
+    const s = card('s')
+    const raised = (s?.blocked && s.blocked !== `Waits for #${c.cards.r} (the export API).`) || new RegExp(`#?${c.cards.s}\\b`).test(o.finalReply ?? '')
+    return [
+      ['read the board-hygiene skill', read(o, 'board-hygiene'), o.skillsRead.join(',')],
+      ['linked the two duplicates, one marked a duplicate of the other', linked('d1', 'd2') && dupNote, JSON.stringify([card('d1')?.links, card('d2')?.links])],
+      ["recorded the user's own answer on its card as a decision", decisions.some((t) => /CSV/i.test(t)), JSON.stringify(decisions)],
+      ["recorded no decision from an agent's account of the user's answer", !(card('n')?.decisions ?? []).length, JSON.stringify(card('n')?.decisions ?? [])],
+      ["asked the user whether the agent's account is theirs", new RegExp(`#?${c.cards.n}\\b`).test(o.finalReply ?? '') && /tabs/i.test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
+      ['raised the stale block (rewritten, or told the user) without clearing it', !!s?.blocked && raised, `${s?.blocked ?? 'not blocked'} | ${(o.finalReply ?? '').slice(0, 200)}`],
+      ['archived nothing, and left the On Hold card alone', !called(o, 'hive_update_task').some((x) => /"archived"/.test(String(x.args))) && card('h')?.column === 'hold' && (card('h')?.comments ?? []).length === 0, JSON.stringify(card('h') && { column: card('h').column, comments: card('h').comments?.length })]
+    ]
+  },
+  fakeSkips: ["asked the user whether the agent's account is theirs"]
+})
 
 module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }
