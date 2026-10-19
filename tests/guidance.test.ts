@@ -215,4 +215,11 @@ describe("Hive's development skills", () => {
       for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) if (!/^[a-z]+:/i.test(m[1])) expect(existsSync(join(ROOT, claude, name, m[1])), `${name}: ${m[1]}`).toBe(true)
     }
   })
+
+  // #1076: briefs capped load by hand after a load run took the machine to 95 °C (16 Oct). The repo's guidance says it.
+  it('keep flake and load runs to modest, bounded load: a few spinner workers, never one per core', () => {
+    const flake = readFileSync(join(ROOT, claude, 'investigate-flake', 'SKILL.md'), 'utf8')
+    expect(flake).toMatch(/Keep the load modest and bounded: at most a few CPU spinner workers \(two or three\) beside the normal run, never one per core\./)
+    expect(readFileSync(join(ROOT, 'AGENTS.md'), 'utf8')).toMatch(/Load and flake runs add modest, bounded load: a few CPU spinner workers at most beside the run, never one per core/)
+  })
 })
