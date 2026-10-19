@@ -20,6 +20,8 @@ type Suite = { name: string; needs?: string[]; noHive?: string }
 type Cli = { provider: string; version: string; path: string | null; home?: string }
 const suites = SUITES as Suite[]
 const real = (need: string) => suites.filter((s) => s.needs?.includes(need)).map((s) => s.name)
+/** Those of them that start a test Hive, which says which version it selected (not noHive). */
+const hived = (need: string) => suites.filter((s) => s.needs?.includes(need) && !s.noHive).map((s) => s.name)
 const CLAUDE: Cli = { provider: 'claude-code', version: '2.1.292', path: 'C:\\Users\\t\\.local\\bin\\claude.exe' }
 const CODEX: Cli = { provider: 'codex', version: '0.160.1', path: 'C:\\Users\\t\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe' }
 /** A passed suite whose test copies of Hive selected these CLIs (both, as Hive looks for both). */
@@ -118,10 +120,10 @@ describe('npm run tested-clis: the manifest from a run record (#365)', () => {
   it('takes the version only from what every suite of the CLI ran: none unsaid, all the same', () => {
     const changed = (name: string, clis: Cli[]) => fullRecord({ results: fullRecord().results.map((r: Result) => (r.name === name ? { ...r, clis } : r)) })
     // A suite whose Hive didn't say (an older runner, or it never looked), or said only the other CLI.
-    expect(manifestFromRecord(changed(real('codex')[1], []), suites).problems).toEqual([`Codex: the record doesn't say which version Hive used in ${real('codex')[1]}`])
-    expect(manifestFromRecord(changed(real('claude')[0], [CODEX]), suites).problems).toEqual([`Claude Code: the record doesn't say which version Hive used in ${real('claude')[0]}`])
+    expect(manifestFromRecord(changed(hived('codex')[1], []), suites).problems).toEqual([`Codex: the record doesn't say which version Hive used in ${hived('codex')[1]}`])
+    expect(manifestFromRecord(changed(hived('claude')[0], [CODEX]), suites).problems).toEqual([`Claude Code: the record doesn't say which version Hive used in ${hived('claude')[0]}`])
     // One suite ran another version (updated mid-run, or another copy): refused, not one of them picked.
-    expect(manifestFromRecord(changed(real('codex')[2], [CLAUDE, { ...CODEX, version: '0.161.0' }]), suites).problems).toEqual(['Codex: its real suites ran different versions (0.160.1, 0.161.0)'])
+    expect(manifestFromRecord(changed(hived('codex')[2], [CLAUDE, { ...CODEX, version: '0.161.0' }]), suites).problems).toEqual(['Codex: its real suites ran different versions (0.160.1, 0.161.0)'])
     // The record's top-level summary is never the source: only what each suite's Hive selected.
     expect(manifestFromRecord(fullRecord({ clis: { claude: ['1.0.0'], codex: ['0.1.0'] } }), suites).manifest.codex.version).toBe('0.160.1')
   })

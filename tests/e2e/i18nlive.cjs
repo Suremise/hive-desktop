@@ -154,6 +154,20 @@ const check = (name, ok, extra = '') => {
     check("an agent that needs sign-in: its hover says how to sign in in the window's language", !!(await tipSays(help)))
     await speak('en', {})
     check('…and in English after a change of language', !!(await tipSays('Type /login in one of its agents’ terminals')))
+
+    // A closed row under the Progress panel's Recent, drawn only when its run changes (#1108), follows a change of
+    // language with nothing clicked and its run unchanged: a script's run, ended.
+    const api = await inv('api:info')
+    const call = (method, p, body) => fetch(`${api.url}${p}`, { method, headers: { Authorization: `Bearer ${api.token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) }).then((r) => r.json())
+    const done = await call('POST', '/v1/progress', { title: 'i18n build' })
+    await call('POST', `/v1/progress/${done.id}/finish`, { ok: true })
+    if (!(await page.locator('.progress-panel').count())) await page.locator('.progress-rail').click()
+    const recentRow = page.locator(`.progress-panel .progress-recent-item[data-run="${done.id}"] .progress-recent-text`)
+    check('the ended run is under Recent, by a script', !!(await lib.until(async () => (await recentRow.innerText().catch(() => '')).startsWith('Script'), 30000)), await recentRow.innerText().catch(() => ''))
+    await speak('de', { 'board.progress.script': 'Skript' })
+    check('…its closed row follows a change of language', !!(await lib.until(async () => (await recentRow.innerText().catch(() => '')).startsWith('Skript'), HUNG_MS)), await recentRow.innerText().catch(() => ''))
+    await speak('en', {})
+    check('…and back', !!(await lib.until(async () => (await recentRow.innerText().catch(() => '')).startsWith('Script'), HUNG_MS)))
   } catch (e) {
     check('the suite ran', false, String(e?.stack ?? e))
   } finally {

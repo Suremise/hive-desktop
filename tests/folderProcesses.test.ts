@@ -8,9 +8,11 @@ import { tempDir } from './tempDir'
 type Proc = { pid: number; parent?: number; commandLine: string; started: number }
 type Tree = { pid: number; started: number }[]
 const req = createRequire(import.meta.url)
-const { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree } = req('./e2e/folderProcesses.cjs') as {
+const { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processes, endExactly, suspendExactly, suspensions, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree } = req('./e2e/folderProcesses.cjs') as {
   processes: () => Proc[]
   endExactly: (targets: Tree) => number
+  suspendExactly: (targets: Tree, resume?: boolean) => { done: Tree; failed: { pid: number; why: string }[] }
+  suspensions: (act?: (t: Tree, resume?: boolean) => { done: Tree; failed: { pid: number; why: string }[] }, end?: (t: Tree) => number) => { held: () => Tree; suspend: (t: Tree) => { done: Tree; failed: { pid: number; why: string }[] }; resume: () => { pid: number; why: string }[]; release: () => { failed: { pid: number; why: string }[]; ended: Tree } }
   childrenFirst: (list: Proc[], targets: Tree) => Tree
   namesFolder: (cmd: string, folder: string) => boolean
   namesFile: (list: Proc[], name: string) => boolean
@@ -134,6 +136,69 @@ describe("a scenario's leftover processes (#542, #402)", () => {
       // Already gone: nothing to end, and no error.
       expect(endExactly([{ pid: kid.pid!, started: listed.started }])).toBe(0)
     } finally {
+      if (!exited()) kid.kill()
+    }
+  }, 30000)
+
+  it("a test's suspensions: what failed to resume stays held, what has gone is dropped, cleanup ends what can't be resumed (#600)", () => {
+    // Stubs only: no process is touched. A resume of pid 2 fails (a native status), pid 3 has gone, pid 1 resumes.
+    type Act = (t: Tree, resume?: boolean) => { done: Tree; failed: { pid: number; why: string }[] }
+    const resumeFails = new Set([2])
+    const calls: string[] = []
+    const act: Act = (targets, resume = false) => {
+      calls.push(`${resume ? 'resume' : 'suspend'} ${targets.map((t) => t.pid).join(',')}`)
+      if (!resume) return { done: targets.filter((t) => t.pid !== 9), failed: targets.filter((t) => t.pid === 9).map((t) => ({ pid: t.pid, why: '0xC0000022' })) }
+      return {
+        done: targets.filter((t) => t.pid === 1),
+        failed: targets.filter((t) => t.pid !== 1).map((t) => ({ pid: t.pid, why: t.pid === 3 ? 'gone' : resumeFails.has(t.pid) ? '0xC0000022' : 'another process' }))
+      }
+    }
+    const ended: Tree[] = []
+    const s = suspensions(act, (t: Tree) => (ended.push(t), t.length))
+    const one = { pid: 1, started: 10 }
+    const two = { pid: 2, started: 20 }
+    const three = { pid: 3, started: 30 }
+    // One that couldn't be suspended isn't held (nothing to resume).
+    expect(s.suspend([one, two, three, { pid: 9, started: 90 }]).failed).toEqual([{ pid: 9, why: '0xC0000022' }])
+    expect(s.held()).toEqual([one, two, three])
+    // Resumed and gone leave the list; the one whose resume failed stays, by the identity it was suspended as.
+    expect(s.resume()).toEqual([{ pid: 2, why: '0xC0000022' }, { pid: 3, why: 'gone' }])
+    expect(s.held()).toEqual([two])
+    // Cleanup tries again, and ends by its identity what still can't be resumed; nothing is left held.
+    expect(s.release()).toEqual({ failed: [{ pid: 2, why: '0xC0000022' }], ended: [two] })
+    expect(ended).toEqual([[two]])
+    expect(s.held()).toEqual([])
+    // Nothing held: cleanup does nothing.
+    expect(s.release()).toEqual({ failed: [], ended: [] })
+    expect(calls).toEqual(['suspend 1,2,3,9', 'resume 1,2,3', 'resume 2'])
+  })
+
+  it.runIf(process.platform === 'win32')('suspends and resumes only the process a pid was when listed, and says what it did (#600)', async () => {
+    // A process of the test's own that counts up in a file, so whether it runs shows.
+    const own = tempDir('suspend')
+    const ticks = join(own, 'ticks')
+    const kid = spawn(process.execPath, ['-e', `let n = 0; setInterval(() => require('fs').writeFileSync(${JSON.stringify(ticks)}, String(++n)), 50)`], { env: baseEnv(), stdio: 'ignore' })
+    const exited = () => kid.exitCode !== null || kid.signalCode !== null
+    const count = () => (existsSync(ticks) ? Number(readFileSync(ticks, 'utf8')) || 0 : 0)
+    // Its identity, taken once, now: Node holds the child's handle until it exits, so its pid names no other process
+    // yet. Every suspension and resume here, cleanup's too, goes by this identity, never by its pid looked up again.
+    const me = identify([kid.pid!])[0]
+    try {
+      expect(me?.pid).toBe(kid.pid)
+      await vi.waitFor(() => expect(count()).toBeGreaterThan(0), { timeout: 15000, interval: 50 })
+      // As if its pid named another process by now (started later): nothing is done, and it says why.
+      const other = suspendExactly([{ pid: me.pid, started: me.started - 5000 }])
+      expect(other).toEqual({ done: [], failed: [{ pid: me.pid, why: 'another process' }] })
+      // A pid that names nothing: not done either.
+      expect(suspendExactly([{ pid: 4_000_000, started: me.started }]).failed).toEqual([{ pid: 4_000_000, why: 'gone' }])
+      // The process it was: suspended (the call's status says so), then resumed, after which it counts on.
+      expect(suspendExactly([me])).toEqual({ done: [me], failed: [] })
+      const at = count()
+      expect(suspendExactly([me], true)).toEqual({ done: [me], failed: [] })
+      await vi.waitFor(() => expect(count()).toBeGreaterThan(at), { timeout: 15000, interval: 50 })
+    } finally {
+      // Resumed in case a check failed while it was suspended: by its identity, so a pid reused since is left alone.
+      if (me) suspendExactly([me], true)
       if (!exited()) kid.kill()
     }
   }, 30000)

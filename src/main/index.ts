@@ -64,6 +64,7 @@ import { pinFollower } from './pin'
 import { closedNotice, focusedHive, routeAppNotice, setFocusedHive, startNoticeResolver } from './notices'
 import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
+import { watchMainStalls } from './mainStalls'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { journalSettingsOf } from './journalService'
 import { assistantStartView } from './startView'
@@ -82,25 +83,6 @@ import { fmt, msg, tr } from '../shared/i18n'
 
 const log = createLogger('main')
 let quitting = false
-
-/**
- * Notes in hive.log when the main process was busy long enough to be felt (every terminal's typing goes
- * through it), at most once a minute, so pauses can be matched with what Hive was doing.
- */
-function watchMainStalls(): void {
-  const every = 500
-  let last = performance.now()
-  let logged = 0
-  setInterval(() => {
-    const now = performance.now()
-    const late = now - last - every
-    last = now
-    if (late > 250 && Date.now() - logged > 60_000) {
-      logged = Date.now()
-      log.warn(`The main process was busy for ${Math.round(late)} ms`)
-    }
-  }, every).unref()
-}
 
 // Development builds use their own profile (and Agent API port, see servers.ts) so they can run
 // alongside the installed Hive — e.g. while developing Hive from a session inside Hive.

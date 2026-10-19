@@ -5,7 +5,7 @@ import { HIVE_DIR } from '../shared/defaults'
 import { taskbarProgress } from '../shared/progress'
 import type { ProgressRun } from '../shared/types'
 import { config } from './config'
-import { emit } from './events'
+import { emit, tellListeners } from './events'
 import { hashText, readJson, removePath, writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { ProgressStore } from './progress'
@@ -26,8 +26,10 @@ const historyFile = (workspacePath: string): string => join(historyDir(), `${has
  */
 export const progress = new ProgressStore({
   now: () => Date.now(),
-  changed: (workspacePath, runs) => {
-    emit({ type: 'progress-changed', workspacePath, runs })
+  changed: (workspacePath, runs, patch) => {
+    // The Agent API's stream and the developer console take the whole list; the window only what changed (#1108).
+    tellListeners({ type: 'progress-changed', workspacePath, runs })
+    if (!patch || patch.length) emit({ type: 'progress-runs', workspacePath, seq: nextSeq(workspacePath), whole: !patch, runs: patch ?? runs })
     showTaskbar(workspacePath, runs)
   },
   ownerRunning: (run) => {
@@ -43,6 +45,21 @@ export const progress = new ProgressStore({
     forget: () => removePath(historyDir()).catch((e) => log.warn('could not forget Recent', e))
   }
 })
+
+/** Each workspace's tellings of its window, numbered: a window that missed one (another workspace shown meanwhile) reads the list again. */
+const seqs = new Map<string, number>()
+
+/** The number of a workspace's last telling, for a window reading its runs (progress:snapshot). */
+export function progressSeq(workspacePath: string): number {
+  return seqs.get(workspacePath.toLowerCase()) ?? 0
+}
+
+function nextSeq(workspacePath: string): number {
+  const k = workspacePath.toLowerCase()
+  const seq = (seqs.get(k) ?? 0) + 1
+  seqs.set(k, seq)
+  return seq
+}
 
 /**
  * Whether a process is there (#549): signal 0 only asks. EPERM means it is, but not ours to signal; anything else (ESRCH)

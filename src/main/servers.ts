@@ -64,6 +64,7 @@ import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceFor,
 import { lastCardRead, newDecisions, noteCardRead, noticeText } from './decisionNotices'
 import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi, recordCatalog, recordMcp, MCP_REPORT_LIMITS, type MetricsHandle } from './metrics'
 import { metricsReport } from './metricsUsage'
+import { apiLabel, beginWork, hookLabel } from './mainStalls'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { API_EVENTS, apiEventFor, publicRun } from './apiEvents'
@@ -145,8 +146,10 @@ export async function startHookServer(): Promise<string> {
       if (note) log.info(note)
       return send(res, 401, { error: 'unauthorized' })
     }
+    let done: (() => void) | null = null
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
+      done = beginWork(hookLabel(query.has('statusline'), body))
       if (query.has('statusline')) {
         // The reply becomes Claude Code's status line, so send nothing.
         res.writeHead(204)
@@ -171,6 +174,8 @@ export async function startHookServer(): Promise<string> {
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
+    } finally {
+      done?.()
     }
   })
   await new Promise<void>((resolve) => hookServer!.listen(0, '127.0.0.1', resolve))
@@ -2397,9 +2402,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   const m: ApiRequest = { route: '(no route)', handle: null, project: null, role: 'unknown', requestBytes: 0, responseBytes: 0, skip: false, authenticated: false, ws: null }
   apiRequests.set(res, m)
   appMetrics.requestStarted()
+  // Named in a "main process was busy" warning that it overlaps, by its route once known (mainStalls.ts).
+  const working = beginWork(() => apiLabel(req.method, m.route))
   let who: Caller | null = null
   res.once('close', () => {
     appMetrics.requestEnded()
+    working()
     if (!m.authenticated) appMetrics.unauthenticated()
     else if (!m.skip && m.handle) recordApi(m.handle, m.project, { route: m.route, method: req.method ?? '', role: m.role, outcome: outcomeOf(res), requestBytes: m.requestBytes, responseBytes: m.responseBytes, ms: metricsClock.mono() - started })
     if (m.authenticated && !m.skip && !m.route.startsWith('/v1/console')) captureApiCall(req, res, url, m, who, metricsClock.mono() - started)
@@ -2455,6 +2463,8 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     sseClients.set(res, { agent: agentCaller(), viewer: viewerCaller()?.id ?? null })
     // A stream is counted as one (connections, events, bytes, how long it stayed open), not as a request's latency.
     m.skip = true
+    // Named so in a "main process was busy" warning (mainStalls.ts), which leaves it out once it is just open.
+    m.route = '/v1/events'
     const opened = metricsClock.mono()
     appMetrics.stream({ connections: 1 })
     req.on('close', () => {

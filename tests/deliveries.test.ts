@@ -111,7 +111,7 @@ describe('the delivery service (#647)', async () => {
   let alpha = ''
   const st = { status: 'working' as string, runId: 'r1', sessionId: 's1', running: true, typed: [] as string[] }
   Object.assign(sessions, {
-    liveFor: (p: string, id: string) => (st.running && p.toLowerCase() === alpha.toLowerCase() ? ({ projectPath: alpha, agentId: id, status: st.status, runId: st.runId, sessionId: st.sessionId } as never) : null),
+    liveFor: (p: string, id: string) => (st.running && p.toLowerCase() === alpha.toLowerCase() ? ({ projectPath: alpha, agentId: id, status: st.status, runId: st.runId, sessionId: st.sessionId, cwd: alpha } as never) : null),
     userMayBeTyping: () => false,
     lineWaiting: () => false,
     promptsTaken: () => null,
@@ -280,6 +280,56 @@ describe('the delivery service (#647)', async () => {
     expect(await states()).toEqual(['m1 expired: not received in time', 'm2 expired: its agent is in another conversation now', 'm3 offered'])
     // Its conversation not known yet (a CLI that reports it later): not held back.
     expect(st.typed).toEqual(['[Hive] New in your inbox: 1 card event (#8) (m3). Call hive_inbox to read it.'])
+  })
+
+  it('a task given now while its agent\'s folder is being changed waits for it, then is given once; git failing too; the user\'s own task to an agent with no inbox is held the same (#646 round 1)', async () => {
+    const { changingFolder } = await import('../src/main/folderFence')
+    const task = (body: string) => deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: hive, body, need: 'free' })
+    /** A Git action on alpha whose git is held until `go` (and then succeeds, or fails with `fail`). */
+    const gitHeld = (fail = false) => {
+      let go!: () => void
+      const gate = new Promise<void>((r) => (go = r))
+      const done = changingFolder(alpha, 'a Git switch', async () => {
+        await gate
+        if (fail) throw new Error('git failed')
+      }).catch(() => undefined)
+      return { go, done }
+    }
+    st.status = 'ready'
+    const typedBefore = st.typed.length
+    for (const fail of [false, true]) {
+      const g = gitHeld(fail)
+      let settled = false
+      const given = task(`Card task ${fail ? 'after a failed pull' : 'after a switch'}`).finally(() => (settled = true))
+      // Held, not cancelled: it waits, untyped, while git runs.
+      await vi.waitFor(async () => expect((await states()).at(-1)).toMatch(/ queued$/), { timeout: 15_000 })
+      await new Promise<void>((r) => setImmediate(r))
+      expect(settled).toBe(false)
+      expect(st.typed.length).toBe(typedBefore + (fail ? 1 : 0))
+      g.go()
+      await g.done
+      expect((await given)?.state).toBe('offered')
+      expect(st.typed.length).toBe(typedBefore + (fail ? 2 : 1))
+      st.status = 'ready'
+    }
+    // The user's own Start for an agent with no inbox (typed as their input): held the same, then typed once.
+    deliveries.setReadsInboxForTests(() => false)
+    try {
+      const g = gitHeld()
+      let typed = false
+      const started = deliveries.deliverNow(alpha, { agentId: 'b1', agentName: 'B1', kind: 'task', from: { kind: 'user', name: 'the user' }, body: 'Fix the icon.', need: 'free' }).then(() => (typed = true))
+      await new Promise<void>((r) => setImmediate(r))
+      expect(typed).toBe(false)
+      expect(st.typed.at(-1)).not.toBe('Fix the icon.')
+      g.go()
+      await g.done
+      await started
+      expect(st.typed.at(-1)).toBe('Fix the icon.')
+      expect(st.typed.filter((t) => t === 'Fix the icon.')).toHaveLength(1)
+    } finally {
+      deliveries.setReadsInboxForTests(null)
+      st.status = 'working'
+    }
   })
 
   it('a task is given now or not at all (#649): its doorbell typed at once, alone; not given (cancelled, saying why) to an agent that is busy or watching; one a launch carries is received once the agent reads it, not when the launch takes its first prompt (#650)', async () => {
