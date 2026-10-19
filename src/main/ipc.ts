@@ -65,6 +65,7 @@ import * as projectAgents from './projectAgents'
 import * as templates from './templates'
 import * as branchWatch from './branchWatch'
 import { sessions } from './sessions'
+import { usageHistory } from './usageHistory'
 import { mayHandOverNow } from './handOverCheck'
 import { transcripts } from './transcripts'
 import * as skills from './skills'
@@ -275,6 +276,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   WorkspaceService.onOpened = async (fresh) => {
     await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and personas", e))
     const ws = workspace
+    // Its usage history imports the sessions it had, the first time (#1106), in the background.
+    void usageHistory.opened(contextWorkspace()!)
     // Each card, lane and card watch names its project by its stable id (#508), then old Done cards are archived.
     void tasks
       .stampCardProjects(ws)
@@ -505,11 +508,11 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'workspace:usage': async () => {
       const ws = workspace
       if (!ws.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
-      // One project at a time: each reads its sessions file and checks its transcripts against the usage cache.
+      // From the usage history (#1106): each host's records and its sessions there, no transcript read.
       const projects = []
       for (const p of await ws.listProjectPaths()) projects.push({ name: basename(p), path: p, items: await sessions.usageItems(p).catch(() => []) })
       const assistant = existsSync(ws.assistantHome) ? await sessions.usageItems(ws.assistantHome).catch(() => []) : []
-      return { workspacePath: ws.path, projects, assistant, hidden: ws.hiddenProjects().length }
+      return { workspacePath: ws.path, projects, assistant, hidden: ws.hiddenProjects().length, history: usageHistory.progressOf(ws.path) }
     },
     'metrics:query': (q) => metricsReport(currentWorkspace(), q),
     'metrics:reset': () => resetMetrics(currentWorkspace()),

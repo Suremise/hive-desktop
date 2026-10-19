@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>: {tokens} tokens · {cost} · {prompts, plural, one {# prompt} other {# prompts}}",
   "workspace.overview.estimated": "estimated",
   "workspace.overview.hidden": "{count, plural, one {# hidden or removed project isn't counted} other {# hidden or removed projects aren't counted}} (Settings → Workspace).",
+  "workspace.overview.importing": "Importing the usage history: {done, number} of {total, plural, one {# session} other {# sessions}}. The figures are partial until it is done.",
+  "workspace.overview.importingStart": "Importing the usage history. The figures are partial until it is done.",
   "workspace.overview.loadTarget": "the workspace's usage",
   "workspace.overview.loading": "Loading…",
   "workspace.overview.noWorkspace": "Open a workspace to see its overview.",

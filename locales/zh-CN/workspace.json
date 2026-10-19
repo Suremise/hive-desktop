@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>：{tokens} Token · {cost} · {prompts, plural, other {# 条提示词}}",
   "workspace.overview.estimated": "估算",
   "workspace.overview.hidden": "{count, plural, other {# 个已隐藏或已移除的项目未计入}}（“设置”→“工作区”）。",
+  "workspace.overview.importing": "正在导入用量历史：{total, plural, other {共 # 个会话}}，已完成 {done, number} 个。完成前数字并不完整。",
+  "workspace.overview.importingStart": "正在导入用量历史。完成前数字并不完整。",
   "workspace.overview.loadTarget": "工作区的用量",
   "workspace.overview.loading": "正在加载…",
   "workspace.overview.noWorkspace": "打开一个工作区以查看其概览。",

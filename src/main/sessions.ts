@@ -21,7 +21,6 @@ import type {
   AgentInfo,
   EffortLevel,
   FileLockMode,
-  KeptUsage,
   LiveSessionState,
   RuntimeFacts,
   McpServerDef,
@@ -48,13 +47,12 @@ import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
-import { readTimeline, type UsageTimeline } from '../shared/usageTimeline'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, tellListeners, toast } from './events'
 import { presentWindow, showOsNotification, testNotifyLog, testQuiet } from './testQuiet'
-import { hashText, heldOpen, insideReal, isInUse, readJson, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock, writeJsonAtomic } from './fsutil'
+import { hashText, heldOpen, insideReal, isInUse, placeRelative, removePath, samePlace, treeSignature, syncCopy, syncCopyLocked, syncCopyNow, trashAllOrNothing, withFileLock } from './fsutil'
 import { createLogger, hookJournal, userText } from './logger'
 import { COMPACTING_TEXT } from '../shared/runtime'
 import { applyStep, compactionOver, expireTasks, hookStep, idleAfter, markedIdle, safeguardAnswered, SAFEGUARD_IDLE_MESSAGE, startupScreen, startupWatched, titleStep, type HookStatusInput, type HookStep } from './hookStatus'
@@ -92,7 +90,8 @@ import { revisionOf } from './revisions'
 import { metricsHandle, recordLaunch } from './metrics'
 import { headerOf } from './revisions'
 import { utf8Bytes } from '../shared/metrics'
-import { inWorkspace, workspace, workspaceFor, workspaceOf } from './workspace'
+import { inWorkspace, workspace, workspaceFor, workspaceOf, type SessionsFile } from './workspace'
+import { usageHistory, type StoredUsage } from './usageHistory'
 import { journalSettingsOf } from './journalService'
 import { endAgentToken, newAgentToken } from './agentTokens'
 import { endHookToken, newHookToken } from './hookTokens'
@@ -394,6 +393,8 @@ interface PendingStart {
 export interface ListContext {
   records: SessionRecord[]
   cfg: ProjectConfig
+  /** The host's sessions in the usage history (#1106), read once for a list. */
+  stored?: Map<string, StoredUsage>
 }
 
 /** A claim an agent holds on a file it edited, so another agent in the same folder doesn't edit it at the same time. */
@@ -490,15 +491,9 @@ async function readSpan(path: string, start: number, size: number): Promise<stri
 }
 
 /**
- * usage-cache.json in the profile: each transcript's result (before costs) with the size and modified time it
- * had, so after a restart an unchanged transcript isn't read again. Derived and disposable: a missing, damaged or
- * older version's file is ignored (each Hive version starts afresh, as parsers change), and a transcript that
- * changed while Hive was closed is read again in full.
+ * usage-cache.json in the profile, which kept each transcript's result between runs until the usage history replaced
+ * it (#1106): no longer read or written, and removed once a workspace's history has its sessions (retireUsageCacheFile).
  */
-interface UsageCacheFile {
-  version: string
-  entries: { path: string; sessionId: string; provider: ProviderId; size: number; mtime: number; usage: SessionUsage }[]
-}
 const usageCacheFile = (): string => join(app.getPath('userData'), 'usage-cache.json')
 
 /** Drops the least recently used parsers beyond MAX_USAGE_PARSERS (their results stay), and results beyond the cache size. */
@@ -630,7 +625,13 @@ class Moves {
   }
 }
 
-const recordProvider = (rec: Pick<SessionRecord, 'agent'> | undefined): ProviderId => rec?.agent || 'claude-code'
+export const recordProvider = (rec: Pick<SessionRecord, 'agent'> | undefined): ProviderId => rec?.agent || 'claude-code'
+
+/** A usage with the safeguard stops seen only on screen added (#606: kept on its record; the transcript's count doesn't have them). */
+function withScreenStopsIn(usage: SessionUsage, screen: SessionRecord['screenStops']): SessionUsage {
+  const safeguards = withScreenStops(usage.safeguards, screen, usage.safeguardsAsked)
+  return safeguards === usage.safeguards ? usage : { ...usage, safeguards }
+}
 /**
  * The agent as its running or resumed conversation sees it (#506): a conversation runs the provider that recorded it,
  * whatever the agent's provider is now (a default resolving otherwise, or the agent switched since). The agent's own
@@ -1034,48 +1035,21 @@ class SessionManager {
     for (const c of usageCache.values()) c.usage = null
   }
 
-  /** Forgets every transcript's usage, in memory and on disk (Settings → Sessions → Clear): each is read again when needed. */
+  /**
+   * Forgets the transcripts' usage read in this run (Settings → Sessions → Clear): each is read again when needed. The
+   * usage history keeps what sessions used: it isn't cleared.
+   */
   async forgetUsageCache(): Promise<void> {
-    await this.loadUsageCache()
     usageCache.clear()
-    if (this.usageSaveTimer) clearTimeout(this.usageSaveTimer)
-    this.usageSaveTimer = null
-    await removePath(usageCacheFile()).catch((e) => log.warn('usage cache: could not delete it', e))
+    await this.retireUsageCacheFile()
     log.info('usage cache cleared')
   }
 
-  private usageCacheLoad: Promise<void> | null = null
-  private usageSaveTimer: NodeJS.Timeout | null = null
-
-  /** Reads usage-cache.json once, into the in-memory cache (results only: a changed transcript is read again in full). */
-  private loadUsageCache(): Promise<void> {
-    return (this.usageCacheLoad ??= (async () => {
-      const file = await readJson<UsageCacheFile | null>(usageCacheFile(), null).catch(() => null)
-      if (!file || file.version !== app.getVersion() || !Array.isArray(file.entries)) return
-      for (const e of file.entries) {
-        if (!e || typeof e.path !== 'string' || !e.usage || usageCache.has(e.path)) continue
-        // Without a timeline (cost per card, #602: saved before it, or damaged), read again in full when next asked.
-        if (!readTimeline(e.usage.timeline)) continue
-        usageCache.set(e.path, { parser: null, sessionId: e.sessionId, provider: e.provider, offset: e.size, size: e.size, mtime: e.mtime, raw: e.usage, usage: null })
-      }
-      trimUsageCache()
-      log.info(`usage cache: ${usageCache.size} transcript(s) from the last run`)
-    })())
-  }
-
-  /** Writes usage-cache.json a few seconds after the last change (and at quit: flushUsageCache). */
-  private scheduleUsageSave(): void {
-    if (this.usageSaveTimer) return
-    this.usageSaveTimer = setTimeout(() => void this.flushUsageCache(), 5000)
-  }
-
-  async flushUsageCache(): Promise<void> {
-    if (!this.usageSaveTimer) return
-    clearTimeout(this.usageSaveTimer)
-    this.usageSaveTimer = null
-    const entries: UsageCacheFile['entries'] = []
-    for (const [path, c] of usageCache) if (c.raw) entries.push({ path, sessionId: c.sessionId, provider: c.provider, size: c.size, mtime: c.mtime, usage: c.raw })
-    await writeJsonAtomic(usageCacheFile(), { version: app.getVersion(), entries } satisfies UsageCacheFile).catch((e) => log.warn('usage cache: could not save it', e))
+  /** Removes usage-cache.json, which the usage history replaced (#1106), if a Hive from before it left one. */
+  async retireUsageCacheFile(): Promise<void> {
+    if (!existsSync(usageCacheFile())) return
+    await removePath(usageCacheFile())
+    log.info('usage-cache.json removed: the usage history replaced it')
   }
 
   /**
@@ -2633,6 +2607,8 @@ class SessionManager {
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
+        // Its transcript is finished: what it used goes into the usage history now (#1106).
+        usageHistory.sessionEnded(projectPath, sessionId)
       } else {
         // Nothing was ever said (e.g. closed at the login screen) — there is nothing to resume.
         await workspace
@@ -4355,7 +4331,6 @@ class SessionManager {
 
   private async usageForNow(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
     try {
-      await this.loadUsageCache()
       const s = await stat(path)
       let c = usageCache.get(path)
       // Most recently used last: the oldest go first when there are too many.
@@ -4365,7 +4340,7 @@ class SessionManager {
       }
       if (c && c.mtime === s.mtimeMs && c.size === s.size && c.sessionId === sessionId && c.provider === provider) {
         if (c.usage) return c.usage
-        // Unchanged since it was read (in this run, or one before: usage-cache.json): priced again, not read.
+        // Unchanged since it was read in this run: priced again, not read.
         if (c.raw) return (c.usage = this.priced(c.raw))
       }
       // A file that shrank or was rewritten (or is now another session's), or whose parser was dropped, is read again from the start.
@@ -4407,7 +4382,6 @@ class SessionManager {
       c.raw = parser.result()
       this.checkUnderstood(provider, c.raw, s.size)
       c.usage = this.priced(c.raw)
-      this.scheduleUsageSave()
       return c.usage
     } catch {
       return null
@@ -4592,18 +4566,29 @@ class SessionManager {
     return (await this.providerTranscript(projectPath, sessionId, ctx))?.provider ?? 'claude-code'
   }
 
+  /**
+   * A session's usage. A running one's from its transcript as it grows (read here a piece at a time: its footer and gauge
+   * follow each turn); any other's from the usage history (#1106), priced now. One the history doesn't have yet (its
+   * import under way, a session adopted since the last sweep) is read from its transcript as before and queued for the
+   * history; with no transcript left, its kept usage, until the history has imported it.
+   */
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
-    const p = await this.anyTranscript(projectPath, sessionId, ctx)
-    // No transcript left: what it used when Clean Up removed Hive's backup.
-    if (!p) return (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage ?? null
-    let usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
-    // Safeguard stops seen only on screen (#606), kept on its record: the transcript's count doesn't have them.
-    const screen = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.screenStops
-    if (usage) {
-      const safeguards = withScreenStops(usage.safeguards, screen, usage.safeguardsAsked)
-      if (safeguards !== usage.safeguards) usage = { ...usage, safeguards }
+    const records = ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions
+    const rec = records.find((s) => s.id === sessionId)
+    const running = this.projectStates(projectPath).some((s) => s.sessionId === sessionId)
+    let usage: SessionUsage | null = null
+    if (!running) {
+      const stored = (ctx?.stored ?? (await usageHistory.storedUsage(projectPath).catch(() => null)))?.get(sessionId)
+      if (stored) usage = this.titled(stored.usage)
     }
+    if (!usage) {
+      const p = await this.anyTranscript(projectPath, sessionId, ctx)
+      if (!p) return rec?.keptUsage ?? null
+      usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+      if (usage && rec && !running) void usageHistory.ingest(projectPath, sessionId, { priority: 2, keepState: 'no' }).catch(() => undefined)
+    }
+    if (usage) usage = withScreenStopsIn(usage, rec?.screenStops)
     // A transcript without the context window (Claude Code's): the running session's status line has it.
     if (usage && !usage.contextWindow) {
       const window = [...this.live.values()].find((l) => l.state.sessionId === sessionId)?.state.contextWindow
@@ -4612,26 +4597,23 @@ class SessionManager {
     return usage
   }
 
-  /**
-   * A session's usage with its timeline (cost per card, #602): a null timeline when there is none to read (a deleted
-   * session's kept usage).
-   */
-  async usageTimeline(projectPath: string, sessionId: string, ctx?: ListContext): Promise<{ usage: SessionUsage; timeline: UsageTimeline | null } | null> {
-    assertSessionId(sessionId)
-    const p = await this.anyTranscript(projectPath, sessionId, ctx)
-    if (!p) {
-      const kept = (ctx?.records ?? (await workspace.sessionsFile(projectPath)).sessions).find((s) => s.id === sessionId)?.keptUsage
-      return kept ? { usage: kept, timeline: null } : null
+  /** A usage from the history with the title its CLI gives the session now (Codex's and Copilot's own index), when it has none. */
+  private titled(usage: SessionUsage): SessionUsage {
+    if (usage.title) return usage
+    let title: string | null = null
+    try {
+      title = providerAdapter(usage.provider).usageTitle?.(usage.sessionId) ?? null
+    } catch {
+      // A provider this version doesn't know.
     }
-    const usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
-    return usage && { usage, timeline: usageCache.get(p)?.raw?.timeline ?? null }
+    return title ? { ...usage, title, customTitle: usage.customTitle ?? title } : usage
   }
 
   async list(projectPath: string): Promise<SessionListItem[]> {
     projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
     // Read once for the whole list, not once per session.
-    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
+    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath), stored: await usageHistory.storedUsage(projectPath).catch(() => undefined) }
     const ttl = config.settings.sessions.cacheTtl
     const items: SessionListItem[] = []
     // Deleted sessions stay hidden, though the CLI still has their transcripts.
@@ -4675,7 +4657,12 @@ class SessionManager {
         for (const ext of await adapter.listSessions(folder).catch(() => [])) {
           if (known.has(ext.id) || (i > 0 && !(ext.sub?.parentId && items.some((x) => x.id === ext.sub!.parentId)))) continue
           known.add(ext.id)
-          const usage = await this.usageFor(ext.transcriptPath, ext.id, adapter.id)
+          // From the usage history while its file is as it was read (#1106), else read here and recorded for next time.
+          const st = await stat(ext.transcriptPath).catch(() => null)
+          const kept = ctx.stored?.get(ext.id)
+          const same = !!st && !!kept?.read.path && samePlace(kept.read.path, ext.transcriptPath) && kept.read.size === st.size && kept.read.mtime === st.mtimeMs
+          const usage = same ? this.titled(kept.usage) : await this.usageFor(ext.transcriptPath, ext.id, adapter.id)
+          if (!same && usage) void usageHistory.ingestExternal(projectPath, { id: ext.id, provider: adapter.id, transcriptPath: ext.transcriptPath }).catch(() => undefined)
           if (!usage || usage.requests === 0) continue
           items.push({
             id: ext.id,
@@ -4685,7 +4672,7 @@ class SessionManager {
             lastActivity: usage.lastActivity ?? ext.modified,
             hasTranscript: true,
             hasBackup: false,
-            transcriptBytes: await transcriptSize(ext.transcriptPath),
+            transcriptBytes: st?.size ?? null,
             usage,
             recache: adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
             ...(ext.sub ? { sub: ext.sub } : {})
@@ -4971,10 +4958,10 @@ class SessionManager {
   }
 
   /**
-   * Moves Hive's backups of an archived session the CLI still has to the Recycle Bin (Clean Up…), keeping what it
-   * used on its record so totals still count it once the CLI's transcript goes too. `expected` is what the preview
-   * listed. Nothing goes unless the session is unchanged since (assertCleanable, again right before the files go) and
-   * what it used was read and saved; the session can't be resumed meanwhile (whileCleaning).
+   * Moves Hive's backups of an archived session the CLI still has to the Recycle Bin (Clean Up…), what it used recorded
+   * in the usage history first (#1106), so totals still count it once the CLI's transcript goes too. `expected` is what
+   * the preview listed. Nothing goes unless the session is unchanged since (assertCleanable, again right before the
+   * files go) and what it used was recorded; the session can't be resumed meanwhile (whileCleaning).
    */
   async removeBackups(projectPath: string, sessionId: string, expected: string[]): Promise<void> {
     projectPath = workspace.assertSessionHost(projectPath)
@@ -4983,9 +4970,7 @@ class SessionManager {
       this.withBackupsLocked(projectPath, sessionId, async () => {
         await this.assertCleanable(projectPath, sessionId, expected)
         if (!(await this.providerTranscript(projectPath, sessionId))) throw hiveError(msg({ id: 'session.cleanUp.cliGone', defaultMessage: "The CLI no longer has this session's transcript.", description: "Clean Up… kept a session's backups: the coding agent's own transcript is gone since the preview." }))
-        const used = await this.usage(projectPath, sessionId).catch(() => null)
-        if (!used) throw hiveError(msg({ id: 'session.cleanUp.unreadBackups', defaultMessage: "Hive couldn't read what the session used, so its backups are kept.", description: "Clean Up… kept a session's backups: Hive couldn't read its usage, which the project's totals keep." }))
-        await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: { ...used, lastPrompt: null, costUnreported: undefined } })
+        if (!(await usageHistory.recordNow(projectPath, sessionId).catch(() => false))) throw hiveError(msg({ id: 'session.cleanUp.unreadBackups', defaultMessage: "Hive couldn't read what the session used, so its backups are kept.", description: "Clean Up… kept a session's backups: Hive couldn't read its usage, which the project's totals keep." }))
         await this.assertCleanable(projectPath, sessionId, expected)
         for (const b of this.backupFiles(projectPath, sessionId)) await trash(b)
       })
@@ -5020,15 +5005,12 @@ class SessionManager {
           await this.assertCleanable(projectPath, sessionId, expected)
           if (await this.providerTranscript(projectPath, sessionId)) throw hiveError(msg({ id: 'session.cleanUp.cliBack', defaultMessage: "The CLI has this session's transcript again.", description: "Clean Up… kept a session: the coding agent's own transcript is back since the preview." }))
         } else await this.assertFree(projectPath, sessionId, 'delete')
-        // What it used stays in the project's totals: read, and saved on its record, before its copies go, so the
-        // totals survive a failure partway (a record without a transcript counts its keptUsage).
+        // What it used stays in the project's totals: recorded in the usage history (#1106) before its copies go, where
+        // it stays once the record is gone.
         const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
-        const used = rec ? await this.usage(projectPath, sessionId).catch(() => null) : null
-        if (expected && !used) throw hiveError(msg({ id: 'session.cleanUp.unread', defaultMessage: "Hive couldn't read what the session used, so it is kept.", description: "Clean Up… kept a session: Hive couldn't read its usage, which the project's totals keep." }))
-        const usage = used && { ...used, lastPrompt: null, costUnreported: undefined }
-        if (rec && usage) await workspace.upsertSession(projectPath, { id: sessionId, keptUsage: usage })
+        const recorded = rec ? await usageHistory.recordNow(projectPath, sessionId).catch(() => false) : false
+        if (expected && !recorded) throw hiveError(msg({ id: 'session.cleanUp.unread', defaultMessage: "Hive couldn't read what the session used, so it is kept.", description: "Clean Up… kept a session: Hive couldn't read its usage, which the project's totals keep." }))
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
-        const kept: KeptUsage | null = rec && usage ? { id: sessionId, provider: recordProvider(rec), agentId: rec.agentId, ...(rec.agentName ? { agentName: rec.agentName } : {}), cwd: rec.cwd, name: rec.name, usage } : null
         this.assertNotLive(sessionId, 'delete')
         const files = this.backupFiles(projectPath, sessionId)
         await inUseOnFail(() =>
@@ -5039,7 +5021,6 @@ class SessionManager {
               workspace.mutateSessions(projectPath, (f) => {
                 f.sessions = f.sessions.filter((s) => s.id !== sessionId)
                 if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
-                if (kept) f.deletedUsage = [...(f.deletedUsage ?? []).filter((k) => k.id !== sessionId), kept]
               })
           )
         )
@@ -5051,19 +5032,28 @@ class SessionManager {
   }
 
   /**
-   * Hive's sessions of a project (and deleted ones' kept usage) with only what totals need, for the Workspace
-   * Overview. Lighter than list(): no sessions started outside Hive, no transcript or backup checks, and usage
-   * comes from the usage cache (a transcript is read only where it grew since it was last read).
+   * Hive's sessions of a host (and deleted ones') with only what totals need, for the Workspace Overview and Performance:
+   * their usage from the usage history (#1106), no transcript read. Until the history has imported the host's sessions,
+   * what it has so far: a record it hasn't reached yet counts its kept usage, or none (the Overview says the figures
+   * are partial meanwhile). Sessions started outside Hive aren't in it.
    */
   async usageItems(projectPath: string): Promise<SessionListItem[]> {
     projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
-    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath) }
+    const cfg = await workspace.projectConfig(projectPath)
+    const stored = await usageHistory.storedUsage(projectPath)
+    const done = usageHistory.backfilled(workspaceOf(projectPath).path ?? '')
     // Whose each was, by the agent's name now (its name then once it is gone): Performance's totals by agent (#606).
-    const named = new Map(projectAgents(ctx.cfg).map((a) => [a.id, a.name]))
+    const named = new Map(projectAgents(cfg).map((a) => [a.id, a.name]))
+    // A running session's as Hive reads it while it runs (its footer's: what its transcript added, in memory), not the
+    // history's of the last tick.
+    const running = new Set(this.projectStates(projectPath).map((s) => s.sessionId).filter(Boolean))
+    const ctx: ListContext = { records: file.sessions, cfg, stored }
     const items: SessionListItem[] = []
     for (const rec of file.sessions) {
-      const usage = await this.usage(projectPath, rec.id, ctx).catch(() => null)
+      // (usage() adds the stops seen on screen itself.)
+      const kept = stored.get(rec.id)?.usage ?? (done ? null : (rec.keptUsage ?? null))
+      const usage = running.has(rec.id) ? await this.usage(projectPath, rec.id, ctx).catch(() => null) : kept && withScreenStopsIn(kept, rec.screenStops)
       const agentName = (rec.agentId && named.get(rec.agentId)) || rec.agentName
       items.push({
         id: rec.id,
@@ -5081,7 +5071,7 @@ class SessionManager {
         recache: null
       })
     }
-    return [...items, ...(await this.keptUsage(projectPath)).map((k) => {
+    return [...items, ...this.deletedItems(file, stored, done).map((k) => {
       const agentName = (k.agentId && named.get(k.agentId)) || k.agentName
       return agentName ? { ...k, agentName } : k
     })]
@@ -5090,7 +5080,17 @@ class SessionManager {
   /** Deleted sessions' usage, as list items for totals (never shown in the session lists). */
   async keptUsage(projectPath: string): Promise<SessionListItem[]> {
     projectPath = workspace.assertSessionHost(projectPath)
-    return ((await workspace.sessionsFile(projectPath)).deletedUsage ?? []).map((k) => ({
+    const done = usageHistory.backfilled(workspaceOf(projectPath).path ?? '')
+    return this.deletedItems(await workspace.sessionsFile(projectPath), await usageHistory.storedUsage(projectPath), done)
+  }
+
+  /**
+   * The deleted sessions of a host: those the usage history has that no record does (#1106); until it has imported the
+   * host's, also the kept usage of those it hasn't reached yet (deletedUsage, from before the history).
+   */
+  private deletedItems(file: SessionsFile, stored: Map<string, StoredUsage>, done: boolean): SessionListItem[] {
+    const records = new Set(file.sessions.map((s) => s.id))
+    const item = (k: { id: string; provider: ProviderId; agentId?: string; agentName?: string; cwd?: string; name?: string; usage: SessionUsage }): SessionListItem => ({
       id: k.id,
       provider: k.provider,
       source: 'hive' as const,
@@ -5106,7 +5106,12 @@ class SessionManager {
       hasBackup: false,
       usage: k.usage,
       recache: null
-    }))
+    })
+    const out: SessionListItem[] = []
+    // Sessions started outside Hive are kept for the Sessions list, never counted.
+    for (const [id, s] of stored) if (!records.has(id) && s.source !== 'external') out.push(item({ ...s.meta, id, usage: { ...s.usage, lastPrompt: null } }))
+    if (!done) for (const k of file.deletedUsage ?? []) if (!stored.has(k.id) && !records.has(k.id)) out.push(item(k))
+    return out
   }
 
   async rename(projectPath: string, sessionId: string, name: string): Promise<void> {

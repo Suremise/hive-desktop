@@ -221,6 +221,10 @@ function handleEvent(e: HiveEvent): void {
       // i18n.ts has switched the text; the language setting's notes read the rest.
       set((s) => ({ appInfo: s.appInfo && { ...s.appInfo, language: e.language } }))
       break
+    case 'usage-history':
+      // The usage history's import (#1106): the Workspace Overview's note follows it.
+      set((s) => (s.workspaceUsage && s.workspaceUsage.workspacePath.toLowerCase() === e.workspacePath.toLowerCase() ? { workspaceUsage: { ...s.workspaceUsage, history: e.progress } } : {}))
+      break
     case 'progress-changed':
       if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ progressRuns: e.runs })
       break

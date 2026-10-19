@@ -210,6 +210,8 @@ interface HiveMessageValues {
   'workspace.overview.dayTip': { day: string | number; tokens: string | number; cost: string | number; prompts: number }
   'workspace.overview.estimated': undefined
   'workspace.overview.hidden': { count: number }
+  'workspace.overview.importing': { done: number; total: number }
+  'workspace.overview.importingStart': undefined
   'workspace.overview.loadTarget': undefined
   'workspace.overview.loading': undefined
   'workspace.overview.noWorkspace': undefined

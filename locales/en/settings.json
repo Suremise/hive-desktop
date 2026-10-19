@@ -3084,11 +3084,11 @@
     "description": "A setting's title (Settings → Sessions)."
   },
   "settings.sessions.usageCacheClear.desc": {
-    "defaultMessage": "Forget what the cache holds; each transcript is read again the next time it is shown.",
+    "defaultMessage": "Forget what the cache holds; a transcript it had is read again when it is next needed. The usage history stays.",
     "description": "What the setting \"Clear the usage cache\" does, under its title (Settings → Sessions)."
   },
   "settings.sessions.usageCacheClear.tip": {
-    "defaultMessage": "Only needed if the token counts look wrong. Nothing else is lost: sessions, transcripts and backups stay as they are.",
+    "defaultMessage": "Only needed if a running session's token counts look wrong. Nothing else is lost: sessions, transcripts, backups and the usage history stay as they are.",
     "description": "The info tip of the setting \"Clear the usage cache\" (Settings → Sessions): more on what it does and when it applies."
   },
   "settings.sessions.usageCacheClear.title": {
@@ -3096,11 +3096,11 @@
     "description": "A setting's title (Settings → Sessions)."
   },
   "settings.sessions.usageCacheSize.desc": {
-    "defaultMessage": "How many transcripts Hive remembers the token use of, so the Overview and session lists open without reading them again, also after a restart.",
+    "defaultMessage": "How many transcripts Hive keeps the token use of in memory while it runs, so a running session's figures follow each turn without reading it again.",
     "description": "What the setting \"Usage cache size\" does, under its title (Settings → Sessions)."
   },
   "settings.sessions.usageCacheSize.tip": {
-    "defaultMessage": "Kept in usage-cache.json in your Hive profile: a few KB per transcript. A transcript is read again only when it changed (for example, a session you continued outside Hive), and the cache starts afresh with each Hive version. The least recently used go first when it is full. {min, number} to {max, number}.",
+    "defaultMessage": "What each session used is kept in the usage history, in the workspace's .hive folder: this cache only spares reading a transcript again while Hive runs. The least recently used go first when it is full. {min, number} to {max, number}.",
     "description": "The info tip of the setting \"Usage cache size\" (Settings → Sessions): more on what it does and when it applies. {min} and {max} are the fewest and most transcripts it can be set to."
   },
   "settings.sessions.usageCacheSize.title": {

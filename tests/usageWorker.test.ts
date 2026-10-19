@@ -1,0 +1,120 @@
+// The usage worker (#1106): records a session from its transcript, reads only what was added since (taking up its
+// parser's state), never makes a session's totals smaller, keeps a kept usage only for a session it doesn't have, and
+// leaves a session another writer recorded meanwhile as that writer wrote it.
+import { appendFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { describe, expect, it } from 'vitest'
+import { DatabaseSync } from 'node:sqlite'
+import { handleRequest, type IngestJob, type IngestResult } from '../src/main/usageWorker'
+import { cursorOf, writeSession, type StoredSession } from '../src/main/usageDb'
+import { summaryOf } from '../src/shared/usageLedger'
+import { priceUsage } from '../src/shared/usageDays'
+import { newUsageParser } from '../src/main/usageParsers'
+import { DEFAULT_SETTINGS } from '../src/shared/defaults'
+import { tempDir } from './tempDir'
+
+const T0 = Date.parse('2026-10-12T10:00:00.000Z')
+const line = (i: number, output = 100): string => JSON.stringify({ type: 'assistant', requestId: `r${i}`, timestamp: new Date(T0 + i * 1000).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: output } } }) + '\n'
+const prompt = (i: number): string => JSON.stringify({ type: 'user', timestamp: new Date(T0 + i * 1000).toISOString(), message: { role: 'user', content: `go ${i}` } }) + '\n'
+
+let id = 0
+const call = (m: Record<string, unknown>): Promise<unknown> => handleRequest({ id: ++id, ...m } as never)
+
+async function setup() {
+  const dir = tempDir('hive-usage-worker-')
+  const file = join(dir, '.hive', 'usage.db')
+  const transcript = join(dir, 'abc.jsonl')
+  await call({ type: 'config', advanced: {}, providers: DEFAULT_SETTINGS.providers, hiveVersion: '9.9.9-test' })
+  const job = (o: Partial<IngestJob> = {}): IngestJob => ({ scope: 'p1', session: 'abc', provider: 'claude-code', agentId: 'a1', path: transcript, holds: [], keepState: 'now', ...o })
+  const ingest = (o?: Partial<IngestJob>) => call({ type: 'ingest', file, job: job(o) }) as Promise<IngestResult>
+  const stored = async (): Promise<StoredSession | undefined> => ((await call({ type: 'sessions', file, scopes: ['p1'] })) as StoredSession[]).find((s) => s.session === 'abc')
+  const output = async (): Promise<number> => (await stored())?.rows.reduce((n, r) => n + r.outputTokens, 0) ?? 0
+  return { file, transcript, ingest, stored, output, close: () => call({ type: 'close', file }) }
+}
+
+describe('the usage worker', () => {
+  it('records a session, does nothing more while its file is unchanged, and reads what was added from its saved state', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + line(2))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await t.output()).toBe(200)
+    expect((await t.ingest()).status).toBe('unchanged')
+    // The part already read is changed (same length) where no reader would look again: only a read from the saved state
+    // gives 300 after a line is added; a read from the start would see the changed part.
+    const { readFileSync } = await import('fs')
+    writeFileSync(t.transcript, readFileSync(t.transcript, 'utf8').replace('"output_tokens":100}', '"output_tokens":900}'))
+    appendFileSync(t.transcript, line(3))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await t.output()).toBe(300)
+    await t.close()
+  })
+
+  it('reads from the start when its state is from another Hive version (and the result is the same)', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + line(2))
+    await t.ingest()
+    await call({ type: 'config', advanced: {}, providers: DEFAULT_SETTINGS.providers, hiveVersion: '9.9.10-test' })
+    appendFileSync(t.transcript, line(3))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await t.output()).toBe(300)
+    await t.close()
+  })
+
+  it("never makes a session's totals smaller: a file cut short leaves what was recorded", async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + line(2) + line(3))
+    await t.ingest()
+    writeFileSync(t.transcript, prompt(0) + line(1))
+    expect((await t.ingest()).status).toBe('kept')
+    expect(await t.output()).toBe(300)
+    // A file that is gone leaves it too.
+    expect((await t.ingest({ path: join(t.transcript, '..', 'gone.jsonl') })).status).toBe('unchanged')
+    expect(await t.output()).toBe(300)
+    await t.close()
+  })
+
+  it("records a kept usage only for a session it doesn't have, at the cost it was kept with", async () => {
+    const t = await setup()
+    const p = newUsageParser('claude-code', 'abc')!
+    p.feed(prompt(0) + line(1, 500))
+    const kept = priceUsage(p.result(), DEFAULT_SETTINGS)
+    const keptJob = { scope: 'p1', session: 'abc', provider: 'claude-code', usage: kept, holds: [] }
+    expect(((await call({ type: 'kept', file: t.file, job: keptJob })) as IngestResult).status).toBe('written')
+    expect(await t.output()).toBe(500)
+    expect((await t.stored())?.source).toBe('kept')
+    // Another kept usage doesn't replace it; its transcript, read later, does (it has more).
+    expect(((await call({ type: 'kept', file: t.file, job: { ...keptJob, usage: { ...kept, outputTokens: 1 } } })) as IngestResult).status).toBe('unchanged')
+    writeFileSync(t.transcript, prompt(0) + line(1, 500) + line(2))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await t.output()).toBe(600)
+    expect((await t.stored())?.source).toBe('transcript')
+    await t.close()
+  })
+
+  it('leaves a session another writer recorded meanwhile as it wrote it', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1))
+    await t.ingest()
+    await t.close()
+    const db = new DatabaseSync(t.file)
+    const was = cursorOf(db, 'p1', 'abc')!
+    const p = newUsageParser('claude-code', 'abc')!
+    p.feed(prompt(0) + line(1))
+    const w = { scope: 'p1', session: 'abc', provider: 'claude-code' as const, source: 'transcript' as const, path: t.transcript, size: 1, mtime: 1, offset: 1, state: null, summary: summaryOf(p.result()), timeline: null, rows: [] }
+    // From an older point than what is recorded now: refused, nothing written.
+    expect(writeSession(db, w, { offset: was.offset - 1, path: was.path })).toBe(false)
+    expect(cursorOf(db, 'p1', 'abc')!.tokens).toBe(was.tokens)
+    // From what is recorded: written.
+    expect(writeSession(db, w, { offset: was.offset, path: was.path })).toBe(true)
+    db.close()
+  })
+
+  it('answers the cards a session worked on, with whose session each row is', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + line(2) + line(3))
+    await t.ingest({ holds: [{ card: 12, role: 'review', parts: [[1, [[T0 + 1500, T0 + 3500]]]] }] })
+    const rows = (await call({ type: 'cards', file: t.file, cards: [12] })) as { session: string; agentId?: string; row: { card: number; role: string; outputTokens: number } }[]
+    expect(rows.map((r) => [r.session, r.agentId, r.row.role, r.row.outputTokens])).toEqual([['abc', 'a1', 'review', 200]])
+    await t.close()
+  })
+})

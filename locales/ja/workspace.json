@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>：{tokens}トークン · {cost} · プロンプト{prompts, plural, other {#件}}",
   "workspace.overview.estimated": "推定",
   "workspace.overview.hidden": "{count, plural, other {非表示または削除したプロジェクト#個は含まれていません}}（「設定」→「ワークスペース」）。",
+  "workspace.overview.importing": "使用履歴を取り込んでいます: {total, plural, other {#件}}のセッションのうち{done, number}件。完了するまで、数値は一部のみです。",
+  "workspace.overview.importingStart": "使用履歴を取り込んでいます。完了するまで、数値は一部のみです。",
   "workspace.overview.loadTarget": "ワークスペースの使用量",
   "workspace.overview.loading": "読み込み中…",
   "workspace.overview.noWorkspace": "概要を見るには、ワークスペースを開いてください。",

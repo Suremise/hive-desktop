@@ -867,6 +867,10 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   /** Session names from Codex's session_index.jsonl ({id, thread_name}). */
+  usageTitle(sessionId: string): string | null {
+    return this.title(sessionId)
+  }
+
   private title(sessionId: string): string | null {
     const file = join(codexHome(), 'session_index.jsonl')
     try {

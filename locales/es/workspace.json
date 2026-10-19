@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>: {tokens} tokens · {cost} · {prompts, plural, one {# prompt} many {# prompts} other {# prompts}}",
   "workspace.overview.estimated": "estimado",
   "workspace.overview.hidden": "{count, plural, one {No se cuenta # proyecto oculto o quitado} many {No se cuentan # proyectos ocultos o quitados} other {No se cuentan # proyectos ocultos o quitados}} (Configuración → Espacio de trabajo).",
+  "workspace.overview.importing": "Importando el historial de uso: {done, number} de {total, plural, one {# sesión} many {# sesiones} other {# sesiones}}. Las cifras están incompletas hasta que termine.",
+  "workspace.overview.importingStart": "Importando el historial de uso. Las cifras están incompletas hasta que termine.",
   "workspace.overview.loadTarget": "el uso del espacio de trabajo",
   "workspace.overview.loading": "Cargando…",
   "workspace.overview.noWorkspace": "Abre un espacio de trabajo para ver su resumen.",

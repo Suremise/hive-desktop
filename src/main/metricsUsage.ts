@@ -16,7 +16,7 @@ export interface UsageFilter {
 
 /**
  * The providers' own reported usage for a metrics report: the sessions active in the range (the Overview's usage, from
- * the usage cache), summed per provider and whose sessions they were (project agents' or the Assistant's). Each
+ * the usage history, #1106), summed per provider and whose sessions they were (project agents' or the Assistant's). Each
  * session's usage is its cumulative total as the provider reported it, so it is labelled as such; a session with none
  * reported counts as unknown (usage and cost), not zero. A project scope reads that project only; the workspace scope
  * reads every project and the Assistant once each (its own work: the Assistant only), so nothing is counted twice.

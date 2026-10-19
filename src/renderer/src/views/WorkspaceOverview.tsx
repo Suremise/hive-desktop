@@ -17,7 +17,7 @@ import { PlanLimits, RunningAgent } from './ProjectTabs'
 import { fmt, msg, tr, tRich } from '@shared/i18n'
 import { formatDayLabel } from '@shared/dates'
 
-/** Live updates come at most this often (each checks every project's transcripts against the usage cache). */
+/** Live updates come at most this often (the usage history has running sessions about every minute, #1106). */
 const LIVE_REFRESH_MS = 15_000
 
 const M = {
@@ -66,6 +66,8 @@ const M = {
   withoutPriceShort: msg({ id: 'workspace.overview.withoutPriceShort', defaultMessage: '{count, number} without a price', description: "Under a coding agent's API-equivalent cost: sessions whose model has no known price." }),
   promptsSub: msg({ id: 'workspace.overview.promptsSub', defaultMessage: '{count, plural, one {# prompt} other {# prompts}}', description: "Under a coding agent's Sessions: prompts sent." }),
   panelTip: msg({ id: 'workspace.overview.panelTip', defaultMessage: 'What each project used in the period chosen in the overview. Click one for its own Overview.', description: "The Workspace Overview's sidebar: tooltip on its heading." }),
+  importing: msg({ id: 'workspace.overview.importing', defaultMessage: 'Importing the usage history: {done, number} of {total, plural, one {# session} other {# sessions}}. The figures are partial until it is done.', description: "The Workspace Overview while Hive records, once, what the workspace's existing sessions used ({done} of {total} so far)." }),
+  importingStart: msg({ id: 'workspace.overview.importingStart', defaultMessage: 'Importing the usage history. The figures are partial until it is done.', description: "The Workspace Overview while Hive starts recording, once, what the workspace's existing sessions used (before it has counted them)." }),
   rowTip: msg({ id: 'workspace.overview.rowTip', defaultMessage: '{tokens} tokens · {sessions, plural, one {# session} other {# sessions}}{running, plural, =0 {} other { · # running}}', description: "The Workspace Overview's sidebar: tooltip on a project ({tokens} like 1.2M)." })
 }
 
@@ -74,17 +76,18 @@ const bold = (c: React.ReactNode[]): React.ReactNode => <strong>{c}</strong>
 /**
  * Loads the workspace's usage into the store while the Workspace Overview is shown. Updates follow Settings →
  * Sessions → Overview updates, like the project Overview: live (as sessions change, at most every 15 s), every
- * minute, or only on Refresh. Main reads each project's sessions file and takes usage from the usage cache.
+ * minute, or only on Refresh. Main reads each project's session records and their usage history (#1106): no transcript.
  */
 function useWorkspaceUsage(): () => void {
   const mode = useStore((s) => s.settings?.sessions.overviewRefresh ?? 'live')
   const wsPath = useStore((s) => s.workspace?.path ?? null)
-  // A string, so the selector returns nothing new while nothing changed.
+  // A string, so the selector returns nothing new while nothing changed. The usage history's import going on (#1106)
+  // counts as a change: its figures fill in.
   const liveKey = useStore(
     (s) =>
       `${Object.values(s.usageVersion).join(',')}|${[...(s.workspace?.projects ?? []), ...(s.workspace?.assistant ? [s.workspace.assistant] : [])]
         .flatMap((p) => p.agents.map((a) => `${a.live?.sessionId ?? ''}:${a.live?.status ?? ''}`))
-        .join(',')}`
+        .join(',')}|${s.workspaceUsage?.history.done ?? ''}`
   )
   const last = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -116,6 +119,13 @@ function useWorkspaceUsage(): () => void {
     if (wait <= 0) load()
     else if (!timer.current) timer.current = setTimeout(load, wait)
   }, [liveKey, mode, load])
+  // The usage history's import ending (#1106): the figures, complete now, whatever the update setting.
+  const importing = useStore((s) => s.workspaceUsage?.history.importing ?? false)
+  const wasImporting = useRef(false)
+  useEffect(() => {
+    if (wasImporting.current && !importing) load()
+    wasImporting.current = importing
+  }, [importing, load])
   useEffect(() => {
     if (mode !== 'minute') return
     const t = setInterval(load, 60_000)
@@ -306,6 +316,11 @@ export function WorkspaceOverviewView() {
         </div>
         {failed && <StaleNote what={tr(M.refreshTarget)} error={failed} at={loadedAt} onRetry={reload} />}
         <p className="hint">{tr(M.byDay)}</p>
+        {usage.history.importing && (
+          <p className="hint overview-importing" role="status">
+            <Icon name="loading" spin /> {usage.history.total ? tr(M.importing, { done: usage.history.done, total: usage.history.total }) : tr(M.importingStart)}
+          </p>
+        )}
         <div className="cards">
           <Card accent title={tr(M.tokens)} value={formatTokens(all$)} sub={tr(M.tokensSub, { input: formatTokens(total.input + total.cacheWrite), cached: formatTokens(total.cached), output: formatTokens(total.output) })} tip={tr(M.tokensTip)} />
           <Card title={tr(M.apiCost)} value={costText(total)} sub={total.unpriced ? tr(M.withoutPrice, { count: total.unpriced }) : tr(total.estimated ? M.partlyEstimated : M.asReported)} tip={tr(M.costTip)} />

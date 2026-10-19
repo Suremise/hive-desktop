@@ -1,5 +1,6 @@
 // Clean Up… while the sessions change: a session unarchived or resumed between the preview and the removal keeps
-// its files, and nothing goes without what it used read and kept first (so totals survive the CLI's copy going).
+// its files, and nothing goes without what it used recorded in the usage history first (#1106: so totals survive the
+// CLI's copy going).
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +17,7 @@ const base = tempDir('hive-cleanup-')
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace, workspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
 const { cleanup, cleanupPreview } = await import('../src/main/storage')
+const { usageHistory } = await import('../src/main/usageHistory')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'clean')
@@ -73,10 +75,10 @@ async function cleanupWith(target: string, opts: CleanupOptions, meanwhile: () =
   cliLookup.mockImplementation(lookup)
   return { listed, result }
 }
-/** Reading what this session used fails (the others' still works). */
-const realUsage = sessions.usage.bind(sessions)
-const failUsage = (target: string, fail: () => Promise<null>) =>
-  vi.spyOn(sessions, 'usage').mockImplementation((pp, id, ctx) => (id === target ? fail() : realUsage(pp, id, ctx)))
+/** Recording what this session used fails (the others' still works). */
+const realRecord = usageHistory.recordNow.bind(usageHistory)
+const failUsage = (target: string, fail: () => Promise<boolean>) =>
+  vi.spyOn(usageHistory, 'recordNow').mockImplementation((pp, id) => (id === target ? fail() : realRecord(pp, id)))
 const totalTokens = async (id: string): Promise<number | undefined> => {
   const u = await run(() => sessions.usage(p, id))
   return u ? u.inputTokens + u.outputTokens : undefined
@@ -137,12 +139,11 @@ describe('Clean Up while sessions change', () => {
   it("a backup whose usage can't be read is kept, and its totals survive the CLI's copy going", async () => {
     const id = await oldSession(true)
     const before = await totalTokens(id)
-    const usage = failUsage(id, async () => null)
+    const usage = failUsage(id, async () => false)
     const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, archivedBackupsDays: 90 }, async () => undefined)
     usage.mockRestore()
     expect(result.skipped.join('\n')).toMatch(/couldn't read what the session used/)
     expect(existsSync(archived(id))).toBe(true)
-    expect((await run(() => workspace.sessionsFile(p))).sessions.find((r) => r.id === id)?.keptUsage).toBeUndefined()
     rmSync(join(cli, `${id}.jsonl`))
     expect(await totalTokens(id)).toBe(before)
   })
@@ -168,15 +169,15 @@ describe('Clean Up while sessions change', () => {
     expect(result.removed).toBe(listed.length)
     expect([existsSync(archived(kept)), existsSync(archived(gone)), existsSync(attachments(kept))]).toEqual([false, false, false])
     rmSync(join(cli, `${kept}.jsonl`))
-    const file = await run(() => workspace.sessionsFile(p))
-    expect(file.deletedUsage?.some((k) => k.id === gone)).toBe(true)
+    // The deleted one's usage is in the history, as a deleted session's.
+    expect((await run(() => sessions.keptUsage(p))).find((k) => k.id === gone)?.usage?.outputTokens).toBe(50)
     expect(await totalTokens(kept)).toBe(before[0])
     expect(before.every((t) => t && t > 0)).toBe(true)
   })
-  /** Resumed while Clean Up reads what it used (after its first check). */
+  /** Resumed while Clean Up records what it used (after its first check). */
   const resumeDuringUsage = (id: string) =>
-    vi.spyOn(sessions, 'usage').mockImplementation(async (pp, i, ctx) => {
-      const u = await realUsage(pp, i, ctx)
+    vi.spyOn(usageHistory, 'recordNow').mockImplementation(async (pp, i) => {
+      const u = await realRecord(pp, i)
       if (i === id) s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-y', projectPath: p, agentId: 'c1', sessionId: id, status: 'starting' } })
       return u
     })
@@ -197,9 +198,9 @@ describe('Clean Up while sessions change', () => {
   it("can't be resumed while Clean Up removes its files", async () => {
     const id = await oldSession(true)
     let refused = ''
-    const usage = vi.spyOn(sessions, 'usage').mockImplementation(async (pp, i, ctx) => {
+    const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async (pp, i) => {
       if (i === id) refused = await run(() => sessions.start(p, { agentId: 'c1', resumeId: id })).then(() => 'started', (e: Error) => e.message)
-      return realUsage(pp, i, ctx)
+      return realRecord(pp, i)
     })
     await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, async () => undefined)
     usage.mockRestore()
@@ -224,8 +225,8 @@ describe('Clean Up while sessions change', () => {
     const before = await totalTokens(id)
     const real = w.mutateSessions.bind(w)
     let calls = 0
-    // The first write (what it used, on its record) works; the last (deleting the record) fails.
-    vi.spyOn(w, 'mutateSessions').mockImplementation((pp, fn) => (++calls === 2 ? Promise.reject(new Error('EIO')) : real(pp, fn)))
+    // Deleting the record fails (what it used is in the usage history by then).
+    vi.spyOn(w, 'mutateSessions').mockImplementation((pp, fn) => (++calls === 1 ? Promise.reject(new Error('EIO')) : real(pp, fn)))
     const { result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedAttachmentsDays: null, goneBackups: true }, async () => undefined)
     vi.mocked(w.mutateSessions).mockImplementation(real)
     expect(result.skipped.join('\n')).toMatch(/EIO/)

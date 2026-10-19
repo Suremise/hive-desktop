@@ -1777,6 +1777,13 @@ export interface SessionUsage {
   safeguardsAsked?: Record<string, number>
 }
 
+/** A workspace's usage history (#1106): whether its one-time import of the sessions it had is under way, and how far. */
+export interface UsageHistoryProgress {
+  importing: boolean
+  done: number
+  total: number
+}
+
 export interface UsageTokens {
   inputTokens: number
   outputTokens: number
@@ -1881,8 +1888,8 @@ export interface SessionListItem extends Partial<SessionRecord> {
 }
 
 /**
- * The workspace's usage for the Workspace Overview: each project's sessions (Hive's own, and deleted ones' kept
- * usage) and the Assistant's, with their usage by day, from the usage cache.
+ * The workspace's usage for the Workspace Overview: each project's sessions (Hive's own, deleted ones included) and the
+ * Assistant's, with their usage by day, from the usage history (#1106).
  */
 export interface WorkspaceUsage {
   workspacePath: string
@@ -1890,6 +1897,8 @@ export interface WorkspaceUsage {
   assistant: SessionListItem[]
   /** Projects left out: hidden, or removed from Hive. */
   hidden: number
+  /** The usage history's import of the sessions the workspace had (#1106): while it runs, the figures are partial. */
+  history: UsageHistoryProgress
 }
 
 /** A tool call and its result, as shown in the transcript viewer. */
@@ -2270,6 +2279,8 @@ export type HiveEvent =
   | { type: 'git-tool'; git: GitTool }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
+  /** A workspace's usage history: its one-time import of existing sessions under way, or done (#1106). */
+  | { type: 'usage-history'; workspacePath: string; progress: UsageHistoryProgress }
   | { type: 'notes-changed' }
   /** The workspace's task board changed (its path names the window). */
   | { type: 'tasks-changed'; workspacePath: string }

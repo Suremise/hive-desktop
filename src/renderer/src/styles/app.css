@@ -6386,6 +6386,12 @@ body.pane-resizing .monaco-editor {
   justify-content: space-between;
   gap: 8px 12px;
 }
+/* The usage history's import under way (#1106): a spinner beside its note. */
+.overview-importing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .overview-head .segmented {
   flex-wrap: wrap;
   flex-shrink: 1;

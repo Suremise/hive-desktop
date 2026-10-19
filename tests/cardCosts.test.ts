@@ -217,10 +217,12 @@ describe('timeline', () => {
     expect(p.result().timeline).toEqual({
       step: 1,
       reports: [10, 1],
+      // Each request with the model it ran on (#1106).
+      models: ['claude-sonnet-5-5'],
       rows: [
-        [S(0), 10, 10, 0, 0, 1, 0, 0],
-        [S(5), 20, 20, 0, 0, 1, 1, 0],
-        [S(7), 5, 5, 0, 0, 1, -1, 0]
+        [S(0), 10, 10, 0, 0, 1, 0, 0, 0],
+        [S(5), 20, 20, 0, 0, 1, 1, 0, 0],
+        [S(7), 5, 5, 0, 0, 1, -1, 0, 0]
       ]
     })
 

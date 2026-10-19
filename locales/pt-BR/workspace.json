@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>: {tokens} tokens · {cost} · {prompts, plural, =0 {# prompts} one {# prompt} other {# prompts}}",
   "workspace.overview.estimated": "estimado",
   "workspace.overview.hidden": "{count, plural, one {# projeto oculto ou removido não é contado} other {# projetos ocultos ou removidos não são contados}} (Configurações → Espaço de trabalho).",
+  "workspace.overview.importing": "Importando o histórico de uso: {done, number} de {total, plural, one {# sessão} other {# sessões}}. Os números ficam parciais até terminar.",
+  "workspace.overview.importingStart": "Importando o histórico de uso. Os números ficam parciais até terminar.",
   "workspace.overview.loadTarget": "o uso do espaço de trabalho",
   "workspace.overview.loading": "Carregando…",
   "workspace.overview.noWorkspace": "Abra um espaço de trabalho para ver a visão geral.",

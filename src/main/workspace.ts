@@ -48,9 +48,21 @@ This folder is managed by [Hive](https://github.com/) and is meant to be committ
 - \`mcp/\` — MCP server definitions (one \`<name>.json\` per server). Enable them in Hive.
 - \`workspace.json\` — which MCP servers are on in the workspace (each runs only in the projects that turn it on too).
 - \`hive.db\` — the task board (Hive's database). It is this machine's, like the Assistant's sessions: \`.gitignore\` keeps it out of git.
+- \`usage.db\` — what each session used (the usage history the Overviews read). It is this machine's too, kept out of git.
 
 MCP definitions must not contain secrets. Reference environment variables instead, e.g. \`"\${GITHUB_TOKEN}"\`.
 `
+
+/** The usage history's lines of BOARD_GITIGNORE (#1106), added to the .gitignore Hive wrote before them. */
+const USAGE_IGNORE = '# What each session used: the usage history (#1106)\nusage.db\nusage.db-*\n' // i18n-ignore: the .hive folder's .gitignore, a file committed with the workspace
+
+/** Adds the usage history's lines to the .gitignore Hive wrote (only its own: one the user wrote is theirs). */
+async function addUsageIgnore(file: string): Promise<void> {
+  const text = await readFile(file, 'utf8').catch(() => null)
+  if (text === null || !text.startsWith(BOARD_GITIGNORE.split('\n')[0]) || /^usage\.db\r?$/m.test(text)) return
+  const nl = text.includes('\r\n') ? '\r\n' : '\n'
+  await writeFile(file, `${text}${text.endsWith('\n') ? '' : nl}${USAGE_IGNORE.replace(/\n/g, nl)}`).catch(() => undefined)
+}
 
 // i18n-ignore: the .hive folder's .gitignore, a file committed with the workspace
 const BOARD_GITIGNORE = `# The task board's database and what moving it from files left (added by Hive, #1017)
@@ -60,6 +72,9 @@ backups/
 tasks.imported-*/
 tasks.set-aside/
 deleted-cards/
+# What each session used: the usage history (#1106)
+usage.db
+usage.db-*
 `
 
 // i18n-ignore: the handovers folder's README, a file committed with the workspace
@@ -324,6 +339,7 @@ export class WorkspaceService {
     if (!existsSync(join(h, 'README.md'))) await writeFile(join(h, 'README.md'), WORKSPACE_README)
     // The board's database and what its move from files left (#1017) are this machine's: kept out of git if the workspace is a repository.
     if (!existsSync(join(h, '.gitignore'))) await writeFile(join(h, '.gitignore'), BOARD_GITIGNORE)
+    else await addUsageIgnore(join(h, '.gitignore'))
     const hr = join(h, 'shared', 'handovers', 'README.md')
     if (!existsSync(hr)) await writeFile(hr, HANDOVER_README)
   }
@@ -854,6 +870,15 @@ export class WorkspaceService {
     return { workspace: parent, scope: typeof saved === 'string' && saved ? saved : `folder:${basename(h).toLowerCase()}`, file, removed }
   }
 
+  /**
+   * Where a session host's usage history is (#1106): the workspace folder its database is in and its scope there, as for
+   * its session records; a removed project keeps its scope, so its history comes back with it.
+   */
+  async sessionScope(projectPath: string): Promise<{ workspace: string; scope: string }> {
+    const p = await this.sessionsPlace(projectPath)
+    return { workspace: p.workspace, scope: p.scope }
+  }
+
   /** A session host's records (#1061: in the workspace's database). */
   async sessionsFile(projectPath: string): Promise<SessionsFile> {
     return readSessions(await this.sessionsPlace(projectPath))
@@ -1153,7 +1178,7 @@ export function workspaceOf(p: string): WorkspaceService {
 /** Methods whose first argument is a project or worktree path: they go to the workspace owning it. */
 const BY_PATH = new Set<string>([
   'isProjectPath', 'assertProject', 'assertRoot', 'assertChangesRoot', 'noteUnusedWorktrees', 'projectForRoot', 'updateAgent', 'ensureProject', 'ensureGitExclude', 'branch',
-  'projectConfig', 'updateProjectConfig', 'mutateProjectConfig', 'sessionsFile', 'mutateSessions', 'upsertSession', 'setActive',
+  'projectConfig', 'updateProjectConfig', 'mutateProjectConfig', 'sessionsFile', 'sessionScope', 'mutateSessions', 'upsertSession', 'setActive',
   'unmanagedMcp', 'projectInfo', 'isAssistantHome', 'assertSessionHost'
 ])
 

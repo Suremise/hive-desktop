@@ -27,7 +27,7 @@ function PartLine({ label, part }: { label: string; part: CostPart }) {
 /** "cost: ≈ $1.84 · 2 rounds" under a card's panel, with its builder's and reviewer's parts and tokens on hover. */
 export function CardCostLine({ card }: { card: TaskCard }) {
   const [cost, setCost] = useState<CardCost | null>(null)
-  // Again whenever the card changes (a move, a verdict): read from the usage cache, so it's cheap.
+  // Again whenever the card changes (a move, a verdict): read from the usage history (#1106), so it's cheap.
   useEffect(() => {
     let live = true
     call('costs:cards', { numbers: [card.number] })

@@ -217,8 +217,9 @@ const write = (file, text) => {
 
   // The lost session is deleted like Delete Session; the other keeps its record (in the workspace's database, #1061).
   const file = sessionsOf(alpha)
-  check('the session the CLI lost is deleted', !file.sessions.some((s) => s.id === OLD_GONE) && file.deleted.includes(OLD_GONE) && file.deletedUsage.some((k) => k.id === OLD_GONE))
-  check('the session the CLI still has stays, with its usage kept', file.sessions.find((s) => s.id === OLD_CLI)?.keptUsage?.outputTokens === 50)
+  // What each used is in the usage history (#1106), recorded before its copies went.
+  check('the session the CLI lost is deleted', !file.sessions.some((s) => s.id === OLD_GONE) && file.deleted.includes(OLD_GONE) && (await inv('session:keptUsage', alpha)).some((k) => k.id === OLD_GONE))
+  check('the session the CLI still has stays, with its usage kept', file.sessions.some((s) => s.id === OLD_CLI) && (await inv('session:usage', alpha, OLD_CLI))?.outputTokens === 50)
   const list = await inv('session:list', alpha)
   check('the Sessions tab no longer lists the lost one', !list.some((s) => s.id === OLD_GONE) && list.some((s) => s.id === OLD_CLI))
   check('the totals are unchanged', (await totals()) === before, `${await totals()} vs ${before}`)

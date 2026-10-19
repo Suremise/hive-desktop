@@ -208,6 +208,8 @@
   "workspace.overview.dayTip": "<b>{day}</b>: {tokens} tokenów · {cost} · {prompts, plural, one {# prompt} few {# prompty} many {# promptów} other {# promptu}}",
   "workspace.overview.estimated": "szacunkowy",
   "workspace.overview.hidden": "{count, plural, one {# ukryty lub usunięty projekt nie jest liczony} few {# ukryte lub usunięte projekty nie są liczone} many {# ukrytych lub usuniętych projektów nie jest liczonych} other {# ukrytego lub usuniętego projektu nie jest liczone}} (Ustawienia → Obszar roboczy).",
+  "workspace.overview.importing": "Importowanie historii użycia: {done, number} z {total, plural, one {# sesji} few {# sesji} many {# sesji} other {# sesji}}. Do końca liczby są niepełne.",
+  "workspace.overview.importingStart": "Importowanie historii użycia. Do końca liczby są niepełne.",
   "workspace.overview.loadTarget": "użycia obszaru roboczego",
   "workspace.overview.loading": "Wczytywanie…",
   "workspace.overview.noWorkspace": "Otwórz obszar roboczy, aby zobaczyć jego przegląd.",
