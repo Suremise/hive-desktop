@@ -61,6 +61,7 @@ export const SUITES = [
   { name: 'claudesettings', needs: ['claude'], claudeHome: 'own' },
   { name: 'closewindow' },
   { name: 'codex', needs: ['codex'] },
+  { name: 'codex-appserver', needs: ['codex'], noHive: 'runs codex app-server and its TUI itself (#653)' },
   { name: 'codex-background', needs: ['codex'] },
   { name: 'codex-extra', needs: ['codex'] },
   { name: 'codex-handover', needs: ['codex'] },
