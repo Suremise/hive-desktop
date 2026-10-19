@@ -3,6 +3,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 
 const scratch = lib.WORK
 const shots = path.join(scratch, 'qshots')
@@ -115,7 +116,7 @@ const forceClose = async (app) => {
     check('quit now: app exits', await quits(q))
     const saved = JSON.parse(fs.readFileSync(path.join(scratch, 'q-always-profile', 'config.json'), 'utf8'))
     check("don't ask again: saved as never", saved.settings.general.confirmOnQuit === 'never')
-    const s = JSON.parse(fs.readFileSync(path.join(ws, 'alpha', '.hive', 'sessions.json'), 'utf8'))
+    const s = sessionsOf(path.join(ws, 'alpha'))
     check('quit now: nothing left running (no stray Claude Code for this profile)', Array.isArray(s.sessions))
   }
 

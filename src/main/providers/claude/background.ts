@@ -26,7 +26,8 @@ export function claudeBackgroundTasks(appended: string): BackgroundTaskEvent[] {
         out.push({ kind: 'start', id: r.taskId, at, ...(r.persistent ? {} : { expiresAt: at + r.timeoutMs }) })
       } else if (typeof r.message === 'string') {
         const stopped = /stopped task:? ([\w-]+)/i.exec(r.message)
-        if (stopped) out.push({ kind: 'end', id: stopped[1], at })
+        // Claude Code sends no notification for a task it was told to stop, and starts no turn (#640).
+        if (stopped) out.push({ kind: 'end', id: stopped[1], at, stopped: true })
       }
     }
     // The notification is in a user message, a queued command or both, possibly more than once: ends repeat harmlessly.

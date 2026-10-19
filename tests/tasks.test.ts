@@ -1458,6 +1458,7 @@ describe('removing projects', () => {
     handover(wsPath, '2026-10-01-remove-me-too-other.md', 'remove-me-too')
     handover(wsPath, '2026-10-01-keep-notes.md', 'keep')
     const c = await run(() => tasks.createTask({ title: 'Packed', project: 'remove-me' }, user))
+    await run(() => w.upsertSession(join(wsPath, 'remove-me'), { id: 'kept-session', name: 'Kept' }))
     const info = await run(() => removal.removalInfo(join(wsPath, 'remove-me')))
     // "remove-me-too" starts with "remove-me": its handover isn't this project's.
     expect(info.handovers).toEqual(['handovers/2026-10-01-remove-me-plan.md'])
@@ -1469,6 +1470,8 @@ describe('removing projects', () => {
     expect(existsSync(join(wsPath, '.hive', 'shared', 'handovers', '2026-10-01-remove-me-too-other.md'))).toBe(true)
     expect((await run(() => tasks.getTask(c.number))).archivedFor).toBe('project-removed')
     expect(w.hiddenProjects().find((h) => h.name === 'remove-me')?.mode).toBe('removed')
+    // Its sessions' records go with the folder (#1061): written into it, out of the workspace's database.
+    expect(JSON.parse(readFileSync(join(wsPath, 'remove-me', '.hive', 'sessions.json'), 'utf8')).sessions.map((x: { id: string }) => x.id)).toEqual(['kept-session'])
 
     const r = await run(() => removal.restoreProject('remove-me'))
     expect(r).toEqual({ handovers: 1, cards: 1 })
@@ -1477,6 +1480,8 @@ describe('removing projects', () => {
     // The same card back, not a copy.
     expect((await run(() => tasks.getTask(c.number))).archived).toBe(false)
     expect((await run(() => tasks.listTasks({ project: 'remove-me' }))).length).toBe(1)
+    // And its sessions are back, moved in from the folder.
+    expect((await run(() => w.sessionsFile(join(wsPath, 'remove-me')))).sessions.map((x) => x.id)).toEqual(['kept-session'])
   })
 
   it('takes a removed project into another workspace, with new card numbers', async () => {

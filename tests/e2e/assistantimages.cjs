@@ -10,6 +10,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
@@ -44,10 +45,10 @@ const stamp = (d, name) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.
   await lib.openWorkspace(inv, page, ws)
 
   // A past conversation of the Assistant, with two pasted images.
-  const file = path.join(home, '.hive', 'sessions.json')
-  const sessions = JSON.parse(fs.readFileSync(file, 'utf8'))
+  // Its records are in the workspace's database (#1061).
+  const sessions = sessionsOf(home)
   sessions.sessions.push({ id: conv, agent: 'claude-code', name: 'Planning the week', createdAt: at(9), lastActiveAt: at(10), archived: false, agentId: 'assistant', agentName: 'Assistant' })
-  fs.writeFileSync(file, JSON.stringify(sessions, null, 2))
+  putSessions(home, sessions)
   const transcript = [
     { type: 'user', sessionId: conv, timestamp: at(9), message: { role: 'user', content: 'What should the agents do this week?' } },
     { type: 'assistant', sessionId: conv, requestId: 'r1', timestamp: at(9), message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Start with the tray icon.' }], usage: { input_tokens: 10, output_tokens: 20 } } }

@@ -5,6 +5,7 @@
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
+const { putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 const scratch = lib.WORK, userData = path.join(scratch, 'resume-profile')
@@ -40,9 +41,9 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   // Old sessions: two of Agent 1's, none of Agent 2's.
   const A1 = await lib.addAgent(inv, proj)
   const A2 = await lib.addAgent(inv, proj)
-  const file = path.join(proj, '.hive', 'sessions.json')
   const old = (id, name, at, extra = {}) => ({ id, agent: 'claude-code', name, createdAt: at, lastActiveAt: at, archived: false, ...extra })
-  fs.writeFileSync(file, JSON.stringify({ version: 1, sessions: [old('11111111-0000-4000-8000-000000000001', 'Older work', '2026-09-20T10:00:00Z', { agentId: A1.id }), old('11111111-0000-4000-8000-000000000002', 'Tray fixes', '2026-09-25T10:00:00Z', { agentId: A1.id })] }))
+  // In the workspace's database (#1061): Hive has read the project's records.
+  putSessions(proj, { version: 1, sessions: [old('11111111-0000-4000-8000-000000000001', 'Older work', '2026-09-20T10:00:00Z', { agentId: A1.id }), old('11111111-0000-4000-8000-000000000002', 'Tray fixes', '2026-09-25T10:00:00Z', { agentId: A1.id })] })
   // Hive's backups of their transcripts: a session with no transcript anywhere can't be resumed.
   for (const [sid, at] of [['11111111-0000-4000-8000-000000000001', '2026-09-20T10:00:00Z'], ['11111111-0000-4000-8000-000000000002', '2026-09-25T10:00:00Z']]) {
     const b = path.join(proj, '.hive', 'sessions', `${sid}.jsonl`)

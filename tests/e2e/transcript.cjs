@@ -4,6 +4,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 
 const scratch = lib.WORK
 const userData = path.join(scratch, 'tprofile')
@@ -212,7 +213,7 @@ const text = (loc) => loc.textContent({ timeout: 1000 }).then((got) => got ?? ''
   await page.locator('.dialog-footer button', { hasText: /^Delete$/ }).click()
   check('the deleted session leaves the list', await becomes(async () => (await page.locator('.session-row', { hasText: 'Zebra test fix' }).count()) === 0))
   check("Hive's copy is gone", await becomes(() => !fs.existsSync(path.join(sessDir, `${A}.jsonl`))))
-  const sessionsFile = () => JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
+  const sessionsFile = () => sessionsOf(proj)
   check('Hive remembers it as deleted', await becomes(() => { const f = sessionsFile(); return !f.sessions.some((s) => s.id === A) && f.deleted?.includes(A) }), JSON.stringify(sessionsFile().deleted))
   check('the list leaves it out', !(await inv('session:list', proj)).some((s) => s.id === A))
   const kept = (await inv('session:keptUsage', proj)).find((s) => s.id === A)
