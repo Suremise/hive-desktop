@@ -352,6 +352,7 @@ async function changeFolder<T>(projectPath: string, action: GitFolderAction, bra
     withFileLock(join(projectPath, '.git', 'hive-merge'), () =>
       // The folder is fenced from here to git's end (#646): no line of Hive's is typed into its agents and none starts
       // there meanwhile, so no turn of Hive's begins between this last check and git changing the files.
+      // i18n-ignore: what changes the folder, for the log and an agent's reply (agent-facing, English)
       changingFolder(projectPath, `a Git ${action}`, async () => {
         // The slot is this action's own now (asUser refuses when anyone else holds or waits for it); without a branch to
         // hold it for (a detached HEAD), the slots are checked again too.
