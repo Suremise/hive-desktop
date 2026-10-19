@@ -50,7 +50,7 @@ Process model: the **main process** owns the filesystem, ptys, hook server, Agen
 
 Robustness and safety rules:
 
-- **Hive's JSON files** (`project.json`, `sessions.json`, `config.json`…) are written to a temporary file and renamed into place, each write with its own temporary file, so a crash or two writes at once never leave a partial file. The files Hive keeps (`config.json`, `workspace.json`, `project.json`, `sessions.json`) also get a `.bak` copy of the last good version with every save; a file that can't be read is set aside as `<file>.corrupt-<time>`, the `.bak` restored and the user told (or, with no good copy, defaults used and the user told), so a damaged file never silently turns into lost settings or session records. Read-modify-write changes to one project's `project.json` or `sessions.json` are serialised, so changes made at the same moment (two agents finishing together) are all kept.
+- **Hive's JSON files** (`project.json`, `config.json`…) are written to a temporary file and renamed into place, each write with its own temporary file, so a crash or two writes at once never leave a partial file. The files Hive keeps (`config.json`, `workspace.json`, `project.json`) also get a `.bak` copy of the last good version with every save; a file that can't be read is set aside as `<file>.corrupt-<time>`, the `.bak` restored and the user told (or, with no good copy, defaults used and the user told), so a damaged file never silently turns into lost settings or session records. Read-modify-write changes to one project's `project.json` or its session records are serialised, so changes made at the same moment (two agents finishing together) are all kept.
 - **Session IDs** from the renderer, the Agent API or the file system are checked (letters, digits, `-`, `_`) before they are used in a file name.
 - **Starting an agent** is reserved before anything else happens, so two starts at once (a double click, or the UI and the Agent API) start it only once; the other is refused.
 - **The window** only uses the clipboard; every other permission a page can ask for is refused, and a build's CSP allows no network connections. IPC calls are accepted only from Hive's own top-level page (not an embedded preview). Paths from the window are checked against the workspace by their real location too (following links and junctions), for `file:read`/`file:write`, `hive-img:` and shared notes.
@@ -97,13 +97,13 @@ Primary platform is Windows 11. Code avoids Windows-only assumptions where cheap
     personas/
       <id>.md             # a Hive Assistant persona (§6.5)
     bundled.json          # which of Hive's bundled skills and personas the workspace was given, and from which version (§7.1)
-    hive.db               # the task board (§6.6): SQLite, one row a card (#1017), and lanes, card watches and every session host's deliveries (#1018); with hive.db-wal and hive.db-shm
+    hive.db               # the task board (§6.6): SQLite, one row a card (#1017), and lanes, card watches and every session host's deliveries (#1018) and session records (#1061, below); with hive.db-wal and hive.db-shm
     tasks/                # what an older Hive reads: board.json (the next number) and a README (#1017)
     tasks.imported-<time>/ # the cards' files as they were, kept when they moved into hive.db
     .gitignore            # keeps hive.db and the board's backups out of git (written once, if there is none)
     lanes.json.imported-<time>  # lanes.json, watches.json as they were, kept when they moved into hive.db (#1018); a project's deliveries.json likewise in its .hive. An older Hive after the move starts these files afresh; the next 0.9 open keeps them the same way, unread (loop bookkeeping and deliveries for running agents, not worth merging back)
     assistant/            # the Hive Assistant's home (§6.5); its own .gitignore keeps it out of git
-      .hive/              # like a project's: project.json (its one agent), sessions.json, backups, launch-assistant/
+      .hive/              # like a project's: project.json (its one agent), backups, launch-assistant/ (its session records are in hive.db, under `assistant`)
     README.md             # explains the folder to humans browsing the repo
 ```
 
@@ -115,12 +115,12 @@ Primary platform is Windows 11. Code avoids Windows-only assumptions where cheap
 <Workspace>/<Project>/
   .hive/
     project.json          # project overrides
-    sessions.json         # session index
+    sessions.json.imported-<time>  # its session index as it was, kept when it moved into the workspace's hive.db (#1061; below)
     sessions/<id>.jsonl   # backup copy of each session transcript
     archive/<id>.jsonl    # transcripts of archived sessions
     attachments/<id>/<time>[_<name>]  # files pasted or dropped into a session (#387; was images/); deleted only by Clean Up… (§4.2.1)
     removed/              # only after Remove from Hive (§6.7): manifest.json, cards.json, handovers/
-    project.json.bak, sessions.json.bak   # last good copies (see §2)
+    project.json.bak      # last good copy (see §2)
     launch-<agent id>/    # Claude Code agents: regenerated on every launch — do not edit
       plugin/.claude-plugin/plugin.json
       plugin/skills/<skill>/...     # copies of enabled Hive skills
@@ -201,7 +201,14 @@ Windows only, behind a platform-neutral status (`shared/antivirus.ts`, `main/ant
   // 0.1's flat model/effort/permissionMode/extraArgs are still written (Claude Code's values) for downgrades.
 }
 
-// <Project>/.hive/sessions.json
+// A project's session records (#1061): rows of the workspace's hive.db (store `sessions`, under the project's id; the
+// Assistant's under `assistant`), one per record, deleted id and deleted session's usage, so a change writes only what it
+// changed. Moved in from <Project>/.hive/sessions.json the first time Hive reads them (kept as sessions.json.imported-<time>);
+// one found later is moved in only if the project has no records there (a folder brought back after Remove from Hive),
+// else kept unread. Remove from Hive writes them back into the folder's sessions.json (in one write transaction of the database,
+// so no change, from any process, is lost between) and marks them exported: while the project is removed, nothing here reads that file; Restore moves it
+// back in, with any record made meanwhile; another workspace opening the folder moves it in there. A folder copied or
+// moved by hand starts with none, as its cards do. Each in the file's form:
 { "version": 1, "sessions": [ { "id": "…", "agent": "claude-code", "agentId": "a2", "name": "…",
   "createdAt": "…", "lastActiveAt": "…", "archived": false,
   "transcriptPath": "…",        // Codex: where its rollout file is (it can't be found from the folder)
@@ -353,7 +360,7 @@ Hooks are normalised by each adapter into one set of events (start, prompt, tool
 **Hook journal** (`logs/hooks.log`, beside `hive.log`, kept to 5 MB and one older copy): each hook a CLI sent, with its launch (`run=`), its receive order (`seq=`), event, turn and call ids, sub-agent, `continued`, the status before and after, and what the ledger made of it (stale and why, carried on by Hive), so the next stuck status can be traced (#642's couldn't). Ids and statuses only, never the user's text; reconciliations and Mark idle are journaled too.
 
 **Background tasks.** An agent can leave work running when its turn ends: a test run, a server, a watch. Each adapter reads them from the transcript as it grows (`backgroundTasks()`), and Hive counts the ones started since the agent launched (`backgroundTasks` in its live state; shown as "· 2 background tasks running").
-- **Claude Code**: a background Bash call's result has `backgroundTaskId` (also a command moved to the background after running too long), a Monitor's has `taskId` and an expiry. A task ends with a `<task-notification>` naming it (any status but a Monitor's events) or a `TaskStop`. Claude Code is told when a task ends and starts a new turn by itself, so the provider has the `backgroundWakes` capability: a turn that ends with tasks open leaves the agent **background** ("Waiting on 2 background tasks"), not finished. When the last one ends, the agent is **working** again (the notification's turn), then finished at its Stop. No "finished" notification or chime until then.
+- **Claude Code**: a background Bash call's result has `backgroundTaskId` (also a command moved to the background after running too long), a Monitor's has `taskId` and an expiry. A task ends with a `<task-notification>` naming it (any status but a Monitor's events) or a `TaskStop`. Claude Code is told when a task ends and starts a new turn by itself, so the provider has the `backgroundWakes` capability: a turn that ends with tasks open leaves the agent **background** ("Waiting on 2 background tasks"), not finished. When the last one ends, the agent is **working** again (the notification's turn), then finished at its Stop. No "finished" notification or chime until then. A task the agent stopped itself (`TaskStop`) gets no notification and starts no turn: the last one ending that way leaves it **finished** (#640).
 - **Codex**: a command still running when `exec_command` returns gives a `session_id` instead of an `exit_code`; Codex records its end as an `item_completed` CommandExecution with that `process_id`. In code mode (0.160) the command runs inside an `exec` script that prints what the model chooses, and Codex records no start (only each command's end, and no record of which `exec_command` calls a script ran), so a start needs evidence: an id the output shows (the result's whole-number `session_id`, or a script that reads `session_id`, printed only numbers, such as `text(r.session_id)`, and had none of its commands end within it), ended by its `process_id`; or else a script that runs its one `exec_command` once (a real call, not one in a string or a comment, as a statement of its own at the top level, with no loop, condition, function or `try` in the script) and completed with none of its commands ended, since Codex writes the end of every command that ends within a script before the script's output (counted under a stand-in id, ended by the CommandExecution of the same command text). Anything less clear (a loop that printed no ids, a condition, a failed or aborted script, an end that could be the script's own) counts nothing: a command missed rather than one counted that isn't running (`providers/codex/background.ts`, which keeps what it needs between reads of the rollout). Codex isn't told when one ends (checked with 0.159), so its agents stay **finished** and the count is only shown.
 - **Time limit.** Hive can't tell a test run from something that never ends (a dev server), so a task stops counting after **Settings → Agents & Worktrees → Count background tasks for up to** (60 minutes; 10–480), and a Monitor at its own expiry if sooner. Hive logs it, and an agent left background then shows finished ("Stopped counting its background tasks after 60 minutes"), with the notification.
 - A **background** agent counts as busy: `hive_wait_for_agents` waits through it (unless `ignoreBackground`), `hive_prompt_agent`, Hand Over, Compact and Merge refuse it, *Confirm before quitting* asks (its tasks would stop), and *Quit when agents finish* waits for it. The sidebar dot is a slow, faint pulse.

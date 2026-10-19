@@ -29,7 +29,7 @@ The Assistant's changes go through `assistantChange()` (control level, 30 per me
 ## Locks and races
 
 - Check ownership and permission inside the same lock as the write, against the record as it is then, for every item of a batch. A check made before the lock doesn't count.
-- Kept files (`project.json`, `sessions.json`, `workspace.json`, `config.json`) change only through their locked helpers (`mutateProjectConfig`, `mutateSessions`, `writeKeptJson`).
+- Kept files (`project.json`, `workspace.json`, `config.json`) and session records (in hive.db) change only through their locked helpers (`mutateProjectConfig`, `mutateSessions`, `writeKeptJson`).
 - A slow call can see its world change: an agent stopped, a card moved, a window closed. Check again after each await that matters.
 
 ## Files Hive manages

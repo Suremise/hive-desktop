@@ -165,6 +165,8 @@ export async function removeProject(projectPath: string, how: ProjectRemoval): P
   } finally {
     unfence()
     removing.delete(key)
+    // Its sessions' records, written into its folder, stay there now it is hidden as removed (#1061), or come back if it isn't.
+    if (how === 'remove') await ws.releaseSessions(p).catch((e) => log.warn('after writing the sessions into the folder', e))
     await ws.refresh().catch((e) => log.warn('refresh after removing a project', e))
   }
 }
@@ -177,6 +179,8 @@ async function removeFromHive(ws: WorkspaceService, p: string, info: ProjectRemo
   if (refused.length) throw new Error(tr(msg({ id: 'main.removal.wontRemove', defaultMessage: "Hive won't remove {worktrees}. Fix or remove that agent first.", description: "Why Remove from Hive refused: agents' worktrees it won't remove. {worktrees} lists them, joined with “or” (main.removal.refusedTree)." }), { worktrees: fmt.list(refused, 'disjunction') }))
   // Packed first: everything after it can be undone from the pack.
   await pack(ws, p, info.handovers)
+  // Its sessions' records too (#1061): out of the workspace's database, into its folder, which takes them wherever it goes.
+  await ws.exportSessions(p)
   // The worktrees have nothing left that isn't in the project: they and their agents go.
   for (const a of ok) await wt.removeWorktree(p, a.worktree!, true)
   if (ok.length) {

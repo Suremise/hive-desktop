@@ -1,0 +1,109 @@
+// A refresh works out whether each running agent needs a restart (#1002): its launch settings' signature against the one
+// it started with. The workspace's skills (their list, revisions and problems) and MCP servers are the same for every
+// agent, so a refresh reads them once, whatever the number of running agents and projects, instead of once per agent;
+// what each agent is told stays its own (the Assistant's skills, a project's servers, an agent's settings).
+import { cpSync, mkdirSync, writeFileSync } from 'fs'
+import { join, resolve } from 'path'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as electron from 'electron'
+import { tempDir } from './tempDir'
+
+const base = tempDir('hive-live-reads-')
+process.env.CLAUDE_CONFIG_DIR = join(base, 'claude-home')
+process.env.CODEX_HOME = join(base, 'codex-home')
+;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+
+const calls = vi.hoisted(() => ({ hiveSkills: 0, listMcp: 0, revisionOf: 0 }))
+vi.mock('../src/main/skills', async (orig) => {
+  const m = await orig<typeof import('../src/main/skills')>()
+  return { ...m, hiveSkills: (...a: Parameters<typeof m.hiveSkills>) => (calls.hiveSkills++, m.hiveSkills(...a)) }
+})
+vi.mock('../src/main/mcp', async (orig) => {
+  const m = await orig<typeof import('../src/main/mcp')>()
+  return { ...m, listMcp: () => (calls.listMcp++, m.listMcp()) }
+})
+vi.mock('../src/main/revisions', async (orig) => {
+  const m = await orig<typeof import('../src/main/revisions')>()
+  return { ...m, revisionOf: (p: string) => (calls.revisionOf++, m.revisionOf(p)) }
+})
+
+const { createWorkspaceService, disposeWorkspaceService, inWorkspace, workspace } = await import('../src/main/workspace')
+const { sessions } = await import('../src/main/sessions')
+
+const wsPath = join(base, 'ws')
+const projects = [join(wsPath, 'alpha'), join(wsPath, 'beta')]
+const SKILLS = 4
+const AGENTS = 12
+const RUNNING = 3
+const s = sessions as unknown as { live: Map<string, { state: Record<string, unknown> }> }
+let w: ReturnType<typeof createWorkspaceService>
+const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+const agentsOf = (p: string): { id: string; name: string; provider: 'claude-code' }[] => Array.from({ length: AGENTS }, (_, i) => ({ id: `${p.endsWith('alpha') ? 'a' : 'b'}${i}`, name: `Agent ${i}`, provider: 'claude-code' }))
+
+/** A running session for an agent, started with the launch settings it has now (so it needs no restart). */
+async function running(p: string, agentId: string): Promise<void> {
+  const agent = agentsOf(p).find((a) => a.id === agentId)!
+  const signature = await run(async () => sessions.signature(await sessions.effective(p, agent)))
+  s.live.set(`${p.toLowerCase()}#${agentId}`, { state: { provider: 'claude-code', runId: `run-${agentId}`, projectPath: p, agentId, sessionId: null, status: 'ready', launchSignature: signature } })
+}
+
+beforeAll(async () => {
+  const skills = join(wsPath, '.hive', 'skills')
+  const bundled = resolve('resources/skills')
+  for (const name of ['handover', 'pick-up', 'work-on-card', 'merge-ready'].slice(0, SKILLS)) cpSync(join(bundled, name), join(skills, name), { recursive: true })
+  mkdirSync(join(wsPath, '.hive', 'mcp'), { recursive: true })
+  writeFileSync(join(wsPath, '.hive', 'mcp', 'tool.json'), JSON.stringify({ command: 'node', args: ['tool.js'] }))
+  for (const p of projects) {
+    mkdirSync(join(p, '.hive'), { recursive: true })
+    writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: agentsOf(p) }))
+  }
+  w = createWorkspaceService()
+  w.setLiveProvider((p, cfg, scope) => sessions.liveInfo(p, cfg, scope))
+  await w.open(wsPath)
+  for (const p of projects) for (const a of agentsOf(p).slice(0, RUNNING)) await running(p, a.id)
+})
+afterAll(async () => {
+  s.live.clear()
+  await disposeWorkspaceService(w)
+})
+beforeEach(() => {
+  calls.hiveSkills = calls.listMcp = calls.revisionOf = 0
+})
+
+describe("a refresh's running agents share the workspace's reads (#1002)", () => {
+  it('the skills and MCP servers are read once per refresh, with three agents running in each of two projects', async () => {
+    // What one agent's settings read of the skills' revisions (listing them reads the bundled ones' too).
+    await run(() => sessions.effective(projects[0], agentsOf(projects[0])[0]))
+    const oneAgent = calls.revisionOf
+    calls.hiveSkills = calls.listMcp = calls.revisionOf = 0
+    const info = await run(() => workspace.refresh())
+    expect(calls.hiveSkills).toBe(1)
+    expect(calls.listMcp).toBe(1)
+    // Each skill's revision once, for all six agents.
+    expect(calls.revisionOf).toBe(oneAgent)
+    // And what was worked out is right: none of them needs a restart.
+    const live = info.projects.flatMap((p) => p.agents.filter((a) => a.live))
+    expect(live).toHaveLength(RUNNING * projects.length)
+    expect(live.every((a) => !a.restartNeeded)).toBe(true)
+  })
+
+  it("a change to the workspace's skills or servers still asks every running agent for a restart, at the next refresh", async () => {
+    writeFileSync(join(wsPath, '.hive', 'mcp', 'other.json'), JSON.stringify({ command: 'node', args: ['other.js'] }))
+    await run(() => workspace.mutateProjectConfig(projects[0], (c) => ({ mcp: { ...c.mcp, enabled: ['other'] } })))
+    await run(() => workspace.saveWorkspaceConfigWith((c) => ({ mcp: { ...c.mcp, enabled: ['other'] } })))
+    let info = await run(() => workspace.refresh())
+    const changed = (i: typeof info, p: string): boolean[] => i.projects.find((x) => x.path === p)!.agents.filter((a) => a.live).map((a) => a.restartNeeded)
+    expect(changed(info, projects[0])).toEqual([true, true, true])
+    expect(changed(info, projects[1])).toEqual([false, false, false])
+    // A skill edited: every running agent of both projects.
+    writeFileSync(join(wsPath, '.hive', 'skills', 'handover', 'extra.md'), 'More.\n')
+    info = await run(() => workspace.refresh())
+    expect(changed(info, projects[1])).toEqual([true, true, true])
+  })
+
+  it('a project read on its own (not in a refresh) reads them once for its agents too', async () => {
+    await run(async () => sessions.liveInfo(projects[1], await workspace.projectConfig(projects[1])))
+    expect(calls.hiveSkills).toBe(1)
+    expect(calls.listMcp).toBe(1)
+  })
+})

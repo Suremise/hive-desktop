@@ -69,4 +69,57 @@ function putStoreDoc(ws, store, key, doc, { scope = '', meta = {} } = {}) {
   }
 }
 
-module.exports = { storeDocs, storeMeta, putStoreDoc, deliveriesPlace, deliveriesOf }
+/**
+ * A session host's records as Hive keeps them (#1061: rows of the `sessions` store, under its project's id), in the form
+ * its sessions.json had: `{ version, sessions, deleted?, deletedUsage? }`. Empty while there are none (or no database).
+ */
+function sessionsOf(host) {
+  const p = deliveriesPlace(host)
+  const out = { version: 1, sessions: [] }
+  const file = path.join(p.ws, '.hive', 'hive.db')
+  if (!fs.existsSync(file)) return out
+  const db = new DatabaseSync(file, { readOnly: true, timeout: 5000 })
+  try {
+    if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'store_rows'").get()) return out
+    const deleted = []
+    const usage = []
+    for (const r of db.prepare("SELECT key, doc FROM store_rows WHERE store = 'sessions' AND scope = ? ORDER BY ord, key").all(p.scope)) {
+      const doc = JSON.parse(r.doc)
+      if (r.key.startsWith('s:')) out.sessions.push(doc)
+      else if (r.key.startsWith('d:')) deleted.push(doc)
+      else if (r.key.startsWith('u:')) usage.push(doc)
+    }
+    if (deleted.length) out.deleted = deleted
+    if (usage.length) out.deletedUsage = usage
+    return out
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Replaces a session host's records as Hive would (a suite's stand-in for writing its sessions.json by hand, which Hive
+ * only moves in before it first reads them): `f` in sessions.json's form. In one transaction, marked moved in.
+ */
+function putSessions(host, f) {
+  const p = deliveriesPlace(host)
+  const db = new DatabaseSync(path.join(p.ws, '.hive', 'hive.db'), { timeout: 5000 })
+  try {
+    db.exec('BEGIN IMMEDIATE')
+    db.prepare("DELETE FROM store_rows WHERE store = 'sessions' AND scope = ?").run(p.scope)
+    const put = db.prepare("INSERT INTO store_rows (store, scope, key, ord, doc) VALUES ('sessions', ?, ?, ?, ?)")
+    const group = (prefix, list, idOf) => list.forEach((e, i) => put.run(p.scope, prefix + (idOf(e) || `#${i}`), i, JSON.stringify(e)))
+    group('s:', f.sessions ?? [], (e) => e.id)
+    group('d:', f.deleted ?? [], (e) => e)
+    group('u:', f.deletedUsage ?? [], (e) => e.id)
+    db.prepare("INSERT INTO store_meta (store, scope, key, value) VALUES ('sessions', ?, 'imported', ?) ON CONFLICT(store, scope, key) DO NOTHING").run(p.scope, JSON.stringify({ at: new Date().toISOString(), rows: 0, file: null }))
+    db.exec('COMMIT')
+  } catch (e) {
+    if (db.isTransaction) db.exec('ROLLBACK')
+    throw e
+  } finally {
+    db.close()
+  }
+}
+
+module.exports = { storeDocs, storeMeta, putStoreDoc, deliveriesPlace, deliveriesOf, sessionsOf, putSessions }

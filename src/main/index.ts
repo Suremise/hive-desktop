@@ -816,7 +816,7 @@ app.whenReady().then(async () => {
   watchMainStalls()
   setInterval(archiveOldDoneEverywhere, 3_600_000).unref()
 
-  workspace.setLiveProvider((p, cfg) => sessions.liveInfo(p, cfg))
+  workspace.setLiveProvider((p, cfg, scope) => sessions.liveInfo(p, cfg, scope))
   sessions.apiEnv = apiEnv
   // hive-progress on every session's PATH (#137): shims in Hive's bin folder, timings beside them.
   void installShims(join(app.getPath('userData'), 'bin'), { exec: process.execPath, script: unpackedScript('hive-progress.js'), data: join(app.getPath('userData'), 'progress') }).then((dir) => {

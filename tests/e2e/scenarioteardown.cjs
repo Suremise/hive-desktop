@@ -56,7 +56,7 @@ const scenario = {
   title: 'An agent leaves a command running through hive-progress, and ends its turn (#542)',
   prompt: 'Start a long command through hive-progress and end your turn without waiting for it.',
   fake: 'progress-linger then work 1',
-  // The turn ends before the command has started its node: waited for (within the scenario's limit).
+  // The fake's turn ends once the command's node runs (#1100); a real agent's may end before: waited for (within the scenario's limit).
   keepWaiting: async () => !leftPid(),
   expect: () => {
     const pid = leftPid()

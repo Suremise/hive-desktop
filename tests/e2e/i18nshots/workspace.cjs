@@ -8,6 +8,7 @@
 // tests/e2e/i18nshots.cjs for ctx.
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('../storeDocs.cjs')
 
 /** Waits for a locator to be on the page; throws saying what didn't show. */
 async function shown(ctx, locator, what) {
@@ -99,7 +100,8 @@ async function statusBar(ctx) {
  * Overview has an Assistant row and chart series (wsoverview seeds projects the same way).
  */
 function seedAssistantUsage(ctx) {
-  const home = path.join(ctx.workspace, '.hive', 'assistant', '.hive')
+  const assistant = path.join(ctx.workspace, '.hive', 'assistant')
+  const home = path.join(assistant, '.hive')
   const id = '77777777-aaaa-bbbb-cccc-000000000807'
   const at = new Date().toISOString()
   fs.mkdirSync(path.join(home, 'sessions'), { recursive: true })
@@ -108,10 +110,10 @@ function seedAssistantUsage(ctx) {
     { type: 'assistant', requestId: `${id}-0`, timestamp: at, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Done.' }], usage: { input_tokens: 5, cache_read_input_tokens: 1000, cache_creation_input_tokens: 100, output_tokens: 500 } } }
   ]
   fs.writeFileSync(path.join(home, 'sessions', `${id}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
-  const file = path.join(home, 'sessions.json')
-  const kept = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { version: 1, sessions: [] }
+  // Its records are in the workspace's database (#1061).
+  const kept = sessionsOf(assistant)
   if (!kept.sessions.some((x) => x.id === id)) kept.sessions.push({ id, agent: 'claude-code', agentId: 'assistant', name: 'Assistant work', createdAt: at, lastActiveAt: at, archived: false })
-  fs.writeFileSync(file, JSON.stringify(kept))
+  putSessions(assistant, kept)
 }
 
 /** The Workspace Overview's sidebar row and chart legend entry for the Assistant. */

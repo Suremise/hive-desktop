@@ -708,16 +708,24 @@ async function cliStep(name, opts, fn) {
  * the attempt that worked (1 = the first), or 0.
  */
 async function sendPrompt(inv, key, text, { submitted, tries = 3, waitMs = 20000 } = {}) {
+  const raw = async () => (await inv('pty:buffer', key).catch(() => '')) ?? ''
   for (let attempt = 1; attempt <= tries; attempt++) {
-    const typed = attempt > 1 && plainText(await inv('pty:buffer', key).catch(() => '')).includes(text.slice(0, 30))
+    // Text seen on screen is taken to be still in the input (an Enter it didn't take is pressed again). The terminal's
+    // output is everything ever drawn, so text a CLI drew and then cleared (redrawing its input as a notice came, #981)
+    // counts as seen too: the last attempt types it again whatever was seen, so no run is left pressing Enter on nothing.
+    const typed = attempt > 1 && attempt < tries && plainText(await raw()).includes(text.slice(0, 30))
+    const mark = (await raw()).length
     if (attempt === 1) await inv('pty:write', key, text)
     else if (!typed) await inv('pty:write', key, `\x15${text}`)
     // Deliberate pause, not a wait for a state: a CLI takes an Enter that comes within its paste window as part of the
     // text (a new line, not a submit), and nothing on screen says when that window ends: Copilot shows the line at once
     // and still takes an Enter right after it as part of the paste (tried in #527). submitted() is the check.
     await sleep(400)
+    // Whether the CLI drew the text after this attempt's write: said for an attempt not taken (#981's evidence).
+    const echoed = plainText((await raw()).slice(mark)).includes(text.slice(0, 30))
     await inv('pty:write', key, '\r')
     if (await until(submitted, waitMs, 500)) return attempt
+    console.log(`INFO sendPrompt attempt ${attempt} not taken: ${attempt === 1 || !typed ? 'typed' : 'Enter only (its text seen before)'}, echoed ${echoed ? 'yes' : 'no'}; screen ends: ${JSON.stringify(plainText(await raw()).slice(-300))}`)
   }
   return 0
 }

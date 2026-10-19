@@ -7,6 +7,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
@@ -59,7 +60,7 @@ const check = (name, ok, extra = '') => {
     const typed = await prompts.type(text)
     if (prompt) check(`the prompt "${text}" is answered`, !!(await prompts.over(typed)))
   }
-  const records = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions
+  const records = () => sessionsOf(alpha).sessions
   const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
 
   const st = await inv('session:start', alpha, { agentId: agent.id })
