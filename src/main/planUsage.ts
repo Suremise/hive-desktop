@@ -13,7 +13,8 @@ import { routeAppNotice } from './notices'
 /**
  * Plan usage (a subscription's rolling limits, e.g. 5-hour and weekly) as each provider reports it:
  * Claude Code to its status line, Codex in its transcripts. Nothing here talks to a provider's servers.
- * The values are account-wide, so per provider the last report wins, whichever session sent it.
+ * The values are account-wide, but each session relays the reading of its own latest API call (or, resuming Codex, the
+ * last one in its rollout, maybe days old), so reports come out of order: mergePlanUsage keeps the truth (#383).
  */
 
 /** Kept so Windows can still activate them after they are shown. */
@@ -25,6 +26,38 @@ function samePeriod(a: string | null, b: string | null): boolean {
   if (a === b) return true
   if (!a || !b) return false
   return Math.abs(Date.parse(a) - Date.parse(b)) < 30 * 60 * 1000
+}
+
+const resetPassed = (l: Pick<PlanLimit, 'resetsAt'>, now: number): boolean => !!l.resetsAt && Date.parse(l.resetsAt) <= now
+
+/**
+ * One limit's reading, given the one kept and a new report (#383, from what the CLIs were seen to send: a session reports
+ * its own latest API call's reading, so another's can be older). Usage never goes down within a reset period, so:
+ * the new reading when none is kept or the kept one's period is over; nothing from a period already over (a resumed
+ * rollout's); the later period's when they differ; within one period the higher, as reported, with the later reset time
+ * (they wobble by seconds). With no reset time to tell periods apart, the latest report, as before.
+ */
+function mergeLimit(kept: PlanLimit | undefined, next: PlanLimit, now: number): PlanLimit | undefined {
+  if (resetPassed(next, now)) return kept && !resetPassed(kept, now) ? kept : undefined
+  if (!kept || resetPassed(kept, now) || !kept.resetsAt || !next.resetsAt) return next
+  if (!samePeriod(kept.resetsAt, next.resetsAt)) return Date.parse(next.resetsAt) > Date.parse(kept.resetsAt) ? next : kept
+  const resetsAt = Date.parse(next.resetsAt) > Date.parse(kept.resetsAt) ? next.resetsAt : kept.resetsAt
+  return { ...(next.usedPercent >= kept.usedPercent ? next : kept), resetsAt }
+}
+
+/**
+ * What to keep of a provider's plan usage after a report: each limit merged by its id (mergeLimit), limits the report
+ * doesn't name kept until their reset passes. `reportedBy` names the session (its agent) on the limits it set.
+ * Exported for tests.
+ */
+export function mergePlanUsage(kept: PlanUsage | undefined, report: PlanUsage, now = Date.now(), reportedBy?: string): PlanUsage {
+  const stamped = report.limits.map((l) => ({ ...l, reportedAt: report.updatedAt, ...(reportedBy ? { reportedBy } : {}) }))
+  const ids = new Set(stamped.map((l) => l.id))
+  const limits = [
+    ...stamped.map((l) => mergeLimit(kept?.limits.find((k) => k.id === l.id), l, now)),
+    ...(kept?.limits ?? []).filter((k) => !ids.has(k.id) && !resetPassed(k, now))
+  ].filter((l): l is PlanLimit => !!l)
+  return { ...report, plan: report.plan ?? kept?.plan ?? null, limits }
 }
 
 /**
@@ -74,17 +107,22 @@ export function planNotice(provider: ProviderId, l: Pick<PlanLimit, 'usedPercent
   return { title: tr(USED, values), body, apiTitle: englishText({ m: USED, values }) }
 }
 
-/** What the user sees: whole percentages and the reset times. Anything else (the report time) isn't a change. */
-const shownValues = (u: PlanUsage | null | undefined): string => JSON.stringify([u?.plan ?? null, (u?.limits ?? []).map((l) => [l.id, Math.round(l.usedPercent), l.resetsAt])])
+/**
+ * What the windows are told: the kept values as they are (#383 round 4: a rounded figure hid 94.9% → 95.1%, which the
+ * status bar's warning colour goes by), the reset times and who reported them. Only the report times aren't a change.
+ */
+const shownValues = (u: PlanUsage | null | undefined): string => JSON.stringify([u?.plan ?? null, (u?.limits ?? []).map((l) => [l.id, l.usedPercent, l.resetsAt, l.reportedBy ?? null])])
 
 /**
  * Providers report plan usage often (Claude Code with every status-line update, many times a minute while
- * agents work). The latest report is kept in memory (saved with the config on quit and with any other
- * change); it is only written to disk when a shown value changes, and then at most once a minute.
+ * agents work). What mergePlanUsage keeps is in memory (saved with the config on quit and with any other
+ * change); it is only written to disk when a shown value changes, and then at most once a minute. `reportedBy` is the
+ * reporting session's agent, for the status bar's tooltip.
  */
-export function reportPlanUsage(provider: ProviderId, usage: PlanUsage): void {
+export function reportPlanUsage(provider: ProviderId, report: PlanUsage, reportedBy?: string): void {
   const all = config.get().planUsage
   const prev = all[provider]
+  const usage = mergePlanUsage(prev, report, Date.now(), reportedBy)
   const changed = shownValues(prev) !== shownValues(usage)
   config.get().planUsage = { ...all, [provider]: usage }
   if (changed) {

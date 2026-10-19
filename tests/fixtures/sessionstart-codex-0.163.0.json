@@ -1,0 +1,84 @@
+{
+  "cli": "codex",
+  "version": "0.163.0",
+  "recorded": "2026-10-19 (#1065): codex exec in a ConPTY, test home; the second run resumed it with model_auto_compact_token_limit=1500, so it compacted first",
+  "reply": {
+    "SessionStart": {
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": "<~8.3 KB, a codeword last>"
+      }
+    }
+  },
+  "modelSaw": {
+    "startup": "the codeword (first reply)",
+    "compact": "the codeword with source compact (second reply)"
+  },
+  "hooks": [
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6-luna",
+      "permission_mode": "bypassPermissions",
+      "source": "startup"
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "turn_id": "01a155b0-5d5c-73d1-bec9-dacbe364fce9",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "gpt-6-luna",
+      "permission_mode": "bypassPermissions",
+      "prompt": "What is the codeword for this session, if your context gives one? Reply with only the codeword, or NONE."
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "turn_id": "01a155b0-71f1-7790-9586-553ef26a4070",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "PreCompact",
+      "model": "gpt-6-luna",
+      "trigger": "auto"
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "turn_id": "01a155b0-71f1-7790-9586-553ef26a4070",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "PostCompact",
+      "model": "gpt-6-luna",
+      "trigger": "auto"
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6-luna",
+      "permission_mode": "bypassPermissions",
+      "source": "resume"
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "SessionStart",
+      "model": "gpt-6-luna",
+      "permission_mode": "bypassPermissions",
+      "source": "compact"
+    },
+    {
+      "session_id": "01a155b0-5c69-72b3-9760-e8bf16a8ffb7",
+      "turn_id": "01a155b0-71f1-7790-9586-553ef26a4070",
+      "transcript_path": "C:\\probe\\codex\\sessions\\2026\\10\\19\\rollout-2026-10-19T20-43-03-01a155b0-5c69-72b3-9760-e8bf16a8ffb7.jsonl",
+      "cwd": "C:\\probe\\work",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "gpt-6-luna",
+      "permission_mode": "bypassPermissions",
+      "prompt": "Say the codeword for this session again, from your context, with the source it gives. Reply with only those."
+    }
+  ]
+}

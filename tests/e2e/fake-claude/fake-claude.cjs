@@ -19,6 +19,8 @@
 //   "askwhen NAME": the permission prompt once the test makes a file NAME in its home (#667), not after a set time.
 //   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
+//   "planusage F W": its status line reports the plan's limits as Claude Code's does (rate_limits: the 5-hour at F%,
+//   the weekly at W%), with reset times every session of the machine agrees on (#383).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
 //   detached, hidden node started by a short-lived detached one that has exited by then (linger.cjs; their pids in
 //   fake-linger.jsonl in its home; each ends by itself after two minutes, in case). With fake-linger-at-start.txt (N) in
@@ -512,6 +514,14 @@ async function runPrompt(text, enter = null) {
     // would; the agent, command, exit code and output go to fake-shell.jsonl in its home.
     const sh = /\bshell:\s*(.+)$/i.exec(step)
     if (sh) await shell(sh[1].trim())
+    // "planusage F W": the plan's limits in its status line as Claude Code 2.1.303 sends them (#383), the 5-hour at F%
+    // and the weekly at W%, resetting at whole hours and days every session of the machine agrees on (epoch seconds).
+    const plan = /\bplanusage\s+(\d+)\s+(\d+)/i.exec(step)
+    if (plan) {
+      const hour = Math.floor(Date.now() / 3600e3) * 3600
+      const day = Math.floor(Date.now() / 86400e3) * 86400
+      await statusLine({ rate_limits: { five_hour: { used_percentage: Number(plan[1]), resets_at: hour + 3 * 3600 }, seven_day: { used_percentage: Number(plan[2]), resets_at: day + 3 * 86400 } } })
+    }
     const pause = /\bwork\s+(\d+)/i.exec(step)
     if (pause && i < steps.length - 1) await sleep(Number(pause[1]) * 1000)
   }
@@ -538,13 +548,17 @@ async function runPrompt(text, enter = null) {
   if (/\bsafeguardprompt(switch)?\b/i.test(text)) await safeguardPrompt(/\bsafeguardpromptswitch\b/i.test(text))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
-  if (contextWindow && hookUrl) {
-    await fetch(`${hookUrl}&statusline`, {
-      method: 'POST',
-      headers: { Authorization: commandAuth(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, context_window: { context_window_size: Number(contextWindow[1]) } })
-    }).catch(() => undefined)
-  }
+  if (contextWindow) await statusLine({ context_window: { context_window_size: Number(contextWindow[1]) } })
+}
+
+/** Posts a status line, as Claude Code's statusLine command does (Hive's curl command, with the launch's auth file). */
+async function statusLine(body) {
+  if (!hookUrl) return
+  await fetch(`${hookUrl}&statusline`, {
+    method: 'POST',
+    headers: { Authorization: commandAuth(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, ...body })
+  }).catch(() => undefined)
 }
 
 /**
