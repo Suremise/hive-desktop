@@ -211,6 +211,20 @@ describe('board-hygiene', () => {
   })
 })
 
+// #410: #185's audit took three rounds because it read only the npm licences; vendored material and installer parts ship too.
+describe('licence-audit', () => {
+  it('inventories what ships, reads licences from the files, flags anything not plainly permissive, and RELEASING points to it', () => {
+    const skill = catalog.get('licence-audit')!
+    expect(skill.audience).toBe('agents')
+    expect(skill.text).toMatch(/\*\*Vendored material inside packages\*\*: read each package's `LICENSE`, `NOTICE` and `ThirdPartyNotices` files/)
+    expect(skill.text).toMatch(/\*\*What the installer or packager adds\*\*: inspect the built installer/)
+    expect(skill.text).toMatch(/\*\*Dual licences\*\*/)
+    expect(skill.text).toMatch(/\*\*flag it for the user\*\*/)
+    expect(skill.text).toMatch(/Never replace, remove or downgrade a dependency without asking/)
+    expect(readFileSync(join(ROOT, 'RELEASING.md'), 'utf8')).toMatch(/audit their licences first with the \*\*licence-audit\*\* skill/)
+  })
+})
+
 // #1075: two coordinator lessons from 0.9.0 that lived only in the Assistant's memory.
 describe('coordinator guidance', () => {
   const text = (): string => catalog.get('coordinate-agents')!.text

@@ -154,6 +154,8 @@
   "tips.language.title": "Hive in deiner Sprache",
   "tips.leftoverProcesses.text": "Ein Vorschauserver oder ein tail -f, das ein Agent gestartet hat, kann weiterlaufen, nachdem er stoppt, und den Ordner des Projekts oder einen Port belegen. Hive listet solche Prozesse im ⋯-Menü des Agentenbereichs auf und bietet an, sie zu beenden; Einstellungen → Agenten kann sie jedes Mal beenden.",
   "tips.leftoverProcesses.title": "Beenden, was ein gestoppter Agent laufen ließ",
+  "tips.licenceAudit.text": "Bitte vor einem Release einen Agenten, die Lizenzen dessen zu prüfen, was dein Projekt ausliefert. Er liest sie aus den Dateien, auch mitgelieferte Fremddateien und Installer-Teile, und meldet dir alles Unklare.",
+  "tips.licenceAudit.title": "Die Lizenzen dessen prüfen, was du auslieferst",
   "tips.loopDefaults.text": "Einstellungen → Arbeitsbereich → „Runden der Kartenschleife“ und „Wartezeit der Kartenschleife“ legen fest, was Schleifen verwenden, wenn du nichts sagst (anfangs {rounds, plural, one {# Runde} other {# Runden}} und {hours, plural, one {# Stunde} other {# Stunden}}); ein Projekt kann eigene Werte haben. Sagst du beim Start „rounds: 3“, gilt trotzdem das.",
   "tips.loopDefaults.title": "Deine Runden und Wartezeit für jede Schleife",
   "tips.loopLanes.text": "Wenn zwei Agenten abwechselnd Karten bauen und reviewen, führt Hive die Schleife als Lane: ihre Karten in Reihenfolge, die aktuelle Karte und ob sie wegen einer blockierten Karte pausiert. Frag den Assistenten, welche Lanes laufen.",

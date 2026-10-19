@@ -156,6 +156,8 @@ interface HiveMessageValues {
   'tips.language.title': undefined
   'tips.leftoverProcesses.text': undefined
   'tips.leftoverProcesses.title': undefined
+  'tips.licenceAudit.text': undefined
+  'tips.licenceAudit.title': undefined
   'tips.loopDefaults.text': { rounds: number; hours: number }
   'tips.loopDefaults.title': undefined
   'tips.loopLanes.text': undefined

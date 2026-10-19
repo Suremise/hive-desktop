@@ -1523,6 +1523,10 @@
     "defaultMessage": "Keep your journal as the Hive Assistant while it is on - what to write, recalling, superseding, the weekly digest and the scope. Use when something worth remembering happens, before deciding from memory, or when asked for a handover.",
     "description": "What a skill that ships with Hive (journal) is for: under its name in the Skills view and a project's Skills tab. The journal is the Assistant's memory across sessions; use the word Hive's settings use for it."
   },
+  "assistant.skills.shipped.licenceAudit": {
+    "defaultMessage": "Audit the licences of what ships: dependencies, vendored files, installer parts. Use when releasing or adding assets.",
+    "description": "What a skill that ships with Hive (licence-audit) is for: under its name in the Skills view and a project's Skills tab. Vendored files are other people's files a package carries inside it."
+  },
   "assistant.skills.shipped.mergeReady": {
     "defaultMessage": "Get a branch ready to review and merge in Hive: commit the task's work, run the checks, compare with the base, summarise. Use when asked to finish up or get a branch or worktree ready to merge. Merging and pushing stay separate.",
     "description": "What a skill that ships with Hive (merge-ready) is for: under its name in the Skills view and a project's Skills tab. Branch, worktree, commit, merge and push are git's terms."

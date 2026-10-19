@@ -18,6 +18,7 @@
 - **The Assistant steps in when a review keeps finding new edge cases.** When a lane's card fails review a second or third time on the same kind of finding, the Assistant brings you a simpler option with its recommendation instead of letting the loop run on. For a push or a release, it asks you to give your OK in the agent's own pane, since the agent's CLI refuses an OK passed on by the Assistant (#1075).
 - **QA triager mode files better cards.** A new Assistant skill, **triage-report**, has the QA triager find the cause in the code before it writes the card, check for a card that already covers the problem (including ones reviewed but not merged yet), and file the card with what you saw, the evidence and how to tell it's fixed (#408).
 - **The Assistant tidies the board.** Ask it to tidy the board, and a new skill, **board-hygiene**, has it link duplicate cards for you to archive, record your answers as decisions on their cards, and raise blocked reasons that are out of date (#409).
+- **A licence audit skill for agents.** **licence-audit** has an agent check the licences of everything a project ships (dependencies, bundled libraries, files vendored inside packages, fonts and icons, what the installer adds), report them in a table and flag anything that isn't plainly permissive for you to decide (#410).
 
 ## 0.9.2 — 2026-10-19
 

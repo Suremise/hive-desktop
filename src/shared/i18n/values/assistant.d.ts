@@ -382,6 +382,7 @@ interface HiveMessageValues {
   'assistant.skills.shipped.coordinateAgents': undefined
   'assistant.skills.shipped.handover': undefined
   'assistant.skills.shipped.journal': undefined
+  'assistant.skills.shipped.licenceAudit': undefined
   'assistant.skills.shipped.mergeReady': undefined
   'assistant.skills.shipped.pickUp': undefined
   'assistant.skills.shipped.reviewAgentWork': undefined

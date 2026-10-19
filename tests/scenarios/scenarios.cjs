@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 63
+const FIXTURES_VERSION = 64
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -3015,6 +3015,46 @@ module.exports.SCENARIOS.push(
     fakeSkips: ['told the user the card in Passed already covers it']
   }
 )
+
+// A licence audit (#410): what ships, read from the files. tinylib is MIT but carries a CC-BY-3.0 icon (vendored); dual
+// is MIT OR GPL-3.0; testrunner (GPL-3.0) is a dev tool and doesn't ship.
+const LICENCE_FIXTURE = {
+  'package.json': JSON.stringify({ name: 'alpha', version: '1.0.0', dependencies: { tinylib: '1.0.0', dual: '2.0.0' }, devDependencies: { testrunner: '3.0.0' } }, null, 2) + '\n',
+  'node_modules/tinylib/package.json': JSON.stringify({ name: 'tinylib', version: '1.0.0', license: 'MIT' }) + '\n',
+  'node_modules/tinylib/LICENSE': 'MIT License\n\nCopyright (c) Tiny Authors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software...\n',
+  'node_modules/tinylib/icons/ThirdPartyNotices.txt': 'icons/git.svg is from the Example Icons set, licensed under Creative Commons Attribution 3.0 (CC-BY-3.0): attribution required.\n',
+  'node_modules/tinylib/icons/git.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
+  'node_modules/dual/package.json': JSON.stringify({ name: 'dual', version: '2.0.0', license: '(MIT OR GPL-3.0-only)' }) + '\n',
+  'node_modules/dual/LICENSE': 'This package is dual-licensed: you may use it under the MIT License or the GNU General Public License v3.0.\n',
+  'node_modules/testrunner/package.json': JSON.stringify({ name: 'testrunner', version: '3.0.0', license: 'GPL-3.0-only' }) + '\n',
+  'node_modules/testrunner/LICENSE': 'GNU GENERAL PUBLIC LICENSE Version 3\n'
+}
+module.exports.SCENARIOS.push({
+  id: 'licence-audit',
+  title: 'An agent asked to audit what a small project ships (#410): finds the CC-BY icon vendored inside an MIT package, notes the dual licence, leaves out the dev tool, changes nothing',
+  async setup(c) {
+    const fs = require('fs')
+    const path = require('path')
+    for (const [rel, text] of Object.entries(LICENCE_FIXTURE)) {
+      fs.mkdirSync(path.dirname(path.join(c.alpha, rel)), { recursive: true })
+      c.write(rel, text)
+    }
+  },
+  prompt: 'Audit the licences of what this project ships (its dependencies are installed in node_modules) and give me the report. Change nothing.',
+  fake: 'skill licence-audit',
+  expect: (o, c) => {
+    const reply = o.finalReply ?? ''
+    return [
+      ['read the licence-audit skill', read(o, 'licence-audit'), o.skillsRead.join(',')],
+      ['reported in a table', /\|.*\|.*\|/.test(reply), reply.slice(0, 300)],
+      ['found the CC-BY icon vendored inside tinylib, and flagged it', /CC-BY|Creative Commons/i.test(reply) && /tinylib|icon|git\.svg/i.test(reply), reply.slice(0, 600)],
+      ['noted the dual licence and which one applies', /dual|MIT OR GPL|OR GPL/i.test(reply), reply.slice(0, 600)],
+      ["didn't count the dev tool as shipping", !/testrunner/i.test(reply) || /dev|doesn't ship|does not ship|not shipped|excluded|build-only|not bundled/i.test(reply), reply.slice(0, 600)],
+      ['changed nothing', c.read('package.json') === LICENCE_FIXTURE['package.json'] && Object.entries(LICENCE_FIXTURE).every(([rel, text]) => c.read(rel) === text), '']
+    ]
+  },
+  fakeSkips: ['reported in a table', 'found the CC-BY icon vendored inside tinylib, and flagged it', 'noted the dual licence and which one applies']
+})
 
 // Board hygiene (#409, built small): duplicates linked for the user to archive, an answer of the user's recorded as a
 // decision, a blocked reason gone stale raised (not cleared); On Hold left alone, nothing archived.

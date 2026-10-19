@@ -154,6 +154,8 @@
   "tips.language.title": "Hive en tu idioma",
   "tips.leftoverProcesses.text": "Un servidor de vista previa o un tail -f que inició un agente pueden seguir en ejecución después de que se detenga, ocupando la carpeta del proyecto o un puerto. Hive los lista en el menú ⋯ del panel del agente y ofrece terminarlos; Configuración → Agentes y worktrees puede terminarlos siempre.",
   "tips.leftoverProcesses.title": "Termina lo que dejó en marcha un agente detenido",
+  "tips.licenceAudit.text": "Antes de publicar una versión, pide a un agente que audite las licencias de lo que distribuye tu proyecto. Las lee de los propios archivos, incluidos los de terceros y las partes del instalador, y te señala lo que no esté claro.",
+  "tips.licenceAudit.title": "Audita las licencias de lo que distribuyes",
   "tips.loopDefaults.text": "Configuración → Espacio de trabajo → Rondas de los ciclos de tarjetas y Espera de los ciclos de tarjetas fijan lo que usan los ciclos cuando no lo dices ({rounds, plural, one {# ronda} many {# rondas} other {# rondas}} y {hours, plural, one {# hora} many {# horas} other {# horas}} de entrada); un proyecto puede tener los suyos. Decir “rounds: 3” al iniciar uno sigue teniendo prioridad.",
   "tips.loopDefaults.title": "Tus rondas y tu espera para cada ciclo",
   "tips.loopLanes.text": "Cuando dos agentes hacen y revisan tarjetas por turnos, Hive guarda el ciclo como un carril: sus tarjetas en orden, la que tiene entre manos y si está en pausa por una tarjeta bloqueada. Pregunta al Asistente qué carriles están en marcha.",

@@ -154,6 +154,8 @@
   "tips.language.title": "用你的语言使用 Hive",
   "tips.leftoverProcesses.text": "智能体启动的预览服务器或 tail -f 可能在它停止后继续运行，占用项目文件夹或端口。Hive 会在智能体窗格的 ⋯ 菜单中列出它们，并提供结束选项；“设置”→“智能体与工作树”可以设为每次都结束它们。",
   "tips.leftoverProcesses.title": "结束已停止的智能体留下的进程",
+  "tips.licenceAudit.text": "发布前，请智能体审核你的项目所发布内容的许可证。它会从文件本身读取许可证，包括内置的第三方文件和安装程序组件，并把不明确之处告诉你。",
+  "tips.licenceAudit.title": "审核你所发布内容的许可证",
   "tips.loopDefaults.text": "“设置”→“工作区”→“卡片循环轮次”和“卡片循环等待时间”设置你未指定时循环使用的值（初始为 {rounds, plural, other {# 轮}}和 {hours, plural, other {# 小时}}）；项目也可以有自己的值。启动循环时说“rounds: 3”仍然优先。",
   "tips.loopDefaults.title": "为每个循环设定轮次和等待时间",
   "tips.loopLanes.text": "两个智能体轮流构建和评审卡片时，Hive 会把这个循环记为一个通道：它的卡片顺序、当前处理的卡片，以及是否因受阻的卡片而暂停。问问助手有哪些通道正在运行。",

@@ -380,6 +380,7 @@
   "assistant.skills.shipped.coordinateAgents": "以 Hive Assistant 的身份在工作区的智能体之间安排工作：卡片、任务说明、启动智能体、等待、交接、停滞的卡片。用于被要求让智能体开始工作、开始或继续一张卡片，或检查进度时。",
   "assistant.skills.shipped.handover": "撰写交接说明，让之后的会话或其他智能体无需上下文也能接着做。用于被要求收尾留待以后、交接或今天到此为止时。让分支准备好合并请用 merge-ready。",
   "assistant.skills.shipped.journal": "在日志开启时以 Hive Assistant 的身份记日志：写什么、回忆、取代旧条目、每周摘要和范围。用于发生值得记住的事、凭记忆做决定之前，或被要求交接时。",
+  "assistant.skills.shipped.licenceAudit": "审核所发布内容的许可证：依赖项、内置的第三方文件、安装程序组件。用于发布版本或添加素材时。",
   "assistant.skills.shipped.mergeReady": "让分支准备好在 Hive 中评审和合并：提交任务的工作、运行检查、与基准分支比较、写总结。用于被要求收尾，或让分支或工作树准备好合并时。合并和推送另行进行。",
   "assistant.skills.shipped.pickUp": "根据交接说明继续之前的工作，并对照当前状态核实。用于被要求继续、恢复或接手之前的工作，或阅读交接说明时。并非每个新会话都需要。",
   "assistant.skills.shipped.reviewAgentWork": "评审其他智能体的工作（“评审”列中的卡片、分支、提交或未提交的更改）并报告发现，不做改动。用于被要求评审、检查或核实工作时。",

@@ -154,6 +154,8 @@
   "tips.language.title": "Hive w Twoim języku",
   "tips.leftoverProcesses.text": "Serwer podglądu lub tail -f uruchomiony przez agenta może działać po jego zatrzymaniu, blokując folder projektu lub port. Hive wymienia je w menu ⋯ panelu agenta i proponuje ich zakończenie; w Ustawienia → Agenci możesz kończyć je za każdym razem.",
   "tips.leftoverProcesses.title": "Zakończ, co zostawił zatrzymany agent",
+  "tips.licenceAudit.text": "Przed wydaniem poproś agenta o sprawdzenie licencji tego, co dostarcza Twój projekt. Odczyta je z samych plików, także dołączonych plików stron trzecich i elementów instalatora, i zgłosi Ci wszystko, co niejasne.",
+  "tips.licenceAudit.title": "Sprawdź licencje tego, co dostarczasz",
   "tips.loopDefaults.text": "Ustawienia → Obszar roboczy → Rundy pętli kart i Oczekiwanie w pętli kart określają, czego używają pętle, gdy nic nie podasz (na początek {rounds, plural, one {# runda} few {# rundy} many {# rund} other {# rundy}} i {hours, plural, one {# godzina} few {# godziny} many {# godzin} other {# godziny}}); projekt może mieć własne wartości. Gdy przy uruchamianiu pętli napiszesz „rounds: 3”, to i tak ma pierwszeństwo.",
   "tips.loopDefaults.title": "Twoje rundy i czas oczekiwania dla każdej pętli",
   "tips.loopLanes.text": "Gdy dwaj agenci na zmianę wykonują i recenzują karty, Hive zapisuje pętlę jako tor: jej karty po kolei, kartę, nad którą trwa praca, i to, czy pętla stoi na zablokowanej karcie. Zapytaj Asystenta, które tory działają.",

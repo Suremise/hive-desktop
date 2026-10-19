@@ -154,6 +154,8 @@
   "tips.language.title": "O Hive no seu idioma",
   "tips.leftoverProcesses.text": "Um servidor de prévia ou um tail -f que um agente iniciou pode continuar rodando depois que ele para, prendendo a pasta do projeto ou uma porta. O Hive os lista no menu ⋯ do painel do agente e oferece encerrá-los; Configurações → Agentes e worktrees pode encerrá-los sempre.",
   "tips.leftoverProcesses.title": "Encerre o que um agente parado deixou rodando",
+  "tips.licenceAudit.text": "Antes de uma versão, peça a um agente que audite as licenças do que seu projeto distribui. Ele as lê dos próprios arquivos, incluindo arquivos de terceiros e partes do instalador, e aponta para você tudo o que não estiver claro.",
+  "tips.licenceAudit.title": "Audite as licenças do que você distribui",
   "tips.loopDefaults.text": "Configurações → Espaço de trabalho → Rodadas do ciclo de cartões e Espera do ciclo de cartões definem o que os ciclos usam se você não indicar outro valor ({rounds, plural, one {# rodada} other {# rodadas}} e {hours, plural, one {# hora} other {# horas}}, de início); um projeto pode ter os próprios valores. Dizer “rounds: 3” ao iniciar um ciclo ainda prevalece.",
   "tips.loopDefaults.title": "Suas rodadas e sua espera para todo ciclo",
   "tips.loopLanes.text": "Quando dois agentes executam e revisam cartões alternadamente, o Hive registra o ciclo como uma raia: os cartões em ordem, aquele em que está e se está pausado em um cartão bloqueado. Pergunte ao Assistente quais raias estão em andamento.",
