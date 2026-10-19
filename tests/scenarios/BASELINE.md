@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Board hygiene: fakes, Claude Code (its default model), Codex (its default model), fixtures v62, 19 October 2026
+
+#409, built small (the Assistant's brief after #1112's drift review): **board-hygiene** sweeps for duplicates (linked,
+marked for the user to archive), the user's answers not yet recorded as decisions, and blocked reasons gone stale
+(rewritten or raised, not cleared); it leaves archiving, On Hold, Done, columns and lanes alone. coordinate-agents and
+run-lanes name it. The Assistant's catalog has a 2,000-character budget: triage-report's and board-hygiene's
+descriptions are short to fit (1,997). New scenario **board-hygiene**: a duplicate pair, an answer only in an agent's
+comment, a card blocked on one now Done, and a card On Hold.
+- **Fakes**: coordinator-wake-failed, assistant-look-lanes and mode-qa-triager-plans pass before (`hb5-409-before`,
+  main at 1cd25924) and after (`hb5-409-after`): calls the same; the catalog +291 bytes, delivered skills +5,129 (two
+  more skills, with #408's).
+- **Claude Code, before** (main's skills, the scenario copied in; `2026-10-19T22-23-33-claude-code`): 0 of 2. It linked
+  the duplicates, but recorded no decision and cleared the block itself, both times.
+- **Claude Code, after**: 2 of 2, reading board-hygiene (`2026-10-19T22-16-42-claude-code`); qa-triage-report 2 of 2
+  there with its shorter description.
+- **Codex**: board-hygiene and qa-triage-report pass (`2026-10-19T22-19-07-codex`).
+
 ## The QA triager's procedure: fakes, Claude Code (its default model), Codex (its default model), fixtures v61, 19 October 2026
 
 #408: a new Assistant skill, **triage-report** (the cause found in the code before the card, a duplicate check including
