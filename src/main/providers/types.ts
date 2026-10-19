@@ -210,6 +210,11 @@ export interface LiveDetails {
    */
   interruptedAt?: string
   /**
+   * When a compaction last completed, as recorded (ISO), on a CLI that sends no hook at its end (Copilot's
+   * session.compaction_complete, #454): handled as a compaction's end hook. One from before this launch is history.
+   */
+  compactedAt?: string
+  /**
    * The CLI's own record says its latest turn is over, with nothing started since (Codex's task_complete, #648): `turn`
    * its id as the hooks name turns, `at` when (ISO). Null: a turn began after the last one ended; absent: the lines read
    * say neither.

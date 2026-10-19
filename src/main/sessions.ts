@@ -252,6 +252,8 @@ interface LiveSession {
   detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
+  /** The last compaction end read from the transcript (LiveDetails.compactedAt, #454), so each counts once. */
+  compactedAt?: string
   /**
    * The launch's hooks that have arrived, counted as each comes (before its turn in the queue): an interrupt read from
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
@@ -3378,6 +3380,20 @@ class SessionManager {
         if (l.ledger) endRunning(l.ledger, 'interrupt')
         this.carryOut(id, l, hookStep({ kind: 'interrupt' }, this.statusInput(l)), 'transcript', { kind: 'interrupt' })
         this.noteTurn(l)
+      })
+    }
+    // A compaction's end the CLI sends no hook for (Copilot, #454): as the end hook would, once per recorded end of this
+    // launch, and only while Hive thinks it compacting (a /compact's end read later, with nothing under way, is history).
+    // Not after a hook that came once the read began (a newer PreCompact, a prompt), nor for a compaction that began after
+    // it ended (Copilot's clock is this machine's): this end is then an older compaction's.
+    const compacted = d.compactedAt && Date.parse(d.compactedAt) >= Date.parse(l.state.startedAt) && (!l.compactedAt || d.compactedAt > l.compactedAt) ? d.compactedAt : null
+    if (compacted) {
+      l.compactedAt = compacted
+      const id = liveId(l.state.projectPath, l.state.agentId)
+      void this.inHookOrder(l.state.runId, () => {
+        if (this.live.get(id) !== l || (hooks !== undefined && (l.hooksSeen ?? 0) !== hooks) || !(l.compacting || isCompacting(l.state))) return
+        if (l.state.statusSince && Date.parse(compacted) < Date.parse(l.state.statusSince)) return
+        this.carryOut(id, l, hookStep({ kind: 'compactEnd' }, this.statusInput(l)), 'transcript', { kind: 'compactEnd' })
       })
     }
     // The CLI's own record that its latest turn is over (#648): kept, and acted on if Hive missed that turn's Stop. And,

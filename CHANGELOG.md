@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Copilot compactions show up.** A Copilot agent's compactions now count in its usage and appear in the Sessions tab with their summary, and after a `/compact` typed in its terminal the agent shows as ready again once Copilot has finished, not only at your next message (#454).
 - **Plan usage no longer flips between figures.** With several agents running, the status bar's weekly figure could jump back and forth (98%, then 96%, then 98%) because each session passes on the figures from its own latest request, and a resumed Codex session could even bring back last week's. Hive now keeps the highest figure each limit has reached in its reset period, takes the new one as soon as it resets, and its tooltip says which agent reported each limit (#383).
 - **The Assistant's start view on Codex and Copilot.** An Assistant running on Codex or Copilot now gets the same short view of where things stand as on Claude Code: each time it starts, and again after its conversation is compacted (on Copilot, with your next message after a compaction) (#1065).
 - **Card loops review committed work.** The card-loop skill now has the builder commit each round before sending a card to Review and name the commit; a reviewer handed uncommitted work asks for a commit rather than failing the round over it (#1074).
