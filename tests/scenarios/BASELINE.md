@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Licence audit: fakes, Claude Code (its default model), Codex (its default model), fixtures v64, 20 October 2026
+
+#410: a general agents' skill, **licence-audit**: inventory what ships (runtime dependencies, bundled libraries, vendored
+material inside packages, assets, installer parts, runtimes), read each licence from its files, flag anything not plainly
+permissive for the user, regenerate the notices, report a table. RELEASING.md points to it. The agents' catalog has a
+2,000-character budget: its description is short to fit (1,985). New scenario **licence-audit**: a fixture with an MIT
+package carrying a CC-BY-3.0 icon (vendored), an MIT-or-GPL dual licence and a GPL dev tool.
+- **Fakes**: work-on-card, review-card and card-loop-rounds pass before (`hb5-410-before`, main at 5ed47fbd) and after
+  (`hb5-410-after`): calls the same; the catalog +130 bytes, delivered skills +2,869.
+- **Claude Code, before** (main's skills, the scenario copied in; `2026-10-19T23-02-47-claude-code`): the behaviour checks
+  pass 2 of 2 on this small fixture without the skill (it found the vendored icon and the dual licence by reading
+  node_modules). The skill's value is the method on a real project (installer parts, notices), which a fixture can't show.
+- **Claude Code, after**: 2 of 2, reading licence-audit each time (`2026-10-19T22-58-58-claude-code`).
+- **Codex**: passes, reading it (`2026-10-19T23-00-22-codex`).
+
 ## Board hygiene: fakes, Claude Code (its default model), Codex (its default model), fixtures v62 and v63, 19 October 2026
 
 #409, built small (the Assistant's brief after #1112's drift review): **board-hygiene** sweeps for duplicates (linked,
