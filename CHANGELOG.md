@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **A message left for an agent that's just starting on a task waits for that task.** An agent started with a task (a card's Start, a new conversation) is ready a moment before its coding agent takes the task. A message or wake that arrived just then could be typed first, so the agent read it before its task and Hive lost track of the line. Hive now waits until the task has been taken.
+- **The Assistant hears your replies to agents at once.** When you answer an agent in its pane, the Assistant is told within seconds even when it isn't waiting on that agent at that moment (between its watches, or while it watches lanes), instead of a few turns later.
 - **Codex and Copilot agents take Hive's lines at the first Enter when busy.** A message's notice or a wake that reached a Codex or Copilot agent while it was busy for a moment could sit in its prompt until Hive pressed Enter again 10 seconds later, or, under heavy load, until you pressed it. Copilot now gets Hive's lines as a paste, as Claude Code does, and with Codex Hive presses Enter only once Codex shows the line.
 
 ## 0.9.2 — 2026-10-19

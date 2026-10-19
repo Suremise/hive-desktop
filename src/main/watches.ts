@@ -3,7 +3,7 @@ import { rename, writeFile } from 'original-fs/promises'
 import { basename, dirname, join, resolve } from 'path'
 import { projectAgents } from '../shared/defaults'
 import { cardChange, carriedOver, changesBetween, changesSince, entryWithin, ENTRY_KEY, limitLine, markOf, movedIntoSince, seenOf, readMark, readSavedCondition, WAKE_MAX_BYTES, wakeAbout, watchLabel, cardWakeLine, userNameOf, releasedLine, withLanesTail, type Released, type ReplyNote, alreadyThere, encodeSince, WATCH_DEFAULT_LIMIT_MINUTES, WATCH_MAX_CARDS, WATCH_MAX_LIMIT_MINUTES, type Baseline, type CardChange, type CardMark, type Seen, type WatchChange, type WatchCondition } from '../shared/watch'
-import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
+import { agentBusy, agentEvent, agentLimitLine, agentMarkOf, agentPart, agentWakeLine, agentWatchLabel, readSavedAgentCondition, readSavedAgentMark, replyFirstLine, replyPart, REPLY_CHARS, type AgentEvent, type AgentMark, type AgentNow, type AgentWatchCondition, type WatchedAgent } from '../shared/agentWatch'
 import { isProjectId, type ProjectIdIndex } from '../shared/projectIds'
 import { rebase } from '../shared/movePaths'
 import type { LiveSessionState, StoredText, TaskCard, TaskColumn, TaskWatchInfo } from '../shared/types'
@@ -932,6 +932,13 @@ interface Reply {
   agentId: string
   agentName: string
   text: string
+  /**
+   * Who tells it (#1099 round 2): claimed by whichever picks it first, at once (no await between looking and claiming).
+   * `watch`: a watch of the Assistant's picked it for its line (watches may tell it again, as before #1099: a line not
+   * given is made again); `sending`: being given to the Assistant on its own (no watch takes it; not made, it is free
+   * again); `direct`: given on its own (no watch tells it again).
+   */
+  owner?: 'watch' | 'sending' | 'direct'
 }
 const replies: Reply[] = []
 const REPLIES_KEPT = 200
@@ -943,13 +950,96 @@ export function noteUserReply(projectPath: string, agentId: string, agentName: s
   const first = replyFirstLine(text)
   if (!first) return
   lastSeq = Math.max(lastSeq + 1, Date.now())
-  replies.push({ seq: lastSeq, projectPath, agentId, agentName, text: first })
+  const reply: Reply = { seq: lastSeq, projectPath, agentId, agentName, text: first }
+  replies.push(reply)
   if (replies.length > REPLIES_KEPT) replies.shift()
   const store = storeFor(projectPath)
   if (!store) return
-  inBackground('checking agent watches', evaluateAgents(store))
-  inBackground('checking watches', evaluate(store.ws))
+  // The watches are checked first: one of the Assistant's that tells it picks it (claims it, replyTo) and tells it with
+  // the rest of its line. What none picked (none covers it, or the one that does had made its line already) is given
+  // to the Assistant on its own, if it follows the agent (#1099 round 3: decided by who picked it, never by a guess).
+  const agentsChecked = evaluateAgents(store)
+  const cardsChecked = evaluate(store.ws)
+  inBackground('checking agent watches', agentsChecked)
+  inBackground('checking watches', cardsChecked)
+  inBackground("telling the Assistant the user's reply", Promise.allSettled([agentsChecked, cardsChecked]).then(() => tellReplyNow(store, reply)))
 }
+
+/** The Assistant's watches in a workspace's store (its own, never an agent's: replies are told only to it, #418). */
+const assistantWatches = (store: Store): WatchRecord[] => store.list.filter((r) => r.scope === null && r.agentId === ASSISTANT_AGENT_ID && store.ws.isAssistantHome(r.projectPath))
+
+/** Whether `card` is the reply's agent's (it has it or reviews it, in its project). */
+const cardOfAgent = (store: Store, card: TaskCard | null, reply: Reply): boolean =>
+  !!card?.project && same(resolve(join(store.path, card.project)), resolve(reply.projectPath)) && (card.agent === reply.agentId || card.review?.agent === reply.agentId)
+
+/**
+ * Whether the Assistant follows the reply's agent (#1099), though no watch of its own tells the reply now: a watch it
+ * has, or its last wakes told it about, covers that agent (an agent watch on it, a card watch on a card it has or
+ * reviews, a lane watch on a lane it builds or reviews). Between two watches (its wake being read, an agent watch
+ * answered at once because the agent was idle) or with a lane watch, which tells no replies, it would otherwise hear of
+ * the reply only with its next watch on that agent, often turns later.
+ */
+async function assistantFollows(store: Store, reply: Reply): Promise<boolean> {
+  const home = store.ws.assistantHome
+  if (!home) return false
+  const watcher = agentKey(home, ASSISTANT_AGENT_ID)
+  const key = agentKey(reply.projectPath, reply.agentId)
+  const recs = assistantWatches(store)
+  if (store.wokeAgents.get(watcher)?.has(key) || recs.some((r) => r.agents?.agents.some((a) => agentKey(a.projectPath, a.agentId) === key))) return true
+  const cards = new Set([...recs.filter((r) => !r.agents && !r.lanes).flatMap((r) => r.cond.cards), ...[...(store.woke.get(watcher)?.keys() ?? [])].map(Number)])
+  for (const n of cards) if (cardOfAgent(store, await cardIn(store, n, null).catch(() => null), reply)) return true
+  // The lanes it watches (all running ones, or those its watch names) and those its last lane wake told it about.
+  const all = recs.some((r) => r.lanes?.ids === 'all')
+  const ids = new Set([...recs.flatMap((r) => (r.lanes && r.lanes.ids !== 'all' ? r.lanes.ids : [])), ...(store.wokeLanes.get(watcher)?.marks.keys() ?? [])])
+  if (!all && !ids.size) return false
+  const project = basename(resolve(reply.projectPath))
+  return (await listLanes(store.ws).catch(() => [])).some((l) => (all || ids.has(l.id)) && (l.state === 'active' || l.state === 'paused') && same(l.project, project) && (l.builder.id === reply.agentId || l.reviewer?.id === reply.agentId))
+}
+
+/**
+ * Tells the Assistant a reply of the user's on its own (#1099), when it follows the agent but no watch of its own tells
+ * it now: a wake of its own, within seconds, like any other. Told so, no watch tells it again; not made (a failed save,
+ * a refusal), it is left to the Assistant's watches again. Its watches carry on. Made under the replies' generation and
+ * this run of Hive (its `meta`): the 'reply' source gives it only while replies may still be told.
+ */
+async function tellReplyNow(store: Store, reply: Reply): Promise<void> {
+  const generation = replyGeneration
+  if (!tellReplies() || reply.owner || !alive(store) || !(await assistantFollows(store, reply))) return
+  const home = store.ws.assistantHome
+  // Claimed only if nothing has picked it meanwhile (a watch that started and fired during the lookup tells it).
+  if (!home || reply.owner || !tellReplies() || generation !== replyGeneration) return
+  reply.owner = 'sending'
+  const line = `[Hive] ${replyPart(reply.agentName, `(${basename(resolve(reply.projectPath))})`, reply.text, REPLY_CHARS, userName())}.` // i18n-ignore: agent-facing: what the Assistant reads (#1099)
+  let id: string
+  try {
+    id = (await createDelivery(home, { agentId: ASSISTANT_AGENT_ID, kind: 'card-event', from: HIVE, body: line, source: 'reply', ref: `reply:${reply.seq}`, meta: { generation, run: RUN } })).id
+  } catch (e) {
+    // Not handed over: the Assistant's watches tell it as before (its next one on that agent).
+    if (reply.owner === 'sending') delete reply.owner
+    log.warn(`Couldn't hand the user's reply to ${userText(reply.agentName)} to the Assistant`, e)
+    inBackground('checking agent watches', evaluateAgents(store))
+    inBackground('checking watches', evaluate(store.ws))
+    return
+  }
+  reply.owner = 'direct'
+  log.info(`The user's reply to ${userText(reply.agentName)} was handed to the Assistant as ${id}`)
+  await offerNow(home, ASSISTANT_AGENT_ID)
+}
+
+/** This run of Hive (#1099): a reply's delivery made in it is checked against the replies' generation, which is this run's. */
+const RUN = randomBytes(6).toString('hex')
+/**
+ * Whether a reply told on its own may still be given (#1099): replies still told, and, when it was made in this run, not
+ * revoked since (the generation it was made under). One made before a restart is checked against the setting alone:
+ * turning it off then cancelled it (revokeReplies), and it is cancelled now if the setting is off.
+ */
+const replyHolds = (r: DeliveryRecord): boolean => tellReplies() && (r.meta?.run !== RUN || r.meta?.generation === replyGeneration)
+
+/** The replies' part in their deliveries (#1099): offered and handed out (hive_inbox) only while replyHolds. */
+registerSource('reply', {
+  refresh: async (r) => (replyHolds(r) ? null : { cancel: "the user's replies are no longer told" }),
+  holds: (r) => replyHolds(r)
+})
 /** The latest reply of the user's to an agent after `from`, for the Assistant's watch (null scope) only. */
 const tellReplies = (): boolean => config.settings.assistant?.tellReplies !== false
 /**
@@ -969,7 +1059,10 @@ const replyTo = (scope: string | null, projectPath: string, agentId: string, fro
     if (replies.length) dropReplies()
     return undefined
   }
-  return replies.findLast((r) => r.seq > from && r.agentId === agentId && same(resolve(r.projectPath), resolve(projectPath)))
+  // One given on its own (or being given) isn't a watch's to tell; one a watch picks is claimed for the watches.
+  const r = replies.findLast((x) => x.seq > from && x.owner !== 'sending' && x.owner !== 'direct' && x.agentId === agentId && same(resolve(x.projectPath), resolve(projectPath)))
+  if (r) r.owner = 'watch'
+  return r
 }
 
 /**
@@ -979,6 +1072,9 @@ const replyTo = (scope: string | null, projectPath: string, agentId: string, fro
  */
 export async function revokeReplies(): Promise<void> {
   dropReplies()
+  // Replies told on their own (#1099) and not read yet are withdrawn too: every one in each open workspace's Assistant's
+  // deliveries, kept in memory or not (the 'reply' source refuses those made before this, also while one is being made).
+  for (const store of [...stores.values()]) if (alive(store) && store.ws.assistantHome) inBackground('withdrawing replies', cancelFromSource(store.ws.assistantHome, 'reply', null, "cancelled: the user's replies are no longer told"))
   // A wake handed over as a delivery that tells one is cancelled now (its typing stops; a line its CLI hasn't taken is
   // cleared): its watch fires again, made without the reply (#649).
   for (const [id, h] of handed) if (h.told.replies) inBackground('withdrawing a reply', cancelFromSource(h.rec.projectPath, 'watch', wakeRef(h.rec), "cancelled: the user's replies are no longer told").then(() => handed.delete(id)))
