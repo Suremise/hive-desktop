@@ -115,9 +115,10 @@ interface WatchRecord {
   /**
    * A project agent's part in each watched card as the watch began (#420): its agent, its reviewer, or a reviewer
    * waiting for it to arrive in Review ("awaiting"). A card it has no part in
-   * (another agent's card it depends on) isn't here, and is never released. The watcher's board name, for the history.
+   * (another agent's card it depends on) isn't here, and is never released.
    */
   on?: Record<string, OnCard>
+  /** A project agent's board name: for the history, and its own comments aren't news to its watch (#1074). */
   watcherName?: string
   /** Cards that left the watch since it began, released (#420): told with its next line. */
   released?: Released[]
@@ -790,7 +791,7 @@ export async function registerWatch(ws: WorkspaceService, projectPath: string, a
     const minutes = Math.min(WATCH_MAX_LIMIT_MINUTES, Math.max(1, Math.round(limitMinutes)))
     // The Assistant's: the user's replies to its cards' agents from what its last wake told (#418).
     const replySeq = scope === null ? (store.wokeReplies.get(agentKey(projectPath, agentId)) ?? latestReplySeq()) : undefined
-    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), ...(Object.keys(on).length ? { on, ...(self ? { watcherName: self } : {}) } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+    const rec: WatchRecord | null = already ? null : { id: randomBytes(6).toString('hex'), projectPath, ...projectIdOf(ws, projectPath), agentId, scope, cond, marks, current: now, since, ...from, ...(replySeq !== undefined ? { replySeq } : {}), ...(Object.keys(on).length ? { on } : {}), ...(self && scope !== null ? { watcherName: self } : {}), limitMinutes: minutes, limitAt: new Date(Date.now() + minutes * 60_000).toISOString() }
     const next = [...store.list.filter((x) => x !== old), ...(rec ? [rec] : [])]
     // Every watch must be able to fire, be typed and end within the file's limit: make room, else refuse.
     if (rec && budget(store, next) > MAX_FILE_BYTES && !((await setAside(store)) && budget(store, next) <= MAX_FILE_BYTES))
@@ -1927,7 +1928,7 @@ async function check(store: Store, rec: WatchRecord, cards?: CardReads): Promise
     let kinds: WatchChange[] | 'gone'
     if (seen) {
       // From where the watch's view of the card ended (#224).
-      kinds = changesSince(card, { mark: rec.marks[n], seen, since: rec.since, self: rec.self }, rec.cond)
+      kinds = changesSince(card, { mark: rec.marks[n], seen, since: rec.since, self: rec.self, watcher: rec.watcherName }, rec.cond)
       if (kinds !== 'gone' && intoAsSeen && !kinds.includes('column') && (!rec.cond.changes.length || rec.cond.changes.includes('column'))) kinds.push('column')
     } else {
       // A watch saved before #224: a move into the column by its history since the watch began.

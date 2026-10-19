@@ -5,6 +5,8 @@
 - **A message left for an agent that's just starting on a task waits for that task.** An agent started with a task (a card's Start, a new conversation) is ready a moment before its coding agent takes the task. A message or wake that arrived just then could be typed first, so the agent read it before its task and Hive lost track of the line. Hive now waits until the task has been taken.
 - **The Assistant hears your replies to agents at once.** When you answer an agent in its pane, the Assistant is told within seconds even when it isn't waiting on that agent at that moment (between its watches, or while it watches lanes), instead of a few turns later.
 - **Codex and Copilot agents take Hive's lines at the first Enter when busy.** A message's notice or a wake that reached a Codex or Copilot agent while it was busy for a moment could sit in its prompt until Hive pressed Enter again 10 seconds later, or, under heavy load, until you pressed it. Copilot now gets Hive's lines as a paste, as Claude Code does, and with Codex Hive presses Enter only once Codex shows the line.
+- **Card loops review committed work.** The card-loop skill now has the builder commit each round before sending a card to Review and name the commit; a reviewer handed uncommitted work asks for a commit rather than failing the round over it (#1074).
+- **The Assistant steps in when a review keeps finding new edge cases.** When a lane's card fails review a second or third time on the same kind of finding, the Assistant brings you a simpler option with its recommendation instead of letting the loop run on. For a push or a release, it asks you to give your OK in the agent's own pane, since the agent's CLI refuses an OK passed on by the Assistant (#1075).
 
 ## 0.9.2 — 2026-10-19
 
