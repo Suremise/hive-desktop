@@ -249,9 +249,11 @@ describe('captures and triggers', async () => {
       await vi.waitFor(() => expect(toasts.list.length).toBe(2), { timeout: 10_000 })
       for (const t of toasts.list) expect(`${t.title} ${t.message}`).not.toMatch(/Captured|saved|safeguards stopped|doesn't know/)
       expect(toasts.list.map((t) => t.message).join()).toMatch(/opus/)
-      const file = fileOf(String(toasts.list[0].actions![0].args![0]))
+      // The two saves finish in either order: the safeguard's notice is the one naming its model.
+      const guard = toasts.list.find((t) => /opus/.test(t.message ?? ''))!
+      const file = fileOf(String(guard.actions![0].args![0]))
       expect(file.header?.capture?.what).toBe('safeguards stopped a response on opus')
-      const listed = (await listCaptures()).find((c) => c.name === toasts.list[0].actions![0].args![0])
+      const listed = (await listCaptures()).find((c) => c.name === guard.actions![0].args![0])
       expect(listed?.capture?.whatText).toEqual({ id: 'safeguardStopOn', values: { model: 'opus' } })
     } finally {
       setLanguage('en', {})
