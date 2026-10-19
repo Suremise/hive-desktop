@@ -50,7 +50,7 @@ Process model: the **main process** owns the filesystem, ptys, hook server, Agen
 
 Robustness and safety rules:
 
-- **Hive's JSON files** (`project.json`, `sessions.json`, `config.json`…) are written to a temporary file and renamed into place, each write with its own temporary file, so a crash or two writes at once never leave a partial file. The files Hive keeps (`config.json`, `workspace.json`, `project.json`, `sessions.json`) also get a `.bak` copy of the last good version with every save; a file that can't be read is set aside as `<file>.corrupt-<time>`, the `.bak` restored and the user told (or, with no good copy, defaults used and the user told), so a damaged file never silently turns into lost settings or session records. Read-modify-write changes to one project's `project.json` or `sessions.json` are serialised, so changes made at the same moment (two agents finishing together) are all kept.
+- **Hive's JSON files** (`project.json`, `config.json`…) are written to a temporary file and renamed into place, each write with its own temporary file, so a crash or two writes at once never leave a partial file. The files Hive keeps (`config.json`, `workspace.json`, `project.json`) also get a `.bak` copy of the last good version with every save; a file that can't be read is set aside as `<file>.corrupt-<time>`, the `.bak` restored and the user told (or, with no good copy, defaults used and the user told), so a damaged file never silently turns into lost settings or session records. Read-modify-write changes to one project's `project.json` or its session records are serialised, so changes made at the same moment (two agents finishing together) are all kept.
 - **Session IDs** from the renderer, the Agent API or the file system are checked (letters, digits, `-`, `_`) before they are used in a file name.
 - **Starting an agent** is reserved before anything else happens, so two starts at once (a double click, or the UI and the Agent API) start it only once; the other is refused.
 - **The window** only uses the clipboard; every other permission a page can ask for is refused, and a build's CSP allows no network connections. IPC calls are accepted only from Hive's own top-level page (not an embedded preview). Paths from the window are checked against the workspace by their real location too (following links and junctions), for `file:read`/`file:write`, `hive-img:` and shared notes.
@@ -97,13 +97,13 @@ Primary platform is Windows 11. Code avoids Windows-only assumptions where cheap
     personas/
       <id>.md             # a Hive Assistant persona (§6.5)
     bundled.json          # which of Hive's bundled skills and personas the workspace was given, and from which version (§7.1)
-    hive.db               # the task board (§6.6): SQLite, one row a card (#1017), and lanes, card watches and every session host's deliveries (#1018); with hive.db-wal and hive.db-shm
+    hive.db               # the task board (§6.6): SQLite, one row a card (#1017), and lanes, card watches and every session host's deliveries (#1018) and session records (#1061, below); with hive.db-wal and hive.db-shm
     tasks/                # what an older Hive reads: board.json (the next number) and a README (#1017)
     tasks.imported-<time>/ # the cards' files as they were, kept when they moved into hive.db
     .gitignore            # keeps hive.db and the board's backups out of git (written once, if there is none)
     lanes.json.imported-<time>  # lanes.json, watches.json as they were, kept when they moved into hive.db (#1018); a project's deliveries.json likewise in its .hive. An older Hive after the move starts these files afresh; the next 0.9 open keeps them the same way, unread (loop bookkeeping and deliveries for running agents, not worth merging back)
     assistant/            # the Hive Assistant's home (§6.5); its own .gitignore keeps it out of git
-      .hive/              # like a project's: project.json (its one agent), sessions.json, backups, launch-assistant/
+      .hive/              # like a project's: project.json (its one agent), backups, launch-assistant/ (its session records are in hive.db, under `assistant`)
     README.md             # explains the folder to humans browsing the repo
 ```
 
@@ -115,12 +115,12 @@ Primary platform is Windows 11. Code avoids Windows-only assumptions where cheap
 <Workspace>/<Project>/
   .hive/
     project.json          # project overrides
-    sessions.json         # session index
+    sessions.json.imported-<time>  # its session index as it was, kept when it moved into the workspace's hive.db (#1061; below)
     sessions/<id>.jsonl   # backup copy of each session transcript
     archive/<id>.jsonl    # transcripts of archived sessions
     attachments/<id>/<time>[_<name>]  # files pasted or dropped into a session (#387; was images/); deleted only by Clean Up… (§4.2.1)
     removed/              # only after Remove from Hive (§6.7): manifest.json, cards.json, handovers/
-    project.json.bak, sessions.json.bak   # last good copies (see §2)
+    project.json.bak      # last good copy (see §2)
     launch-<agent id>/    # Claude Code agents: regenerated on every launch — do not edit
       plugin/.claude-plugin/plugin.json
       plugin/skills/<skill>/...     # copies of enabled Hive skills
@@ -200,7 +200,14 @@ Windows only, behind a platform-neutral status (`shared/antivirus.ts`, `main/ant
   // 0.1's flat model/effort/permissionMode/extraArgs are still written (Claude Code's values) for downgrades.
 }
 
-// <Project>/.hive/sessions.json
+// A project's session records (#1061): rows of the workspace's hive.db (store `sessions`, under the project's id; the
+// Assistant's under `assistant`), one per record, deleted id and deleted session's usage, so a change writes only what it
+// changed. Moved in from <Project>/.hive/sessions.json the first time Hive reads them (kept as sessions.json.imported-<time>);
+// one found later is moved in only if the project has no records there (a folder brought back after Remove from Hive),
+// else kept unread. Remove from Hive writes them back into the folder's sessions.json (in one write transaction of the database,
+// so no change, from any process, is lost between) and marks them exported: while the project is removed, nothing here reads that file; Restore moves it
+// back in, with any record made meanwhile; another workspace opening the folder moves it in there. A folder copied or
+// moved by hand starts with none, as its cards do. Each in the file's form:
 { "version": 1, "sessions": [ { "id": "…", "agent": "claude-code", "agentId": "a2", "name": "…",
   "createdAt": "…", "lastActiveAt": "…", "archived": false,
   "transcriptPath": "…",        // Codex: where its rollout file is (it can't be found from the folder)

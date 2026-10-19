@@ -14,6 +14,7 @@ const { _electron } = require('playwright-core')
 const { createHash } = require('crypto')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 20000
 
@@ -194,7 +195,7 @@ const check = (name, ok, extra = '') => {
     }, HUNG_MS)
     check('answered, its switch is noted', !!moved && moved.safeguard.stops === 5, JSON.stringify((await live(alpha, id))?.safeguard))
     check('and Performance counts that stop once (prompt and record)', await countedIs({ 'claude-fake': 1, 'claude-opus-4-8': 4 }), JSON.stringify(await counted()))
-    const record = JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.agentId === id)
+    const record = sessionsOf(alpha).sessions.find((s) => s.agentId === id)
     const screenStops = record?.screenStops ?? []
     check('the session keeps both stops seen on screen, each with its turn', screenStops.length === 2 && screenStops.every((s) => s.turn) && screenStops[0].turn !== screenStops[1].turn, JSON.stringify(screenStops))
 

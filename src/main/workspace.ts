@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto'
-import { basename, join, resolve, sep } from 'path'
+import { basename, dirname, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { closeBoard } from './boardStore'
@@ -19,6 +19,7 @@ import { config } from './config'
 import { emit, emitTo } from './events'
 import { containsPlace, insideReal, isDir, readJson, readKeptJson, removePath, samePlace, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger, userText } from './logger'
+import { changeSessions, exportSessions, readSessions, releaseSessions, type SessionsPlace } from './sessionStore'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
@@ -766,7 +767,6 @@ export class WorkspaceService {
     await mkdir(join(h, 'sessions'), { recursive: true })
     await mkdir(join(h, 'archive'), { recursive: true })
     if (!existsSync(join(h, 'project.json'))) await writeKeptJson(join(h, 'project.json'), DEFAULT_PROJECT_CONFIG)
-    if (!existsSync(join(h, 'sessions.json'))) await writeKeptJson(join(h, 'sessions.json'), { version: 1, sessions: [] })
     // 0.1's launch folder for Agent 1; every agent now has launch-<id>.
     if (existsSync(join(h, 'launch'))) await removePath(join(h, 'launch')).catch(() => undefined)
     await this.ensureGitExclude(projectPath)
@@ -837,19 +837,41 @@ export class WorkspaceService {
     return next
   }
 
-  async sessionsFile(projectPath: string): Promise<SessionsFile> {
-    return readKeptJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
+  /**
+   * Where a session host's records are kept (#1061): its workspace's database (a project's workspace is its parent folder,
+   * the Assistant's home is the workspace's `.hive/assistant`), under the project's stable id (#508), so they follow a
+   * rename; the Assistant's under `assistant`, a folder with no id yet under its name. With its old sessions.json, moved in
+   * the first time.
+   */
+  private async sessionsPlace(projectPath: string): Promise<SessionsPlace> {
+    const h = resolve(projectPath)
+    const file = join(h, HIVE_DIR, 'sessions.json')
+    const parent = dirname(h)
+    if (basename(h).toLowerCase() === ASSISTANT_DIR.toLowerCase() && basename(parent).toLowerCase() === HIVE_DIR) return { workspace: dirname(parent), scope: 'assistant', file }
+    const known = this.path ? (await this.projectIds().catch(() => null))?.byPath.get(h.toLowerCase()) : undefined
+    const saved = known ?? (await readJson<{ id?: unknown } | null>(join(h, HIVE_DIR, 'project.json'), null).catch(() => null))?.id
+    const removed = !!this.path && samePlace(parent, this.path) && (this.wsConfig.hiddenProjects ?? []).some((x) => x.mode === 'removed' && x.name.toLowerCase() === basename(h).toLowerCase())
+    return { workspace: parent, scope: typeof saved === 'string' && saved ? saved : `folder:${basename(h).toLowerCase()}`, file, removed }
   }
 
-  /** Changes sessions.json from its current content, one change at a time. */
+  /** A session host's records (#1061: in the workspace's database). */
+  async sessionsFile(projectPath: string): Promise<SessionsFile> {
+    return readSessions(await this.sessionsPlace(projectPath))
+  }
+
+  /** Changes a host's session records from what is saved now, one change at a time; only what changed is written. */
   async mutateSessions<T>(projectPath: string, fn: (f: SessionsFile) => T): Promise<T> {
-    const file = join(projectPath, HIVE_DIR, 'sessions.json')
-    return withFileLock(file, async () => {
-      const f = await this.sessionsFile(projectPath)
-      const result = fn(f)
-      await writeKeptJson(file, f)
-      return result
-    })
+    return changeSessions(await this.sessionsPlace(projectPath), fn)
+  }
+
+  /** Writes a project's session records into its folder and out of the database (#1061: Remove from Hive). */
+  async exportSessions(projectPath: string): Promise<number> {
+    return exportSessions(await this.sessionsPlace(projectPath))
+  }
+
+  /** Remove from Hive is over, done or not (#1061): see releaseSessions. */
+  async releaseSessions(projectPath: string): Promise<void> {
+    releaseSessions(await this.sessionsPlace(projectPath))
   }
 
   /** `created`: fields only a new record takes (a launch's start as its createdAt), never written over an existing one's. */

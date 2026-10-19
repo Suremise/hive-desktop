@@ -5,6 +5,7 @@
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
+const { putSessions } = require('./storeDocs.cjs')
 
 const scratch = lib.WORK
 const userData = path.join(scratch, 'oprofile')
@@ -52,13 +53,11 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   const alpha = await lib.addAgent(inv, proj, { name: 'Alpha' })
   const beta = await lib.addAgent(inv, proj, { name: 'Beta' })
   const t = '2026-09-29T09:00:00.000Z'
-  fs.writeFileSync(
-    path.join(proj, '.hive', 'sessions.json'),
-    JSON.stringify({ version: 1, sessions: [
-      { id: A, agent: 'claude-code', agentId: alpha.id, name: 'Alpha work', createdAt: t, lastActiveAt: t, archived: false },
-      { id: B, agent: 'claude-code', agentId: beta.id, name: 'Beta work', createdAt: t, lastActiveAt: '2026-09-29T10:00:00.000Z', archived: false }
-    ] })
-  )
+  // Hive has read the project's records: they are replaced in the workspace's database (#1061).
+  putSessions(proj, { version: 1, sessions: [
+    { id: A, agent: 'claude-code', agentId: alpha.id, name: 'Alpha work', createdAt: t, lastActiveAt: t, archived: false },
+    { id: B, agent: 'claude-code', agentId: beta.id, name: 'Beta work', createdAt: t, lastActiveAt: '2026-09-29T10:00:00.000Z', archived: false }
+  ] })
   await page.getByText('demo', { exact: true }).first().click()
   await page.locator('.tab', { hasText: 'Overview' }).click()
   const head = page.locator('.session-head')

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **Session records join the board in its database.** Each project's `.hive/sessions.json`, rewritten whole at every change of a session (746 KB on a busy project, about 7 ms a time), is now rows of the workspace's `.hive/hive.db`: a change writes only the record it changes, in well under a millisecond, with no temp file or rename for Windows to refuse. The file moves in the first time Hive reads a project's sessions and is kept as `sessions.json.imported-<date>`. **Remove from Hive** writes a project's sessions back into its folder, so restoring it, or opening it in another workspace, brings them back; a folder copied or moved by hand starts with an empty list, as its cards do (#1061).
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).
