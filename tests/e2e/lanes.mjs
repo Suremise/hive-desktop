@@ -35,7 +35,8 @@ const LOCK_MAX_MS = 10_000
  * that waits for a lane, #735) have their ports: above the machine pool's. Runs in other worktrees claim the machine
  * pool's lanes without seeing this pool's claims, so sharing ports let one of them start its test Hive on the port a
  * scenario here had just claimed, and the scenario's Agent API calls reached that Hive, which refused its token (#1127).
- * That check starts no runner inside a suite, the only thing that takes ports 1000 above a lane's.
+ * Every pool of its own has these ports, so only one is used at a time on the machine (holdOwnPool). That check starts
+ * no runner inside a suite, the only thing that takes ports 1000 above a lane's.
  */
 export const OWN_POOL_FIRST = LANE_FIRST + LANES * LANE_SPAN
 
@@ -162,6 +163,45 @@ export async function claimLane(dir, { owner = process.pid, root = '', what = ''
       return { lane: k, ...lanePorts(k, portsFrom), release }
     }
   })
+}
+
+/**
+ * Holds the machine's one pool of its own (#1127): every such pool's lanes have OWN_POOL_FIRST's ports, and each pool
+ * claims its lanes under a lock of its own, so two at once (two concurrency checks) would hand out the same ports. The
+ * hold is dir/own-pool.json with this process's id (a crashed holder's expires, as a lane's claim does); while another
+ * live process has it, this waits, calling onWait(holder) every pollMs. Returns { release(), waitedMs }, or with
+ * wait: false and the hold taken, { refused: holder } at once.
+ */
+export async function holdOwnPool(dir, { owner = process.pid, root = '', what = '', wait = true, pollMs = 2000, onWait = () => {}, alive = processAlive, now = () => Date.now() } = {}) {
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, 'own-pool.json')
+  const started = now()
+  for (;;) {
+    const holder = await withLock(dir, async () => {
+      let claim = null
+      try {
+        claim = JSON.parse(readFileSync(file, 'utf8'))
+      } catch {
+        // None, or unreadable: not held.
+      }
+      if (claimHeld(claim, alive, now())) return claim
+      writeFileSync(file, JSON.stringify({ pid: owner, at: now(), root, ...(what ? { what } : {}) }))
+      return null
+    })
+    if (!holder) {
+      const release = () => {
+        try {
+          if (JSON.parse(readFileSync(file, 'utf8')).pid === owner) rmSync(file, { force: true })
+        } catch {
+          // Gone already.
+        }
+      }
+      return { release, waitedMs: now() - started }
+    }
+    if (!wait) return { refused: holder }
+    onWait(holder)
+    await sleep(pollMs)
+  }
 }
 
 /**

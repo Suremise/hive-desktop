@@ -30,7 +30,9 @@ const TEST_ROOT = path.join(LOCAL, 'hive-test')
  * Where runners claim their lanes (lanes.mjs): e2e and scenario runs take them from the same pool. HIVE_TEST_LANES_DIR
  * gives a pool of its own, for checking a run that waits for a lane (concurrency.mjs, #735) without holding real runs'.
  */
-const LANES_DIR = process.env.HIVE_TEST_LANES_DIR || path.join(TEST_ROOT, 'e2e-lanes')
+/** The machine's lanes (e2e-lanes); also where the one pool of its own in use is held (lanes.mjs holdOwnPool, #1127). */
+const MACHINE_LANES_DIR = path.join(TEST_ROOT, 'e2e-lanes')
+const LANES_DIR = process.env.HIVE_TEST_LANES_DIR || MACHINE_LANES_DIR
 /** Whether LANES_DIR is a pool of its own, whose lanes take ports above the machine pool's (lanes.mjs lanesFirst, #1127). */
 const OWN_LANES = !!process.env.HIVE_TEST_LANES_DIR
 /**
@@ -189,4 +191,4 @@ function suiteEnv({ name, port = null, work = null, runDir, cliLog = null }, par
   return env
 }
 
-module.exports = { TEST_ROOT, LANES_DIR, OWN_LANES, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv, trashDir, cliHomes, isUserCliHome }
+module.exports = { TEST_ROOT, MACHINE_LANES_DIR, LANES_DIR, OWN_LANES, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv, trashDir, cliHomes, isUserCliHome }

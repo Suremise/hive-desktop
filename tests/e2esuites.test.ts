@@ -22,7 +22,7 @@ import { makeDist } from '../scripts/distCopy.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { LANES, LANE_FIRST, LANE_PORTS, claimHeld, claimLane, describeHolder, laneHolders, lanePorts, laneWaitLine, lanesFirst, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
+import { LANES, LANE_FIRST, LANE_PORTS, claimHeld, claimLane, describeHolder, holdOwnPool, laneHolders, lanePorts, laneWaitLine, lanesFirst, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, launchEnded, leftOverCheck, leftOverLine, needsSlot, preMerge, runOwner, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -989,6 +989,37 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
       rmSync(lanesDir, { recursive: true, force: true })
     }
     for (const file of [join(dir, 'run.mjs'), join(__dirname, 'scenarios', 'run.mjs')]) expect(readFileSync(file, 'utf8')).toContain('portsFrom: lanesFirst(runContext.OWN_LANES),')
+  })
+
+  it('only one pool of its own at a time on the machine: a second checker waits for the first, whose pools would have the same ports (#1127)', async () => {
+    const machine = tempDir('hive-machine-lanes-')
+    const pools = [tempDir('hive-own-lanes-a-'), tempDir('hive-own-lanes-b-')]
+    try {
+      const running = (pid: number) => pid === 300 || pid === 301
+      // Two pools of their own hand out the same ports: the reason for the hold.
+      const [a, b] = await Promise.all(pools.map((p, i) => claimLane(p, { owner: 300 + i, alive: running, free: async () => true, portsFrom: lanesFirst(true) })))
+      expect(a.first).toBe(b.first)
+      a.release()
+      b.release()
+      const first = await holdOwnPool(machine, { owner: 300, alive: running, what: 'checker A' })
+      expect(first.release).toBeTypeOf('function')
+      expect(await holdOwnPool(machine, { owner: 301, alive: running, wait: false })).toEqual({ refused: expect.objectContaining({ pid: 300, what: 'checker A' }) })
+      // The second waits, saying who holds it, and takes it once the first lets go.
+      const seen: number[] = []
+      const second = holdOwnPool(machine, { owner: 301, alive: running, pollMs: 10, onWait: (h: { pid: number }) => seen.push(h.pid) })
+      await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0))
+      first.release()
+      const got = await second
+      expect(got.release).toBeTypeOf('function')
+      expect(seen.every((pid) => pid === 300)).toBe(true)
+      expect(JSON.parse(readFileSync(join(machine, 'own-pool.json'), 'utf8')).pid).toBe(301)
+      // The machine pool's own claims are untouched: the hold is a file of its own beside them.
+      expect(readdirSync(machine).filter((n) => /^lane-\d+\.json$/.test(n))).toEqual([])
+      // A crashed holder's hold is taken over at once.
+      expect(await holdOwnPool(machine, { owner: 302, alive: (pid: number) => pid === 302, wait: false })).toHaveProperty('release')
+    } finally {
+      for (const d of [machine, ...pools]) rmSync(d, { recursive: true, force: true })
+    }
   })
 
   it("each lane's suites have a folder of their own, never the work folder a suite run on its own uses", () => {

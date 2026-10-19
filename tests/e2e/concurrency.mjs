@@ -38,7 +38,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
-import { LANES, OWN_POOL_FIRST } from './lanes.mjs'
+import { LANES, OWN_POOL_FIRST, holdOwnPool } from './lanes.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
@@ -286,6 +286,18 @@ async function heavyRound(k, worktrees) {
 /** A run that waits for a test lane while its source changes (#735): see the top of this file. */
 async function laneWaitCheck(wt) {
   console.log('\n--- A run that waits for a test lane while its source changes (#735)')
+  // The machine's one pool of its own (#1127): another checker's would have the same ports. Waits while one runs.
+  let saidHolder = ''
+  const own = await holdOwnPool(runContext.MACHINE_LANES_DIR, {
+    root,
+    what: 'the concurrency check of a run waiting for a lane',
+    onWait: (h) => {
+      const line = `Waiting for the pool of its own: held by ${h.what || 'a checker'} in ${h.root || 'another worktree'} (process ${h.pid})`
+      if (line !== saidHolder) console.log(line)
+      saidHolder = line
+    }
+  })
+  process.on('exit', own.release)
   const pool = join(RUN, 'lanes')
   rmSync(pool, { recursive: true, force: true })
   mkdirSync(pool, { recursive: true })
@@ -331,6 +343,7 @@ async function laneWaitCheck(wt) {
   } finally {
     rmSync(probe, { force: true })
     rmSync(pool, { recursive: true, force: true })
+    own.release()
   }
 }
 
