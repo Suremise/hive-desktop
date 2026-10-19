@@ -74,7 +74,7 @@ More on the website: [surmise.it](https://surmise.it)
 
 Hive's window, menus and messages come in eight languages: English, Deutsch (German), Español (Spanish), Français (French), Polski (Polish), Português (Brasil) (Brazilian Portuguese), 日本語 (Japanese) and 简体中文 (Simplified Chinese). Hive starts in Windows' display language when it has it, else in English; **Settings → General → Language** chooses another, and the change shows at once.
 
-The seven languages besides English were translated by AI, and Hive says so beside their names. Corrections are welcome: **Help → Improve This Translation** opens [Fix a translation](CONTRIBUTING.md#fix-a-translation), and each language's glossary and style notes are in [docs/translating](docs/translating). The [user guide](docs/USER_GUIDE.md) is in English for now, as are two views for developers (Performance and the developer console) and what Hive tells the agents, which can still answer you in your language.
+The seven languages besides English were translated by AI, and Hive says so beside their names. Corrections are welcome: **Help → Improve This Translation** opens [Fix a translation](CONTRIBUTING.md#fix-a-translation), and each language's glossary and style notes are in [docs/translating](docs/translating). The [user guide](docs/USER_GUIDE.md) is in English for now, as are the events the developer console records and what Hive tells the agents, which can still answer you in your language.
 
 ## Requirements
 

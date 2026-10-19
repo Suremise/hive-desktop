@@ -9,7 +9,9 @@ import { createRequire } from 'module'
 import { join } from 'path'
 import { afterAll, describe, expect, it } from 'vitest'
 import * as electron from 'electron'
-import { BENCHMARK_LIMITS, EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, compareArtifacts, compareScopeOf, parseArtifact, readKept, summaryOf, type Artifact, type CompareScope, type ParseResult } from '../src/shared/benchmark'
+import { BENCHMARK_LIMITS, EXPORT_MEASURES, SCENARIO_MEASURES, USAGE_MEASURES, aboutOf, compareArtifacts, compareScopeOf, factsOf, keptAbout, keptLabel, parseArtifact, readEntry, readKept, summaryOf, type Artifact, type CompareScope, type KeptEntry, type ParseResult } from '../src/shared/benchmark'
+import { englishText, shownText } from '../src/shared/advanced'
+import { setLanguage } from '../src/shared/i18n'
 import { tempDir } from './tempDir'
 
 const require_ = createRequire(import.meta.url)
@@ -174,11 +176,11 @@ describe('scenario benchmarks', () => {
   })
 
   it('reads a file as untrusted input: bounds, junk, escapes; a kept file is re-read into a fresh, bounded object', () => {
-    expect(parseArtifact('{', WS)).toEqual({ error: expect.stringMatching(/JSON/) })
-    expect(parseArtifact('{"schema":"other"}', WS)).toEqual({ error: expect.stringMatching(/isn’t a Hive benchmark/) })
+    expect(parseArtifact('{', WS)).toMatchObject({ error: expect.stringMatching(/JSON/) })
+    expect(parseArtifact('{"schema":"other"}', WS)).toMatchObject({ error: expect.stringMatching(/isn’t a Hive benchmark/) })
     const big = JSON.stringify({ schema: 'hive-benchmark/1', pad: '日'.repeat(BENCHMARK_LIMITS.fileBytes / 3 + 10) })
     expect(big.length).toBeLessThan(BENCHMARK_LIMITS.fileBytes)
-    expect(parseArtifact(big, WS)).toEqual({ error: expect.stringMatching(/over 2 MB/) })
+    expect(parseArtifact(big, WS)).toMatchObject({ error: expect.stringMatching(/over 2 MB/) })
     const b = JSON.parse(fixture('baseline'))
     b.label = 'Ünïcödé "quoted" \\ 🐝\u0007 bell'
     b.scenarios.push({ id: '../../etc', title: 'bad id', samples: [] }, { id: 'card-detail', title: 'duplicate', samples: [] }, { id: 'broken', samples: 'broken' })
@@ -201,8 +203,8 @@ describe('scenario benchmarks', () => {
     expect(back.scenarios!.length).toBeLessThanOrEqual(BENCHMARK_LIMITS.scenarios)
     expect(back.scenarios!.some((s) => s.id === 'review-card')).toBe(false)
     expect(readKept({ ...kept, scope: { kind: 'project', project: 'alpha' } })).toBeNull()
-    expect(parseArtifact(fixture('baseline'), { kind: 'project', project: 'alpha' })).toEqual({ error: expect.stringMatching(/not one of your projects/) })
-    expect(parseArtifact(fixture('baseline'), OWN)).toEqual({ error: expect.stringMatching(/not the workspace’s own work/) })
+    expect(parseArtifact(fixture('baseline'), { kind: 'project', project: 'alpha' })).toMatchObject({ error: expect.stringMatching(/not one of your projects/) })
+    expect(parseArtifact(fixture('baseline'), OWN)).toMatchObject({ error: expect.stringMatching(/not the workspace’s own work/) })
   })
 })
 
@@ -235,8 +237,8 @@ function exportFile(opts: { scope?: any; sanitized?: boolean; own?: boolean; obs
 
 describe('what Compare says about its measures', () => {
   it("calls the Assistant's working mode a mode, as the Performance page does (#358)", () => {
-    for (const m of [...SCENARIO_MEASURES, ...USAGE_MEASURES, ...EXPORT_MEASURES]) expect(`${m.label} ${m.tip}`, m.key).not.toMatch(/persona/i)
-    expect(SCENARIO_MEASURES.find((m) => m.key === 'contextBytes')?.tip).toContain('the Assistant’s role and mode')
+    for (const m of [...SCENARIO_MEASURES, ...USAGE_MEASURES, ...EXPORT_MEASURES]) expect(`${m.label.defaultMessage} ${m.tip.defaultMessage}`, m.key).not.toMatch(/persona/i)
+    expect(SCENARIO_MEASURES.find((m) => m.key === 'contextBytes')?.tip.defaultMessage).toContain('the Assistant’s role and mode')
   })
 })
 
@@ -260,12 +262,67 @@ describe('Performance exports', () => {
     expect(vs.rows!.find((r) => r.key === 'toolChars')!.incomplete).toBe(false)
   })
 
+  it('says its reasons, notes and refusals as text for the window, the English fields that text in English (#1104)', () => {
+    const a = art(parseArtifact(exportFile({ requests: { alpha: 24 } }), WS))
+    const dropped = art(parseArtifact(exportFile({ dropped: 3, role: 'api' }), WS))
+    const c = compareArtifacts(a, dropped)
+    expect([c.reasons, c.notes]).toEqual([c.reasonsText.map((t) => englishText(t)), c.notesText.map((t) => englishText(t))])
+    expect(c.reasonsText.length && c.notesText.length).toBeGreaterThan(0)
+    // What makes a summary partial is kept as data beside its English, and read back from a kept file; a summary kept
+    // before has only the English, which is shown as it was.
+    expect(dropped.summary!.partialWhy).toEqual([{ kind: 'dropped', n: 3 }])
+    expect(readKept(JSON.parse(JSON.stringify(dropped)))!.summary!.partialWhy).toEqual([{ kind: 'dropped', n: 3 }])
+    const old = JSON.parse(JSON.stringify(dropped))
+    delete old.summary.partialWhy
+    expect(compareArtifacts(a, readKept(old)!).notes.join()).toMatch(/run is partial: 3 measurements dropped \(a limit was full\)\./)
+    old.summary.partialWhy = [{ kind: 'invalid', keys: ['notAMeasure'] }]
+    expect(readKept(old)!.summary!.partialWhy).toBeUndefined()
+    const refused = parseArtifact('{', WS)
+    expect('errorText' in refused && englishText(refused.errorText!)).toBe('It isn’t JSON.')
+    const s = scenario(compareArtifacts(bench('baseline'), variant((b) => (sampleOf(b, 'card-detail').ok = null))), 'card-detail')
+    expect(s.notes).toEqual(s.notesText.map((t) => englishText(t)))
+  })
+
+  it("names and describes kept comparisons from their facts in the window's language, with the Who filter's roles and costs as it says them (#1104)", () => {
+    const PL = join(__dirname, '..', 'locales', 'pl')
+    const polish = (): Record<string, string> => Object.assign({}, ...readdirSync(PL).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(PL, f), 'utf8'))))
+    const entryOf = (x: Artifact) => readEntry(JSON.parse(JSON.stringify({ id: '0123456789ab', label: x.label, kind: x.kind, scope: x.scope, createdAt: x.createdAt, keptAt: x.createdAt, pinned: false, about: aboutOf(x), facts: factsOf(x), labelKind: x.labelKind })))!
+    const agents = art(parseArtifact(exportFile({ role: 'agent' }), WS))
+    const scripts = art(parseArtifact(exportFile({ role: 'api' }), WS))
+    const e = entryOf(agents)
+    expect([e.labelKind, e.facts?.kind]).toEqual(['export', 'export'])
+    const trial: KeptEntry = { ...e, kind: 'scenarios', labelKind: 'benchmark', facts: { kind: 'scenarios', real: true, provider: 'Claude Code', model: 'opus', effort: 'high', mode: 'auto', fixtures: 3, scenarios: 2, repeats: 1, head: 'abc1234', dirty: false, spentUsd: 1.23, unpriced: 0 } }
+    expect(shownText(keptAbout(trial))).toBe('Model trial Claude Code opus (high, auto), fixtures v3, 2 scenarios × 1, source abc1234, spent $1.23')
+    setLanguage('pl', polish(), 'pl-PL')
+    try {
+      // Hive's name, its description and the reason two can't be compared: Polish, the roles as the Who filter names them.
+      expect(shownText(keptLabel(e))).not.toMatch(/Export/)
+      expect(shownText(keptAbout(e))).not.toMatch(/agent|all providers/)
+      const reason = compareArtifacts(agents, scripts).reasonsText.map((t) => shownText(t)).join()
+      expect(reason).not.toMatch(/\b(agent|api)\b/)
+      expect(reason).toContain(polish()['performance.compare.filters.role.api'])
+      // A model trial's cost in the language's currency format, not "$1.23".
+      const about = shownText(keptAbout(trial))
+      expect(about).not.toContain('$')
+      expect(about).toContain('1,23')
+    } finally {
+      setLanguage('en', {})
+    }
+    // A name the user gave stays as written; an entry kept before facts shows its English; damaged facts are left out.
+    expect(shownText(keptLabel({ ...e, labelKind: undefined }))).toBe(e.label)
+    expect(shownText(keptAbout({ about: 'kept before', facts: undefined }))).toBe('kept before')
+    expect(readEntry({ ...JSON.parse(JSON.stringify(e)), facts: { kind: 'export', from: 'x' } })).not.toHaveProperty('facts')
+    // A kept file keeps the name's kind; a file that came with a name has none.
+    expect(readKept(JSON.parse(JSON.stringify(agents)))!.labelKind).toBe('export')
+    expect(variant((b) => (b.label = 'mine')).labelKind).toBeUndefined()
+  })
+
   it('the own work is its own scope; a file that says it is own work but holds projects is refused', () => {
     const own = art(parseArtifact(exportFile({ own: true, requests: {} }), OWN))
     expect(own.scope).toEqual(OWN)
-    expect(parseArtifact(exportFile({ own: true, requests: {} }), WS)).toEqual({ error: expect.stringMatching(/own work/) })
-    expect(parseArtifact(exportFile(), OWN)).toEqual({ error: expect.stringMatching(/whole workspace’s/) })
-    expect(parseArtifact(exportFile({ own: true, requests: { alpha: 3 } }), OWN)).toEqual({ error: expect.stringMatching(/holds projects’ data/) })
+    expect(parseArtifact(exportFile({ own: true, requests: {} }), WS)).toMatchObject({ error: expect.stringMatching(/own work/) })
+    expect(parseArtifact(exportFile(), OWN)).toMatchObject({ error: expect.stringMatching(/whole workspace’s/) })
+    expect(parseArtifact(exportFile({ own: true, requests: { alpha: 3 } }), OWN)).toMatchObject({ error: expect.stringMatching(/holds projects’ data/) })
     expect(compareScopeOf({ kind: 'workspace' }, true)).toEqual(OWN)
     expect(compareArtifacts(own, art(parseArtifact(exportFile(), WS))).reasons.join()).toMatch(/Different scopes/)
   })
@@ -273,16 +330,16 @@ describe('Performance exports', () => {
   it("a project's page: its own export (only its own data), or a workspace export's part for it only when asked", () => {
     const alpha: CompareScope = { kind: 'project', project: 'Alpha' }
     expect('artifact' in parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' }, requests: { alpha: 3 } }), alpha)).toBe(true)
-    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' }, requests: { alpha: 10, beta: 500 } }), alpha)).toEqual({ error: expect.stringMatching(/also holds other projects’ data/) })
-    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' }, requests: { alpha: 10 }, workspace: 7 }), alpha)).toEqual({ error: expect.stringMatching(/workspace’s own data/) })
-    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'beta' }, requests: { beta: 3 } }), alpha)).toEqual({ error: expect.stringMatching(/beta’s export, not Alpha’s/) })
+    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' }, requests: { alpha: 10, beta: 500 } }), alpha)).toMatchObject({ error: expect.stringMatching(/also holds other projects’ data/) })
+    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' }, requests: { alpha: 10 }, workspace: 7 }), alpha)).toMatchObject({ error: expect.stringMatching(/workspace’s own data/) })
+    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'beta' }, requests: { beta: 3 } }), alpha)).toMatchObject({ error: expect.stringMatching(/beta’s export, not Alpha’s/) })
     expect(parseArtifact(exportFile(), alpha)).toEqual({ projectPart: { project: 'Alpha' } })
     const part = art(parseArtifact(exportFile(), alpha, { useProjectPart: true }))
     expect([part.scope, part.derived, part.summary!.totals.requests]).toEqual([alpha, expect.stringMatching(/one project’s part/), 10])
-    expect(parseArtifact(exportFile({ sanitized: true }), alpha)).toEqual({ error: expect.stringMatching(/sanitized/) })
-    expect(parseArtifact(exportFile({ own: true }), alpha)).toEqual({ error: expect.stringMatching(/own work/) })
-    expect(parseArtifact(exportFile({ requests: { beta: 1 } }), alpha)).toEqual({ error: expect.stringMatching(/no part for Alpha/) })
-    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' } }), WS)).toEqual({ error: expect.stringMatching(/compare it on that project’s page/) })
+    expect(parseArtifact(exportFile({ sanitized: true }), alpha)).toMatchObject({ error: expect.stringMatching(/sanitized/) })
+    expect(parseArtifact(exportFile({ own: true }), alpha)).toMatchObject({ error: expect.stringMatching(/own work/) })
+    expect(parseArtifact(exportFile({ requests: { beta: 1 } }), alpha)).toMatchObject({ error: expect.stringMatching(/no part for Alpha/) })
+    expect(parseArtifact(exportFile({ scope: { kind: 'project', project: 'alpha' } }), WS)).toMatchObject({ error: expect.stringMatching(/compare it on that project’s page/) })
   })
 
   it('a summary of a report: totals of its parts, guidance in parts, what makes it partial', () => {
@@ -413,11 +470,11 @@ describe('kept comparisons (main/benchmarks.ts)', async () => {
     await expect(kept.readBenchmark(ctx(), OWN, a.id)).rejects.toThrow(/for this scope/)
     const ask = await kept.importBenchmark(ctx(), alpha, { path: file('e', exportFile()) })
     if (!('ask' in ask)) throw new Error(JSON.stringify(ask))
-    expect(await kept.importBenchmark(ctx(), WS, { token: ask.ask.token, useProjectPart: true })).toEqual({ error: expect.stringMatching(/no longer waiting/) })
+    expect(await kept.importBenchmark(ctx(), WS, { token: ask.ask.token, useProjectPart: true })).toMatchObject({ error: expect.stringMatching(/no longer waiting/) })
     const ask2 = await kept.importBenchmark(ctx(), alpha, { path: file('e', exportFile()) })
     if (!('ask' in ask2)) throw new Error('no ask')
     const part = entryOf(await kept.importBenchmark(ctx(), alpha, { token: ask2.ask.token, useProjectPart: true }))
-    expect(await kept.importBenchmark(ctx(), alpha, { token: ask2.ask.token, useProjectPart: true })).toEqual({ error: expect.stringMatching(/no longer waiting/) })
+    expect(await kept.importBenchmark(ctx(), alpha, { token: ask2.ask.token, useProjectPart: true })).toMatchObject({ error: expect.stringMatching(/no longer waiting/) })
     await kept.selectBenchmarks(ctx(), WS, a.id, b.id)
     await kept.selectBenchmarks(ctx(), alpha, a.id, part.id)
     expect(await kept.listBenchmarks(ctx(), WS)).toMatchObject({ base: a.id, run: b.id })
@@ -427,6 +484,39 @@ describe('kept comparisons (main/benchmarks.ts)', async () => {
     expect((await kept.listBenchmarks(ctx(), WS)).entries.length).toBe(2)
     await kept.removeBenchmark(ctx(), WS, a.id)
     expect((await kept.listBenchmarks(ctx(), WS)).entries.map((e) => e.id)).toEqual([b.id])
+    await disposeWorkspaceService(w)
+  })
+
+  it("comparisons kept before facts (#1104) get them from their files when listed, once: described in the window's language, names as they were", async () => {
+    const { w, ctx, dir } = await open()
+    const trial = entryOf(await kept.importBenchmark(ctx(), WS, { path: file('b', fixture('baseline')) }))
+    const agents = entryOf(await kept.importBenchmark(ctx(), WS, { path: file('e', exportFile({ role: 'agent' })) }))
+    // As the version before wrote them: no facts in the index, no name kind in the index or the files.
+    const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
+    for (const e of index.entries) {
+      delete e.facts
+      delete e.labelKind
+    }
+    writeFileSync(join(dir, 'index.json'), JSON.stringify(index))
+    for (const id of [trial.id, agents.id]) {
+      const a = JSON.parse(readFileSync(join(dir, `${id}.json`), 'utf8'))
+      delete a.labelKind
+      writeFileSync(join(dir, `${id}.json`), JSON.stringify(a))
+    }
+    const listed = (await kept.listBenchmarks(ctx(), WS)).entries
+    const byId = (id: string) => listed.find((e) => e.id === id)!
+    expect([byId(trial.id).facts?.kind, byId(agents.id).facts?.kind]).toEqual(['scenarios', 'export'])
+    expect(listed.map((e) => [e.label, e.labelKind])).toEqual([[agents.label, undefined], [trial.label, undefined]])
+    // Written to the index once, so the next list reads no file.
+    expect(JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')).entries.every((e: any) => e.facts)).toBe(true)
+    const PL = join(__dirname, '..', 'locales', 'pl')
+    setLanguage('pl', Object.assign({}, ...readdirSync(PL).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(PL, f), 'utf8')))), 'pl-PL')
+    try {
+      expect(shownText(keptAbout(byId(agents.id)))).not.toMatch(/ to |agent|all providers/)
+      expect(shownText(keptAbout(byId(trial.id)))).not.toMatch(/Fake|scenarios|source/)
+    } finally {
+      setLanguage('en', {})
+    }
     await disposeWorkspaceService(w)
   })
 
@@ -442,7 +532,7 @@ describe('kept comparisons (main/benchmarks.ts)', async () => {
     await expect(kept.importBenchmark(ctxA, WS, { path: file('b', fixture('baseline')) })).rejects.toThrow(/closed or switched/)
     await expect(kept.listBenchmarks(ctxA, WS)).rejects.toThrow(/closed or switched/)
     await expect(kept.selectBenchmarks(ctxA, WS, null, null)).rejects.toThrow(/closed or switched/)
-    if ('ask' in ask) expect(await kept.importBenchmark(kept.benchContext(A.w), { kind: 'project', project: 'alpha' }, { token: ask.ask.token, useProjectPart: true })).toEqual({ error: expect.stringMatching(/no longer waiting/) })
+    if ('ask' in ask) expect(await kept.importBenchmark(kept.benchContext(A.w), { kind: 'project', project: 'alpha' }, { token: ask.ask.token, useProjectPart: true })).toMatchObject({ error: expect.stringMatching(/no longer waiting/) })
     expect((await kept.listBenchmarks(kept.benchContext(A.w), WS)).entries).toEqual([])
     expect(existsSync(join(B, '.hive', 'metrics', 'benchmarks'))).toBe(false)
     // Queued changes whose workspace closes before their turn: refused too.
@@ -516,7 +606,7 @@ describe('kept comparisons (main/benchmarks.ts)', async () => {
     writeFileSync(join(dir, `${own.id}.json`), JSON.stringify({ ...stored, pad: 'x'.repeat(5 * 1024 * 1024) }))
     await expect(kept.readBenchmark(ctx(), alpha, own.id)).rejects.toThrow(/missing or damaged/)
     const big = file('big', JSON.stringify({ schema: 'hive-benchmark/1', pad: 'x'.repeat(BENCHMARK_LIMITS.fileBytes + 10) }))
-    expect(await kept.importBenchmark(ctx(), WS, { path: big })).toEqual({ error: expect.stringMatching(/over 2 MB/) })
+    expect(await kept.importBenchmark(ctx(), WS, { path: big })).toMatchObject({ error: expect.stringMatching(/over 2 MB/) })
     await disposeWorkspaceService(w)
   })
 })

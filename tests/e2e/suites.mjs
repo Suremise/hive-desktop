@@ -92,6 +92,7 @@ export const SUITES = [
   { name: 'failfast' },
   { name: 'filelinks' },
   { name: 'files' },
+  { name: 'flightrecorder' },
   { name: 'footerfit' },
   { name: 'freshpath' },
   { name: 'gitinit' },

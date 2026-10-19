@@ -125,6 +125,49 @@ const HUNG_MS = 10000
   await lib.until(async () => (await pane.locator('.monaco .view-lines').innerText().catch(() => '')).includes('reloaded'), 10000)
   check('reload: clean file follows disk', (await pane.locator('.monaco .view-lines').innerText()).includes('reloaded') && (await pane.locator('.banner', { hasText: 'changed on disk' }).count()) === 0)
 
+  // The editor's right-click menu (#1102): Monaco draws it in a shadow root, where its theme's colours didn't reach
+  // (black text on no surface). It has a surface, a border and readable entries, hovered too, in both themes.
+  /** The open menu's colours: its surface, border, and an entry's text and background, with the hovered entry's. */
+  const editorMenu = () =>
+    page.evaluate(() => {
+      const root = [...document.querySelectorAll('.shadow-root-host')].map((h) => h.shadowRoot).find((r) => r?.querySelector('.monaco-menu .action-label'))
+      if (!root) return null
+      const menu = root.querySelector('.monaco-menu')
+      const surface = getComputedStyle(menu.closest('.monaco-scrollable-element') ?? menu).backgroundColor
+      const items = [...root.querySelectorAll('.action-menu-item')]
+      const item = (e) => ({ fg: getComputedStyle(e).color, bg: getComputedStyle(e).backgroundColor })
+      return { surface, border: getComputedStyle(menu).borderTopWidth, plain: items.map(item).find((i) => i.bg === 'rgba(0, 0, 0, 0)'), hovered: items.filter((e) => e.matches(':hover')).map(item)[0] }
+    })
+  const rgb = (c) => (c?.match(/[\d.]+/g) ?? []).map(Number)
+  const contrast = (a, b) => {
+    const lum = ([r, g, bl]) => [r, g, bl].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0)
+    const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((p, q) => q - p)
+    return (x + 0.05) / (y + 0.05)
+  }
+  for (const theme of ['dark', 'light']) {
+    await inv('settings:update', { appearance: { theme } })
+    await lib.until(async () => (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === theme, HUNG_MS)
+    const box = await pane.locator('.monaco .view-lines').boundingBox()
+    await page.mouse.click(box.x + 120, box.y + 8, { button: 'right' })
+    const shown = await lib.until(editorMenu, HUNG_MS)
+    const opaque = !!shown && rgb(shown.surface).length === 3
+    check(`editor menu (${theme}): a surface and a border`, opaque && parseFloat(shown.border) >= 1)
+    check(`editor menu (${theme}): entries readable`, opaque && !!shown.plain && contrast(shown.plain.fg, shown.surface) >= 4.5)
+    // Hovered entries are filled, like Hive's own menus.
+    const entry = await page.evaluate(() => {
+      const root = [...document.querySelectorAll('.shadow-root-host')].map((h) => h.shadowRoot).find((r) => r?.querySelector('.monaco-menu .action-label'))
+      const r = root?.querySelector('.action-menu-item')?.getBoundingClientRect()
+      return r && { x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    })
+    if (entry) await page.mouse.move(entry.x, entry.y)
+    const hovered = await lib.until(async () => { const m = await editorMenu(); return m?.hovered && rgb(m.hovered.bg).length === 3 ? m.hovered : null }, HUNG_MS)
+    check(`editor menu (${theme}): hovered entry filled and readable`, !!hovered && contrast(hovered.fg, hovered.bg) >= 4.5)
+    await page.screenshot({ path: path.join(shots, `5b-editor-menu-${theme}.png`) })
+    await page.keyboard.press('Escape')
+    await lib.until(async () => !(await editorMenu()), HUNG_MS)
+  }
+  await inv('settings:update', { appearance: { theme: 'dark' } })
+
   // Other previews.
   await row('page.html').click()
   await lib.until(async () => ((await row('page.html').getAttribute('class')) ?? '').includes('selected') && (await pane.locator('.segmented button', { hasText: 'Preview' }).count()) === 1, HUNG_MS)

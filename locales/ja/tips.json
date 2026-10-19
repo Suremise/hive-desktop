@@ -118,6 +118,8 @@
   "tips.fileLinks.title": "ターミナルのパスをCtrl+クリック",
   "tips.filesTab.text": "「ファイル」タブでは、プロジェクトの閲覧と編集、Markdown、CSV、HTML、画像のプレビューができ、切り替えても未保存の編集は残ります。",
   "tips.filesTab.title": "Hiveから離れずにファイルを編集",
+  "tips.flightRecorder.text": "「設定」→「詳細」でフライトレコーダーのトリガー（セーフガードによる停止、CLIからの不明な内容、CLIのバージョン変更、応答しなくなったエージェント）をオンにすると、それが起きた瞬間に、Hiveがエージェントの最近の開発者コンソールのイベントを機密情報を伏せて保存し、通知を表示します。",
+  "tips.flightRecorder.title": "まれな出来事を自動でキャプチャ",
   "tips.gitCheck.text": "「ヘルプ」→「エージェントのセットアップ…」に、Hiveが見つけたGitとそのバージョンが表示されます。ワークツリーのエージェント、マージ、「Git」タブには、Git for Windows 2.38以降が必要です。",
   "tips.gitCheck.title": "Gitはワークツリーに対応していますか？",
   "tips.gitInit.text": "Gitを使っていないプロジェクトですか？「Git」タブの「リポジトリを初期化…」でmainのリポジトリにし、.hiveを除外し、必要なら基本の.gitignoreを追加して最初のコミットを行います。エージェントはすぐにワークツリーで作業できます。",

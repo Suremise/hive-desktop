@@ -265,6 +265,8 @@ export interface MetricsReport {
   providers: ProviderUsageSummary[]
   /** Why provider usage is empty or partial for these filters, when it is (e.g. scripts have no sessions). */
   providersNote?: string
+  /** `providersNote` as the window shows it (#1104); `providersNote` is its English. */
+  providersNoteText?: Text
   /**
    * Session hosts in the scope whose history couldn't be read (projects, the Assistant): a count only, never which. When
    * set, `providers` is partial (or, if it is every host, unknown), not complete.
