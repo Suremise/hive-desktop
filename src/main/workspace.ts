@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'crypto'
-import { basename, join, resolve, sep } from 'path'
+import { basename, dirname, join, resolve, sep } from 'path'
 import { mkdir, readdir, readFile, stat, writeFile } from 'original-fs/promises'
 import { existsSync, statSync, watch, type FSWatcher as RootWatcher } from 'original-fs'
 import { closeBoard } from './boardStore'
@@ -20,6 +20,7 @@ import { config } from './config'
 import { emit, emitTo } from './events'
 import { containsPlace, insideReal, isDir, readJson, readKeptJson, removePath, samePlace, withFileLock, writeKeptJson } from './fsutil'
 import { createLogger, userText } from './logger'
+import { changeSessions, exportSessions, readSessions, releaseSessions, type SessionsPlace } from './sessionStore'
 import { allProviders } from './providers'
 import { worktreesRoot } from './worktrees'
 import { ensureHiveExcluded, gitDirOf, hiveVcs } from './hiveVcs'
@@ -30,6 +31,8 @@ import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, typ
 const log = createLogger('workspace')
 /** What the board keeps in .hive (#1017): its database and the files beside it, the cards' old folders, backups and the deleted cards' staging. */
 const BOARD_FILES = /^(hive\.db(-wal|-shm|-journal)?|tasks|tasks\..+|backups|deleted-cards)$/
+/** How often a workspace root whose folder went is tried again (#964). */
+const ROOT_WATCH_RETRY_MS = 3000
 /** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
 const M = {
   noWorkspace: msg({ id: 'service.workspace.none', defaultMessage: 'No workspace is open', description: 'An error: the action needs a workspace, and none is open in this window.' }),
@@ -76,7 +79,8 @@ export interface SessionsFile {
   deletedUsage?: KeptUsage[]
 }
 
-type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
+/** `scope`: the refresh the project is read for (#1002), whose projects' running agents share one read of the workspace's skills and servers. */
+type LiveProvider = (projectPath: string, cfg: ProjectConfig, scope?: object) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
 
 /**
  * What a read of the projects' ids saw of each one (#514): its folder, its id, where it was last opened (project.json's
@@ -285,6 +289,8 @@ export class WorkspaceService {
     this.refreshTimer = null
     if (this.idsTimer) clearTimeout(this.idsTimer)
     this.idsTimer = null
+    if (this.rootRetry) clearTimeout(this.rootRetry)
+    this.rootRetry = null
     this.rootWatcher?.close()
     this.rootWatcher = null
     if (closing) closeBoard(closing)
@@ -371,18 +377,7 @@ export class WorkspaceService {
     // listing or stat-ing what is in it: chokidar stats every entry it lists through Electron's fs, which opens and holds
     // an .asar file (#246). A folder appearing, going or renamed there reads the project list again (a project's own
     // folder changing reports 'change').
-    try {
-      this.rootWatcher = watch(this.path, (evt) => {
-        if (evt !== 'rename') return
-        // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
-        if (this.ids) this.ids.at = 0
-        this.scheduleRefresh()
-        this.scheduleIdsCheck()
-      })
-      this.rootWatcher.on('error', (e) => log.warn('workspace root watcher error', e))
-    } catch (e) {
-      log.warn('watching the workspace root', e)
-    }
+    this.watchRoot()
     const assistantHome = this.assistantHome.toLowerCase()
     const mcpDir = this.mcpDir.toLowerCase() + sep
     const hiveDir = this.hiveDir.toLowerCase() + sep
@@ -407,6 +402,59 @@ export class WorkspaceService {
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))
+  }
+
+  private rootRetry: NodeJS.Timeout | null = null
+
+  /**
+   * The workspace root's watch (#964). The folder deleted while it is open, Windows names it by its full path in a stream
+   * of events that doesn't stop (about 100,000 in half a second), even once a folder of that name is made again, and
+   * raises no error: each event reset the refresh's timers, keeping the main process busy until the workspace closed. That
+   * watch ends, and is tried again every few seconds until the folder is back (a rename sends no such events).
+   */
+  private watchRoot(retried = false): void {
+    if (!this.path || this.rootWatcher) return
+    const generation = this.generation
+    const retry = (): void => {
+      if (this.rootRetry || generation !== this.generation) return
+      this.rootRetry = setTimeout(() => {
+        this.rootRetry = null
+        if (generation === this.generation) this.watchRoot(true)
+      }, ROOT_WATCH_RETRY_MS)
+    }
+    const changed = (): void => {
+      // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
+      if (this.ids) this.ids.at = 0
+      this.scheduleRefresh()
+      this.scheduleIdsCheck()
+    }
+    let watcher: RootWatcher
+    const end = (): void => {
+      if (this.rootWatcher === watcher) this.rootWatcher = null
+      watcher.close()
+      retry()
+    }
+    try {
+      watcher = watch(this.path, (evt, name) => {
+        if (this.rootWatcher !== watcher) return
+        if (name && /[\\/]/.test(name)) {
+          log.warn('the workspace folder is gone: its watch ends until it is back')
+          return end()
+        }
+        if (evt === 'rename') changed()
+      })
+    } catch (e) {
+      if (!retried) log.warn('watching the workspace root', e)
+      retry()
+      return
+    }
+    watcher.on('error', (e) => {
+      log.warn('workspace root watcher error', e)
+      end()
+    })
+    this.rootWatcher = watcher
+    // Watched again after the folder was gone: what is in it now may have changed meanwhile.
+    if (retried) changed()
   }
 
   /** The cards' folder before 0.9 (#1017): now the stub an older Hive looks at, and the import's source. */
@@ -720,7 +768,6 @@ export class WorkspaceService {
     await mkdir(join(h, 'sessions'), { recursive: true })
     await mkdir(join(h, 'archive'), { recursive: true })
     if (!existsSync(join(h, 'project.json'))) await writeKeptJson(join(h, 'project.json'), DEFAULT_PROJECT_CONFIG)
-    if (!existsSync(join(h, 'sessions.json'))) await writeKeptJson(join(h, 'sessions.json'), { version: 1, sessions: [] })
     // 0.1's launch folder for Agent 1; every agent now has launch-<id>.
     if (existsSync(join(h, 'launch'))) await removePath(join(h, 'launch')).catch(() => undefined)
     await this.ensureGitExclude(projectPath)
@@ -795,19 +842,41 @@ export class WorkspaceService {
     return next
   }
 
-  async sessionsFile(projectPath: string): Promise<SessionsFile> {
-    return readKeptJson<SessionsFile>(join(projectPath, HIVE_DIR, 'sessions.json'), { version: 1, sessions: [] })
+  /**
+   * Where a session host's records are kept (#1061): its workspace's database (a project's workspace is its parent folder,
+   * the Assistant's home is the workspace's `.hive/assistant`), under the project's stable id (#508), so they follow a
+   * rename; the Assistant's under `assistant`, a folder with no id yet under its name. With its old sessions.json, moved in
+   * the first time.
+   */
+  private async sessionsPlace(projectPath: string): Promise<SessionsPlace> {
+    const h = resolve(projectPath)
+    const file = join(h, HIVE_DIR, 'sessions.json')
+    const parent = dirname(h)
+    if (basename(h).toLowerCase() === ASSISTANT_DIR.toLowerCase() && basename(parent).toLowerCase() === HIVE_DIR) return { workspace: dirname(parent), scope: 'assistant', file }
+    const known = this.path ? (await this.projectIds().catch(() => null))?.byPath.get(h.toLowerCase()) : undefined
+    const saved = known ?? (await readJson<{ id?: unknown } | null>(join(h, HIVE_DIR, 'project.json'), null).catch(() => null))?.id
+    const removed = !!this.path && samePlace(parent, this.path) && (this.wsConfig.hiddenProjects ?? []).some((x) => x.mode === 'removed' && x.name.toLowerCase() === basename(h).toLowerCase())
+    return { workspace: parent, scope: typeof saved === 'string' && saved ? saved : `folder:${basename(h).toLowerCase()}`, file, removed }
   }
 
-  /** Changes sessions.json from its current content, one change at a time. */
+  /** A session host's records (#1061: in the workspace's database). */
+  async sessionsFile(projectPath: string): Promise<SessionsFile> {
+    return readSessions(await this.sessionsPlace(projectPath))
+  }
+
+  /** Changes a host's session records from what is saved now, one change at a time; only what changed is written. */
   async mutateSessions<T>(projectPath: string, fn: (f: SessionsFile) => T): Promise<T> {
-    const file = join(projectPath, HIVE_DIR, 'sessions.json')
-    return withFileLock(file, async () => {
-      const f = await this.sessionsFile(projectPath)
-      const result = fn(f)
-      await writeKeptJson(file, f)
-      return result
-    })
+    return changeSessions(await this.sessionsPlace(projectPath), fn)
+  }
+
+  /** Writes a project's session records into its folder and out of the database (#1061: Remove from Hive). */
+  async exportSessions(projectPath: string): Promise<number> {
+    return exportSessions(await this.sessionsPlace(projectPath))
+  }
+
+  /** Remove from Hive is over, done or not (#1061): see releaseSessions. */
+  async releaseSessions(projectPath: string): Promise<void> {
+    releaseSessions(await this.sessionsPlace(projectPath))
   }
 
   /** `created`: fields only a new record takes (a launch's start as its createdAt), never written over an existing one's. */
@@ -856,13 +925,16 @@ export class WorkspaceService {
     return [...names].filter((n) => !deployed.has(n))
   }
 
-  /** `gen`: the workspace's lifetime the read is for (a refresh's own, #784): none of its worktrees are recorded after it. */
-  async projectInfo(projectPath: string, gen = this.generation): Promise<ProjectInfo> {
+  /**
+   * `gen`: the workspace's lifetime the read is for (a refresh's own, #784): none of its worktrees are recorded after it.
+   * `scope`: the refresh it is part of (#1002), whose projects share one read of what their running agents' settings need.
+   */
+  async projectInfo(projectPath: string, gen = this.generation, scope?: object): Promise<ProjectInfo> {
     const active = new Set(this.activeNames())
     const ticket = ++this.rootTickets
     const cfg = await this.projectConfig(projectPath)
     this.registerRoots(projectPath, cfg, gen, ticket)
-    const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
+    const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg, scope)
     const info: ProjectInfo = {
       name: basename(projectPath),
       path: projectPath,
@@ -901,12 +973,14 @@ export class WorkspaceService {
     // Closed or switched meanwhile: the new workspace's own refresh reports it. Each read is the refresh's lifetime's
     // (#784): one begun after a switch would otherwise record the old workspace's worktrees in the new one.
     const closed = (): boolean => gen !== this.generation || !this.path
+    // What the projects' running agents' settings need of the workspace (its skills and servers), read once (#1002).
+    const scope = {}
     for (const p of await this.listProjectPaths()) {
       if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
-      projects.push(await this.projectInfo(p, gen))
+      projects.push(await this.projectInfo(p, gen, scope))
     }
     if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
-    const assistant = await this.projectInfo(this.assistantHome, gen).catch((e) => (log.warn('the Assistant', e), null))
+    const assistant = await this.projectInfo(this.assistantHome, gen, scope).catch((e) => (log.warn('the Assistant', e), null))
     if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
     // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
     // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).

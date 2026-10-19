@@ -5,6 +5,7 @@ const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
 const { execFileSync } = require('child_process')
+const { sessionsOf } = require('./storeDocs.cjs')
 const scratch = lib.WORK
 const userData = path.join(scratch, 'cxhive-profile')
 const ws = path.join(scratch, 'cxhive-ws')
@@ -76,7 +77,7 @@ function prepare() {
   // Codex names the session with its first hook (the first prompt).
   const sessionId = (await live())?.sessionId
   check('the first hook binds the session id', /^[0-9a-f-]{36}$/.test(sessionId ?? ''), sessionId)
-  const recs = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8')).sessions
+  const recs = sessionsOf(proj).sessions
   const rec = recs.find((r) => r.id === sessionId)
   check('session recorded as Codex with its transcript path', rec?.agent === 'codex' && /rollout-.*\.jsonl$/.test(rec?.transcriptPath ?? ''), JSON.stringify(rec))
   // The backup tick reads the transcript for live details.

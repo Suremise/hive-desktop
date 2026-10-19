@@ -223,6 +223,38 @@
     "defaultMessage": "/permissions menu: {label}",
     "description": "An advanced setting's title (Settings → Advanced, under Codex). /permissions is a Codex command and {label} Codex's own name for a preset, in English: keep both as they are."
   },
+  "settings.advanced.copilot.compaction.conversationTokens.desc": {
+    "defaultMessage": "The field of a compaction's start and end, in Copilot's session file, with the conversation's tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.",
+    "description": "What the advanced setting \"Compaction: conversation tokens field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.compaction.conversationTokens.title": {
+    "defaultMessage": "Compaction: conversation tokens field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.compaction.summary.desc": {
+    "defaultMessage": "The field of a compaction's end, in Copilot's session file, with the summary it carries on from: the Sessions tab shows it with the compaction.",
+    "description": "What the advanced setting \"Compaction: summary field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.compaction.summary.title": {
+    "defaultMessage": "Compaction: summary field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.compaction.systemTokens.desc": {
+    "defaultMessage": "The field of a compaction's start and end, in Copilot's session file, with the system prompt's tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.",
+    "description": "What the advanced setting \"Compaction: system prompt tokens field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.compaction.systemTokens.title": {
+    "defaultMessage": "Compaction: system prompt tokens field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.compaction.toolTokens.desc": {
+    "defaultMessage": "The field of a compaction's start and end, in Copilot's session file, with the tool definitions' tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.",
+    "description": "What the advanced setting \"Compaction: tool definition tokens field\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.copilot.compaction.toolTokens.title": {
+    "defaultMessage": "Compaction: tool definition tokens field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
   "settings.advanced.copilot.exit.graceSeconds.desc": {
     "defaultMessage": "When Hive stops Copilot (Stop, Restart, closing a project or quitting), how long it gives Copilot to exit by itself after its Ctrl+C before killing it. Copilot writes the session's token totals only as it exits by itself: one killed first loses them. It took up to {took, plural, one {# second} other {# seconds}} on a busy machine (#716); quitting Hive or closing a workspace waits up to this long, and a second more, for a Copilot that hangs.",
     "description": "What the advanced setting \"Stop: exit grace\" is for, and what goes wrong when it is wrong (Settings → Advanced). {took} is the longest Copilot was seen to take, in seconds (2.4)."

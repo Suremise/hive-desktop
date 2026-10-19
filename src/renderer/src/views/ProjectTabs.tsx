@@ -808,8 +808,10 @@ function SessionDetails({ project, items }: { project: ProjectInfo; items: Sessi
 
 /** One provider's subscription limits (account-wide), as its sessions last reported them. */
 export function PlanLimits({ provider }: { provider: ProviderId }) {
-  const usage = useStore((s) => s.planUsage[provider])
-  useNow(60000)
+  const kept = useStore((s) => s.planUsage[provider])
+  const now = useNow(60000)
+  // A limit whose reset has passed with no new report isn't shown as it was (#383).
+  const usage = kept && { ...kept, limits: kept.limits.filter((l) => !l.resetsAt || Date.parse(l.resetsAt) > now) }
   const p = providerDescriptor(provider)
   const card = (id: ProviderId, l: PlanLimit): React.ReactNode => (
     <Card key={l.id} title={tr(M.limitTitle, { window: limitWindow(l), label: `${l.label.charAt(0).toUpperCase()}${l.label.slice(1)}` })} value={fmt.percent(l.usedPercent / 100)} sub={l.resetsAt ? tr(M.limitResets, { when: resetsIn(l.resetsAt) }) : tr(M.limitUsed)} tip={tr(M.limitTip, { window: limitWindow(l), label: l.label, provider: providerName(id) })} accent={l.usedPercent >= 80}>

@@ -146,6 +146,10 @@ export function eventsDetails(text: string, memo: CopilotDetailsMemo = copilotDe
       case 'user.message':
         prompted()
         break
+      case 'session.compaction_complete':
+        // Copilot sends PreCompact but no hook at the end (1.0.98, #454): this ends Hive's compacting status.
+        if (typeof r.timestamp === 'string') out.compactedAt = r.timestamp
+        break
       case 'session.error': {
         const refused = signInRefused(d)
         if (refused) {
@@ -193,6 +197,22 @@ const tokenSum = (t: UsageTokens): number => t.inputTokens + t.outputTokens + t.
 export type CopilotSessionUsage = SessionUsage & { premiumRequests: number | null }
 
 /**
+ * The whole context at a compaction's start or end (its session.compaction_start or _complete: system, conversation and
+ * tool definitions, added up; 1.0.98, #454), or null when the event doesn't say. The fields are advanced settings
+ * (#367), shared by the usage and conversation parsers.
+ */
+function compactionContext(d: Record<string, any>): number | null {
+  const parts = ['copilot.compaction.systemTokens', 'copilot.compaction.conversationTokens', 'copilot.compaction.toolTokens'].map((id) => d[advanced.get<string>(id)])
+  return parts.every((n) => typeof n === 'number') ? parts.reduce((a: number, n: number) => a + n, 0) : null
+}
+
+/** A compaction's summary (its session.compaction_complete), when it has one. */
+function compactionSummary(d: Record<string, any>): string | null {
+  const s = d[advanced.get<string>('copilot.compaction.summary')]
+  return typeof s === 'string' && s.trim() ? s : null
+}
+
+/**
  * Usage statistics for a Copilot session (the Overview, the Sessions list and the Agent API), read a piece at a time
  * (events.jsonl only grows; a resumed session appends to it). The CLI writes running totals: the credits used after
  * each turn (session.usage_checkpoint) and the tokens by model when it exits (session.shutdown), so tokens appear
@@ -216,6 +236,8 @@ export class CopilotUsageParser {
   /** Credits charged by day (nano-AIU); set once the CLI reports a total at all, even 0, which is then the cost. */
   private charged: Record<string, number> | null = null
   private checkpointContext = false
+  /** The whole context when the compaction under way began (its session.compaction_start), until it completes. */
+  private compactingFrom: number | null = null
 
   constructor(sessionId: string) {
     this.usage = {
@@ -357,6 +379,23 @@ export class CopilotUsageParser {
           if (!this.checkpointContext && typeof d.currentTokens === 'number') usage.contextTokens = usage.contextInputTokens = d.currentTokens
           break
         }
+        case 'session.compaction_start':
+          // The whole context then, as the other CLIs count a compaction's.
+          this.compactingFrom = compactionContext(d) ?? usage.contextTokens
+          break
+        case 'session.compaction_complete': {
+          // 1.0.98 (#454: tests/fixtures/copilot/compaction-1.0.98.jsonl, a /compact). One that failed changed nothing.
+          const pre = this.compactingFrom ?? usage.contextTokens
+          this.compactingFrom = null
+          if (d.success === false) break
+          const post = compactionContext(d) ?? 0
+          usage.compactions.push({ timestamp: ts ?? '', trigger: typeof d.trigger === 'string' ? d.trigger : 'auto', preTokens: pre, postTokens: post })
+          const day = this.day(ts)
+          if (day) day.compactions++
+          // What it left is the context now, until the next call reports it.
+          if (post) usage.contextTokens = usage.contextInputTokens = post
+          break
+        }
       }
     }
   }
@@ -377,7 +416,7 @@ export class CopilotUsageParser {
           return { costUsd: nanoAiuToUsd(nano), days: { [k]: tokenSum(t) > 0 || !nano ? t : { ...ZERO, inputTokens: 1 } } }
         })
       : []
-    return { ...this.usage, title, customTitle: title, compactions: [], days, ...(costReports.length ? { costReports } : {}), timeline: this.timeline.timeline(this.charges, pendingRows(this.launch)) }
+    return { ...this.usage, title, customTitle: title, compactions: this.usage.compactions.map((c) => ({ ...c })), days, ...(costReports.length ? { costReports } : {}), timeline: this.timeline.timeline(this.charges, pendingRows(this.launch)) }
   }
 }
 
@@ -432,6 +471,8 @@ export class CopilotConversationParser implements ConversationParserLike {
   offset = 0
   private tools = new Map<string, TranscriptTool>()
   private root: string | null
+  /** The whole context when the compaction under way began. */
+  private compactingFrom: number | null = null
 
   constructor(projectPath: string | null = null) {
     this.root = projectPath
@@ -513,6 +554,17 @@ export class CopilotConversationParser implements ConversationParserLike {
       case 'session.error':
         if (typeof d.message === 'string' && d.message) this.push({ kind: 'notice', timestamp: ts, text: d.message, level: 'error' })
         break
+      case 'session.compaction_start':
+        this.compactingFrom = compactionContext(d) ?? 0
+        break
+      case 'session.compaction_complete': {
+        // As the usage parser counts it (#454), with the summary Copilot carries on from.
+        const pre = this.compactingFrom ?? 0
+        this.compactingFrom = null
+        if (d.success === false) break
+        this.push({ kind: 'compaction', timestamp: ts, trigger: typeof d.trigger === 'string' ? d.trigger : 'auto', preTokens: pre, postTokens: compactionContext(d) ?? 0, nextRequestTokens: null, summary: compactionSummary(d) })
+        break
+      }
     }
   }
 }

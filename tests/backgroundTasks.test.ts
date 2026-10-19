@@ -43,7 +43,8 @@ describe('Claude Code background tasks', () => {
       { kind: 'end', id: 'bkqkq2vgh', at: at(t) },
       { kind: 'end', id: 'bi9giyn5m', at: at(t) },
       { kind: 'end', id: 'bfailed01', at: at(t) },
-      { kind: 'end', id: 'bum6823gu', at: at(t) }
+      // TaskStop: an end the agent made, which wakes nothing (#640).
+      { kind: 'end', id: 'bum6823gu', at: at(t), stopped: true }
     ])
   })
 

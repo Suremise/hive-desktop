@@ -19,12 +19,15 @@
 //   "askwhen NAME": the permission prompt once the test makes a file NAME in its home (#667), not after a set time.
 //   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
 //   "shell: <command line>" runs a command in cmd with the session's environment (fake-shell.jsonl records it).
+//   "planusage F W": its status line reports the plan's limits as Claude Code's does (rate_limits: the 5-hour at F%,
+//   the weekly at W%), with reset times every session of the machine agrees on (#383).
 //   "linger N" leaves N processes running after it ends, as an agent's preview server or tail -f does (#507): each a
 //   detached, hidden node started by a short-lived detached one that has exited by then (linger.cjs; their pids in
 //   fake-linger.jsonl in its home; each ends by itself after two minutes, in case). With fake-linger-at-start.txt (N) in
 //   its home, it leaves N the moment it starts, before anything else. "progress-linger" leaves a command running
 //   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
-//   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn without waiting for it.
+//   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn once that node runs (#1100: as
+//   an agent's command has started by then; fake-progress-delay-ms.txt in its home (N) starts it N ms late, as under load).
 //   "devapp" leaves a dev copy of an Electron app running, as an agent's dev launch of Hive did (#614): Electron's
 //   executable with Playwright's --inspect=0 --remote-debugging-port=0 and a copy of devapp in its home (a hidden window; quits after two
 //   minutes, in case), started through a detached node that exits at once (linger.cjs); its pid in fake-devapp.jsonl.
@@ -511,6 +514,14 @@ async function runPrompt(text, enter = null) {
     // would; the agent, command, exit code and output go to fake-shell.jsonl in its home.
     const sh = /\bshell:\s*(.+)$/i.exec(step)
     if (sh) await shell(sh[1].trim())
+    // "planusage F W": the plan's limits in its status line as Claude Code 2.1.303 sends them (#383), the 5-hour at F%
+    // and the weekly at W%, resetting at whole hours and days every session of the machine agrees on (epoch seconds).
+    const plan = /\bplanusage\s+(\d+)\s+(\d+)/i.exec(step)
+    if (plan) {
+      const hour = Math.floor(Date.now() / 3600e3) * 3600
+      const day = Math.floor(Date.now() / 86400e3) * 86400
+      await statusLine({ rate_limits: { five_hour: { used_percentage: Number(plan[1]), resets_at: hour + 3 * 3600 }, seven_day: { used_percentage: Number(plan[2]), resets_at: day + 3 * 86400 } } })
+    }
     const pause = /\bwork\s+(\d+)/i.exec(step)
     if (pause && i < steps.length - 1) await sleep(Number(pause[1]) * 1000)
   }
@@ -518,7 +529,7 @@ async function runPrompt(text, enter = null) {
   if (background) await startBackgroundTask(Number(background[1]))
   const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
-  if (/\bprogress-linger\b/i.test(text)) leaveProgressRunning()
+  if (/\bprogress-linger\b/i.test(text)) await leaveProgressRunning()
   if (/\bdevapp\b/i.test(text)) leaveAppRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
@@ -537,13 +548,17 @@ async function runPrompt(text, enter = null) {
   if (/\bsafeguardprompt(switch)?\b/i.test(text)) await safeguardPrompt(/\bsafeguardpromptswitch\b/i.test(text))
   // "window N": the status line reports a context window of N tokens, as Claude Code's does.
   const contextWindow = /\bwindow\s+(\d+)/i.exec(text)
-  if (contextWindow && hookUrl) {
-    await fetch(`${hookUrl}&statusline`, {
-      method: 'POST',
-      headers: { Authorization: commandAuth(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, context_window: { context_window_size: Number(contextWindow[1]) } })
-    }).catch(() => undefined)
-  }
+  if (contextWindow) await statusLine({ context_window: { context_window_size: Number(contextWindow[1]) } })
+}
+
+/** Posts a status line, as Claude Code's statusLine command does (Hive's curl command, with the launch's auth file). */
+async function statusLine(body) {
+  if (!hookUrl) return
+  await fetch(`${hookUrl}&statusline`, {
+    method: 'POST',
+    headers: { Authorization: commandAuth(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId, ...body })
+  }).catch(() => undefined)
 }
 
 /**
@@ -952,11 +967,25 @@ function leaveAppRunning() {
   spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'app-starter', path.join(home, 'fake-devapp.jsonl'), process.env.HIVE_AGENT || 'agent', app], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
 }
 
-/** "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for (#542). */
-function leaveProgressRunning() {
+/**
+ * "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for to end
+ * (#542). The turn goes on until its node runs (it writes its pid; two minutes at most, in case): what the agent started is
+ * there when its turn ends, so the running marker written after the turn's status has it (#1100: under load the three
+ * processes took longer to start than the turn, and the marker, written two seconds after the turn ended and then only
+ * each minute, missed them). fake-progress-delay-ms.txt (N) starts the command N ms late, as a machine under load does.
+ */
+async function leaveProgressRunning() {
   const q = (x) => `"${x}"`
-  const command = ['hive-progress', '--title', q('Left running'), '--', q(process.execPath), q(path.join(__dirname, 'linger.cjs')), 'linger', q(path.join(home, 'fake-progress-linger.jsonl')), process.env.HIVE_AGENT || 'agent'].join(' ')
-  spawn('cmd.exe', ['/d', '/s', '/c', q(command)], { cwd, env: process.env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
+  const pids = path.join(home, 'fake-progress-linger.jsonl')
+  const had = fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').length : 0
+  const command = ['hive-progress', '--title', q('Left running'), '--', q(process.execPath), q(path.join(__dirname, 'linger.cjs')), 'linger', q(pids), process.env.HIVE_AGENT || 'agent'].join(' ')
+  const delayFile = path.join(home, 'fake-progress-delay-ms.txt')
+  const delay = fs.existsSync(delayFile) ? Number(fs.readFileSync(delayFile, 'utf8')) || 0 : 0
+  const start = () => spawn('cmd.exe', ['/d', '/s', '/c', q(command)], { cwd, env: process.env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
+  // Started late on its own, while the turn goes on, as a command that is slow to start.
+  if (delay) setTimeout(start, delay)
+  else start()
+  for (const end = Date.now() + 120_000; Date.now() < end && !(fs.existsSync(pids) && fs.readFileSync(pids, 'utf8').length > had); ) await sleep(100)
 }
 
 async function main() {

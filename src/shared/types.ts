@@ -544,6 +544,9 @@ export interface PlanLimit {
   windowMinutes: number | null
   usedPercent: number
   resetsAt: string | null
+  /** When the reading kept was reported, and by which session's agent (#383: sessions relay readings of different ages). */
+  reportedAt?: string
+  reportedBy?: string
 }
 
 /** Subscription limits a provider reported (e.g. a rolling 5-hour window and a weekly limit). */
