@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 62
+const FIXTURES_VERSION = 64
 
 /**
  * long-doc-section's design document (#817): about 40,000 characters in 36 sections, one of which (Retry policy) holds
@@ -1502,6 +1502,32 @@ module.exports.SCENARIOS = [
       ]
     },
     fakeSkips: ['the work follows the section (7 retries, 90 seconds)']
+  },
+  {
+    id: 'card-read-first-broken',
+    title: "A card whose Read first reference no longer resolves (#819): its agent reads the closest section or asks, never skips it or reads the whole document",
+    files: { 'DESIGN.md': LONG_DESIGN },
+    async setup(c) {
+      await c.card('b', { title: 'Write down the retry policy', description: 'Add RETRY.md at the root with one line saying how many times a failed upload is retried and the wait between tries.', context: ['DESIGN.md#retry-policies'] })
+    },
+    // As Hive starts it once the heading was renamed (shared/tasks.ts contextText): the reference named, why and the closest.
+    prompt: (c) => `Work on task #${c.cards.b} from the Hive task board: Write down the retry policy\n\nAdd RETRY.md at the root with one line saying how many times a failed upload is retried and the wait between tries.\n\nThis reference no longer resolves: DESIGN.md#retry-policies (no such heading; closest: #retry-policy). Ask the user which section is meant, or read the closest. hive_read_section reads the closest as the card has it (path: the file; heading: # and the slug; from: "project").\n\nUse the work-on-card skill.`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.b} doing then hive hive_read_section {"path":"DESIGN.md","heading":"#retry-policy","from":"project"} then hive hive_update_task {"number":${c.cards.b},"column":"review","comment":"Ready for review: RETRY.md from DESIGN.md#retry-policy (the card's reference no longer resolved: its closest)."}`,
+    expect: (o, c) => {
+      const onDoc = o.tools.filter((t) => !t.isError && !/hive_/.test(t.name) && t.input.includes('DESIGN.md'))
+      const whole = onDoc.filter((t) => (/^Read$/i.test(t.name) ? !/\b(limit|offset)\b/.test(t.input) : /bash|shell|powershell|exec|command/i.test(t.name) && /\b(cat|type|Get-Content|gc|more|less)\b/i.test(t.input) && !/-(TotalCount|Tail|First|Head)\b|\| *(head|Select-Object|Select-String|findstr|grep)/i.test(t.input)))
+      const closestRead = ran(o, 'hive_read_section').some((x) => /^#?retry-policy$/i.test(String(argsOf(x).heading ?? ''))) || (onDoc.length > 0 && whole.length === 0)
+      const asked = called(o, 'hive_notify').length > 0 || !!o.cards.b?.blocked || asksTheUser(o.finalReply)
+      // #819 round 2: a read of the closest through Hive names the project's copy, as the prompt says.
+      const reads = ran(o, 'hive_read_section')
+      return [
+        ['read the closest section, or asked the user', closestRead || asked, `${o.hiveCalls.map((x) => x.tool).join(',')} | ${(o.finalReply ?? '').slice(0, 200)}`],
+        ['its hive_read_section calls read the project’s copy (from: "project")', reads.every((x) => argsOf(x).from === 'project'), reads.map((x) => JSON.stringify(argsOf(x))).join(' | ')],
+        ["didn't read the whole document", whole.length === 0, whole.map((t) => `${t.name} ${t.input.slice(0, 120)}`).join(' | ')],
+        ['did the work from it, or waits on the user', (/\b7\b|seven/i.test(c.read('RETRY.md') ?? '') && /\b90\b|ninety/i.test(c.read('RETRY.md') ?? '')) || asked, c.read('RETRY.md') ?? 'no RETRY.md']
+      ]
+    },
+    fakeSkips: ['did the work from it, or waits on the user']
   },
   {
     id: 'long-doc-section',

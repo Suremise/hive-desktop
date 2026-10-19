@@ -7,8 +7,9 @@ import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
 import { MAX_CONTEXT, MAX_CONTEXT_REF, parseDocRef } from '../shared/docRefs'
+import { contextProblems } from './docSections'
 import { providerMessage } from '../shared/providers'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, ContextProblem, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
@@ -165,6 +166,7 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
     labels: strs(raw.labels),
     // Absent when it has none (#818), so a card's JSON doesn't grow for it.
     ...(strs(raw.context).length ? { context: strs(raw.context).slice(0, MAX_CONTEXT) } : {}),
+    ...problemsOf(raw.contextProblems),
     blocked: typeof raw.blocked === 'string' && raw.blocked.trim() ? raw.blocked : null,
     blockedBy: nums(raw.blockedBy),
     links: nums(raw.links),
@@ -533,6 +535,41 @@ const text = (v: unknown, max: number, what: TextField): string => {
   return s
 }
 
+/** The folder a card's project files are read from (#818): its project's, or none for a card about the workspace. */
+const cardProject = (card: Pick<TaskCard, 'project'>, ws: WorkspaceService = workspace): string | null => (card.project && ws.path ? join(ws.path, card.project) : null)
+
+/** A stored card's context problems (#819) that are well formed, or none (absent). */
+function problemsOf(raw: unknown): { contextProblems?: ContextProblem[] } {
+  const list = Array.isArray(raw) ? raw.filter((p): p is ContextProblem => !!p && typeof p.ref === 'string' && typeof p.problem === 'string').slice(0, MAX_CONTEXT) : []
+  return list.length ? { contextProblems: list.map((p) => ({ ref: p.ref, problem: p.problem, ...(Array.isArray(p.closest) ? { closest: p.closest.filter((x): x is string => typeof x === 'string').slice(0, 5) } : {}) })) } : {}
+}
+
+/** Sets or clears a card's context problems (#819). */
+function withProblems(card: TaskCard, problems: ContextProblem[]): void {
+  if (problems.length) card.contextProblems = problems
+  else delete card.contextProblems
+}
+
+/**
+ * What a card's context references came to when it was started (#819), recorded on it as Hive: the problems, or none.
+ * No history line: the card shows them while they last. `checked`: the card as the check was made for it (its Start's:
+ * its references, project, agent and column), compared under the board's lock with the card as it is: one changed
+ * meanwhile in any of those, archived, or gone (deleted) keeps what it has, and the reply is false, so its Start stops
+ * rather than giving the agent a card that isn't its to start any more. Other changes (labels, a comment) don't count.
+ */
+export async function setContextProblems(n: number, problems: ContextProblem[], checked: { context: readonly string[]; project: string; agent?: string | null; column?: TaskColumn }, ws: WorkspaceService = workspace): Promise<boolean> {
+  return boardLock(ws, async () => {
+    const card = await getTask(n, ws).catch(() => null)
+    if (!card || card.archived || card.project !== checked.project || (card.context ?? []).join('\n') !== checked.context.join('\n')) return false
+    if ((checked.agent !== undefined && card.agent !== checked.agent) || (checked.column !== undefined && card.column !== checked.column)) return false
+    if (JSON.stringify(card.contextProblems ?? []) === JSON.stringify(problems)) return true
+    withProblems(card, problems)
+    await saveCard(ws, n, card)
+    changed(ws)
+    return true
+  })
+}
+
 /** A card's context references (#818), checked: a list of Markdown files with an optional #slug, never line numbers. */
 function contextOf(v: unknown): string[] {
   if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.contextList', defaultMessage: 'context must be a list', description: `An error: the call gave the card's context (the doc sections to read first) as something other than a list. "context" is the name of the call's field: keep it as it is.` }), undefined, { kind: 'invalid' })
@@ -770,6 +807,7 @@ async function createTaskLocked(
   const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy', scope) : []
   const links = input.links ? await cardRefs(input.links, null, 'links', scope) : []
   const context = input.context ? contextOf(input.context) : []
+  const problems = context.length ? await contextProblems(project && workspace.path ? join(workspace.path, project) : null, workspace.sharedDir, context) : []
   const n = await nextNumber(ws)
   const card: TaskCard = {
     number: n,
@@ -785,6 +823,7 @@ async function createTaskLocked(
     blockedBy,
     links,
     ...(context.length ? { context } : {}),
+    ...(problems.length ? { contextProblems: problems } : {}),
     comments: [],
     history: [entryOf(now, by, storedText(HISTORY.created, { column }))],
     archived: false,
@@ -938,6 +977,8 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       if (refs.join('\n') !== (card.context ?? []).join('\n')) said.push(refs.length ? storedText(HISTORY.context, { refs: refs.join(', ') }) : storedText(HISTORY.contextRemoved))
       if (refs.length) card.context = refs
       else delete card.context
+      // Checked as they are saved (#819): what doesn't resolve shows on the card.
+      withProblems(card, await contextProblems(cardProject(card), workspace.sharedDir, refs))
     }
     if (patch.labels !== undefined) {
       card.labels = labelsOf(patch.labels)

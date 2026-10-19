@@ -124,6 +124,7 @@
   "tasks.start.alreadyStarting": "#{n} wird bereits gestartet.",
   "tasks.start.archived": "#{n} ist archiviert. Hol die Karte zuerst zurück.",
   "tasks.start.beingGiven": "Agent {agent} bekommt gerade eine andere Karte. Starte diese, sobald der Agent untätig ist, oder gib sie einem anderen Agenten.",
+  "tasks.start.changed": "#{n} wurde geändert, während es gestartet wurde (archiviert, verschoben, einem anderen Agenten gegeben oder „Zuerst lesen“ bearbeitet): Starte es erneut, wenn es noch starten soll.",
   "tasks.start.movedColumn": "#{n} wurde inzwischen nach {column, select, hold {Geparkt} todo {Offen} doing {In Arbeit} review {Review} passed {Geprüft} done {Erledigt} other {{column}}} verschoben. Starte die Karte erneut, wenn sie noch zu erledigen ist.",
   "tasks.start.movedDone": "#{n} wurde inzwischen nach Erledigt verschoben. Starte die Karte erneut, wenn noch etwas zu tun ist.",
   "tasks.start.movedProject": "#{n} wurde inzwischen nach {project} verschoben. Starte die Karte erneut.",

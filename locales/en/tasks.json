@@ -499,6 +499,10 @@
     "defaultMessage": "{agent} is being given another card. Start this one once it's idle, or give it to another agent.",
     "description": "An error: the agent {agent} (its name) is being given another card right now, so this one cannot be started with it."
   },
+  "tasks.start.changed": {
+    "defaultMessage": "#{n} changed while it was being started (archived, moved, given to another agent, or its Read first edited): start it again if it should still go.",
+    "description": "An error: the card #{n} (a number) was changed while Hive was starting it (archived, moved to another column or project, given to another agent, deleted, or its Read first doc sections edited), so it wasn't given to the agent. Read first is the card's field: keep its name as the card dialog shows it."
+  },
   "tasks.start.movedColumn": {
     "defaultMessage": "#{n} was moved to {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}} meanwhile. Start it again if it's still to do.",
     "description": "An error: while card #{n} (a number) was being started, it was moved to the column {column} (select: a board column; translate each)."

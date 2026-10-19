@@ -124,6 +124,7 @@
   "tasks.start.alreadyStarting": "#{n} is already being started.",
   "tasks.start.archived": "#{n} is archived. Bring it back first.",
   "tasks.start.beingGiven": "{agent} is being given another card. Start this one once it's idle, or give it to another agent.",
+  "tasks.start.changed": "#{n} changed while it was being started (archived, moved, given to another agent, or its Read first edited): start it again if it should still go.",
   "tasks.start.movedColumn": "#{n} was moved to {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}} meanwhile. Start it again if it's still to do.",
   "tasks.start.movedDone": "#{n} was moved to Done meanwhile. Start it again if there is more to do.",
   "tasks.start.movedProject": "#{n} moved to {project} meanwhile. Start it again.",

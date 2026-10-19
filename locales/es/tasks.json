@@ -124,6 +124,7 @@
   "tasks.start.alreadyStarting": "La tarjeta #{n} ya se está iniciando.",
   "tasks.start.archived": "La tarjeta #{n} está archivada. Devuélvela primero.",
   "tasks.start.beingGiven": "El agente {agent} está recibiendo otra tarjeta. Inicia esta cuando esté inactivo o dásela a otro agente.",
+  "tasks.start.changed": "#{n} cambió mientras se iniciaba (archivada, movida, dada a otro agente o con su Leer primero editado): vuelve a iniciarla si aún debe empezar.",
   "tasks.start.movedColumn": "Mientras tanto, la tarjeta #{n} se movió a la columna {column, select, hold {En espera} todo {Pendiente} doing {En curso} review {Revisión} passed {Aprobado} done {Hecho} other {{column}}}. Iníciala de nuevo si aún queda por hacer.",
   "tasks.start.movedDone": "Mientras tanto, la tarjeta #{n} pasó a Hecho. Iníciala de nuevo si queda más por hacer.",
   "tasks.start.movedProject": "Mientras tanto, la tarjeta #{n} se movió al proyecto {project}. Iníciala de nuevo.",

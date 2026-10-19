@@ -124,6 +124,7 @@
   "tasks.start.alreadyStarting": "Karta #{n} jest już uruchamiana.",
   "tasks.start.archived": "Karta #{n} jest zarchiwizowana. Najpierw ją przywróć.",
   "tasks.start.beingGiven": "Agent {agent} właśnie dostaje inną kartę. Rozpocznij tę, gdy będzie bezczynny, albo przekaż ją innemu agentowi.",
+  "tasks.start.changed": "#{n} zmieniła się podczas uruchamiania (zarchiwizowana, przeniesiona, dana innemu agentowi albo zmieniono jej „Przeczytaj najpierw”): uruchom ją ponownie, jeśli nadal ma ruszyć.",
   "tasks.start.movedColumn": "Kartę #{n} przeniesiono w międzyczasie do kolumny {column, select, hold {Wstrzymane} todo {Do zrobienia} doing {W toku} review {Recenzja} passed {Zatwierdzone} done {Gotowe} other {{column}}}. Rozpocznij ją ponownie, jeśli nadal jest do zrobienia.",
   "tasks.start.movedDone": "Kartę #{n} przeniesiono w międzyczasie do Gotowych. Rozpocznij ją ponownie, jeśli zostało coś do zrobienia.",
   "tasks.start.movedProject": "Kartę #{n} przeniesiono w międzyczasie do projektu {project}. Rozpocznij ją ponownie.",

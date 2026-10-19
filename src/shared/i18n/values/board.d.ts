@@ -74,6 +74,7 @@ interface HiveMessageValues {
   'board.card.blockedTip': { reason: string | number }
   'board.card.bringBack': undefined
   'board.card.collapse': { card: string | number }
+  'board.card.contextBroken': { n: number; refs: string | number }
   'board.card.decisionsCount': { n: string | number }
   'board.card.decisionsTip': { n: string | number; decisions: string | number }
   'board.card.dependsOn': { cards: string | number }

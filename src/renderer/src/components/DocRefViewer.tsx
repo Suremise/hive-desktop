@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { parseDocRef } from '@shared/docRefs'
 import type { HiveRequests } from '@shared/api'
+import type { ContextProblem } from '@shared/types'
 import { fmt, msg, tr } from '@shared/i18n'
 import { call, errorMessage } from '../api'
 import { openFileLink } from '../fileLinks'
@@ -13,13 +14,21 @@ const M = {
   open: msg({ id: 'board.context.open', defaultMessage: 'Open in Files', description: "Button in the doc section viewer (a card's Read first reference, #818): opens the project's file in the Files tab, at the section." }),
   openNote: msg({ id: 'board.context.openNote', defaultMessage: 'Open in Shared Notes', description: "Button in the doc section viewer (a card's Read first reference to a shared note, #818): opens the note in the Shared Notes view." }),
   close: msg({ id: 'board.context.close', defaultMessage: 'Close', description: 'Button: closes the doc section viewer.' }),
-  loading: msg({ id: 'board.context.loading', defaultMessage: 'Reading…', description: 'The doc section viewer while it reads the section.' }),
-  problem: msg({
-    id: 'board.context.problem',
-    defaultMessage: "{why, select, noHeading {That heading isn't in the file} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { Closest headings: {closest}.}}",
-    description: "The doc section viewer when a card's Read first reference doesn't lead to a section (#818): why ({why}, select: translate each) and, when its heading isn't there, the closest headings' slugs ({closest}; none: leave that branch empty)."
-  })
+  loading: msg({ id: 'board.context.loading', defaultMessage: 'Reading…', description: 'The doc section viewer while it reads the section.' })
 }
+
+/** Why a card's Read first reference doesn't lead to a section (#818, #819): the viewer's, the card's and its tile's words. */
+export const PROBLEM = msg({
+  id: 'board.context.problem',
+  defaultMessage:
+    "{why, select, noHeading {That heading isn't in the file} ambiguous {Several headings have that heading's text, so the reference may mean another} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { {why, select, ambiguous {They are} other {Closest headings}}: {closest}.}}",
+  description:
+    "Why a card's Read first reference doesn't lead to a section (#818, #819; the section viewer, the card dialog, a card's tooltip): why ({why}, select: translate each; ambiguous: two headings now have the same text) and the closest headings' slugs, or for ambiguous the headings with that text ({closest}; none: leave that branch empty)."
+})
+
+/** A card's Read first problems, one a line: "docs/PLAN.md#setup: That heading isn't in the file. Closest headings: #install." */
+export const problemLines = (problems: readonly ContextProblem[]): string[] =>
+  problems.map((p) => `${p.ref}: ${tr(PROBLEM, { why: p.problem, closest: p.closest?.length ? fmt.list(p.closest.map((s) => `#${s}`)) : 'none' })}`) // i18n-ignore: a reference and its message, joined
 
 /**
  * A card's Read first reference (#818), read: the section (the whole document when it names no heading) in Hive's
@@ -80,7 +89,7 @@ export function DocRefViewer({ projectPath, docRef, onClose, onOpen }: { project
     >
       {!section && !error && <p className="faint">{tr(M.loading)}</p>}
       {section && 'content' in section && <Markdown className="doc-ref-section" source={section.content} />}
-      {section && 'problem' in section && <p className="banner warn">{tr(M.problem, { why: section.problem, closest: section.closest?.length ? fmt.list(section.closest.map((s) => `#${s}`)) : 'none' })}</p>}
+      {section && 'problem' in section && <p className="banner warn">{tr(PROBLEM, { why: section.problem, closest: section.closest?.length ? fmt.list(section.closest.map((s) => `#${s}`)) : 'none' })}</p>}
     </Modal>
   )
 }

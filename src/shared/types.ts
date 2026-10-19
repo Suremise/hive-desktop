@@ -627,6 +627,14 @@ export interface TaskHistoryEntry {
   id?: string
 }
 
+/** A card's context reference that doesn't resolve (#819): the reference, why, and the closest headings' slugs (without #). */
+export interface ContextProblem {
+  ref: string
+  /** outside, hidden, notMarkdown, notFound, tooBig (its file), invalid (not a reference), noHeading or ambiguous (its heading). */
+  problem: 'outside' | 'hidden' | 'notMarkdown' | 'notFound' | 'tooBig' | 'invalid' | 'noHeading' | 'ambiguous'
+  closest?: string[]
+}
+
 export interface TaskCard {
   /** #number, unique in the workspace and never reused. */
   number: number
@@ -659,6 +667,11 @@ export interface TaskCard {
    * `shared:plans/notes.md#open-questions`; shared/docRefs.ts). Absent when none.
    */
   context?: string[]
+  /**
+   * Its context references that didn't resolve when they were last checked (#819: when the list was edited, and when the
+   * card was started): which, why, and the closest headings' slugs. Absent when all did.
+   */
+  contextProblems?: ContextProblem[]
   comments: TaskComment[]
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */

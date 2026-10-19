@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A card's reference that no longer resolves: fake, Claude Code (haiku), Codex (its default model), fixtures v63, 19 October 2026
+
+#819: the start prompt names a reference that doesn't resolve, why and the closest headings ("This reference no
+longer resolves: DESIGN.md#retry-policies (no such heading; closest: #retry-policy). Ask the user which section is
+meant, or read the closest."). One new scenario, **card-read-first-broken**: checks that the agent reads the closest
+section or asks, never the whole document, and does the work from it or waits on the user.
+- **Fake**: passes. The prompt is unchanged for references that resolve, so the other scenarios aren't affected.
+- **Codex**: 2 of 2 (`2026-10-19T22-54-27-codex`): hive_doc_outline, then hive_read_section on the closest
+  (`#retry-policy`), RETRY.md right, Review.
+- **Claude Code (haiku)**: 2 of 2 (`2026-10-19T22-58-45-claude-code`): the closest section, by hive_read_section in one
+  sample and a ranged read in the other; never the whole file.
+- **Round 2, fixtures v64** (the prompt says to read the closest with `from: "project"` also when none resolves; a new
+  check that every hive_read_section call names it): fake passes; Codex 2 of 2 (`2026-10-19T23-16-37-codex`), each
+  reading `#retry-policy` with `from: "project"`; Claude Code (haiku) 1 of 1 that ran (`2026-10-19T23-18-49-claude-code`,
+  the same); its second sample never took a turn: the test account was at 99% of its weekly limit (an environment
+  skip, so no more Claude Code trials were run).
+
 ## A card's Read first references: fakes, Claude Code (haiku), Codex (its default model), fixtures v62, 19 October 2026
 
 #818: a card's `context` (doc sections to read first) is listed in its start prompt with each section's size, and the

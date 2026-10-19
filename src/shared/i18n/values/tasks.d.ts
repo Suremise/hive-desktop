@@ -126,6 +126,7 @@ interface HiveMessageValues {
   'tasks.start.alreadyStarting': { n: string | number }
   'tasks.start.archived': { n: string | number }
   'tasks.start.beingGiven': { agent: string | number }
+  'tasks.start.changed': { n: string | number }
   'tasks.start.movedColumn': { n: string | number; column: string }
   'tasks.start.movedDone': { n: string | number }
   'tasks.start.movedProject': { n: string | number; project: string | number }

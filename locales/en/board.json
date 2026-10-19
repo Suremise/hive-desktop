@@ -291,6 +291,10 @@
     "defaultMessage": "Collapse #{card} to one line",
     "description": "Tooltip on the chevron of a card: folds it to one line. {card} is its number (after #)."
   },
+  "board.card.contextBroken": {
+    "defaultMessage": "{n, plural, one {Read first no longer resolves: {refs}} other {# Read first references no longer resolve: {refs}}}",
+    "description": "A warning on a card (#819): its Read first references (doc sections) that didn't resolve when last checked: how many ({n}) and which ({refs}: references such as \"docs/PLAN.md#setup\", separated by commas; keep them as they are). The tooltip says why."
+  },
   "board.card.decisionsCount": {
     "defaultMessage": "Decisions: {n}",
     "description": "Accessible name of a card's decision count: how many decisions the user recorded about it."
@@ -448,8 +452,8 @@
     "description": "Button in the doc section viewer (a card's Read first reference to a shared note, #818): opens the note in the Shared Notes view."
   },
   "board.context.problem": {
-    "defaultMessage": "{why, select, noHeading {That heading isn't in the file} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { Closest headings: {closest}.}}",
-    "description": "The doc section viewer when a card's Read first reference doesn't lead to a section (#818): why ({why}, select: translate each) and, when its heading isn't there, the closest headings' slugs ({closest}; none: leave that branch empty)."
+    "defaultMessage": "{why, select, noHeading {That heading isn't in the file} ambiguous {Several headings have that heading's text, so the reference may mean another} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { {why, select, ambiguous {They are} other {Closest headings}}: {closest}.}}",
+    "description": "Why a card's Read first reference doesn't lead to a section (#818, #819; the section viewer, the card dialog, a card's tooltip): why ({why}, select: translate each; ambiguous: two headings now have the same text) and the closest headings' slugs, or for ambiguous the headings with that text ({closest}; none: leave that branch empty)."
   },
   "board.cost.cardLine": {
     "defaultMessage": "cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}",

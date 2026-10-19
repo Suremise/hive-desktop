@@ -1,8 +1,10 @@
 // A card's Read first references (#818): doc sections by file and heading, set through the Agent API, the hive tools and
 // the card dialog, checked (a Markdown file with an optional #slug, never a line number), recorded in the card's
 // history, shown in the dialog as links that open each section in Hive's viewer (Open in Files at its heading), and given
-// to the agent in its start prompt with each section's size, not the sections themselves. The agent is the fake Claude
-// Code. Pictured in both themes. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// to the agent in its start prompt with each section's size, not the sections themselves. References that don't resolve
+// (#819) are flagged on the card's tile and in its dialog with the closest headings, whether saved so or broken by a
+// change before the start, and named in the prompt. The agent is the fake Claude Code. Pictured in both themes. Dev
+// build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -215,6 +217,60 @@ const NOTES = '# Notes\n\n## Open questions\n\nWhich QUESTION-MARKER first?\n'
     check('…a whole-file reference too (no heading: the whole document)', r.status === 200 && r.body.content === PLAN && r.body.size === PLAN.length, JSON.stringify(r).slice(0, 200))
     r = await asTree(`/v1/docs/section?path=docs%2FPLAN.md&heading=%23setup`)
     check('…while its own reads stay in its worktree', r.status === 200 && r.body.content.includes('WORKTREE-COPY'), JSON.stringify(r))
+    await inv('session:stop', alpha)
+    await lib.until(async () => (await inv('session:live')).length === 0, HUNG_MS)
+
+    // --- #819: references that don't resolve are flagged, saved or at the start, and named in the prompt.
+    r = await api('POST', '/v1/tasks', { title: 'Check the refs', project: 'alpha', context: ['docs/PLAN.md#nowhere', 'docs/PLAN.md#setup'] })
+    const n3 = r.body.number
+    check('saved with a heading that isn’t there: flagged on the card, with the closest', JSON.stringify(r.body.contextProblems?.map((p) => [p.ref, p.problem])) === '[["docs/PLAN.md#nowhere","noHeading"]]' && r.body.contextProblems[0].closest?.length > 0, JSON.stringify(r.body.contextProblems))
+    await page.keyboard.press('Control+Shift+J')
+    const tile3 = page.locator('.task-card', { hasText: 'Check the refs' })
+    const warn = tile3.locator('.task-context-broken')
+    check('the tile shows it, naming the reference', !!(await lib.until(async () => (await warn.innerText().catch(() => '')).includes('Read first no longer resolves: docs/PLAN.md#nowhere'), HUNG_MS)), await tile3.innerText().catch(() => ''))
+    await tile3.click()
+    const problemsBox = page.locator('.task-context-problems')
+    check('the dialog lists it with why and the closest headings', !!(await lib.until(async () => /docs\/PLAN\.md#nowhere: That heading isn't in the file\. Closest headings: #/.test(await problemsBox.innerText().catch(() => '')), HUNG_MS)), await problemsBox.innerText().catch(() => ''))
+    check('…and strikes its link through', (await page.locator('.task-context-links .link-button.broken').allInnerTexts()).join('|') === 'docs/PLAN.md#nowhere')
+    for (const t of ['dark', 'light']) {
+      await theme(t)
+      await page.screenshot({ path: path.join(lib.WORK, `cardcontext-3-broken-dialog-${t}.png`) })
+    }
+    await page.keyboard.press('Escape')
+    await lib.until(async () => (await page.locator('.dialog[role="dialog"]').count()) === 0, HUNG_MS)
+    for (const t of ['dark', 'light']) {
+      await theme(t)
+      await tile3.screenshot({ path: path.join(lib.WORK, `cardcontext-4-broken-tile-${t}.png`) })
+    }
+    // The heading renamed since: the start finds it, records it on the card and names both in the prompt.
+    fs.writeFileSync(path.join(alpha, 'docs', 'PLAN.md'), PLAN.replace('## Setup', '## Set up'))
+    await inv('tasks:start', n3, { kind: 'agent', agentId: agent.id })
+    const named = await lib.until(() => (/These references no longer resolve: docs\/PLAN\.md#nowhere \(no such heading; closest: [^)]*\); docs\/PLAN\.md#setup \(no such heading; closest: #set-up[^)]*\)\. Ask the user which section is meant, or read the closest\./.test(transcript()) ? true : null), HUNG_MS)
+    check('a heading renamed before the start: the prompt names it, why and the closest, never silently nothing', !!named, transcript().slice(-600))
+    r = await lib.until(async () => {
+      const c = await api('GET', `/v1/tasks/${n3}`)
+      return c.body.contextProblems?.length === 2 ? c : null
+    }, HUNG_MS)
+    check('…and the card has both flagged now', !!r && r.body.contextProblems[1].ref === 'docs/PLAN.md#setup' && r.body.contextProblems[1].closest[0] === 'set-up', JSON.stringify(r?.body.contextProblems))
+    fs.writeFileSync(path.join(alpha, 'docs', 'PLAN.md'), PLAN)
+
+    // A worktree agent with only references that don't resolve (#819 round 2): the prompt still says to read the closest
+    // from the project's copy, where the closest headings were found; its worktree's copy differs.
+    await inv('session:stop', alpha)
+    await lib.until(async () => (await inv('session:live')).length === 0, HUNG_MS)
+    const n4 = (await api('POST', '/v1/tasks', { title: 'Only broken refs', project: 'alpha', context: ['docs/PLAN.md#setupp'] })).body.number
+    await inv('tasks:start', n4, { kind: 'agent', agentId: tree.id })
+    const closestRead = await lib.until(() => (/This reference no longer resolves: docs\/PLAN\.md#setupp \(no such heading; closest: #setup[^)]*\)\. Ask the user which section is meant, or read the closest\. hive_read_section reads the closest as the card has it \(path: the file; heading: # and the slug; from: \\"project\\"\)\./.test(transcript()) ? true : null), HUNG_MS)
+    check('only broken references, a worktree agent: the prompt says to read the closest from the project’s copy', !!closestRead, transcript().slice(-700))
+    const tree2 = (await inv('session:live')).find((s) => s.agentId === tree.id)
+    const launch2 = await lib.until(() => {
+      const text = fs.existsSync(launchesFile) ? fs.readFileSync(launchesFile, 'utf8') : ''
+      return text.slice(0, text.lastIndexOf('\n') + 1).split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l)).find((l) => l.sessionId === tree2?.sessionId && l.opts['--mcp-config'])
+    }, HUNG_MS)
+    const tree2Token = JSON.parse(fs.readFileSync(JSON.parse(fs.readFileSync(launch2.opts['--mcp-config'], 'utf8')).mcpServers.hive.env.HIVE_API_TOKEN_FILE, 'utf8')).token
+    const res = await fetch(`http://127.0.0.1:${PORT}/v1/docs/section?path=docs%2FPLAN.md&heading=%23setup&from=project`, { headers: { Authorization: `Bearer ${tree2Token}` } })
+    const closest = await res.json().catch(() => null)
+    check('…and that read gives the project’s section, not the worktree’s', res.status === 200 && closest?.content.includes('SETUP-MARKER') && !closest.content.includes('WORKTREE-COPY'), JSON.stringify(closest))
 
     await inv('session:stop', alpha)
     await lib.until(async () => (await inv('session:live')).length === 0, HUNG_MS)

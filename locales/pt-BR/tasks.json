@@ -124,6 +124,7 @@
   "tasks.start.alreadyStarting": "#{n} já está sendo começado.",
   "tasks.start.archived": "#{n} está arquivado. Traga-o de volta primeiro.",
   "tasks.start.beingGiven": "O agente {agent} está recebendo outro cartão. Comece este quando ele estiver ocioso ou entregue-o a outro agente.",
+  "tasks.start.changed": "#{n} mudou enquanto era iniciado (arquivado, movido, dado a outro agente ou com o Ler primeiro editado): inicie-o de novo se ainda deve começar.",
   "tasks.start.movedColumn": "#{n} foi movido para {column, select, hold {Em espera} todo {A fazer} doing {Fazendo} review {Revisão} passed {Aprovado} done {Concluído} other {{column}}} nesse meio-tempo. Comece-o de novo se ainda houver o que fazer.",
   "tasks.start.movedDone": "#{n} foi movido para Concluído nesse meio-tempo. Comece-o de novo se houver mais a fazer.",
   "tasks.start.movedProject": "#{n} foi movido para o projeto {project} nesse meio-tempo. Comece-o de novo.",

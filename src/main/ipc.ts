@@ -1,4 +1,4 @@
-import { docRefSection } from './docSections'
+import { checkDocRef } from './docSections'
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { freemem, totalmem } from 'os'
 import { AsyncLocalStorage } from 'async_hooks'
@@ -593,7 +593,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'tasks:create': (input) => tasks.createTask(input, { kind: 'user' }),
     'tasks:update': (n, patch) => tasks.updateTask(n, patch, { kind: 'user' }),
-    'docs:section': (p, ref) => docRefSection(p ? workspace.assertProject(p) : null, workspace.sharedDir, String(ref ?? '')),
+    'docs:section': (p, ref) => checkDocRef(p ? workspace.assertProject(p) : null, workspace.sharedDir, String(ref ?? '')),
     'tasks:comment': (n, text) => tasks.commentTask(n, text, { kind: 'user' }),
     'tasks:archive': (n, archived) => tasks.archiveTask(n, archived),
     'tasks:editDecision': (n, id, text) => tasks.editDecision(n, id, text, { kind: 'user' }),

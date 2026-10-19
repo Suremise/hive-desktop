@@ -5,7 +5,8 @@ import { readFile, stat } from 'original-fs/promises'
 import { isAbsolute, relative, resolve } from 'path'
 import { insideReal, realPath } from './fsutil'
 import { parseDocRef } from '../shared/docRefs'
-import { docOutline, findHeading, sectionText, type DocHeading } from '../shared/docSections'
+import { docOutline, findHeading, sectionText } from '../shared/docSections'
+import type { ContextProblem } from '../shared/types'
 
 /** A shared note's reference starts with this: `shared:plans/i18n.md`. */
 export const SHARED_PREFIX = 'shared:'
@@ -43,45 +44,38 @@ export async function readDoc(root: string, path: string): Promise<DocRead> {
   return text === null ? { ok: false, code: 'notFound' } : { ok: true, text: text.replace(/^﻿/, '') }
 }
 
+/** Why a reference doesn't resolve: as reading its document found, not a reference at all, no such heading, or a heading whose text several share. */
+export type DocRefProblem = Extract<DocRead, { ok: false }>['code'] | 'invalid' | 'noHeading' | 'ambiguous'
+
+/** A reference checked: its section (or whole document) and where it starts, or why not with the closest headings' slugs. */
+export type DocRefCheck = { ref: string; content: string; line: number; size: number } | { ref: string; problem: DocRefProblem; closest?: string[] }
+
 /**
- * A context reference's section for the window to show (#818: the card dialog's links): its text (the whole document
- * when it names no heading), the line its heading is on, or why it doesn't resolve. `project`: null for a card about the
- * workspace, whose project files can't resolve.
+ * Checks a card's context reference (#818, #819): in the project's folder (`project`: never an agent's worktree; null for a
+ * card about the workspace, whose project files can't resolve) or the shared notes (`shared`, for `shared:` references).
+ * It resolves when its file is there and readable and, with a #slug, that heading is in it, uniquely: a heading whose
+ * text another one has too (a second "Setup" added above it) is `ambiguous`, since which one the slug names can change.
+ * The size is its section's, or the whole document's when it names no heading.
  */
-export async function docRefSection(project: string | null, shared: string, ref: string): Promise<{ ref: string; content: string; line: number } | { ref: string; problem: DocRefProblem; closest?: string[] }> {
+export async function checkDocRef(project: string | null, shared: string, ref: string): Promise<DocRefCheck> {
   const parsed = parseDocRef(ref)
   if (!parsed) return { ref, problem: 'invalid' }
   const isShared = parsed.path.startsWith(SHARED_PREFIX)
   if (!isShared && !project) return { ref, problem: 'notFound' }
   const r = await readDoc(isShared ? shared : project!, isShared ? parsed.path.slice(SHARED_PREFIX.length) : parsed.path)
   if (!r.ok) return { ref, problem: r.code }
-  if (!parsed.slug) return { ref, content: r.text, line: 1 }
+  if (!parsed.slug) return { ref, content: r.text, line: 1, size: r.text.length }
   const outline = docOutline(r.text)
   const found = findHeading(outline, `#${parsed.slug}`)
-  if ('heading' in found) return { ref, content: sectionText(r.text, found.heading), line: found.heading.line }
-  return { ref, problem: 'noHeading', closest: ('closest' in found ? found.closest : found.ambiguous).slice(0, 3).map((h) => h.slug) }
+  if (!('heading' in found)) return { ref, problem: 'noHeading', closest: ('closest' in found ? found.closest : found.ambiguous).slice(0, 3).map((h) => h.slug) }
+  const h = found.heading
+  const same = outline.filter((x) => x.text.toLowerCase() === h.text.toLowerCase())
+  if (same.length > 1) return { ref, problem: 'ambiguous', closest: same.map((x) => x.slug) }
+  return { ref, content: sectionText(r.text, h), line: h.line, size: h.size }
 }
 
-/** What a card's context reference (#818) comes to: its section's size, or why it doesn't resolve (#819), with the closest headings. */
-export type DocRefCheck = { ref: string; size: number; heading?: DocHeading } | { ref: string; problem: DocRefProblem; closest?: string[] }
-
-/** Why a reference doesn't resolve: as reading its document found, not a reference at all, or no such heading in it. */
-export type DocRefProblem = Extract<DocRead, { ok: false }>['code'] | 'invalid' | 'noHeading'
-
-/**
- * Resolves a context reference: in the project's folder (`project`, the folder the card's project is in, never an
- * agent's worktree) or the shared notes (`shared`, for `shared:` references). Its size is its section's, or the whole
- * document's when it names no heading; a slug is matched exactly (`#slug`, as hive_read_section takes it).
- */
-export async function resolveDocRef(project: string, shared: string, ref: string): Promise<DocRefCheck> {
-  const parsed = parseDocRef(ref)
-  if (!parsed) return { ref, problem: 'invalid' }
-  const isShared = parsed.path.startsWith(SHARED_PREFIX)
-  const r = await readDoc(isShared ? shared : project, isShared ? parsed.path.slice(SHARED_PREFIX.length) : parsed.path)
-  if (!r.ok) return { ref, problem: r.code }
-  if (!parsed.slug) return { ref, size: r.text.length }
-  const outline = docOutline(r.text)
-  const found = findHeading(outline, `#${parsed.slug}`)
-  if ('heading' in found) return { ref, size: found.heading.size, heading: found.heading }
-  return { ref, problem: 'noHeading', closest: ('closest' in found ? found.closest : found.ambiguous).slice(0, 3).map((h) => h.slug) }
+/** A card's references that don't resolve now (#819), checked together. */
+export async function contextProblems(project: string | null, shared: string, refs: readonly string[]): Promise<ContextProblem[]> {
+  const checks = await Promise.all(refs.map((ref) => checkDocRef(project, shared, ref).catch((): DocRefCheck => ({ ref, problem: 'notFound' }))))
+  return checks.flatMap((c) => ('problem' in c ? [{ ref: c.ref, problem: c.problem, ...(c.closest?.length ? { closest: c.closest } : {}) }] : []))
 }

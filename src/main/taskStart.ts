@@ -11,10 +11,10 @@ import { addAgent, removeAgent } from './projectAgents'
 import { sessions } from './sessions'
 import { HiveError, hiveError, errorText } from './hiveError'
 import { forAgents, withValues } from '../shared/advanced'
-import { getTask, UNKNOWN_AGENT, updateTask, type TaskActor } from './tasks'
+import { getTask, setContextProblems, UNKNOWN_AGENT, updateTask, type TaskActor } from './tasks'
 import { createLogger, userText } from './logger'
 import { workspace, workspaceOf } from './workspace'
-import { resolveDocRef } from './docSections'
+import { checkDocRef, type DocRefCheck } from './docSections'
 import type { ContextLine } from '../shared/tasks'
 
 const log = createLogger('tasks')
@@ -185,7 +185,18 @@ async function giveCard(
   try {
     // Its doc sections to read first (#818), with their sizes: in the project's folder or the shared notes, never the
     // agent's own folder (the references are the project's; the agent reads them where it works).
-    const context = card.context?.length ? await contextLines(p, card.context) : undefined
+    // What didn't resolve now shows on the card too (#819), cleared when all did: written only if the card still has the
+    // list and project that were checked (under the board's lock). If not, the card changed while this Start checked it
+    // (its Read first edited, or moved to another project): the Start stops, as one that finds its card changed does,
+    // giving the agent nothing and leaving the newer card as it is, to be started again.
+    const refs = card.context ?? []
+    const context = refs.length ? await contextLines(p, refs) : undefined
+    // The card as this Start took it, compared again once the (slow) check is done: its Read first, project, agent and
+    // column, not archived and still there. A failed check or write isn't taken for the card being unchanged.
+    if (context) {
+      const current = await setContextProblems(n, context.flatMap((l) => (l.problem ? [l.problem] : [])), { context: refs, project: card.project, agent: agentId, column: card.column })
+      if (!current) throw hiveError(msg({ id: 'tasks.start.changed', defaultMessage: '#{n} changed while it was being started (archived, moved, given to another agent, or its Read first edited): start it again if it should still go.', description: "An error: the card #{n} (a number) was changed while Hive was starting it (archived, moved to another column or project, given to another agent, deleted, or its Read first doc sections edited), so it wasn't given to the agent. Read first is the card's field: keep its name as the card dialog shows it." }), { n }, { kind: 'conflict' })
+    }
     const prompt = taskPrompt(card, !!sessions.hiveMcp(p), { from: before.column, note, context })
     // Again now: the agent may have started work, or the user typed in it, while the card was taken.
     live = availability(p, agentId, agentName, actor).live
@@ -216,11 +227,11 @@ async function giveCard(
   return { card, agentId, agentName, added, typed: live }
 }
 
-/** A card's context references (#818) with each section's size, where it resolves. */
+/** A card's context references (#818) with each section's size, or why it doesn't resolve now (#819). */
 async function contextLines(projectPath: string, refs: string[]): Promise<ContextLine[]> {
   const shared = workspaceOf(projectPath).sharedDir
-  return Promise.all(refs.map(async (ref) => {
-    const r = await resolveDocRef(projectPath, shared, ref).catch(() => null)
-    return r && 'size' in r ? { ref, size: r.size } : { ref }
+  return Promise.all(refs.map(async (ref): Promise<ContextLine> => {
+    const r = await checkDocRef(projectPath, shared, ref).catch((): DocRefCheck => ({ ref, problem: 'notFound' }))
+    return 'size' in r ? { ref, size: r.size } : { ref, problem: { ref, problem: r.problem, ...(r.closest?.length ? { closest: r.closest } : {}) } }
   }))
 }

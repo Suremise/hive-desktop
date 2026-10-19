@@ -21,7 +21,7 @@ import { SET_ASIDE_ITEM } from './SetAside'
 import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
 import { CardCostLine } from './CardCost'
-import { DocRefViewer } from './DocRefViewer'
+import { DocRefViewer, problemLines } from './DocRefViewer'
 import { parseDocRef, splitDocRefs } from '@shared/docRefs'
 
 const NO_TASKS: TaskCard[] = []
@@ -450,6 +450,17 @@ function CardTile({
             <div className="task-blocked">
               <Icon name="circle-slash" />
               <span className="task-note-text">{c.blocked}</span>
+            </div>
+          </Tooltip>
+        )}
+        {/* Read first references that didn't resolve when last checked (#819): named, why on hover. */}
+        {!!c.contextProblems?.length && (
+          <Tooltip block content={problemLines(c.contextProblems).join('\n')}>
+            <div className="task-stalled task-context-broken">
+              <Icon name="warning" />
+              <span className="task-note-text">
+                {tr(msg({ id: 'board.card.contextBroken', defaultMessage: '{n, plural, one {Read first no longer resolves: {refs}} other {# Read first references no longer resolve: {refs}}}', description: "A warning on a card (#819): its Read first references (doc sections) that didn't resolve when last checked: how many ({n}) and which ({refs}: references such as \"docs/PLAN.md#setup\", separated by commas; keep them as they are). The tooltip says why." }), { n: c.contextProblems.length, refs: c.contextProblems.map((p) => p.ref).join(', ') })}
+              </span>
             </div>
           </Tooltip>
         )}
@@ -1413,6 +1424,8 @@ export function TaskDialog() {
   const [links, setLinks] = useState('')
   // Its doc sections to read first (#818), one reference a line.
   const [context, setContext] = useState('')
+  // The saved references that didn't resolve when last checked (#819), while they are still in the box.
+  const broken = (card?.contextProblems ?? []).filter((p) => splitDocRefs(context).includes(p.ref))
   // A reference being read in the section viewer.
   const [viewRef, setViewRef] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
@@ -1790,10 +1803,20 @@ export function TaskDialog() {
                 {splitDocRefs(context)
                   .filter((r) => parseDocRef(r))
                   .map((r) => (
-                    <button key={r} className="link-button" onClick={() => setViewRef(r)}>
+                    <button key={r} className={cx('link-button', broken.some((p) => p.ref === r) && 'broken')} onClick={() => setViewRef(r)}>
                       {r}
                     </button>
                   ))}
+              </div>
+            )}
+            {/* What didn't resolve when it was last checked (saved, or the card started, #819): why, and the closest headings. */}
+            {broken.length > 0 && (
+              <div className="task-context-problems" role="status">
+                {problemLines(broken).map((line) => (
+                  <div key={line}>
+                    <Icon name="warning" /> {line}
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -8160,6 +8160,22 @@ textarea.input.task-blocked-input {
 .task-context-links .link-button:focus-visible {
   text-decoration: underline;
 }
+/* Read first references that didn't resolve when last checked (#819): marked among the links, and listed with why. */
+.task-context-links .link-button.broken {
+  color: var(--warning);
+  text-decoration: line-through;
+}
+.task-context-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+.task-context-problems .codicon {
+  vertical-align: -2px;
+}
 /* The doc section viewer (#818): a section of a long document, scrolled within the dialog. */
 .doc-ref-section {
   max-height: 60vh;
