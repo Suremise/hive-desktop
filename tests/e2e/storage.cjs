@@ -7,6 +7,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
@@ -207,15 +208,15 @@ const write = (file, text) => {
   const binned = lib.trashed(hive)
   const arrived = (l) => binned.some((e) => e.from.toLowerCase() === path.join(hive, l).toLowerCase() || path.join(hive, l).toLowerCase().startsWith(`${e.from.toLowerCase()}${path.sep}`))
   check("…into the suite's trash folder, not the user's Recycle Bin", listed.every(arrived), JSON.stringify({ missing: listed.filter((l) => !arrived(l)), binned }))
-  const missing = keptBefore.filter((p) => !p.endsWith('sessions.json') && !p.endsWith('.bak') && !fs.existsSync(p))
+  const missing = keptBefore.filter((p) => !p.endsWith('.bak') && !fs.existsSync(p))
   check('nothing else went', missing.length === 0, missing.join(', '))
   check("the running launch's attachments stayed", fs.existsSync(path.join(runDir, 'pending.png')))
   check('the recent and not-archived sessions kept their backups', fs.existsSync(path.join(hive, 'archive', `${RECENT}.jsonl`)) && fs.existsSync(path.join(hive, 'sessions', `${OPEN}.jsonl`)))
   check("the CLI's transcripts are untouched", [OLD_CLI, RECENT, OPEN].every((s) => fs.existsSync(path.join(cliDir, `${s}.jsonl`))))
   check('the worktree is untouched', fs.existsSync(st.worktrees[0].path) && sizeOf(st.worktrees[0].path) === st.worktrees[0].bytes)
 
-  // The lost session is deleted like Delete Session; the other keeps its record.
-  const file = JSON.parse(fs.readFileSync(path.join(hive, 'sessions.json'), 'utf8'))
+  // The lost session is deleted like Delete Session; the other keeps its record (in the workspace's database, #1061).
+  const file = sessionsOf(alpha)
   check('the session the CLI lost is deleted', !file.sessions.some((s) => s.id === OLD_GONE) && file.deleted.includes(OLD_GONE) && file.deletedUsage.some((k) => k.id === OLD_GONE))
   check('the session the CLI still has stays, with its usage kept', file.sessions.find((s) => s.id === OLD_CLI)?.keptUsage?.outputTokens === 50)
   const list = await inv('session:list', alpha)

@@ -10,6 +10,7 @@ const { _electron } = require('playwright-core')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 20000
 
@@ -152,7 +153,7 @@ function mcp(config, msgs) {
 
   // --- The reviewer's session recorded the card as reviewed.
   const sid = (await live(reviewer.id)).sessionId
-  const rec = JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === sid)
+  const rec = sessionsOf(alpha).sessions.find((s) => s.id === sid)
   check("the reviewer's session records the card as reviewed", !!rec?.cards?.some((x) => x.number === n && x.review === true), JSON.stringify(rec?.cards))
 
   // --- What the agents' hive tools say, from the MCP server as the reviewer's mcp.json starts it.

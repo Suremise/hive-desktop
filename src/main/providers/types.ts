@@ -231,7 +231,8 @@ export interface LiveDetails {
  * A background task an agent started (a command left running, a Monitor) or that ended, from its transcript.
  * `at` is when the line was written (ms); a task with `expiresAt` ends then if nothing says so sooner.
  */
-export type BackgroundTaskEvent = { kind: 'start'; id: string; at: number; expiresAt?: number } | { kind: 'end'; id: string; at: number }
+/** `stopped`: an end the agent made itself (Claude Code's TaskStop, #640): its CLI isn't told, so no turn follows. */
+export type BackgroundTaskEvent = { kind: 'start'; id: string; at: number; expiresAt?: number } | { kind: 'end'; id: string; at: number; stopped?: true }
 
 /** Where an image's data sits in a transcript: the line's byte range and the path to it inside the entry. */
 export interface ImageLocation {

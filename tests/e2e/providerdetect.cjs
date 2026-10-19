@@ -15,6 +15,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 
 const userData = path.join(lib.WORK, 'provdetect-profile')
 const ws = path.join(lib.WORK, 'provdetect-ws')
@@ -171,11 +172,11 @@ const check = (name, ok, extra = '') => {
   await app.close()
 
   // 6. A launch of a known provider waits only for its own CLI, not for another still being looked for.
-  const recordFile = path.join(alpha, '.hive', 'sessions.json')
-  const saved = JSON.parse(fs.readFileSync(recordFile, 'utf8'))
+  // Its records are in the workspace's database (#1061), changed there while Hive is closed.
+  const saved = sessionsOf(alpha)
   check('the Claude Code conversation has a Hive record, to remove', saved.sessions.some((s) => s.id === asid))
   saved.sessions = saved.sessions.filter((s) => s.id !== asid)
-  fs.writeFileSync(recordFile, JSON.stringify(saved, null, 2))
+  putSessions(alpha, saved)
   ;({ app, page, inv } = await launchHeld({ HIVE_TEST_SLOW_DETECT: 'claude-code=9000', HIVE_TEST_DETECT_WAIT_MS: '1500' }))
   await lib.openWorkspace(inv, page, ws)
   home = (await inv('workspace:refresh')).assistant.path

@@ -18,7 +18,7 @@ const log = createLogger('stores')
  * host); '' where it has one.
  */
 
-export type StoreName = 'lanes' | 'watches' | 'deliveries' | 'metrics'
+export type StoreName = 'lanes' | 'watches' | 'deliveries' | 'metrics' | 'sessions'
 
 /**
  * A row to save: its key, its JSON document, and its place (`ord`: by default its place in the list; a store whose
@@ -101,6 +101,39 @@ export async function saveStore(workspacePath: string, store: StoreName, scope: 
   })
 }
 
+/**
+ * Runs `fn` in one transaction on the workspace database's writer, under the board's lock (#1061): for a store that
+ * reads and writes its own rows there (sessions, whose callers change them from what is committed now, with no copy of
+ * their own). `fn` runs with nothing awaited: it throws, and nothing is written.
+ */
+export async function writeStore<T>(workspacePath: string, store: StoreName, scope: string, fn: (db: ReturnType<typeof workspaceDb>['writer']) => T): Promise<T> {
+  return withStoreLock(workspacePath, store, scope, async (db) =>
+    transaction(db, () => {
+      const out = fn(db)
+      if (storeTestHooks.failSave?.(store, scope)) throw new Error(`SQLITE_FULL: database or disk is full (test, ${store})`) // i18n-ignore: a test's stand-in for SQLite's error
+      return out
+    })
+  )
+}
+
+/**
+ * Runs `fn` under the board's lock with the workspace database's writer (#1061), awaiting what it needs (a file written
+ * between a read and a write, sessions' export): nothing else writes a store meanwhile. Its transactions are its own.
+ */
+export async function withStoreLock<T>(workspacePath: string, store: StoreName, scope: string, fn: (db: ReturnType<typeof workspaceDb>['writer']) => Promise<T>): Promise<T> {
+  const path = resolve(workspacePath)
+  if (inBoardWrite(path)) throw new Error(`The ${store} were saved inside a change of the board`) // i18n-ignore: a mistake in Hive's code, never shown
+  await storeTestHooks.beforeSave?.(store, scope)
+  return withFileLock(boardLock(path), async () => {
+    const wasOpen = boardOpen(path)
+    try {
+      return await fn(workspaceDb(path).writer)
+    } finally {
+      if (!wasOpen) closeBoard(path)
+    }
+  })
+}
+
 /** saveStore's transaction. */
 function saveRows(db: ReturnType<typeof workspaceDb>['writer'], store: StoreName, scope: string, rows: StoreRow[], meta: Record<string, string | null>): void {
   transaction(db, () => {
@@ -154,25 +187,28 @@ export function keepAsBackup(file: string): boolean {
  * They go into the database in one transaction with the mark that they did, checked there (every entry a row, as read),
  * and the file is then renamed `<file>.imported-<time>`, kept as a backup. A
  * file found there after that (a rename refused before, or one an older Hive wrote since) is renamed the same way and
- * not read again: the store's entries are the database's. Returns the store's entries.
+ * not read again: the store's entries are the database's. `whenEmpty` (#1061, sessions): a file found while the store has
+ * no entries is moved in as at the first open (one its folder brought from another workspace). Returns the store's entries.
  */
-export async function openStore(workspacePath: string, store: StoreName, scope: string, file: string, readFile: () => Promise<{ rows: { key: string; doc: string }[]; meta?: Record<string, string> } | null>): Promise<StoreData> {
+export async function openStore(workspacePath: string, store: StoreName, scope: string, file: string, readFile: () => Promise<{ rows: StoreRow[]; meta?: Record<string, string> } | null>, opts: { whenEmpty?: boolean } = {}): Promise<StoreData> {
   const path = resolve(workspacePath)
-  const first = !readStore(path, store, scope).meta.has('imported')
+  const toMove = (now: StoreData): boolean => !now.meta.has('imported') || (!!opts.whenEmpty && !now.rows.length && existsSync(file))
+  const first = toMove(readStore(path, store, scope))
   if (first) {
     const got = await readFile()
     if (got) assertUnique(store, got.rows)
     // Moved in under the lock, checked again there: a second open meanwhile moved it already.
     await withFileLock(boardLock(path), async () => {
-      if (readStore(path, store, scope).meta.has('imported')) return
+      if (!toMove(readStore(path, store, scope))) return
       const db = workspaceDb(path).writer
       transaction(db, () => {
         const put = db.prepare('INSERT OR REPLACE INTO store_rows (store, scope, key, ord, doc) VALUES (?, ?, ?, ?, ?)') // i18n-ignore: SQL
-        got?.rows.forEach((r, i) => put.run(store, scope, r.key, i, r.doc))
+        got?.rows.forEach((r, i) => put.run(store, scope, r.key, r.ord ?? i, r.doc))
         // Checked before it commits: each entry read is a row, as it was read (and nothing else is there).
-        const now = db.prepare('SELECT key, doc FROM store_rows WHERE store = ? AND scope = ? ORDER BY ord').all(store, scope) as { key: string; doc: string }[] // i18n-ignore: SQL
+        const now = db.prepare('SELECT key, doc FROM store_rows WHERE store = ? AND scope = ? ORDER BY ord, key').all(store, scope) as { key: string; doc: string }[] // i18n-ignore: SQL
         const want = got?.rows ?? []
-        if (now.length !== want.length || now.some((r, i) => r.key !== want[i].key || r.doc !== want[i].doc)) throw new Error(`${now.length} ${store} rows in the database, ${want.length} entries read: nothing was moved in`) // i18n-ignore: an internal check's error, logged
+        const read = new Map(want.map((r) => [r.key, r.doc]))
+        if (now.length !== want.length || now.some((r) => read.get(r.key) !== r.doc)) throw new Error(`${now.length} ${store} rows in the database, ${want.length} entries read: nothing was moved in`) // i18n-ignore: an internal check's error, logged
         for (const [k, v] of Object.entries(got?.meta ?? {})) setMeta(db, store, scope, k, v)
         setMeta(db, store, scope, 'imported', JSON.stringify({ at: new Date().toISOString(), rows: got?.rows.length ?? 0, file: got ? file : null }))
       })

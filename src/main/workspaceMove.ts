@@ -499,7 +499,7 @@ async function repairNow(ws: WorkspaceService, opts: MoveOptions): Promise<MoveR
     // project.json (pendingCopies) until their data is copied, so a copy that fails is tried again, after a restart too.
     const pending = await pendingOf(ws, h.path)
     const moves = movesOf({ ...h, assistant: samePath(h.path, ws.assistantHome) }, [], pending)
-    // A sessions.json that can't be written leaves the moves pending: the next Repair rewrites them.
+    // Session records that can't be written (#1061: in the workspace's database) leave the moves pending: the next Repair rewrites them.
     let sessionsOk = true
     try {
       const n = await sessionCwds(ws, h.path, moves, true)
