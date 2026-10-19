@@ -1,9 +1,11 @@
 import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '@shared/devConsole'
-import { language, msg, onLanguageChange, tr, tRich } from '@shared/i18n'
+import { language, msg, onLanguageChange, tr, tRich, type Msg } from '@shared/i18n'
 import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sourceOption, startsOpen } from '@shared/consoleView'
 import type { AppSettings, HiveEvent } from '@shared/types'
 import { providerName } from '@shared/providers'
+import { FLIGHT_TRIGGER_NAME, readFlightWhat, FLIGHT_WHAT, type FlightTrigger } from '@shared/flightRecorder'
+import { timeAgo } from './util'
 import { call, errorMessage } from './api'
 import { Icon, IconButton, SearchInput } from './components/ui'
 import { cx } from './util'
@@ -75,8 +77,22 @@ const M = {
   showInFolder: msg({ id: 'console.showInFolder', defaultMessage: 'Show in folder', description: "The developer console's status bar: shows the recording's file in File Explorer." }),
   unredactedStatus: msg({ id: 'console.unredactedStatus', defaultMessage: 'Unredacted: text shown; tokens and sign-ins masked', description: "The developer console's status bar while the setting that shows text is on." }),
   redactedStatus: msg({ id: 'console.redactedStatus', defaultMessage: 'Redacted: no prompt or reply text, commands, tokens or sign-ins', description: "The developer console's status bar: what it hides." }),
-  nothing: msg({ id: 'console.nothing', defaultMessage: 'Nothing', description: "The developer console's event detail: an empty side (nothing came in, or Hive made nothing of it)." })
+  nothing: msg({ id: 'console.nothing', defaultMessage: 'Nothing', description: "The developer console's event detail: an empty side (nothing came in, or Hive made nothing of it)." }),
+  captures: msg({ id: 'console.captures', defaultMessage: 'Captures', description: "The developer console's button and list of the flight recorder's captures: recent events Hive saved by itself when something rare happened to an agent." }),
+  capturesNone: msg({ id: 'console.capturesNone', defaultMessage: 'No captures yet. Turn on a flight recorder trigger in Settings → Advanced, and Hive saves an agent\'s recent events by itself when it fires.', description: "The developer console's list of captures, while there are none. Settings → Advanced is where the triggers are: use its name as Hive shows it." }),
+  captureRow: msg({ id: 'console.captureRow', defaultMessage: 'Captured {trigger} on {agent}, {when}', description: "A capture in the developer console's list, as the flight recorder's notice says it: what it caught (\"a safeguard stop\"), on which agent, and how long ago (\"5 minutes ago\")." }),
+  captureEvents: msg({ id: 'console.captureEvents', defaultMessage: '{events, plural, one {# event} other {# events}}', description: "A capture in the developer console's list: how many events it holds." }),
+  showCapture: msg({ id: 'console.showCapture', defaultMessage: 'Show in folder', description: "A link beside a capture in the developer console's list: shows its file in File Explorer." })
 }
+
+/** What a capture saw, in Hive's language when its file says it as a message this Hive knows; else its English. */
+const whatOf = (c: ConsoleRecordingInfo['capture']): string => {
+  const w = readFlightWhat(c?.whatText)
+  return w ? tr(FLIGHT_WHAT[w.id] as Msg, w.values as never) : (c?.what ?? '')
+}
+
+/** What the console's list calls a capture's trigger: one Hive knows, in its language; another as its file says it. */
+const triggerName = (t: string): string => (Object.hasOwn(FLIGHT_TRIGGER_NAME, t) ? tr(FLIGHT_TRIGGER_NAME[t as FlightTrigger]) : t)
 
 const bold = (chunks: ReactNode[]): ReactNode => <b>{chunks}</b>
 
@@ -104,6 +120,8 @@ export function ConsoleApp() {
   // This window's recording: going on, or the last one it stopped (#638). Text is asked for each time.
   const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
   const [recordMenu, setRecordMenu] = useState(false)
+  // The flight recorder's captures (#698), read when the list is opened.
+  const [captures, setCaptures] = useState<ConsoleRecordingInfo[] | null>(null)
   const [withText, setWithText] = useState(false)
   // Settings → Advanced → Developer console: show text (#699); main decides what it sends, this says so.
   const [showText, setShowText] = useState(false)
@@ -266,6 +284,13 @@ export function ConsoleApp() {
     call('console:record', from, { includeText: withText }).then(setRecording, (e) => setError(errorMessage(e)))
   }
   // The box starts as the setting says each time the menu opens.
+  const toggleCaptures = (): void => {
+    if (captures) return setCaptures(null)
+    setRecordMenu(false)
+    void call('console:captures')
+      .then(setCaptures)
+      .catch((e) => setError(errorMessage(e)))
+  }
   const toggleRecordMenu = (): void => {
     if (!recordMenu) setWithText(showText)
     setRecordMenu(!recordMenu)
@@ -351,6 +376,28 @@ export function ConsoleApp() {
             )}
           </span>
         )}
+        <span className="dc-record-wrap">
+          <IconButton icon="history" title={tr(M.captures)} onClick={toggleCaptures} className="dc-captures" expanded={captures !== null} />
+          {captures && (
+            <div className="dc-record-menu dc-captures-menu" role="dialog" aria-label={tr(M.captures)}>
+              {captures.length ? (
+                captures.map((c) => (
+                  <div key={c.name} className="dc-capture">
+                    <div>{tr(M.captureRow, { trigger: triggerName(c.capture?.trigger ?? ''), agent: c.label, when: timeAgo(c.startedAt) })}</div>
+                    <div className="faint dc-capture-what">
+                      {whatOf(c.capture)} · {tr(M.captureEvents, { events: c.events })} ·{' '}
+                      <a className="dc-show-capture" onClick={() => void call('console:showRecording', c.name).catch((e) => setError(errorMessage(e)))}>
+                        {tr(M.showCapture)}
+                      </a>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="faint">{tr(M.capturesNone)}</div>
+              )}
+            </div>
+          )}
+        </span>
         <span className="dc-sep" />
         <div className="dc-search">
           <Icon name="search" />

@@ -483,6 +483,14 @@
     "defaultMessage": "Edit files without leaving Hive",
     "description": "A tip's title."
   },
+  "tips.flightRecorder.text": {
+    "defaultMessage": "Turn on a flight recorder trigger in Settings → Advanced (safeguard stops, something unknown from a CLI, a CLI version change, an agent gone silent), and Hive saves the agent's recent developer console events, redacted, the moment it happens, with a notice.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.flightRecorder.title": {
+    "defaultMessage": "Catch rare events by themselves",
+    "description": "A tip's title."
+  },
   "tips.gitCheck.text": {
     "defaultMessage": "Help → Agent Setup… shows the git Hive found and its version. Worktree agents, merging and the Git tab need Git for Windows 2.38 or later.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

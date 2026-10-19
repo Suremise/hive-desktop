@@ -19,6 +19,8 @@ export interface RecordingHeader {
   text: boolean
   /** Each coding agent's CLI as installed when it started, and the version this Hive release was tested with. */
   clis: { provider: string; version: string | null; tested: string | null }[]
+  /** A flight recorder capture (#698): the trigger that fired and what it saw, in English. */
+  capture?: { trigger: string; what: string; whatText?: unknown }
 }
 
 /** One event as the console captured it (`ConsoleEvent`), a line each. */
@@ -43,7 +45,7 @@ export interface RecordingEnd {
   at: string
   events: number
   dropped: number
-  reason: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed'
+  reason: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed' | 'captured'
   /** Why a failed recording failed. */
   error?: string
 }
@@ -319,6 +321,6 @@ export function diagnosticRecording(text: string, redact: (s: string) => string)
   const h = r.header
   const clis = h.clis.filter((c) => c.version).map((c) => `${c.provider} ${c.version}${c.tested ? ` (tested with ${c.tested})` : ''}`)
   const end = r.end ? `${r.end.events} events, ended (${r.end.reason})${r.end.dropped ? `, ${r.end.dropped} lost` : ''}` : `${r.events.length} events, not ended`
-  const summary = redact(`${h.source.kind} source${h.source.provider ? ` (${h.source.provider})` : ''}, started ${h.startedAt}, Hive ${h.hive}; ${end}; CLIs: ${clis.join(', ') || 'none found'}; redacted; the newest ${lines.length}`)
+  const summary = redact(`${h.capture ? `capture (${h.capture.trigger}: ${h.capture.what}) of a ` : ''}${h.source.kind} source${h.source.provider ? ` (${h.source.provider})` : ''}, started ${h.startedAt}, Hive ${h.hive}; ${end}; CLIs: ${clis.join(', ') || 'none found'}; redacted; the newest ${lines.length}`)
   return { summary, lines }
 }

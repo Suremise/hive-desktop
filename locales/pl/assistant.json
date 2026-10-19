@@ -376,7 +376,7 @@
   "assistant.skills.revertTitle": "Przywrócić domyślną?",
   "assistant.skills.reverted": "Przywrócono domyślną wersję „{name}”",
   "assistant.skills.shipped.boardHygiene": "Jako Hive Assistant uporządkuj tablicę: duplikaty, niezapisane odpowiedzi, nieaktualne powody blokady. Użyj, gdy ktoś prosi o uporządkowanie tablicy.",
-  "assistant.skills.shipped.cardLoop": "Przechodź po kolei przez karty jako wykonawca lub recenzent, czekając bez kosztów. Użyj, gdy masz wykonać lub zrecenzować karty (jedną lub kilka) jako wykonawca lub recenzent albo gdy podano liczbę rund.",
+  "assistant.skills.shipped.cardLoop": "Przechodź po kolei przez karty jako wykonawca lub recenzent, czekając bez kosztów. Użyj, gdy masz jako wykonawca lub recenzent wykonać albo zrecenzować karty (jedną lub kilka) albo gdy dostaniesz liczbę rund.",
   "assistant.skills.shipped.coordinateAgents": "Prowadź pracę agentów obszaru roboczego jako Hive Assistant: karty, instrukcje dla agentów, ich uruchamianie, czekanie, przekazania, karty, które utknęły. Użyj, gdy masz zaangażować agentów do pracy, zacząć lub kontynuować kartę albo sprawdzić postęp.",
   "assistant.skills.shipped.handover": "Napisz notatkę przekazania, aby późniejsza sesja lub inny agent mogli podjąć pracę bez wcześniejszej wiedzy. Użyj, gdy masz zostawić pracę na później, przekazać ją lub skończyć na dziś. Przygotowanie gałęzi do scalenia to merge-ready.",
   "assistant.skills.shipped.journal": "Prowadź dziennik jako Hive Assistant, gdy jest włączony – co zapisywać, przywoływanie wpisów, zastępowanie ich, cotygodniowe podsumowanie i zakres. Użyj, gdy dzieje się coś wartego zapamiętania, zanim zdecydujesz na podstawie pamięci albo gdy ktoś prosi o notatkę przekazania.",

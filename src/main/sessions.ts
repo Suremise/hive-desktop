@@ -85,6 +85,7 @@ import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
+import { flightRecorder } from './flightRecorder'
 import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
 import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { ScreenRecognition } from './screenRecognition'
@@ -1517,6 +1518,7 @@ class SessionManager {
     l.screen = screen
     // The developer console (#636): how it was started (launchEvent: never its arguments).
     devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
+    flightRecorder.launched(l.state, () => this.label(l.state), info.version)
     spawnPty(key, {
       ...size,
       file: cmd.file,
@@ -2995,6 +2997,7 @@ class SessionManager {
     if (!next) return
     st.safeguard = next
     this.emitState(st)
+    flightRecorder.safeguard(st, () => this.label(st), ev)
     if (ev.kind !== 'switch' || !next.switched || next.switched.to === before?.switched?.to) return
     const d = l.adapter.descriptor
     const label = this.label(st)
@@ -3381,6 +3384,12 @@ class SessionManager {
   }
 
   /** "hive" for a project with one agent, "hive · Agent 2" when it has several. */
+  /** The running agent a developer console source is, or null (#698: the flight recorder's pattern trigger finds it here). */
+  flightAgent(source: string): { projectPath: string; agentId: string; provider: string; label: () => string } | null {
+    for (const l of this.live.values()) if (sessionSourceId(l.state.projectPath, l.state.agentId) === source) return { projectPath: l.state.projectPath, agentId: l.state.agentId, provider: l.state.provider, label: () => this.label(l.state) }
+    return null
+  }
+
   private label(st: LiveSessionState): string {
     if (workspace.isAssistantHome(st.projectPath)) return ASSISTANT_NAME
     const project = basename(st.projectPath)
@@ -3396,6 +3405,7 @@ class SessionManager {
     const d = l.adapter.statusLine!(body)
     // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
+    flightRecorder.arrived(l.state, () => this.label(l.state), 'statusline', body)
     this.applyDetails(l, d)
   }
 
@@ -3807,6 +3817,7 @@ class SessionManager {
     const st = l.state
     const hook = l.adapter.normalizeHook(body)
     const label = this.label(st)
+    flightRecorder.arrived(st, () => label, 'hook', body)
     // Still this launch after each wait below (#650): one stopped or started again meanwhile gets nothing more of this
     // hook (no reply, status, actions or notification of the old one over the new).
     const current = (): boolean => this.live.get(id) === l
@@ -4004,6 +4015,7 @@ class SessionManager {
       // A tool call still open may really be running long; only a longer silence makes its state unknown.
       if (openCalls(l.ledger!) && silentFor(l.ledger!)! < silentMs() * OPEN_CALL_SILENCE) return
       this.noteTurn(l, { since: l.ledger!.heard })
+      flightRecorder.stalled(st, () => this.label(st), silentFor(l.ledger!))
       const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
       log.info(`${userText(this.label(st))}: silent for ${howLong(silentFor(l.ledger!)!)} with no sign of its turn's end: state unknown (${describeTurn(l.ledger!)}; hooks before: ${seen || 'none'})`)
     })
