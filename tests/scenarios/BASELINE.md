@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Card loops review a commit: fakes, Claude Code (haiku), Codex (its default model), fixtures v59, 19 October 2026
+
+#1074: card-loop has the builder commit each round before Review and name the commit, and a reviewer handed uncommitted
+work ask for a commit (watching for the reply) rather than give a verdict; run-lanes' sample brief and review-agent-work
+point to it, and a project agent's own comments no longer wake its watch. Two new scenarios: **card-loop-commit** (a
+builder with finished, uncommitted work sends it to Review) and **card-loop-uncommitted** (a reviewer gets uncommitted work).
+- **Fakes**: card-loop-rounds, -recurring, -return, -lane and -already-in-review pass before and after (baseline
+  `hb5-1074-before`, on main, against `hb5-1074-after`): checks, calls and replies the same, delivered skills +703 bytes
+  (+1.7%). The new scenarios pass with the fake Claude Code (`2026-10-19T19-07-13-fake`).
+- **Claude Code (haiku)**: card-loop-rounds, -return and -commit pass (`2026-10-19T19-09-36-claude-code`); in that run
+  card-loop-uncommitted failed: the reviewer read only review-agent-work and passed the uncommitted work. With
+  review-agent-work's pointer it passes 2 of 2 (`2026-10-19T19-13-10-claude-code`); review-card passed 1 of 2 there (the
+  other sample sat at a permission prompt after starting its review) and 2 of 2 again (`2026-10-19T19-15-41-claude-code`).
+- **Codex**: card-loop-commit and card-loop-uncommitted pass (`2026-10-19T19-24-41-codex`).
+
 ## Starting fresh at a natural break: fakes, Claude Code (its default model, and haiku), Codex (its default model), fixtures v58, 18 October 2026
 
 #1082 (#1080's gaps 1 and 3, guidance only): run-lanes and coordinate-agents have the Assistant suggest once, in a line,
