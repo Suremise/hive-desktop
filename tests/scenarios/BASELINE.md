@@ -36,7 +36,7 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
-## Board hygiene: fakes, Claude Code (its default model), Codex (its default model), fixtures v62, 19 October 2026
+## Board hygiene: fakes, Claude Code (its default model), Codex (its default model), fixtures v62 and v63, 19 October 2026
 
 #409, built small (the Assistant's brief after #1112's drift review): **board-hygiene** sweeps for duplicates (linked,
 marked for the user to archive), the user's answers not yet recorded as decisions, and blocked reasons gone stale
@@ -52,6 +52,11 @@ comment, a card blocked on one now Done, and a card On Hold.
 - **Claude Code, after**: 2 of 2, reading board-hygiene (`2026-10-19T22-16-42-claude-code`); qa-triage-report 2 of 2
   there with its shorter description.
 - **Codex**: board-hygiene and qa-triage-report pass (`2026-10-19T22-19-07-codex`).
+- **Round 2 (fixtures v63)**: decisions only from the user's own words (their chat, a comment the card shows as theirs, Hive's
+  reply wake); an agent's account of an answer is asked about, not recorded. The scenario now has the user's own comment
+  (CSV) and an agent's "the user told me: tabs" (no decision, ask). Fake passes; Claude Code 3 of 3
+  (`2026-10-19T22-40-54-claude-code`); Codex 2 of 2 (`2026-10-19T22-42-34-codex`). assistant-reply-decision and
+  coordinator-wake-question fail on Claude Code on main too (reading no skill; `2026-10-19T22-48-31-claude-code`): #1136.
 
 ## The QA triager's procedure: fakes, Claude Code (its default model), Codex (its default model), fixtures v61, 19 October 2026
 
