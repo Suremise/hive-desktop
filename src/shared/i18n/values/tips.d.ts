@@ -272,6 +272,8 @@ interface HiveMessageValues {
   'tips.tileStrip.title': undefined
   'tips.tilesView.text': undefined
   'tips.tilesView.title': undefined
+  'tips.triageReport.text': undefined
+  'tips.triageReport.title': undefined
   'tips.twoProviders.text': undefined
   'tips.twoProviders.title': undefined
   'tips.ui.close': undefined

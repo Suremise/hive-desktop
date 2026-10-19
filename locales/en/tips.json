@@ -1083,6 +1083,14 @@
     "defaultMessage": "See a whole team at once as tiles",
     "description": "A tip's title."
   },
+  "tips.triageReport.text": {
+    "defaultMessage": "Tell the Assistant in QA triager mode what you did and saw, or paste a screenshot. It finds the cause in the code, checks for a card that already covers it (even one not merged yet), then files a card with the evidence.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.triageReport.title": {
+    "defaultMessage": "Report a problem to the QA triager",
+    "description": "A tip's title. QA triager is a mode of the Hive Assistant: keep its name as Hive shows it."
+  },
   "tips.twoProviders.text": {
     "defaultMessage": "Agents in one project can use different providers: say a Codex reviewer next to a Claude Code agent. Hand Over to… passes work between them.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

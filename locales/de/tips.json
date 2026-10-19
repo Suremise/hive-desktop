@@ -270,6 +270,8 @@
   "tips.tileStrip.title": "Die Karte jedes Agenten neben seinem Namen",
   "tips.tilesView.text": "Kacheln zeigt jeden Agenten als kleine Kachel: Zustand, Status, Karte, Fortschritt und letzte Antwort, zwölf pro Seite. Klicke auf eine, um ihren Bereich groß neben den anderen zu öffnen; Esc führt zurück. Einstellungen → Sitzungen → Reihenfolge der Kacheln kann die Agenten, die auf dich warten, nach vorne stellen.",
   "tips.tilesView.title": "Ein ganzes Team auf einen Blick als Kacheln",
+  "tips.triageReport.text": "Sag dem Assistenten im Modus QA-Triage, was du getan und gesehen hast, oder füge einen Screenshot ein. Er findet die Ursache im Code, prüft, ob schon eine Karte sie abdeckt (auch eine noch nicht gemergte), und legt dann eine Karte mit den Belegen an.",
+  "tips.triageReport.title": "Ein Problem der QA-Triage melden",
   "tips.twoProviders.text": "Agenten in einem Projekt können verschiedene Anbieter verwenden, etwa ein Codex-Reviewer neben einem Claude-Code-Agenten. „Übergeben an…“ gibt Arbeit zwischen ihnen weiter.",
   "tips.twoProviders.title": "Claude Code und Codex mischen",
   "tips.ui.close": "Schließen",

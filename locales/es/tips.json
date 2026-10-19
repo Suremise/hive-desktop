@@ -270,6 +270,8 @@
   "tips.tileStrip.title": "La tarjeta de cada agente, junto a su nombre",
   "tips.tilesView.text": "Mosaicos muestra cada agente como un pequeño mosaico: su estado, estado actual, tarjeta, progreso y última respuesta, doce por página. Haz clic en uno para abrir su panel en grande junto a los demás; Esc vuelve. Configuración → Sesiones → Orden de los mosaicos puede poner primero a los agentes que esperan tu respuesta.",
   "tips.tilesView.title": "Ve a todo un equipo de un vistazo en mosaicos",
+  "tips.triageReport.text": "Cuéntale al Assistant en modo Clasificador de QA qué hiciste y qué viste, o pega una captura de pantalla. Encuentra la causa en el código, comprueba si ya hay una tarjeta que lo cubra (incluso una aún sin fusionar) y luego crea una tarjeta con las pruebas.",
+  "tips.triageReport.title": "Informa de un problema al Clasificador de QA",
   "tips.twoProviders.text": "Los agentes de un proyecto pueden usar proveedores distintos: por ejemplo, un revisor de Codex junto a un agente de Claude Code. Traspasar a… pasa el trabajo entre ellos.",
   "tips.twoProviders.title": "Combina Claude Code y Codex",
   "tips.ui.close": "Cerrar",

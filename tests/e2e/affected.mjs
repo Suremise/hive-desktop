@@ -271,6 +271,8 @@ export const AREAS = [
   { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize', 'freshpath', 'defaultprovider', 'providerdetect', 'codexfolder', 'turnledger'] },
   // Hive's bundled skills and personas, read at runtime (not documentation).
   { paths: ['resources/skills/', 'src/main/bundledHistory.json'], suites: ['skills', 'skillaudience', 'skilldelivery', 'cardloop', 'replysize'] },
+  // The shipped skills' descriptions as the window shows them, translated (#1104): the Skills view and its screenshots.
+  { paths: ['src/shared/skillDescriptions.ts'], suites: ['skills', 'i18nshots'] },
   { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode', 'assistantresume'] },
   // Bundled into the Docs view (About's licence pages, Release Notes, the Agent API reference).
   { paths: ['docs/', 'CHANGELOG.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'scripts/licenses.mjs', 'scripts/licenseText.mjs', 'scripts/thirdPartyNotices.mjs', 'scripts/notices/'], suites: ['about'] },

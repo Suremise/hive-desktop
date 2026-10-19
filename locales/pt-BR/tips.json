@@ -270,6 +270,8 @@
   "tips.tileStrip.title": "O cartão de cada agente, ao lado do nome dele",
   "tips.tilesView.text": "Blocos mostra cada agente como um pequeno bloco: estado, status, cartão, progresso e última resposta, doze por página. Clique em um para abrir o painel dele em tamanho grande ao lado dos outros; Esc volta. Configurações → Sessões → Ordem dos blocos pode colocar primeiro os agentes aguardando você.",
   "tips.tilesView.title": "Veja uma equipe inteira de uma vez em blocos",
+  "tips.triageReport.text": "Conte ao Assistente no modo Triagem de QA o que você fez e viu, ou cole uma captura de tela. Ele encontra a causa no código, verifica se algum cartão já cobre o problema (mesmo um ainda não mesclado) e então cria um cartão com as evidências.",
+  "tips.triageReport.title": "Relate um problema à Triagem de QA",
   "tips.twoProviders.text": "Os agentes de um projeto podem usar provedores diferentes: por exemplo, um revisor no Codex ao lado de um agente no Claude Code. Passar para… passa o trabalho entre eles.",
   "tips.twoProviders.title": "Combine Claude Code e Codex",
   "tips.ui.close": "Fechar",

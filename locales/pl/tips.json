@@ -270,6 +270,8 @@
   "tips.tileStrip.title": "Karta każdego agenta obok jego nazwy",
   "tips.tilesView.text": "Kafelki pokazują każdego agenta jako mały kafelek: stan, status, kartę, postęp i ostatnią odpowiedź, dwanaście na stronę. Kliknij kafelek, aby otworzyć duży panel agenta obok pozostałych; Esc wraca. Ustawienia → Sesje → Kolejność kafelków może stawiać na początku agentów, którzy czekają na Ciebie.",
   "tips.tilesView.title": "Cały zespół naraz jako kafelki",
+  "tips.triageReport.text": "Powiedz Asystentowi w trybie Triażysta QA, co zrobiłeś i co zobaczyłeś, albo wklej zrzut ekranu. Znajdzie przyczynę w kodzie, sprawdzi, czy jakaś karta już to obejmuje (nawet jeszcze niescalona), i założy kartę z dowodami.",
+  "tips.triageReport.title": "Zgłoś problem Triażyście QA",
   "tips.twoProviders.text": "Agenci w jednym projekcie mogą używać różnych dostawców, np. recenzent Codex obok agenta Claude Code. Polecenie Przekaż pracę… przenosi ją między nimi.",
   "tips.twoProviders.title": "Łącz Claude Code i Codex",
   "tips.ui.close": "Zamknij",

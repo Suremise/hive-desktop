@@ -386,6 +386,7 @@ interface HiveMessageValues {
   'assistant.skills.shipped.reviewAgentWork': undefined
   'assistant.skills.shipped.runLanes': undefined
   'assistant.skills.shipped.splitWork': undefined
+  'assistant.skills.shipped.triageReport': undefined
   'assistant.skills.shipped.tuneSettings': undefined
   'assistant.skills.shipped.useHiveApi': undefined
   'assistant.skills.shipped.workOnCard': undefined
