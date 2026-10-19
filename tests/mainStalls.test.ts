@@ -98,7 +98,7 @@ describe('main process stalls (#1109)', () => {
     expect(s.warnings).toEqual(['The main process was busy for 1500 ms (main thread CPU 1490 ms); during it: ipc test:block (1.5 s)'])
   })
 
-  it('names work still running and work that ended, the most overlap first, and counts the rest', () => {
+  it('names work still running and work that ended, the most overlap first, five at most, and counts the rest', () => {
     const s = watcher()
     s.tick()
     const long = beginWork('ipc git:status')
@@ -106,11 +106,13 @@ describe('main process stalls (#1109)', () => {
     s.stall(2000)
     ran('api POST /v1/tasks/:n', 1900)
     ran('hook PreToolUse', 60)
-    ran('hook Stop', 20)
+    ran('hook Stop', 40)
+    ran('hook PostToolUse', 30)
+    ran('hook Notification', 20)
     now += 1000
     s.settle()
     long()
-    expect(s.warnings[0]).toBe('The main process was busy for 2000 ms (main thread CPU 2000 ms); during it: ipc git:status (3.0 s, still running), api POST /v1/tasks/:n (1.9 s), hook PreToolUse (0.1 s) and 1 more')
+    expect(s.warnings[0]).toBe('The main process was busy for 2000 ms (main thread CPU 2000 ms); during it: ipc git:status (3.0 s, still running), api POST /v1/tasks/:n (1.9 s), hook PreToolUse (0.1 s), hook Stop (0.0 s), hook PostToolUse (0.0 s) and 1 more')
   })
 
   it('keeps the work a stall overlapped, however much ends before the warning is decided', () => {
@@ -137,7 +139,7 @@ describe('main process stalls (#1109)', () => {
     expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/:n (3.5 s, still running)')
   })
 
-  it('leaves out waits begun before the stall and still open, which would crowd out the work that blocked', () => {
+  it('leaves out the requests that wait by design, which would crowd out the work that blocked', () => {
     const s = watcher()
     const waits = ['api GET /v1/events', 'api POST /v1/tasks/wait', 'api POST /v1/agents/wait'].map((l) => beginWork(l))
     for (let i = 0; i < 10; i++) s.tick()
@@ -150,16 +152,27 @@ describe('main process stalls (#1109)', () => {
     expect(s.warnings[0]).toMatch(/during it: ipc app:info \(1\.5 s\)$/)
   })
 
-  it('names a wait that ended during the stall, and a request begun in it and still running', () => {
+  it('names a request begun long before that woke from an await, blocked, and is awaiting again (HR2, round 3)', () => {
     const s = watcher()
-    const wait = beginWork('api POST /v1/tasks/wait')
+    const open = beginWork('api POST /v1/tasks/:n')
+    for (let i = 0; i < 10; i++) s.tick()
+    s.stall(1500, 1500)
+    now += 3000
+    s.settle()
+    open()
+    expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/:n (9.5 s, still running)')
+  })
+
+  it('leaves out a wait by design even when it ended during the stall, and names a request begun in it', () => {
+    const s = watcher()
+    const wait = beginWork('api POST /v1/agents/wait')
     for (let i = 0; i < 10; i++) s.tick()
     const fresh = beginWork('api GET /v1/tasks')
     s.stall(1500)
     wait()
     s.settle()
     fresh()
-    expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/wait (6.5 s), api GET /v1/tasks (1.5 s, still running)')
+    expect(s.warnings[0]).toMatch(/during it: api GET \/v1\/tasks \(1\.5 s, still running\)$/)
   })
 
   it("names hooks and requests only by names Hive knows, never by what a client sent", () => {
