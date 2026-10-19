@@ -181,6 +181,18 @@ describe('the bundled skills', () => {
   })
 })
 
+// #408: the QA triager mode had the habit but no procedure; triage-report is it, for the Assistant only.
+describe('triage-report', () => {
+  it('is the QA triager mode\'s procedure: cause first, a duplicate check including Passed and unmerged work, then the card', () => {
+    const skill = catalog.get('triage-report')!
+    expect(skill.audience).toBe('assistant')
+    expect(skill.text).toMatch(/## 2\. Find the cause before the card/)
+    expect(skill.text).toMatch(/\*\*Passed\*\* too \(reviewed, not merged yet\), and work on branches not merged yet/)
+    for (const part of ['What the user saw', 'Likely cause', 'Evidence', 'Fix direction', 'Done when']) expect(skill.text, part).toContain(`**${part}**`)
+    expect(readFileSync(join(ROOT, 'resources/personas/qa-triager.md'), 'utf8')).toMatch(/Triage each report with the \*\*triage-report\*\* skill/)
+  })
+})
+
 // #1075: two coordinator lessons from 0.9.0 that lived only in the Assistant's memory.
 describe('coordinator guidance', () => {
   const text = (): string => catalog.get('coordinate-agents')!.text

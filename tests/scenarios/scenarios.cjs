@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 60
+const FIXTURES_VERSION = 61
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -2958,5 +2958,60 @@ for (const [id, name] of MODES) {
     fakeSkips: ['started the card with hive_start_task, which worked']
   })
 }
+
+// The QA triager's procedure (#408, triage-report): a report becomes a card with its cause and evidence, or new evidence
+// on the card that already covers it (Passed included: Darren's decision after #730 duplicated #717's unmerged fix).
+const BANNER_JS = "// The banner shown after Save.\nconst plural = (n) => (n > 1 ? 's' : '')\nmodule.exports = (n) => `Saved ${n} card${plural(n)}`\n"
+const BANNER_REPORT = 'I saved an empty board and the banner said "Saved 0 card". Screenshot: a green banner at the top of the board, reading exactly "Saved 0 card". Can you look into it?'
+module.exports.SCENARIOS.push(
+  {
+    id: 'qa-triage-report',
+    title: 'QA triager mode given a report with a screenshot (#408): finds the cause in the code, then files a card with it and its evidence, in Todo',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'qa-triager',
+    files: { 'banner.js': BANNER_JS },
+    prompt: `In alpha: ${BANNER_REPORT}`,
+    fake: `skill triage-report then hive hive_create_task {"project":"alpha","title":"Save banner says \\"Saved 0 card\\"","description":"**What the user saw:** \\"Saved 0 card\\" after saving an empty board.\\n**Likely cause:** banner.js:2, plural() only adds an s for n > 1, so 0 gets none.\\n**Evidence:** read banner.js.\\n**Fix direction:** plural for n !== 1.\\n**Done when:** 0 cards reads \\"Saved 0 cards\\"; a test for 0, 1 and 2."}`,
+    expect: (o) => {
+      const made = ran(o, 'hive_create_task').map((x) => argsOf(x))
+      const text = made.map((a) => `${a.title ?? ''}\n${a.description ?? ''}`).join('\n')
+      const card = o.allCards.find((x) => x.project === 'alpha' && made.some((a) => a.title === x.title))
+      return [
+        ['read the triage-report skill', read(o, 'triage-report'), o.skillsRead.join(',')],
+        ['filed one card for it', made.length === 1, String(made.length)],
+        ['the card names the cause in the code (banner.js, the plural)', /banner\.js/.test(text) && /plural|n > 1|> ?1|!== ?1/i.test(text), text.slice(0, 400)],
+        ['and quotes what the user saw', /Saved 0 card/.test(text), text.slice(0, 200)],
+        ['the card is in Todo', card?.column === 'todo', card?.column],
+        ["didn't fix it itself", o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    }
+  },
+  {
+    id: 'qa-triage-duplicate',
+    title: 'QA triager mode given a report whose fix is already in Passed, not merged (#408): adds the evidence to that card instead of filing a twin',
+    role: 'assistant',
+    control: 'agents',
+    persona: 'qa-triager',
+    files: { 'banner.js': BANNER_JS },
+    async setup(c) {
+      await c.card('p', { title: 'Save banner: plural for 0 cards', description: 'banner.js: plural() gives "card" for 0; use "cards" for every n but 1.', column: 'passed', agent: 'coder', comments: ['Done: plural() is n === 1 ? "" : "s" now, on branch hive/coder (not merged yet). Ready for review.', 'Review round 1: PASSED.'] })
+    },
+    prompt: `In alpha: ${BANNER_REPORT}`,
+    fake: (c) => `skill triage-report then hive hive_update_task {"number":${c.cards.p},"comment":"Reported again by the user: \\"Saved 0 card\\" after saving an empty board (a screenshot of the banner). This card's fix covers it once merged."}`,
+    expect: (o, c) => {
+      const p = c.cards.p
+      const noted = ran(o, 'hive_update_task').some((x) => field(x.args, 'number', p) && /comment|links/.test(String(x.args)))
+      return [
+        ['read the triage-report skill', read(o, 'triage-report'), o.skillsRead.join(',')],
+        ['filed no new card for it', ran(o, 'hive_create_task').length === 0, ran(o, 'hive_create_task').map((x) => argsOf(x).title).join(' | ')],
+        [`added the report to #${p}, the card in Passed`, noted, o.hiveCalls.map((x) => x.tool).join(',')],
+        ['told the user the card in Passed already covers it', new RegExp(`#?${p}\\b`).test(o.finalReply ?? ''), (o.finalReply ?? '').slice(0, 300)],
+        ["didn't fix it itself", o.gitStatus.trim() === '', o.gitStatus]
+      ]
+    },
+    fakeSkips: ['told the user the card in Passed already covers it']
+  }
+)
 
 module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }

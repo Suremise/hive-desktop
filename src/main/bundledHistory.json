@@ -107,6 +107,9 @@
       "9f3b17bc4a73bdd1",
       "125641bf5c31d814"
     ],
+    "triage-report": [
+      "d854ef7b080ac6e2"
+    ],
     "tune-settings": [
       "734ef492088145a7"
     ],
@@ -159,7 +162,8 @@
       "20e2ba7c90ec0932"
     ],
     "qa-triager": [
-      "1fac81c2d6f4fa25"
+      "1fac81c2d6f4fa25",
+      "f2a025454728a429"
     ],
     "release-manager": [
       "bbd2aa88c583d7b0"
