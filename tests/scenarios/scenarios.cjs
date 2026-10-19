@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 58
+const FIXTURES_VERSION = 59
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1733,6 +1733,60 @@ module.exports.SCENARIOS = [
       ]
     },
     fakeSkips: ['fixed it: the delay is awaited']
+  },
+  {
+    id: 'card-loop-commit',
+    title: 'A card loop builder sending finished work to Review commits it first and names the commit (#1074)',
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      c.git('config', 'user.email', 'agent@example.com')
+      c.git('config', 'user.name', 'Agent')
+      c.head = c.git('rev-parse', 'HEAD').trim()
+      // The card's work, done and checked, not committed yet.
+      c.write('greet.js', 'module.exports = (name) => `Hello, ${name}!`\n')
+      await c.card('a', { title: 'Greet with an exclamation mark', description: 'greet.js returns "Hello, <name>!".', column: 'doing', agent: 'coder' })
+    },
+    prompt: (c) => `You're the builder of card #${c.cards.a} in a card loop (the card-loop skill, rounds: 5); Implementer reviews it. Its work is done in this folder and checked: send it to Review now.`,
+    fake: (c) => `skill card-loop then shell: git add -A && git commit -qm "Greet with an exclamation mark" then ${verdictWatch(c.cards.a)} then boardmove ${c.cards.a} review then boardcomment ${c.cards.a}`,
+    expect: (o, c) => {
+      const head = c.git('rev-parse', 'HEAD').trim()
+      const committedAt = head !== c.head ? Date.parse(c.git('log', '-1', '--format=%cI').trim()) : 0
+      const movedAt = historyAt(o.cards.a, /^Moved to (the (top|bottom) of )?Review\b/)
+      const named = (o.cards.a?.comments ?? []).some((x) => (x.text.match(/\b[0-9a-f]{7,40}\b/g) ?? []).some((s) => head.startsWith(s)))
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ['committed the work, leaving nothing uncommitted', head !== c.head && o.gitStatus.trim() === '', `${c.head} → ${head}; ${o.gitStatus.trim()}`],
+        ['committed before moving the card to Review', !!committedAt && !!movedAt && committedAt <= movedAt, `${new Date(committedAt).toISOString?.()} / ${movedAt ? new Date(movedAt).toISOString() : 'not moved'}`],
+        ['named the commit on the card', named, (o.cards.a?.comments ?? []).map((x) => x.text.split('\n')[0]).join(' | ')],
+        ['ended its turn with a live watch for the verdict', o.status === 'watching', o.status]
+      ]
+    },
+    fakeSkips: ['named the commit on the card']
+  },
+  {
+    id: 'card-loop-uncommitted',
+    title: "A card loop reviewer handed uncommitted work asks the builder for a commit and waits, rather than failing the round on that alone (#1074)",
+    files: { 'greet.js': "module.exports = (name) => 'Hello, ' + name\n" },
+    async setup(c) {
+      c.head = c.git('rev-parse', 'HEAD').trim()
+      c.write('greet.js', 'module.exports = (name) => `Hello, ${name}!`\n')
+      await c.card('r', { title: 'Greet with an exclamation mark', description: 'greet.js returns "Hello, <name>!".', column: 'review', agent: 'implementer', comments: ['Done: greet.js says "Hello, <name>!". Ready for review.'] })
+    },
+    prompt: (c) => `You are the reviewer of card #${c.cards.r} in a card loop (the card-loop skill, rounds: 5), built by Implementer in this folder. It has just arrived in Review: carry on as its reviewer.`,
+    fake: (c) => `skill card-loop then boardreview ${c.cards.r} start then hive hive_wait_for_tasks {"cards":[${c.cards.r}],"changes":["comment"],"wake":true} then hive hive_update_task {"number":${c.cards.r},"comment":"Not reviewed yet: the work isn't committed. Please commit it and name the commit here; I review that commit."}`,
+    expect: (o, c) => {
+      const h = history(o.cards.r)
+      const asked = (o.cards.r?.comments ?? []).slice(1).some((x) => /commit/i.test(x.text))
+      const watches = ran(o, 'hive_wait_for_tasks').map((x) => argsOf(x)).filter((a) => Array.isArray(a.cards) && a.cards.includes(c.cards.r) && a.wake === true)
+      return [
+        ['read the card-loop skill', read(o, 'card-loop'), o.skillsRead.join(',')],
+        ['gave no verdict (not failed on that alone)', !h.some((x) => /^Review (passed|failed)$/.test(x)), h.join(' | ')],
+        ['asked on the card for a commit', asked, (o.cards.r?.comments ?? []).map((x) => x.text.split('\n')[0]).join(' | ')],
+        ["ended its turn watching for the builder's reply", o.status === 'watching' && watches.some((a) => Array.isArray(a.changes) && a.changes.includes('comment')), `${o.status}; ${JSON.stringify(watches)}`],
+        ['left the card in Review', o.cards.r?.column === 'review', o.cards.r?.column],
+        ["didn't commit the builder's work itself", c.git('rev-parse', 'HEAD').trim() === c.head && /greet\.js/.test(o.gitStatus), o.gitStatus]
+      ]
+    }
   },
   {
     id: 'card-loop-lane',

@@ -26,7 +26,7 @@ Each agent reads only what you send it, and each lane starts in a new conversati
 ```
 Use card-loop as the builder. Cards, in order: #12, #15. Your reviewer is R1. Worktree <folder> (branch <branch>).
 First, and before each card: merge main, and install dependencies if the lock file changed.
-After each card passes: commit on your branch.
+Commit each round on your branch before sending the card to Review (card-loop).
 Lane end: claim the merge slot, use merge-ready, merge your branch into main, move the cards to Done, report the merge commit on the last card, release the slot, then stop. No push, release or installer.
 Follow-ups go to Todo as new cards.
 ```

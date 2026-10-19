@@ -172,6 +172,10 @@ describe('the bundled skills', () => {
     expect(line('2. Review it')).toMatch(/\*\*Review the commit the builder names\.\*\* Work sent uncommitted .* isn't a failed round on that alone/)
     expect(line('- builder: the card')).toMatch(/changes: \["verdict", "column", "comment"\]/)
     expect(line('- reviewer, after asking for a commit')).toMatch(/changes: \["comment"\]/)
+    // run-lanes' sample brief agrees, leaving the procedure to card-loop (a brief saying "commit once it passes" undid it).
+    const brief = catalog.get('run-lanes')!.text
+    expect(brief).toMatch(/Commit each round on your branch before sending the card to Review \(card-loop\)\./)
+    expect(brief).not.toMatch(/After each card passes: commit/)
   })
 })
 
