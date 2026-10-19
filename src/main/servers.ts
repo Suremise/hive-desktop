@@ -64,6 +64,7 @@ import { contextWorkspace, inWorkspace, openWorkspaces, workspace, workspaceFor,
 import { lastCardRead, newDecisions, noteCardRead, noticeText } from './decisionNotices'
 import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi, recordCatalog, recordMcp, MCP_REPORT_LIMITS, type MetricsHandle } from './metrics'
 import { metricsReport } from './metricsUsage'
+import { beginWork, workEnded } from './mainStalls'
 import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { API_EVENTS, apiEventFor, publicRun } from './apiEvents'
@@ -131,6 +132,13 @@ function send(res: ServerResponse, status: number, body: unknown, headers: Recor
 
 let hookServer: http.Server | null = null
 
+/** A hook as a stall names it (mainStalls.ts): its event, a CLI's fixed name, or the status line. */
+function hookLabel(query: URLSearchParams, body: unknown): string {
+  if (query.has('statusline')) return 'hook status line'
+  const event = (body as { hook_event_name?: unknown } | null)?.hook_event_name
+  return `hook ${typeof event === 'string' && /^\w{1,40}$/.test(event) ? event : '(no event)'}`
+}
+
 export async function startHookServer(): Promise<string> {
   hookServer = http.createServer(async (req, res) => {
     if (req.method !== 'POST' || !req.url?.startsWith('/hook')) return send(res, 404, { error: 'not found' })
@@ -145,8 +153,10 @@ export async function startHookServer(): Promise<string> {
       if (note) log.info(note)
       return send(res, 401, { error: 'unauthorized' })
     }
+    let done: (() => void) | null = null
     try {
       const body = JSON.parse((await readBody(req)) || '{}')
+      done = beginWork(hookLabel(query, body))
       if (query.has('statusline')) {
         // The reply becomes Claude Code's status line, so send nothing.
         res.writeHead(204)
@@ -171,6 +181,8 @@ export async function startHookServer(): Promise<string> {
     } catch (e) {
       log.warn('hook error', e)
       if (!res.headersSent) send(res, 400, { error: 'bad request' })
+    } finally {
+      done?.()
     }
   })
   await new Promise<void>((resolve) => hookServer!.listen(0, '127.0.0.1', resolve))
@@ -2400,6 +2412,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<voi
   let who: Caller | null = null
   res.once('close', () => {
     appMetrics.requestEnded()
+    workEnded(`api ${req.method ?? ''} ${m.route}`, metricsClock.mono() - started)
     if (!m.authenticated) appMetrics.unauthenticated()
     else if (!m.skip && m.handle) recordApi(m.handle, m.project, { route: m.route, method: req.method ?? '', role: m.role, outcome: outcomeOf(res), requestBytes: m.requestBytes, responseBytes: m.responseBytes, ms: metricsClock.mono() - started })
     if (m.authenticated && !m.skip && !m.route.startsWith('/v1/console')) captureApiCall(req, res, url, m, who, metricsClock.mono() - started)

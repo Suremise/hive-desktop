@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fewer false "main process was busy" warnings, and real ones say what was running.** Time the PC spent asleep was counted as Hive being busy, so the log had warnings of many seconds while Hive sat idle. Hive no longer counts a pause that spans sleep, measures pauses more precisely, and each warning now names the window action, Agent API request or agent hook that was running, with how long it took (#1109).
 - **Agents and terminals find the Claude Code Hive found.** When Claude Code's own installer left its folder off your PATH, Agent Setup found Claude Code but a shell Hive started couldn't run `claude`. Hive now adds the folder of each CLI it finds to the PATH of what it starts, without changing your own PATH (#1103).
 - **A warning for Codex with the Store's PowerShell 7.** Codex's Windows sandbox can't start the Microsoft Store's PowerShell 7 while another copy of it is open, so Codex agents' commands failed at random. Agent Setup now warns when that PowerShell is the one Codex would use, says how it shows, and how to switch to the installer's PowerShell 7 (#585).
 - **Copilot compactions show up.** A Copilot agent's compactions now count in its usage and appear in the Sessions tab with their summary, and after a `/compact` typed in its terminal the agent shows as ready again once Copilot has finished, not only at your next message (#454).

@@ -77,6 +77,7 @@ import { hiveWindows, windowForPath, windowOf, windowShowing } from './windows'
 import { setTitleBarBackdrops, setTitleBarColors } from './titleBar'
 import { showWindow } from './tray'
 import { resetMetrics } from './metrics'
+import { beginWork } from './mainStalls'
 import { metricsExport, metricsReport } from './metricsUsage'
 import { cancelWatch, stampWatchProjects } from './watches'
 import { cancelMessages } from './agentMessages'
@@ -1154,7 +1155,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
 
   // Tests only (unpackaged builds), so a suite can see what the window does while an action runs or fails:
   // HIVE_TEST_SLOW_IPC="tasks:start=1500,git:diff=1500*1" delays those calls (`*n`: only the first n), and
-  // HIVE_TEST_FAIL_IPC="git:status*1" makes them fail.
+  // HIVE_TEST_FAIL_IPC="git:status*1" makes them fail, and HIVE_TEST_BLOCK_IPC="app:info=1500*1" holds the main process
+  // that long in them (a stall, #1109).
   // A suite may change them while Hive runs (in the main process): they are read again when they change.
   type TestCalls = { from: string; calls: Map<string, { ms: number; left: number }> }
   const testCalls = (name: string, held: TestCalls): TestCalls => {
@@ -1171,6 +1173,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
   }
   let slow: TestCalls = { from: '', calls: new Map() }
   let failing: TestCalls = { from: '', calls: new Map() }
+  let blocking: TestCalls = { from: '', calls: new Map() }
   const take = (t: TestCalls, channel: string): { ms: number } | null => {
     const c = t.calls.get(channel)
     if (!c || c.left <= 0) return null
@@ -1185,14 +1188,21 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (!w || e.senderFrame?.parent) throw new Error('Not allowed') // i18n-ignore: a refusal of a page that isn't Hive's window (security, never shown)
       slow = testCalls('HIVE_TEST_SLOW_IPC', slow)
       failing = testCalls('HIVE_TEST_FAIL_IPC', failing)
+      blocking = testCalls('HIVE_TEST_BLOCK_IPC', blocking)
       const delay = take(slow, channel)
       if (delay?.ms) await new Promise((r) => setTimeout(r, delay.ms))
       if (take(failing, channel)) throw new Error(`${channel} failed (HIVE_TEST_FAIL_IPC)`) // i18n-ignore: test-only
+      // Named in a "main process was busy" warning that it overlaps (mainStalls.ts).
+      const done = beginWork(`ipc ${channel}`) // i18n-ignore: a line of hive.log, in English
       // Everything the call does is for that window's workspace (and from that window: the console's subscriptions).
       try {
+        const block = take(blocking, channel)
+        if (block?.ms) for (const until = Date.now() + block.ms; Date.now() < until; );
         return await senderStore.run(e.sender, () => inWorkspace(w.ws, () => (fn as (...a: unknown[]) => unknown)(...args)))
       } catch (err) {
         throw windowError(err)
+      } finally {
+        done()
       }
     })
   }
