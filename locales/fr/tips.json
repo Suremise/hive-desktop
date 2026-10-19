@@ -186,6 +186,8 @@
   "tips.ownShortcuts.title": "Des raccourcis à ta main",
   "tips.palette.text": "Appuie sur {key} et tape : toutes les commandes, avec leur raccourci.",
   "tips.palette.title": "Tout est dans la palette de commandes",
+  "tips.paneCells.text": "Fais glisser un volet par son en-tête sur un volet vide pour l’y déplacer, ou sur un autre pour les échanger. Chaque disposition retient où tu les as mis : change de disposition puis reviens, tout est à sa place.",
+  "tips.paneCells.title": "Placer un agent dans n’importe quel volet",
   "tips.pasteScreenshot.text": "Appuie sur Ctrl+V dans le terminal d’un agent avec une image dans le presse-papiers, ou dépose une image dessus : l’agent la voit, et Hive en garde une copie.",
   "tips.pasteScreenshot.title": "Coller une capture d’écran dans une session",
   "tips.perfCompare.text": "Performances → Comparer : garde la vue actuelle avant un changement et de nouveau après, et vois si le trafic de Hive a baissé tout en faisant le même travail.",

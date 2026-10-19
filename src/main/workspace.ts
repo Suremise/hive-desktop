@@ -9,6 +9,7 @@ import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
 import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
+import { settlePlacements } from '../shared/paneCells'
 import { migratedProjectMcp, migratedWorkspaceMcp } from '../shared/agentMcp'
 import { LANE_MAX_ROUNDS, LOOP_WAIT_MAX_HOURS } from '../shared/lanes'
 import { advancedDef, checkAdvanced } from '../shared/advanced'
@@ -778,7 +779,11 @@ export class WorkspaceService {
     let ticket = 0
     const next = await withFileLock(file, async () => {
       const cfg = await this.projectConfig(projectPath)
-      const updated = { ...cfg, ...fn(cfg) }
+      const patch = fn(cfg)
+      let updated = { ...cfg, ...patch }
+      // The agents changed: each layout's pane placement takes in those added and lets go of those removed (#762), so
+      // every agent keeps its cell (not one worked out again from the order on each read).
+      if ('agents' in patch && updated.placement) updated = { ...updated, placement: settlePlacements(updated.placement, projectAgents(updated).map((a) => a.id)) }
       await writeKeptJson(file, withLegacyProjectFields(updated))
       // As it is written: a read begun before now may have found the config from before.
       ticket = ++this.rootTickets

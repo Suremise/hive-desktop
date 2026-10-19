@@ -140,6 +140,7 @@ export const SUITES = [
   { name: 'performance' },
   { name: 'perftable' },
   { name: 'pin' },
+  { name: 'placement' },
   { name: 'plan', needs: ['claude'], claudeHome: 'own' },
   { name: 'progress', serial: 'window focus' },
   { name: 'progresslanes' },

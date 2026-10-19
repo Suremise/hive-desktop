@@ -34,6 +34,9 @@ interface HiveMessageValues {
   'panes.compact.waiting': undefined
   'panes.drop.move': undefined
   'panes.drop.swap': { agent: string | number }
+  'panes.empty.drop': undefined
+  'panes.empty.moveHere': undefined
+  'panes.empty.onPage': { page: string | number }
   'panes.failed.dismiss': undefined
   'panes.failed.retry': undefined
   'panes.failed.setup': undefined
@@ -85,8 +88,10 @@ interface HiveMessageValues {
   'panes.menu.compact': undefined
   'panes.menu.discard': undefined
   'panes.menu.handOver': undefined
+  'panes.menu.moveDown': undefined
   'panes.menu.moveLeft': undefined
   'panes.menu.moveRight': undefined
+  'panes.menu.moveUp': undefined
   'panes.menu.remove': undefined
   'panes.menu.reviewChanges': undefined
   'panes.messages.cancel': { n: number }
@@ -96,13 +101,13 @@ interface HiveMessageValues {
   'panes.messages.overdueTip': { n: number }
   'panes.messages.tip': { n: number; agent: string | number }
   'panes.messages.unread': { n: number }
+  'panes.pages.agentsTip': { button: string; page: string | number; agents: string | number; added: string; key: string }
   'panes.pages.button': { page: string | number }
   'panes.pages.item': { page: string | number }
   'panes.pages.menu': undefined
   'panes.pages.menuTip': { page: string | number; pages: string | number; key: string }
   'panes.pages.next': undefined
   'panes.pages.previous': undefined
-  'panes.pages.tip': { button: string; page: string | number; count: number; first: string | number; last: string | number; added: string; key: string }
   'panes.processes.count': { n: number }
   'panes.resume.allSessions': { n: number }
   'panes.resume.button': undefined

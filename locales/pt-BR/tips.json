@@ -186,6 +186,8 @@
   "tips.ownShortcuts.title": "Deixe os atalhos do seu jeito",
   "tips.palette.text": "Pressione {key} e digite: todos os comandos, com os atalhos deles.",
   "tips.palette.title": "Tudo está na paleta de comandos",
+  "tips.paneCells.text": "Arraste um painel pelo cabeçalho até um painel vazio para movê-lo para lá, ou até outro para trocá-los. Cada layout guarda onde você os colocou: troque de layout e volte, e tudo estará no lugar.",
+  "tips.paneCells.title": "Coloque um agente em qualquer painel",
   "tips.pasteScreenshot.text": "Pressione Ctrl+V no terminal de um agente com uma imagem na área de transferência, ou solte uma imagem nele: o agente a vê, e o Hive guarda uma cópia.",
   "tips.pasteScreenshot.title": "Cole uma captura de tela em uma sessão",
   "tips.perfCompare.text": "Desempenho → Comparar: guarde a visualização atual antes de uma alteração e de novo depois dela, e veja se o tráfego do Hive caiu enquanto o trabalho continuou sendo feito.",

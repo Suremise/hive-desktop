@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **Put any agent in any pane.** Drag an agent's pane header onto an empty pane to move it there, or onto another agent's pane to swap them; panes can be left empty (*Drop an agent here*, with **Move Agent Here ▾** to bring in an agent from another page). From the keyboard, **Move Left/Right** and, in a grid, **Move Up/Down** (Ctrl+Alt+Shift+arrows) move the focused pane a cell, said to screen readers. Where you put them is kept for each layout and survives a restart, so switching layouts and back restores it; new agents take the first empty pane.
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).

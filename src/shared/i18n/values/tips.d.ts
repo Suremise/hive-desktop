@@ -188,6 +188,8 @@ interface HiveMessageValues {
   'tips.ownShortcuts.title': undefined
   'tips.palette.text': { key: string | number }
   'tips.palette.title': undefined
+  'tips.paneCells.text': undefined
+  'tips.paneCells.title': undefined
   'tips.pasteScreenshot.text': undefined
   'tips.pasteScreenshot.title': undefined
   'tips.perfCompare.text': undefined

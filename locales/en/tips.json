@@ -747,6 +747,14 @@
     "defaultMessage": "Everything is in the command palette",
     "description": "A tip's title."
   },
+  "tips.paneCells.text": {
+    "defaultMessage": "Drag a pane by its header onto an empty pane to move it there, or onto another to swap them. Each layout keeps where you put them, so switching layouts and back restores it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.paneCells.title": {
+    "defaultMessage": "Put an agent in any pane",
+    "description": "A tip's title."
+  },
   "tips.pasteScreenshot.text": {
     "defaultMessage": "Press Ctrl+V in an agent's terminal with an image on the clipboard, or drop an image onto it: the agent sees it, and Hive keeps a copy.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

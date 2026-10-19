@@ -186,6 +186,8 @@
   "tips.ownShortcuts.title": "Make the shortcuts yours",
   "tips.palette.text": "Press {key} and type: every command, with its shortcut.",
   "tips.palette.title": "Everything is in the command palette",
+  "tips.paneCells.text": "Drag a pane by its header onto an empty pane to move it there, or onto another to swap them. Each layout keeps where you put them, so switching layouts and back restores it.",
+  "tips.paneCells.title": "Put an agent in any pane",
   "tips.pasteScreenshot.text": "Press Ctrl+V in an agent's terminal with an image on the clipboard, or drop an image onto it: the agent sees it, and Hive keeps a copy.",
   "tips.pasteScreenshot.title": "Paste a screenshot into a session",
   "tips.perfCompare.text": "Performance → Compare: keep the current view before a change and again after it, and see whether Hive’s traffic fell while the work still got done.",

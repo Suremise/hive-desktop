@@ -186,6 +186,8 @@
   "tips.ownShortcuts.title": "Dopasuj skróty do siebie",
   "tips.palette.text": "Naciśnij {key} i pisz: każde polecenie, z jego skrótem.",
   "tips.palette.title": "Wszystko jest w palecie poleceń",
+  "tips.paneCells.text": "Przeciągnij panel za nagłówek na pusty panel, żeby go tam przenieść, albo na inny, żeby je zamienić. Każdy układ pamięta, gdzie je umieszczono, więc po zmianie układu i powrocie wszystko jest na swoim miejscu.",
+  "tips.paneCells.title": "Umieść agenta w dowolnym panelu",
   "tips.pasteScreenshot.text": "Naciśnij Ctrl+V w terminalu agenta, mając obraz w schowku, albo upuść na niego obraz: agent go zobaczy, a Hive zachowa kopię.",
   "tips.pasteScreenshot.title": "Wklej zrzut ekranu do sesji",
   "tips.perfCompare.text": "Wydajność → Porównaj: zachowaj bieżący widok przed zmianą i ponownie po niej i sprawdź, czy ruch Hive spadł, a praca nadal została wykonana.",

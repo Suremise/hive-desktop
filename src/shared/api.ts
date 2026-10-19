@@ -78,6 +78,7 @@ import type {
   AttachmentPlan,
   Attached,
   AttachmentContent,
+  SessionLayout,
   SessionListItem,
   WorkspaceUsage,
   WorkspaceStorage,
@@ -407,6 +408,8 @@ export interface HiveRequests {
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
   /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */
   'agents:swap': (projectPath: string, agentId: string, otherId: string) => string[]
+  /** Saves where the panes are in one layout (#762): its cells page after page, an agent's id or null; returns them as saved. */
+  'agents:place': (projectPath: string, layout: SessionLayout, cells: (string | null)[]) => (string | null)[]
   /** Agent templates (#126): the workspace's and the project's. */
   'templates:list': (projectPath: string) => TemplateEntry[]
   /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */

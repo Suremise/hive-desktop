@@ -751,6 +751,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     },
     'agents:move': (p, id, index) => projectAgents.moveAgent(p, id, index),
     'agents:swap': (p, id, other) => projectAgents.swapAgents(p, id, other),
+    'agents:place': (p, layout, cells) => projectAgents.placePanes(p, layout, cells),
     'templates:list': (p) => templates.listTemplates(p),
     'templates:save': (p, scope, name, overwrite) => templates.saveTemplate(p, scope, name, overwrite),
     'templates:plan': (p, scope, file, from, names) => templates.templatePlan(p, scope, file, from, names),

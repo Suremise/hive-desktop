@@ -867,6 +867,11 @@ export interface ProjectConfig {
   agents: AgentDef[]
   /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
   layout: PageLayout
+  /**
+   * Where the user put each agent's pane, per layout (#762): its cells page after page, an agent's id or null for an
+   * empty cell (shared/paneCells.ts). A layout without one shows the agents in order.
+   */
+  placement?: Partial<Record<SessionLayout, (string | null)[]>>
   /** The Session tab's view, once chosen with its Panes | Tiles toggle (#975); absent, Settings → Sessions → Default session view. */
   sessionView?: SessionView
   /** Where the project folder was last opened (#146), as workspace.json's lastPath. */

@@ -123,6 +123,10 @@
     "defaultMessage": "Agent Menu…",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: opens the focused agent's ⋯ menu on its pane (everything its pane header doesn't show). The … says it opens a menu first: keep it."
   },
+  "shell.command.agent.moveDown": {
+    "defaultMessage": "Move Agent Down",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: moves the agent's pane one cell down in a grid layout."
+  },
   "shell.command.agent.moveLeft": {
     "defaultMessage": "Move Agent Left",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
@@ -130,6 +134,10 @@
   "shell.command.agent.moveRight": {
     "defaultMessage": "Move Agent Right",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category."
+  },
+  "shell.command.agent.moveUp": {
+    "defaultMessage": "Move Agent Up",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: moves the agent's pane one cell up in a grid layout."
   },
   "shell.command.agent.next": {
     "defaultMessage": "Focus Next Agent",
