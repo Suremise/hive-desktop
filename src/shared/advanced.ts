@@ -163,6 +163,12 @@ export const HEAP_SNAPSHOT_NEAR_LIMIT = 'hive.heapSnapshotNearLimit'
  */
 export const rightClickToCliId = (provider: string): string => `${provider}.mouse.rightClickToCli`
 
+/**
+ * How long Hive waits for a provider's CLI to draw a line it typed before pressing Enter anyway (#600):
+ * `<provider>.prompt.drawnSeconds`, for a provider whose capabilities say `enterOnceDrawn`.
+ */
+export const drawnWaitId = (provider: string): string => `${provider}.prompt.drawnSeconds`
+
 /** The advanced.json format: written first in the file, so an older or newer Hive can tell. */
 export const ADVANCED_FORMAT = 1
 
@@ -682,6 +688,19 @@ const SOURCES: readonly AdvancedSource[] = [
     unit: 's',
     applies: 'sessions',
     samples: [{ from: `${FIX}/advanced/mcp-list-codex-0.162.1.json`, version: '0.162.1', text: '"tool_timeout_sec": 900.0', shows: "Codex reading the hive server's tool_timeout_sec from Hive's -c override (codex mcp list --json)" }] // i18n-ignore: a CLI's recorded text (#367)
+  },
+  {
+    id: drawnWaitId('codex'),
+    group: 'codex',
+    title: msg({ id: 'settings.advanced.codex.prompt.drawnSeconds.title', defaultMessage: 'Typed line: wait to be drawn', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.codex.prompt.drawnSeconds.desc', defaultMessage: "How long Hive waits for Codex to show a line Hive typed (a message's notice, a wake) in its prompt before pressing Enter. Codex drops an Enter that it reads together with the line while it is busy, so Hive presses Enter once the line shows; if it doesn't show in time, Hive presses Enter anyway, and presses it again 10 seconds later if the line wasn't sent.", description: 'What the advanced setting "Typed line: wait to be drawn" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
+    kind: 'number',
+    default: 5,
+    min: 1,
+    max: 60,
+    unit: 's',
+    applies: 'now',
+    samples: [{ from: `${FIX}/advanced/drawn-codex-0.163.0.txt`, version: '0.163.0', text: '› [Hive] New in your inbox: 1 message (m1). Call hive_inbox to read it.', shows: "Codex showing a line Hive typed in its prompt, before Enter: what Hive waits to see" }] // i18n-ignore: a CLI's recorded text (#367)
   },
   {
     id: 'codex.turnScreen.working',

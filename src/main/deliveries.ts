@@ -38,6 +38,7 @@ import { canTypeLine, typeLine, whyNoLine } from './lineWriter'
 import { createLogger, userText } from './logger'
 import { readyFor } from './readiness'
 import { sessions } from './sessions'
+import { folderChanging, folderSteady, inFolder, onFolderSteady } from './folderFence'
 import { getTask } from './tasks'
 import { workspaceFor } from './workspace'
 
@@ -1245,22 +1246,41 @@ function retrySoon(host: string, agentId: string): void {
  * offered at once, alone; else cancelled, and NotGiven says why. `holds`: the caller's own check, asked with each key.
  */
 export async function deliverNow(host: string, nd: NewDelivery, holds?: () => boolean, hooks: Omit<DeliveryHooks, 'holds'> = {}): Promise<DeliveryRecord | null> {
+  /**
+   * Waits while the agent's folder is being changed (#646 round 1: a Git switch or pull there): held, not refused, and
+   * tried again once it is done (whether git succeeded or not). Whether it waited.
+   */
+  const heldByFolder = async (): Promise<boolean> => {
+    const cwd = sessions.liveFor(host, nd.agentId)?.cwd
+    if (!folderChanging(cwd)) return false
+    await folderSteady(cwd)
+    return true
+  }
   // The user's own task for an agent that can't read an inbox (#650's decision): typed as their input, no delivery.
   if (!readsInbox(host, nd.agentId) && nd.from.kind === 'user') {
-    if (await typeLine(host, nd.agentId, nd.body, () => !holds || holds(), { need: nd.need ?? 'idle' })) return null
+    for (;;) {
+      if (await heldByFolder()) continue
+      if (await typeLine(host, nd.agentId, nd.body, () => !holds || holds(), { need: nd.need ?? 'idle' })) return null
+      // Put off because its folder began changing meanwhile: held until that is done, then typed.
+      if (!(await heldByFolder())) break
+    }
     throw new NotGiven(whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : 'Hive could not type it'))
   }
   const rec = await createDelivery(host, nd, { ...hooks, ...(holds ? { holds } : {}) })
   const store = await load(host)
   let why: string | null = null
   try {
-    // Another try for the agent may be running (the tick's): once it is done, this one's own.
-    for (let i = 0; i < 3; i++) {
+    // Another try for the agent may be running (the tick's): once it is done, this one's own. A wait for its folder
+    // (#646) is no try: given at once after it, or cancelled as before if it can't be then.
+    for (let i = 0; i < 3; ) {
       const now = deliveryNow(host, rec.id)
       if (!now || !isWaiting(now)) break
+      if (await heldByFolder()) continue
       why = whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
       if (why) break
       if (await offerNow(host, nd.agentId, rec.id)) break
+      if (await heldByFolder()) continue
+      i++
     }
   } finally {
     const now = deliveryNow(host, rec.id)
@@ -1385,6 +1405,10 @@ export function initDeliveries(): void {
   // The user's pause after typing, a line taken, overdue: nothing tells of those, so they are looked at now and then.
   const timer = setInterval(tick, 5000)
   timer.unref?.()
+  // A folder changed under its agents is steady again (#646): what waited for it is offered now, not at the next tick.
+  onFolderSteady((folder) => {
+    for (const st of sessions.liveStates()) if (st.cwd && inFolder(st.cwd, folder) && !folderChanging(st.cwd)) void offerNow(st.projectPath, st.agentId).catch((err) => log.warn('offering deliveries', err))
+  })
 }
 
 // Sessions give their own lines through the service (#649: a lock's go-ahead, the carry-on after a sign-in, a handover's

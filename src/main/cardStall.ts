@@ -14,12 +14,12 @@ import { workspaceOf, type WorkspaceService } from './workspace'
  */
 
 /** A workspace's live agents (by its folder): their names, projects, cards left with no watch, card watches (and since when), and how each is now. */
-function liveOf(wsPath: string): { name: string; project: string; agentId: string; notWatching?: number[]; cards: number[]; watchSince?: string; status: string; silentMinutes?: number }[] {
+function liveOf(wsPath: string): { name: string; project: string; agentId: string; notWatching?: number[]; untaken: boolean; cards: number[]; watchSince?: string; status: string; silentMinutes?: number }[] {
   const ws = wsPath.toLowerCase()
   return sessions
     .liveStates()
     .filter((s) => workspaceOf(s.projectPath).path?.toLowerCase() === ws)
-    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), agentId: s.agentId, notWatching: s.notWatching, cards: s.watch?.cards ?? [], watchSince: s.watch?.since, status: s.status, silentMinutes: agentRuntime(s).silentMinutes }))
+    .map((s) => ({ name: s.agentName ?? s.agentId, project: basename(s.projectPath), agentId: s.agentId, notWatching: s.notWatching, untaken: !!s.untakenLine, cards: s.watch?.cards ?? [], watchSince: s.watch?.since, status: s.status, silentMinutes: agentRuntime(s).silentMinutes }))
 }
 
 /** Why a card is stalled, given its agent as it is now (null: removed; its name and whether it runs) and its workspace's folder. */

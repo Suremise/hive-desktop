@@ -473,6 +473,297 @@ describe('agent watches (main/watches.ts)', async () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a reply to an agent the Assistant follows reaches it within seconds with no watch of its own to tell it: between two watches, after an agent watch answered at once, with a lane watch; told once; never for an agent it doesn't follow (#1099)", async () => {
+    const { w, alpha } = await open()
+    const { config } = await import('../src/main/config')
+    const lanes = await import('../src/main/lanes')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    try {
+      // Reviewer finished: the Assistant's agent watch on it is the answer at once ("already"), and no watch starts.
+      move(st, alpha, 'a2', nowOf({ status: 'finished' }))
+      a.status = 'finished'
+      const at = await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      expect('already' in at).toBe(true)
+      // The user answers Reviewer in its pane: the Assistant hears of it at once, a wake of its own.
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'go ahead.\nand push')
+      await vi.waitFor(() => expect(a.told).toHaveLength(1), { timeout: HUNG_MS })
+      expect(a.told[0]).toBe('[Hive] User replied to Reviewer (alpha): "go ahead.".')
+      // It watches Reviewer again (working on the answer): when Reviewer finishes, that reply isn't told again.
+      move(st, alpha, 'a2', nowOf())
+      a.status = 'watching'
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      move(st, alpha, 'a2', nowOf({ status: 'finished', reply: 'Pushed.' }))
+      await watches.evaluateAgentWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(2), { timeout: HUNG_MS })
+      expect(a.told[1]).not.toMatch(/replied/)
+      // Between watches (that wake read, no watch since): a reply comes at once too.
+      a.status = 'finished'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'approve version bump and commit. Thanks!')
+      await vi.waitFor(() => expect(a.told).toHaveLength(3), { timeout: HUNG_MS })
+      expect(a.told[2]).toBe('[Hive] User replied to Reviewer (alpha): "approve version bump and commit. Thanks!".')
+
+      // An agent it has never watched: nothing (only what it follows, as #418's watches).
+      watches.noteUserReply(alpha, 'a3', 'Second', 'not followed')
+      await watches.evaluateAgentWatches(w)
+      await watches.settled()
+      expect(a.typed).toHaveLength(3)
+
+      // A lane watch (which tells no replies) on a lane Second builds: Second's replies come at once.
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Lane card', project: 'alpha', agent: 'a3', column: 'doing' }, { kind: 'user' }))
+      await lanes.startLane(w, { project: 'alpha', builder: 'a3', reviewer: 'a2', cards: [c.number], by: 'Second (alpha)' })
+      a.status = 'watching'
+      await watches.registerLaneWatch(w, home, 'assistant', { ids: 'all', events: ['failed', 'blocked'] })
+      watches.noteUserReply(alpha, 'a3', 'Second', 'use the blue icon')
+      await vi.waitFor(() => expect(a.told).toHaveLength(4), { timeout: HUNG_MS })
+      expect(a.told[3]).toBe('[Hive] User replied to Second (alpha): "use the blue icon".')
+
+      // With the setting off, none is told.
+      config.settings.assistant.tellReplies = false
+      try {
+        watches.noteUserReply(alpha, 'a3', 'Second', 'Not told')
+        await watches.evaluateAgentWatches(w)
+        await watches.settled()
+        expect(a.typed).toHaveLength(4)
+      } finally {
+        config.settings.assistant.tellReplies = true
+      }
+    } finally {
+      restore()
+    }
+    await disposeWorkspaceService(w)
+  })
+
+  it('a reply told on its own is withdrawn when replies stop being told: queued and long out of the kept replies, made while they stop, or made before a restart (#1099 round 1 finding 1)', async () => {
+    const { w, alpha } = await open()
+    const { config } = await import('../src/main/config')
+    const deliveries = await import('../src/main/deliveries')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    const inboxText = async () => JSON.stringify((await deliveries.readInbox(home, 'assistant')).items)
+    try {
+      // Followed (an agent watch answered at once); the Assistant busy, so the reply waits in its inbox.
+      move(st, alpha, 'a2', nowOf({ status: 'finished' }))
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      a.status = 'working'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE queued reply')
+      await watches.settled()
+      // Many more replies since, to an agent it doesn't follow: the queued one is no longer among those Hive keeps.
+      for (let i = 0; i < 201; i++) watches.noteUserReply(alpha, 'a3', 'Second', `unfollowed ${i}`)
+      await watches.settled()
+      config.settings.assistant.tellReplies = false
+      await watches.revokeReplies()
+      await watches.settled()
+      expect(await inboxText()).not.toContain('PRIVATE queued reply')
+
+      // Turned off while the reply's delivery is being made (and on again before it is read): never handed out.
+      config.settings.assistant.tellReplies = true
+      deliveries.setBeforeSaveForTests(() => {
+        deliveries.setBeforeSaveForTests(null)
+        config.settings.assistant.tellReplies = false
+        void watches.revokeReplies()
+      })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'PRIVATE while revoked')
+      await watches.settled()
+      config.settings.assistant.tellReplies = true
+      expect(await inboxText()).not.toContain('PRIVATE while revoked')
+
+      // One made before a restart (another run of Hive): given while replies are told, not once they are off.
+      await deliveries.createDelivery(home, { agentId: 'assistant', kind: 'card-event', from: { kind: 'hive', name: 'Hive' }, body: '[Hive] User replied to Reviewer (alpha): "EARLIER RUN".', source: 'reply', ref: 'reply:1', meta: { generation: 0, run: 'an-earlier-run' } })
+      config.settings.assistant.tellReplies = false
+      expect(await inboxText()).not.toContain('EARLIER RUN')
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+      config.settings.assistant.tellReplies = true
+      restore()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it("a reply whose delivery couldn't be made is left to the Assistant's next watch, told once (#1099 round 1 finding 2)", async () => {
+    const { w, alpha } = await open()
+    const deliveries = await import('../src/main/deliveries')
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    try {
+      move(st, alpha, 'a2', nowOf({ status: 'finished' }))
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      a.status = 'finished'
+      deliveries.setBeforeSaveForTests(() => {
+        throw new Error('a failed save, for this test')
+      })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'RECOVER ME')
+      await watches.settled()
+      deliveries.setBeforeSaveForTests(null)
+      expect(a.told).toEqual([])
+      // Its next watch on Reviewer tells it, with what Reviewer did.
+      move(st, alpha, 'a2', nowOf())
+      a.status = 'watching'
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      move(st, alpha, 'a2', nowOf({ status: 'finished', reply: 'Done.' }))
+      await watches.evaluateAgentWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(1), { timeout: HUNG_MS })
+      expect(a.told[0]).toMatch(/^\[Hive\] User replied to Reviewer \(alpha\): "RECOVER ME"; Reviewer \(alpha\) finished/)
+    } finally {
+      deliveries.setBeforeSaveForTests(null)
+      restore()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it('a reply is told once whichever picks it first: a watch that takes it during the direct path\'s lookup, or the direct path before a watch (#1099 round 2 finding)', async () => {
+    const { w, alpha } = await open()
+    const st = fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    let go = (): void => undefined
+    let spy: ReturnType<typeof vi.spyOn> | undefined
+    try {
+      // The Assistant remembers Reviewer's card: a card watch on it woke it.
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Remembered card', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], column: 'review', changes: ['column'] })
+      await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'user' }))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(1), { timeout: HUNG_MS })
+      await watches.settled()
+      move(st, alpha, 'a2', nowOf())
+      a.status = 'watching'
+      // Between watches, a reply; the direct path's lookup of that card is held while an agent watch on Reviewer starts,
+      // fires and is read, telling the reply. Released, the direct path finds it taken and tells nothing.
+      let entered = (): void => undefined
+      const inside = new Promise<void>((r) => (entered = r))
+      const gate = new Promise<void>((r) => (go = r))
+      let hold = true
+      const real = tasks.getTask
+      spy = vi.spyOn(tasks, 'getTask').mockImplementation(async (...args: Parameters<typeof tasks.getTask>) => {
+        if (args[0] === c.number && hold) {
+          hold = false
+          entered()
+          await gate
+        }
+        return real(...args)
+      })
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'ONLY ONCE')
+      await inside
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      await watches.evaluateAgentWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(2), { timeout: HUNG_MS })
+      expect(a.told[1]).toMatch(/User replied to Reviewer \(alpha\): "ONLY ONCE"/)
+      a.status = 'finished'
+      go()
+      await watches.settled()
+      expect(a.told.filter((x) => x.includes('ONLY ONCE'))).toHaveLength(1)
+      spy.mockRestore()
+      spy = undefined
+
+      // The other way: given on its own first (no watch now), a watch on Reviewer started after doesn't tell it again.
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'DIRECT FIRST')
+      await vi.waitFor(() => expect(a.told).toHaveLength(3), { timeout: HUNG_MS })
+      expect(a.told[2]).toBe('[Hive] User replied to Reviewer (alpha): "DIRECT FIRST".')
+      move(st, alpha, 'a2', nowOf())
+      a.status = 'watching'
+      await watches.registerAgentWatch(w, home, 'assistant', { agents: [reviewer(alpha)], ignoreBackground: false })
+      move(st, alpha, 'a2', nowOf({ status: 'finished', reply: 'Done.' }))
+      await watches.evaluateAgentWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(4), { timeout: HUNG_MS })
+      expect(a.told[3]).not.toMatch(/DIRECT FIRST/)
+    } finally {
+      go()
+      spy?.mockRestore()
+      await watches.settled()
+      restore()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it("a reply arriving while a watch's line, made without it, is being saved is given to the Assistant on its own, once (#1099 round 3 finding)", async () => {
+    const { w, alpha } = await open()
+    const deliveries = await import('../src/main/deliveries')
+    fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    let go = (): void => undefined
+    try {
+      const c = await inWorkspace(w, () => tasks.createTask({ title: 'Watch in flight', project: 'alpha', agent: 'a2', column: 'doing' }, { kind: 'user' }))
+      await watches.registerWatch(w, home, 'assistant', { cards: [c.number], column: 'review', changes: ['column'] })
+      // The card watch's line is made (the card in Review, no reply yet); its delivery's save is held.
+      let entered = (): void => undefined
+      const inside = new Promise<void>((r) => (entered = r))
+      const gate = new Promise<void>((r) => (go = r))
+      deliveries.setBeforeSaveForTests(async () => {
+        deliveries.setBeforeSaveForTests(null)
+        entered()
+        await gate
+      })
+      await inWorkspace(w, () => tasks.updateTask(c.number, { column: 'review' }, { kind: 'user' }))
+      const checking = watches.evaluateWatches(w)
+      await inside
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'REPLY DURING SAVE')
+      go()
+      await checking
+      await watches.settled()
+      // The watch's wake is typed (without it); the reply waits in the Assistant's inbox, busy reading that wake.
+      expect(a.told).toHaveLength(1)
+      expect(a.told[0]).not.toMatch(/REPLY DURING SAVE/)
+      const items = (await deliveries.readInbox(home, 'assistant')).items as unknown as { text: string }[]
+      expect(items.map((i) => i.text)).toEqual(['[Hive] User replied to Reviewer (alpha): "REPLY DURING SAVE".'])
+    } finally {
+      go()
+      deliveries.setBeforeSaveForTests(null)
+      await watches.settled()
+      restore()
+      await disposeWorkspaceService(w)
+    }
+  })
+
+  it('a lane watch follows only the lanes it watches (named, or all), also between two lane watches (#1099 round 1 finding 3)', async () => {
+    const { w, alpha } = await open()
+    const lanes = await import('../src/main/lanes')
+    fake(alpha)
+    const home = w.assistantHome
+    mkdirSync(home, { recursive: true })
+    const { a, restore } = assistantOf(home)
+    try {
+      const c1 = await inWorkspace(w, () => tasks.createTask({ title: 'Watched lane', project: 'alpha', agent: 'a1', column: 'doing' }, { kind: 'user' }))
+      const c2 = await inWorkspace(w, () => tasks.createTask({ title: 'Other lane', project: 'alpha', agent: 'a3', column: 'doing' }, { kind: 'user' }))
+      const l1 = (await lanes.startLane(w, { project: 'alpha', builder: 'a1', reviewer: 'a2', cards: [c1.number], by: 'Builder (alpha)' })).lane
+      await lanes.startLane(w, { project: 'alpha', builder: 'a3', cards: [c2.number], by: 'Second (alpha)' })
+      a.status = 'watching'
+      await watches.registerLaneWatch(w, home, 'assistant', { ids: [l1.id], events: ['failed', 'blocked'] })
+      // Its lane's builder: told at once. The other lane's: not (it doesn't watch that lane).
+      watches.noteUserReply(alpha, 'a1', 'Builder', 'WATCHED lane reply')
+      await vi.waitFor(() => expect(a.told).toHaveLength(1), { timeout: HUNG_MS })
+      expect(a.told[0]).toBe('[Hive] User replied to Builder (alpha): "WATCHED lane reply".')
+      watches.noteUserReply(alpha, 'a3', 'Second', 'UNWATCHED lane reply')
+      await watches.settled()
+      expect(a.told.join('\n')).not.toContain('UNWATCHED')
+      // Its lane watch wakes (the card blocked) and ends; between that and its next one, its lane's agents still count.
+      a.status = 'watching'
+      await inWorkspace(w, () => tasks.updateTask(c1.number, { blocked: 'Which icon?' }, { kind: 'user' }))
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(a.told).toHaveLength(2), { timeout: HUNG_MS })
+      await watches.settled()
+      a.status = 'finished'
+      watches.noteUserReply(alpha, 'a2', 'Reviewer', 'between lane watches')
+      await vi.waitFor(() => expect(a.told).toHaveLength(3), { timeout: HUNG_MS })
+      expect(a.told[2]).toBe('[Hive] User replied to Reviewer (alpha): "between lane watches".')
+      watches.noteUserReply(alpha, 'a3', 'Second', 'UNWATCHED again')
+      await watches.settled()
+      expect(a.told.join('\n')).not.toContain('UNWATCHED')
+    } finally {
+      restore()
+      await disposeWorkspaceService(w)
+    }
+  })
+
   /** The Assistant as a watcher here: its status, what Hive typed into it and what it read (the agents' stand-ins stay as they are). */
   const assistantOf = (home: string) => {
     const a = { status: 'watching' as string, typed: [] as string[], told: [] as string[] }
