@@ -316,6 +316,7 @@
   "workspace.statusBar.openWorkspace": "ワークスペースを開く",
   "workspace.statusBar.planLine": "{provider}{hasPlan, select, yes {（{plan}プラン）} other {}}",
   "workspace.statusBar.providerTip": "{provider} {version}（{source}）{hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest}が利用可能} other {}}",
+  "workspace.statusBar.reportedBy": "{agent} が報告（{when}）",
   "workspace.statusBar.running": "{count, plural, other {実行中のセッション#件}}：作業中{working}件、{background, plural, =0 {} other {バックグラウンドタスク待ち#件、}}応答待ち{waiting}件",
   "workspace.statusBar.shortLimit": "{window, select, fiveHour {5時間} weekly {週} other {{label}}}",
   "workspace.statusBar.workspace": "ワークスペース：{path}",

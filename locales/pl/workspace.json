@@ -316,6 +316,7 @@
   "workspace.statusBar.openWorkspace": "Otwórz obszar roboczy",
   "workspace.statusBar.planLine": "{provider}{hasPlan, select, yes { (plan {plan})} other {}}",
   "workspace.statusBar.providerTip": "{provider} {version} ({source}){hasWarning, select, yes { – {warning}} other {}}{hasUpdate, select, yes { – dostępna wersja {latest}} other {}}",
+  "workspace.statusBar.reportedBy": "Zgłosił(a) {agent}, {when}",
   "workspace.statusBar.running": "{count, plural, one {# działająca sesja} few {# działające sesje} many {# działających sesji} other {# działającej sesji}}: pracuje: {working}, {background, plural, =0 {} one {czeka na zadania w tle: #, } few {czeka na zadania w tle: #, } many {czeka na zadania w tle: #, } other {czeka na zadania w tle: #, }}czeka na Ciebie: {waiting}",
   "workspace.statusBar.shortLimit": "{window, select, fiveHour {5 h} weekly {Tydz.} other {{label}}}",
   "workspace.statusBar.workspace": "Obszar roboczy: {path}",

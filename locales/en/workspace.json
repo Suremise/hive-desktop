@@ -1267,6 +1267,10 @@
     "defaultMessage": "{provider} {version} ({source}){hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest} available} other {}}",
     "description": "Tooltip on a coding agent's status bar item: its version, where it was found ({source}), a warning, and a newer version when there is one."
   },
+  "workspace.statusBar.reportedBy": {
+    "defaultMessage": "Reported by {agent}, {when}",
+    "description": "Under a line of the status bar's plan limits tooltip (#383): which agent's session reported the figure of the limit above ({agent}: its name) and when ({when}: \"4 minutes ago\")."
+  },
   "workspace.statusBar.running": {
     "defaultMessage": "{count, plural, other {# running session(s)}}: {working} working, {background, plural, =0 {} other {# waiting on background tasks, }}{waiting} waiting for you",
     "description": "The status bar's running sessions (English keeps session(s); use your language's plural forms): how many, working, waiting on background tasks (only when some are) and waiting for you."
