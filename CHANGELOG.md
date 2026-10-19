@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Less disk churn, and old files tidied.** Hive's settings file is written smaller and without a second copy at every save; the board's folds and the model lists now live beside it in `ui-state.json`. The backups kept when the board and other records moved into the workspace database go to the Recycle Bin two weeks after the move, Hive keeps only the newest three crash dumps, and its running marker is written without holding Hive up (#1111).
 - **A lighter Progress panel.** While runs report progress, Hive now sends the window only the runs that changed, not every run it keeps up to four times a second, so a long Recent list no longer costs the window work on every step (#1108).
 - **Fewer false "main process was busy" warnings, and real ones say what was running.** Time the PC spent asleep was counted as Hive being busy, so the log had warnings of many seconds while Hive sat idle. Hive no longer counts a pause that spans sleep, measures pauses more precisely, and each warning now names the window action, Agent API request or agent hook that was running, with how long it took (#1109).
 - **An agent that stops its own background task no longer shows Working afterwards.** When a Claude Code agent stopped a background command itself (`TaskStop`) just before its turn ended, Hive took the task's end for one that wakes the agent and showed it working with no turn running, refusing tasks given to it, until Claude Code's idle notice a minute later. It is now finished at once (#640).
