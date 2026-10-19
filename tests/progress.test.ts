@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
 import { FINISHING_MS, MAX_OPEN_PER_OWNER, ProgressSync, applyRunsPatch, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
-import type { MergeSlotInfo, ProgressRun, ProgressSnapshot, ProgressTelling } from '../src/shared/types'
+import type { MergeSlotInfo, ProgressRun, ProgressSnapshot } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 import { fmt, setLanguage, tr } from '../src/shared/i18n'
 import { runAgentName } from '../src/shared/progress'
@@ -101,7 +101,7 @@ describe("the window's tellings (#1108)", () => {
   describe("a window's runs kept in step (ProgressSync)", () => {
     const run = (id: string, step: number, startedAt = 1): ProgressRun => ({ id, step, startedAt }) as ProgressRun
     /** A window on `ws`, its reads answered by hand: `answer(i, snap)` or `fail(i)` for the i-th read. */
-    function windowOn(ws = 'C:\A') {
+    function windowOn(ws = 'C:\\A') {
       const state = { ws: ws as string | null, runs: [] as ProgressRun[] }
       const reads: { resolve: (s: ProgressSnapshot) => void; reject: (e: Error) => void }[] = []
       const sync = new ProgressSync({
@@ -153,19 +153,19 @@ describe("the window's tellings (#1108)", () => {
     })
 
     it("drops a read for a workspace the window no longer shows, and one a newer read replaced", async () => {
-      const w = windowOn('C:\A')
+      const w = windowOn('C:\\A')
       w.sync.reload()
-      w.state.ws = 'C:\B'
+      w.state.ws = 'C:\\B'
       w.sync.reload()
-      await w.answer(0, 3, [run('a-run', 1)], 'C:\A')
+      await w.answer(0, 3, [run('a-run', 1)], 'C:\\A')
       expect(w.state.runs).toEqual([])
-      await w.answer(1, 9, [run('b-run', 1)], 'C:\B')
+      await w.answer(1, 9, [run('b-run', 1)], 'C:\\B')
       expect(w.state.runs.map((r) => r.id)).toEqual(['b-run'])
       // Another workspace's tellings never reach it.
-      w.tell(10, [run('a-run', 2)], true, 'C:\A')
+      w.tell(10, [run('a-run', 2)], true, 'C:\\A')
       expect(w.state.runs.map((r) => r.id)).toEqual(['b-run'])
       // A telling for the workspace now shown while the old one's read is under way starts its own read.
-      w.state.ws = 'C:\A'
+      w.state.ws = 'C:\\A'
       w.tell(4, [run('a-run', 4)])
       expect(w.reads).toHaveLength(3)
     })

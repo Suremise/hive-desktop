@@ -158,7 +158,7 @@ const check = (name, ok, extra = '') => {
     // A closed row under the Progress panel's Recent, drawn only when its run changes (#1108), follows a change of
     // language with nothing clicked and its run unchanged: a script's run, ended.
     const api = await inv('api:info')
-    const call = (method, p, body) => fetch(`${api.url}${p}`, { method, headers: { Authorization: `Bearer ${api.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json())
+    const call = (method, p, body) => fetch(`${api.url}${p}`, { method, headers: { Authorization: `Bearer ${api.token}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) }).then((r) => r.json())
     const done = await call('POST', '/v1/progress', { title: 'i18n build' })
     await call('POST', `/v1/progress/${done.id}/finish`, { ok: true })
     if (!(await page.locator('.progress-panel').count())) await page.locator('.progress-rail').click()
