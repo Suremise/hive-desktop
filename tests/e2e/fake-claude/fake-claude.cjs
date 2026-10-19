@@ -24,7 +24,8 @@
 //   fake-linger.jsonl in its home; each ends by itself after two minutes, in case). With fake-linger-at-start.txt (N) in
 //   its home, it leaves N the moment it starts, before anything else. "progress-linger" leaves a command running
 //   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
-//   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn without waiting for it.
+//   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn once that node runs (#1100: as
+//   an agent's command has started by then; fake-progress-delay-ms.txt in its home (N) starts it N ms late, as under load).
 //   "devapp" leaves a dev copy of an Electron app running, as an agent's dev launch of Hive did (#614): Electron's
 //   executable with Playwright's --inspect=0 --remote-debugging-port=0 and a copy of devapp in its home (a hidden window; quits after two
 //   minutes, in case), started through a detached node that exits at once (linger.cjs); its pid in fake-devapp.jsonl.
@@ -518,7 +519,7 @@ async function runPrompt(text, enter = null) {
   if (background) await startBackgroundTask(Number(background[1]))
   const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
-  if (/\bprogress-linger\b/i.test(text)) leaveProgressRunning()
+  if (/\bprogress-linger\b/i.test(text)) await leaveProgressRunning()
   if (/\bdevapp\b/i.test(text)) leaveAppRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
@@ -952,11 +953,25 @@ function leaveAppRunning() {
   spawn(process.execPath, [path.join(__dirname, 'linger.cjs'), 'app-starter', path.join(home, 'fake-devapp.jsonl'), process.env.HIVE_AGENT || 'agent', app], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
 }
 
-/** "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for (#542). */
-function leaveProgressRunning() {
+/**
+ * "progress-linger": a command left running through the session's hive-progress shim (on its PATH), not waited for to end
+ * (#542). The turn goes on until its node runs (it writes its pid; two minutes at most, in case): what the agent started is
+ * there when its turn ends, so the running marker written after the turn's status has it (#1100: under load the three
+ * processes took longer to start than the turn, and the marker, written two seconds after the turn ended and then only
+ * each minute, missed them). fake-progress-delay-ms.txt (N) starts the command N ms late, as a machine under load does.
+ */
+async function leaveProgressRunning() {
   const q = (x) => `"${x}"`
-  const command = ['hive-progress', '--title', q('Left running'), '--', q(process.execPath), q(path.join(__dirname, 'linger.cjs')), 'linger', q(path.join(home, 'fake-progress-linger.jsonl')), process.env.HIVE_AGENT || 'agent'].join(' ')
-  spawn('cmd.exe', ['/d', '/s', '/c', q(command)], { cwd, env: process.env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
+  const pids = path.join(home, 'fake-progress-linger.jsonl')
+  const had = fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').length : 0
+  const command = ['hive-progress', '--title', q('Left running'), '--', q(process.execPath), q(path.join(__dirname, 'linger.cjs')), 'linger', q(pids), process.env.HIVE_AGENT || 'agent'].join(' ')
+  const delayFile = path.join(home, 'fake-progress-delay-ms.txt')
+  const delay = fs.existsSync(delayFile) ? Number(fs.readFileSync(delayFile, 'utf8')) || 0 : 0
+  const start = () => spawn('cmd.exe', ['/d', '/s', '/c', q(command)], { cwd, env: process.env, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true }).unref()
+  // Started late on its own, while the turn goes on, as a command that is slow to start.
+  if (delay) setTimeout(start, delay)
+  else start()
+  for (const end = Date.now() + 120_000; Date.now() < end && !(fs.existsSync(pids) && fs.readFileSync(pids, 'utf8').length > had); ) await sleep(100)
 }
 
 async function main() {
