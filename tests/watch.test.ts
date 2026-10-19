@@ -126,6 +126,19 @@ describe('what counts as a change', () => {
     expect(changesSince({ ...back, history: back.history.slice(-1) }, base, { changes: ['column'], column: 'review', moveInto: true })).toEqual(['column'])
   })
 
+  it("the watcher's own comment isn't news; another's is (#1074: a builder's Review comment after it starts its watch)", () => {
+    const h = (m: number, what: string, by: string) => ({ at: at(m), by, what })
+    const doing = cardOf({ column: 'doing', agent: 'a1', history: [h(1, 'Moved to Doing', 'B (alpha)')], comments: [] })
+    const base = { mark: markOf(doing), seen: seenOf(doing), since: at(1), watcher: 'B (alpha)' }
+    const cond = { changes: ['verdict' as const, 'column' as const, 'comment' as const], column: 'passed' as const, moveInto: true as const }
+    const sent = { ...doing, column: 'review' as const, history: [...doing.history, h(2, 'Moved to Review', 'B (alpha)')], comments: [{ at: at(2), by: 'B (alpha)', text: 'Round 1 ready' }] }
+    expect(changesSince(sent, base, cond)).toEqual([])
+    const asked = { ...sent, comments: [...sent.comments, { at: at(3), by: 'R (alpha)', text: 'Please commit' }] }
+    expect(changesSince(asked, base, cond)).toEqual(['comment'])
+    // Without a watcher (the Assistant's watches), every comment counts as before.
+    expect(changesSince(sent, { ...base, watcher: undefined }, cond)).toEqual(['comment'])
+  })
+
   it('an entry exactly like the one seen (time, author, words) is still a new one; the one seen is never counted again (#224)', () => {
     const e = (what: string, id?: string) => ({ at: at(2), by: 'R (alpha)', what, ...(id ? { id } : {}) })
     const cond = { changes: ['verdict' as const, 'comment' as const] }

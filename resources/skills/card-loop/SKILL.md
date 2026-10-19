@@ -1,6 +1,6 @@
 ---
 name: card-loop
-description: "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review several cards in order."
+description: "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review cards (one or several) as a builder or reviewer, or given rounds."
 metadata:
   audience: agents
 ---
@@ -34,9 +34,10 @@ Hive follows the board from there and ends the lane when its cards are Done. If 
 ## Waiting
 
 Wait with `hive_wait_for_tasks`, `wake: true`:
-- builder: the card, `changes: ["verdict", "column"]`, `column: "passed"` (a review's verdict, or the card moved into Passed);
+- builder: the card, `changes: ["verdict", "column", "comment"]`, `column: "passed"` (a review's verdict, the card moved into Passed, or a comment, such as the reviewer asking for a commit);
 - reviewer, a new card: the card, `column: "review"` (only its arrival in Review counts, not the builder's comments; at once if it's already there);
 - reviewer, after failing a card: the card, `column: "review"`, `fresh: true` (its next round: it's still in Review now, so this waits for the builder to move it out and back, or to return it for review; without `fresh`, a card already in the column answers at once);
+- reviewer, after asking for a commit: the card, `changes: ["comment"]` (the builder's reply naming it);
 - `limitMinutes`: the run's wait.
 
 **Start the watch before the step that lets the other side act**, so a quick answer isn't missed: the builder just before moving the card to Review, the reviewer just before posting a failed verdict. Your own move doesn't wake you. **Check the watch's reply** before you end your turn:
@@ -65,10 +66,10 @@ Hive also wakes a loop's agents itself (unless the project turned it off): the r
 ## Builder
 
 For each card, in order:
-1. Do its work with the **work-on-card** skill: Doing first. Just before moving it to Review, start the watch for its verdict (above); then move it to Review with a summary comment and end your turn.
-2. Hive wakes you with the verdict.
+1. Do its work with the **work-on-card** skill: Doing first. **Commit the card's work before moving it to Review**, every round, and name the commit in the round's comment: the reviewer reviews that commit. Just before moving it to Review, start the watch for its verdict (above); then move it to Review with a summary comment and end your turn.
+2. Hive wakes you with the verdict. Woken by the reviewer asking for a commit instead: commit, reply on the card naming it, and watch again.
 3. **Passed** (a passing verdict, or moved to Passed): take the next card. Once your work is merged (merge-ready, when the user asks: it says how to merge, taking turns at the merge slot, when other branches merge too), your Passed cards go to Done.
-4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise move it to Doing, fix the **blocking** findings, comment on what changed, start the watch again, and move it back to Review: the next round, which wakes the reviewer (a failed card moved to Review without leaving it is returned for review, which wakes it too). Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
+4. **Failed**: if the card has now failed as many reviews as **rounds** (with rounds: 2, its second failed review), that was its last round: don't fix it, stop and ask (below). Otherwise move it to Doing, fix the **blocking** findings, commit, comment on what changed (naming the commit), start the watch again, and move it back to Review: the next round, which wakes the reviewer (a failed card moved to Review without leaving it is returned for review, which wakes it too). Suggestions that aren't blocking can become follow-up cards (`hive_create_task`) rather than another round.
 
 **The lane's end:** with every card passed, merge when the user or your brief says to (merge-ready). A step there that needs the user (a commit or merge your CLI or a permission check refuses, a conflict you can't settle) is a stop and ask on the last card (below): with every card passed, nothing else shows the lane is waiting on them. Once they have done what you asked, clear `blocked` and finish the merge.
 
@@ -78,7 +79,7 @@ For each card, in order:
 
 For each card, in order:
 1. Wait for it to arrive in Review (above).
-2. Review it with the **review-agent-work** skill: `review: "start"`, then your verdict as the reviewer.
+2. Review it with the **review-agent-work** skill: `review: "start"`, then your verdict as the reviewer. **Review the commit the builder names.** Work sent uncommitted (or no commit named) isn't a failed round on that alone: start the watch for the builder's reply (above), comment asking for the commit, and end your turn; review the commit once it's named.
 3. **Blocking findings**: start the watch for its return (above), then `review: "failed"` with them in the comment, numbered, each with what to fix, and end your turn. Points that aren't blocking become follow-up cards, not another round.
 4. **Passed**: move it to Passed with the verdict (`review: "passed"`, `column: "passed"`): it passed review and waits to be merged. Done is for merged work, not yours to move. Take the next card.
 

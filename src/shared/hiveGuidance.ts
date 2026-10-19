@@ -44,7 +44,7 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
   }
   return [
     `Hive is the desktop app hosting this session${project ? ` (project "${project}")` : ''}. Its workspace holds projects that share notes, skills and a task board. Handovers, shared notes, other projects and the board are Hive's: use the hive tools for them, not the file system.`,
-    "The board shows your project's cards. Given a card (#n) to work on, fix or continue, use the work-on-card skill; asked to review or check one, use review-agent-work; asked to work through or review several cards in turn (a builder/reviewer loop), use card-loop. Hive's other skills cover handovers, picking work up, shared notes, merging, splitting work and its HTTP API.",
+    "The board shows your project's cards. Given a card (#n) to work on, fix or continue, use the work-on-card skill; asked to review or check one, use review-agent-work; as a loop's builder or reviewer (one card or several, with rounds), use card-loop. Hive's other skills cover handovers, picking work up, shared notes, merging, splitting work and its HTTP API.",
     docs,
     progressRule(progress),
     // #613: log watchers (tail -f) agents left running outlived the runs they watched, 16 at once.

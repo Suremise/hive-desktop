@@ -4,6 +4,8 @@
 
 - **Agents read long documents by section.** Two new hive tools, **hive_doc_outline** and **hive_read_section**, give an agent a Markdown file's headings with each section's size, then just the section it needs, by heading or slug: for project docs and shared notes, so a 56 KB design note no longer fills an agent's context. The Agent API has them too (`/v1/docs/outline`, `/v1/docs/section`).
 - **Put any agent in any pane.** Drag an agent's pane header onto an empty pane to move it there, or onto another agent's pane to swap them; panes can be left empty (*Drop an agent here*, with **Move Agent Here ▾** to bring in an agent from another page). From the keyboard, **Move Left/Right** and, in a grid, **Move Up/Down** (Ctrl+Alt+Shift+arrows) move the focused pane a cell, said to screen readers. Where you put them is kept for each layout and survives a restart, so switching layouts and back restores it; new agents take the first empty pane.
+- **Card loops review committed work.** The card-loop skill now has the builder commit each round before sending a card to Review and name the commit; a reviewer handed uncommitted work asks for a commit rather than failing the round over it (#1074).
+- **The Assistant steps in when a review keeps finding new edge cases.** When a lane's card fails review a second or third time on the same kind of finding, the Assistant brings you a simpler option with its recommendation instead of letting the loop run on. For a push or a release, it asks you to give your OK in the agent's own pane, since the agent's CLI refuses an OK passed on by the Assistant (#1075).
 
 ## 0.9.2 — 2026-10-19
 

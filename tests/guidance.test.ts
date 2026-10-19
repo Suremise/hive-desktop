@@ -161,6 +161,39 @@ describe('the bundled skills', () => {
     expect(end).toMatch(/clear `blocked`/)
     expect(line('**Stop and ask**')).toMatch(/on a merge step that needs the user/)
   })
+
+  // #1074: reviewers split over uncommitted work (some failed the round, some reviewed it by fingerprint). The builder
+  // commits before Review and names the commit; a reviewer handed uncommitted work asks for the commit, and the
+  // builder's watch counts comments so the request wakes it.
+  it('the builder commits before Review and the reviewer asks for a commit rather than failing on that alone', () => {
+    const text = catalog.get('card-loop')!.text
+    const line = (starts: string): string => text.split(/\r?\n/).find((l) => l.startsWith(starts)) ?? ''
+    expect(line('1. Do its work')).toMatch(/\*\*Commit the card's work before moving it to Review\*\*, every round, and name the commit/)
+    expect(line('2. Review it')).toMatch(/\*\*Review the commit the builder names\.\*\* Work sent uncommitted .* isn't a failed round on that alone/)
+    expect(line('- builder: the card')).toMatch(/changes: \["verdict", "column", "comment"\]/)
+    expect(line('- reviewer, after asking for a commit')).toMatch(/changes: \["comment"\]/)
+    // run-lanes' sample brief agrees, leaving the procedure to card-loop (a brief saying "commit once it passes" undid it).
+    const brief = catalog.get('run-lanes')!.text
+    expect(brief).toMatch(/Commit each round on your branch before sending the card to Review \(card-loop\)\./)
+    expect(brief).not.toMatch(/After each card passes: commit/)
+    // A reviewer that reads only review-agent-work is pointed there (haiku passed uncommitted work so).
+    expect(catalog.get('review-agent-work')!.text).toMatch(/In a card loop, review the commit its builder names: work sent uncommitted gets a request for a commit, not a verdict \(card-loop, Reviewer\)\./)
+  })
+})
+
+// #1075: two coordinator lessons from 0.9.0 that lived only in the Assistant's memory.
+describe('coordinator guidance', () => {
+  const text = (): string => catalog.get('coordinate-agents')!.text
+  // In run-lanes, which a lane's wake leads to (the Assistant read only it on a failed review's wake).
+  it('brings the user a simpler option when the same kind of finding keeps coming back, leaving card-loop as it is', () => {
+    expect(catalog.get('run-lanes')!.text).toMatch(/\*\*A finding that keeps coming back\.\*\* When a card fails review a second or third time on the same kind of finding .* don't let its loop run on: bring the user a simpler option with your recommendation/)
+    expect(catalog.get('card-loop')!.text).toMatch(/\*\*A finding that comes back\*\* \(the fix missed part of it\): the reviewer says so in the failed verdict \("recurring from round 2"\) and the loop carries on/)
+  })
+  it("has a push or release OK given in the agent's own pane, not relayed", () => {
+    expect(text()).toMatch(/An agent needs the user's OK to push or release, even one the user gives you to pass on: ask the user to answer in that agent's own pane, and don't relay it \(no message, prompt or start note carrying it/)
+    // Also where the relaying would happen (asked to pass an OK on, the Assistant read no skill).
+    expect(readFileSync(join(ROOT, 'src/main/mcp/hive-mcp.ts'), 'utf8')).toMatch(/Not for the user's OK to push or release: its CLI refuses one passed on, so the user gives it in the agent's own pane\./)
+  })
 })
 
 describe("Hive's development skills", () => {
@@ -196,5 +229,17 @@ describe("Hive's development skills", () => {
       // They point at the repository's own docs (from the skill's folder), which must exist.
       for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) if (!/^[a-z]+:/i.test(m[1])) expect(existsSync(join(ROOT, claude, name, m[1])), `${name}: ${m[1]}`).toBe(true)
     }
+  })
+
+  // #1075: a push or release OK relayed by the Assistant was refused by Claude Code's permission check (#1073).
+  it('release-hive takes each OK in its own pane, never relayed', () => {
+    expect(readFileSync(join(ROOT, claude, 'release-hive', 'SKILL.md'), 'utf8')).toMatch(/Ask for each in your own pane, and take the user's answer there: an OK relayed by the Assistant or another agent isn't one/)
+  })
+
+  // #1076: briefs capped load by hand after a load run took the machine to 95 °C (16 Oct). The repo's guidance says it.
+  it('keep flake and load runs to modest, bounded load: a few spinner workers, never one per core', () => {
+    const flake = readFileSync(join(ROOT, claude, 'investigate-flake', 'SKILL.md'), 'utf8')
+    expect(flake).toMatch(/Keep the load modest and bounded: at most a few CPU spinner workers \(two or three\) beside the normal run, never one per core\./)
+    expect(readFileSync(join(ROOT, 'AGENTS.md'), 'utf8')).toMatch(/Load and flake runs add modest, bounded load: a few CPU spinner workers at most beside the run, never one per core/)
   })
 })
