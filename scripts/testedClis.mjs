@@ -36,23 +36,26 @@ function cliInRecord(record, suites, need) {
   // What each suite's Hive selected of this CLI.
   const versionsOf = (n) => [...new Set((result(n)?.clis ?? []).filter((c) => c?.provider === id && typeof c.version === 'string').map((c) => c.version))]
   const unsaid = real.filter((n) => !noHive.has(n) && result(n) && !versionsOf(n).length)
+  // Every version its suites' Hive selected, whatever they did (#1105 round 1: a partial or failed record's version
+  // still counts against another record's).
   const versions = [...new Set(real.flatMap(versionsOf))].sort()
   const ran = missing.length < real.length
-  if (!ran) return { ran, problem: `${name}: none of its real suites ran` }
-  if (missing.length) return { ran, problem: `${name}: not all of its real suites ran (${missing.join(', ')} didn't)` }
-  if (notPassed.length) return { ran, problem: `${name}: not all of its real suites passed (${notPassed.join(', ')})` }
-  if (unsaid.length) return { ran, problem: `${name}: the record doesn't say which version Hive used in ${unsaid.join(', ')}` }
-  if (!versions.length) return { ran, problem: `${name}: none of its real suites says which version Hive used` }
-  if (versions.length > 1) return { ran, problem: `${name}: its real suites ran different versions (${versions.join(', ')})` }
-  return { ran, version: versions[0] }
+  if (!ran) return { ran, versions, problem: `${name}: none of its real suites ran` }
+  if (missing.length) return { ran, versions, problem: `${name}: not all of its real suites ran (${missing.join(', ')} didn't)` }
+  if (notPassed.length) return { ran, versions, problem: `${name}: not all of its real suites passed (${notPassed.join(', ')})` }
+  if (unsaid.length) return { ran, versions, problem: `${name}: the record doesn't say which version Hive used in ${unsaid.join(', ')}` }
+  if (!versions.length) return { ran, versions, problem: `${name}: none of its real suites says which version Hive used` }
+  if (versions.length > 1) return { ran, versions, problem: `${name}: its real suites ran different versions (${versions.join(', ')})` }
+  return { ran, versions, version: versions[0] }
 }
 
 /**
  * manifestFromRecord over several run records of the same commit (#1105: the real tier rerun per CLI, as for 0.9.2,
  * when Codex's suites can't share the machine with Claude Code's): every record must be a valid run record, all of one
- * commit. Each CLI's entry comes from the records in which all its real suites ran and passed; two such records naming
- * different versions are refused. A CLI no record vouches for keeps its earlier entry, with the reason from a record
- * where its suites ran (or "none of its real suites ran").
+ * commit. Each CLI's entry comes from the records in which all its real suites ran and passed (never suites pooled
+ * across records); any two versions of it among all the records' suites, passed or not, are refused. A CLI no record
+ * vouches for keeps its earlier entry, with the reason from a record where its suites ran (or "none of its real suites
+ * ran").
  */
 export function manifestFromRecords(records, suites, current = {}) {
   const manifest = { ...current }
@@ -70,9 +73,11 @@ export function manifestFromRecords(records, suites, current = {}) {
   for (const [need, { id, name }] of Object.entries(CLI_PROVIDERS)) {
     const seen = records.map((record) => ({ record, ...cliInRecord(record, suites, need) }))
     const vouched = seen.filter((s) => s.version)
-    const versions = [...new Set(vouched.map((s) => s.version))].sort()
-    if (!vouched.length) problems.push((seen.find((s) => s.ran) ?? seen[0]).problem)
-    else if (versions.length > 1) problems.push(`${name}: the records ran different versions (${versions.join(', ')})`)
+    // Every version any record's suites ran, passed or not: one record vouching can't hide another's other version.
+    const versions = [...new Set(seen.flatMap((s) => s.versions))].sort()
+    const showing = seen.filter((s) => s.versions.length)
+    if (versions.length > 1) problems.push(showing.length === 1 ? showing[0].problem : `${name}: the records ran different versions (${versions.join(', ')})`)
+    else if (!vouched.length) problems.push((seen.find((s) => s.ran) ?? seen[0]).problem)
     else {
       const when = vouched.map((s) => String(s.record.when ?? '')).sort().at(-1)
       manifest[id] = { version: versions[0], testedAt: when.slice(0, 10), record: codes[0] }
