@@ -17,6 +17,13 @@ import { NO_PROJECT_IDS, type ProjectIdIndex } from '../shared/projectIds'
 import { devConsole, hiveSourceId, sessionSourceId } from './devConsole'
 import { hiveName, safeWord } from '../shared/devConsole'
 import { addLeftMerge } from './lastRun'
+import { fmt, msg, tr } from '../shared/i18n'
+
+const M = {
+  leftTitle: msg({ id: 'main.mergeSlot.leftTitle', defaultMessage: '{agent} was merging when Hive closed', description: "A notice's title as a workspace opens: the agent {agent} (its name) held the merge slot when Hive last closed, so its merge may be half done." }),
+  leftBody: msg({ id: 'main.mergeSlot.leftBody', defaultMessage: 'It held the merge slot for {branch}{hasCards, select, yes { ({cards})} other {}}. Check {folder} for a merge left half done (git status there) before the next merge.', description: "The notice that an agent was merging when Hive closed: {branch} is the branch it held the slot for, {cards} the cards it named (\"#7, #9\"; shown when {hasCards} is yes), {folder} where the merge was. 'git status' is a command: keep it." }),
+  leftBodyGone: msg({ id: 'main.mergeSlot.leftBodyGone', defaultMessage: "It held the merge slot for {branch}{hasCards, select, yes { ({cards})} other {}} in {project}, a project this workspace no longer has (its folder is another project's now, or gone). Check {folder} for a merge left half done (git status there) before the next merge.", description: "The notice that an agent was merging when Hive closed, in a project ({project}, its name) the workspace no longer has: {branch} is the branch it held the slot for, {cards} the cards it named (\"#7, #9\"; shown when {hasCards} is yes), {folder} where the merge was. 'git status' is a command: keep it." })
+}
 
 const log = createLogger('mergeSlots')
 
@@ -64,8 +71,8 @@ function changed(projectPath: string): void {
   devConsole.capture([hiveSourceId(ws)], () => {
     const slots = workspaceSlots(ws).filter((s) => s.project.toLowerCase() === basename(projectPath).toLowerCase())
     const made = slots.map((s) => ({ branch: s.branch, holder: s.holder && { agentId: s.holder.agentId ?? null, name: s.holder.name, cards: s.holder.cards }, waiting: s.waiting.map((w) => w.name) }))
-    const line = slots.slice(0, 5).map((s) => `${safeWord(s.branch)}: ${s.holder ? `held by ${hiveName(s.holder.name)}` : 'free'}${s.waiting.length ? `, ${s.waiting.length} waiting` : ''}`).join('; ')
-    return { kind: 'merge-slot', name: 'slots changed', raw: { project: basename(projectPath) }, made, safe: { raw: { project: true }, made: { branch: true, holder: { agentId: true, name: true }, waiting: true } }, summary: `merge slot ${hiveName(basename(projectPath))} → ${line || 'free'}` }
+    const line = slots.slice(0, 5).map((s) => `${safeWord(s.branch)}: ${s.holder ? `held by ${hiveName(s.holder.name)}` : 'free'}${s.waiting.length ? `, ${s.waiting.length} waiting` : ''}`).join('; ') // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
+    return { kind: 'merge-slot', name: 'slots changed', raw: { project: basename(projectPath) }, made, safe: { raw: { project: true }, made: { branch: true, holder: { agentId: true, name: true }, waiting: true } }, summary: `merge slot ${hiveName(basename(projectPath))} → ${line || 'free'}` } // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   })
 }
 
@@ -85,10 +92,10 @@ function testLog(workspacePath: string): void {
  * developer console shows it (#636).
  */
 export function slotTestEvent(agent: SlotAgent, projectPath: string, branch: string, result: ClaimResult | ReleaseResult): void {
-  const outcome = 'held' in result ? (result.held ? 'held' : 'in line') : 'released' in result ? 'released' : 'left' in result ? 'left' : 'none'
+  const outcome = 'held' in result ? (result.held ? 'held' : 'in line') : 'released' in result ? 'released' : 'left' in result ? 'left' : 'none' // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   const ws = workspacePathOf(projectPath)
   const event = 'held' in result ? 'claim' : 'release'
-  devConsole.capture([ws && hiveSourceId(ws), sessionSourceId(projectPath, agent.agentId)], () => ({ kind: 'merge-slot', name: event, raw: { project: basename(projectPath), branch, agent: agent.agentName }, made: { outcome }, safe: { raw: { project: true, branch: true, agent: true }, made: { outcome: true } }, summary: `merge slot ${event} by ${hiveName(agent.agentName)} on ${safeWord(branch)} → ${outcome}` }))
+  devConsole.capture([ws && hiveSourceId(ws), sessionSourceId(projectPath, agent.agentId)], () => ({ kind: 'merge-slot', name: event, raw: { project: basename(projectPath), branch, agent: agent.agentName }, made: { outcome }, safe: { raw: { project: true, branch: true, agent: true }, made: { outcome: true } }, summary: `merge slot ${event} by ${hiveName(agent.agentName)} on ${safeWord(branch)} → ${outcome}` })) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   writeTestLog({ at: new Date().toISOString(), event: 'held' in result ? 'claim' : 'release', project: projectPath, branch, agentId: agent.agentId, agent: agent.agentName, outcome })
 }
 
@@ -204,8 +211,9 @@ export async function recoverMergeSlots(workspacePath: string): Promise<void> {
     const folder = h.cwd ?? at ?? h.projectPath
     // After an unexpected close, told in that notice (lastRun.ts).
     if (at && addLeftMerge({ agentName: h.agentName, branch: h.branch, cards: h.cards, folder })) continue
-    const where = at ? '' : ` in ${basename(h.projectPath)}, a project this workspace no longer has (its folder is another project's now, or gone)`
-    toast('warning', `${h.agentName} was merging when Hive closed`, `It held the merge slot for ${h.branch}${h.cards.length ? ` (${h.cards.map((n) => `#${n}`).join(', ')})` : ''}${where}. Check ${folder} for a merge left half done (git status there) before the next merge.`, undefined, at ?? workspacePath)
+    const values = { branch: h.branch, hasCards: h.cards.length ? 'yes' : 'no', cards: fmt.list(h.cards.map((n) => `#${n}`), 'unit'), folder }
+    const body = at ? tr(M.leftBody, values) : tr(M.leftBodyGone, { ...values, project: basename(h.projectPath) })
+    toast('warning', tr(M.leftTitle, { agent: h.agentName }), body, undefined, at ?? workspacePath)
   }
 }
 

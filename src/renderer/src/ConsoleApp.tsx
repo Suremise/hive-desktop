@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '@shared/devConsole'
+import { language, msg, onLanguageChange, tr, tRich, type Msg } from '@shared/i18n'
 import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sourceOption, startsOpen } from '@shared/consoleView'
 import type { AppSettings, HiveEvent } from '@shared/types'
 import { providerName } from '@shared/providers'
+import { FLIGHT_TRIGGER_NAME, readFlightWhat, FLIGHT_WHAT, type FlightTrigger } from '@shared/flightRecorder'
+import { timeAgo } from './util'
 import { call, errorMessage } from './api'
 import { Icon, IconButton, SearchInput } from './components/ui'
 import { cx } from './util'
@@ -26,7 +29,82 @@ function applyTheme(s: AppSettings | null): void {
 
 const NO_SOURCES: ConsoleSource[] = []
 
+// The window's own words (#1104). The events it lists (names, kinds, summaries, payloads) are Hive's records, as
+// recordings save them: they stay English.
+const M = {
+  source: msg({ id: 'console.source', defaultMessage: 'Source', description: "The developer console's source picker (accessible name): which agent's session, the Assistant or Hive itself it watches." }),
+  pickSource: msg({ id: 'console.pickSource', defaultMessage: 'Pick a source…', description: "The developer console's source picker, while it watches none." }),
+  refresh: msg({ id: 'console.refresh', defaultMessage: 'Refresh the sources', description: "The developer console's button that lists the sources (agents, the Assistant, Hive) again." }),
+  notWatching: msg({ id: 'console.notWatching', defaultMessage: 'Not watching', description: "The developer console's indicator: no source is picked, so nothing is captured." }),
+  paused: msg({ id: 'console.paused', defaultMessage: '{waiting, plural, =0 {Paused} other {Paused ({waiting, number} new)}}', description: "The developer console's indicator while paused: the list holds still; {waiting} events came meanwhile (shown on resume)." }),
+  live: msg({ id: 'console.live', defaultMessage: 'Live', description: "The developer console's indicator: events show as they come." }),
+  resume: msg({ id: 'console.resume', defaultMessage: 'Resume', description: "The developer console's button: the list moves again, filled in with what came while paused." }),
+  pause: msg({ id: 'console.pause', defaultMessage: 'Pause', description: "The developer console's button: the list stops moving (capture goes on)." }),
+  clear: msg({ id: 'console.clear', defaultMessage: 'Clear', description: "The developer console's button: hides the events so far; only later ones show." }),
+  stopRecording: msg({ id: 'console.stopRecording', defaultMessage: 'Stop recording', description: "The developer console's button while it records the source's events to a file." }),
+  recordToFile: msg({ id: 'console.recordToFile', defaultMessage: 'Record to a file', description: "The developer console's button that opens the recording box: the source's events from now on go to a file." }),
+  record: msg({ id: 'console.record', defaultMessage: 'Record', description: "The developer console's recording box (accessible name)." }),
+  recordWhat: msg({ id: 'console.recordWhat', defaultMessage: 'Record {source} to a file, from now until you stop. Redacted unless you tick text: no prompt or reply text, commands, tokens or sign-ins.', description: "The developer console's recording box. {source} is the watched agent's name, the Assistant, Hive, or the words 'this source'. 'Tick text' refers to the box below it (include prompt and reply text)." }),
+  thisSource: msg({ id: 'console.thisSource', defaultMessage: 'this source', description: "The developer console's recording box, where the watched source's name goes when it isn't known: 'Record this source to a file…'." }),
+  includeText: msg({ id: 'console.includeText', defaultMessage: 'Include prompt and reply text in this recording (tokens and sign-ins stay masked)', description: "A check box in the developer console's recording box: the recording keeps the prompts', replies' and commands' text; secrets stay hidden." }),
+  cancel: msg({ id: 'console.cancel', defaultMessage: 'Cancel', description: "The developer console's recording box: closes it without recording." }),
+  startRecording: msg({ id: 'console.startRecording', defaultMessage: 'Start recording', description: "The developer console's recording box: starts recording the source's events to a file." }),
+  search: msg({ id: 'console.search', defaultMessage: 'Search events (Ctrl+F)', description: "The developer console's search box (placeholder). Ctrl+F is its shortcut: keep it." }),
+  searchLabel: msg({ id: 'console.searchLabel', defaultMessage: 'Search events', description: "The developer console's search box (accessible name)." }),
+  provider: msg({ id: 'console.provider', defaultMessage: 'Provider', description: "The developer console's filter by coding agent CLI (Claude Code, Codex, Copilot), accessible name." }),
+  allProviders: msg({ id: 'console.allProviders', defaultMessage: 'All providers', description: "The developer console's provider filter: no filter, every coding agent CLI's events." }),
+  eventTypes: msg({ id: 'console.eventTypes', defaultMessage: 'Event types', description: "The developer console's row of buttons that show or hide each kind of event (accessible name)." }),
+  unredacted: msg({ id: 'console.unredacted', defaultMessage: '<b>Unredacted:</b> this console shows prompt, reply and command text (Settings → Advanced → Developer console: show prompt, reply and command text). Tokens, API keys and sign-in details stay masked.', description: "A warning banner in the developer console while the setting that shows text is on. Settings → Advanced → Developer console: show prompt, reply and command text is where it is: use those translated names. <b> is bold: keep the tags." }),
+  emptyRedacted: msg({ id: 'console.emptyRedacted', defaultMessage: 'Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.', description: 'The developer console while no source is picked.' }),
+  emptyText: msg({ id: 'console.emptyText', defaultMessage: 'Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no tokens or sign-in details (this window shows prompt, reply and command text while the setting is on).', description: 'The developer console while no source is picked, with the setting that shows text on (Settings → Advanced).' }),
+  noMatch: msg({ id: 'console.noMatch', defaultMessage: 'No events match.', description: "The developer console's list: the search and filters hide every event." }),
+  waiting: msg({ id: 'console.waiting', defaultMessage: 'Waiting for events…', description: "The developer console's list: the source is watched, and nothing has come yet." }),
+  outlineTip: msg({ id: 'console.outlineTip', defaultMessage: 'Cut down to its outline (too large)', description: "The developer console: an event's payload was too large to keep, so only its shape (fields, sizes) was kept." }),
+  bytes: msg({ id: 'console.bytes', defaultMessage: '{n, plural, one {# byte} other {# bytes}}', description: "The developer console's event detail: the payload's size." }),
+  outline: msg({ id: 'console.outline', defaultMessage: 'cut down to its outline', description: "The developer console's event detail: the payload was too large to keep, so only its shape (fields, sizes) was kept." }),
+  close: msg({ id: 'console.close', defaultMessage: 'Close (Esc)', description: "The developer console's event detail: closes it. Esc is its key: keep it." }),
+  raw: msg({ id: 'console.raw', defaultMessage: 'Raw', description: "The developer console's event detail: the heading of what came in, as it came (from the CLI)." }),
+  made: msg({ id: 'console.made', defaultMessage: 'What Hive made of it', description: "The developer console's event detail: the heading of what Hive read from what came in." }),
+  events: msg({ id: 'console.events', defaultMessage: '{n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}', description: "The developer console's status bar: how many events it lists; (cleared) when Clear hid the earlier ones." }),
+  eventsOf: msg({ id: 'console.eventsOf', defaultMessage: '{shown, number} of {n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}', description: "The developer console's status bar: how many events the search and filters show, of how many; (cleared) when Clear hid the earlier ones." }),
+  dropped: msg({ id: 'console.dropped', defaultMessage: '{n, number} not delivered (too many at once)', description: "The developer console's status bar: events that came too fast for the window, so it never got them." }),
+  capturing: msg({ id: 'console.capturing', defaultMessage: 'Capturing', description: "The developer console's status bar: Hive is capturing the watched source's events." }),
+  notCapturing: msg({ id: 'console.notCapturing', defaultMessage: 'Not capturing', description: "The developer console's status bar: Hive isn't capturing the watched source's events." }),
+  recording: msg({ id: 'console.recording', defaultMessage: 'Recording {n, plural, one {# event} other {# events}} to {name}{withText, select, yes { (with text)} other {}}', description: "The developer console's status bar while it records: how many events so far, to the file {name}; (with text) when prompt and reply text are kept." }),
+  failed: msg({ id: 'console.failed', defaultMessage: 'Recording failed after {n, plural, one {# event} other {# events}} in {name}: {error}', description: "The developer console's status bar: a recording to the file {name} stopped as it couldn't be written; {error} says why." }),
+  notWritten: msg({ id: 'console.notWritten', defaultMessage: 'it could not be written', description: "The developer console: why a recording failed, when there's no other reason: 'Recording failed after 3 events in <file>: it could not be written'." }),
+  saved: msg({ id: 'console.saved', defaultMessage: 'Saved {n, plural, one {# event} other {# events}} to {name}{limit, select, yes { (it reached its size limit)} other {}}', description: "The developer console's status bar: a recording ended, with how many events, in the file {name}; the note when it stopped at its largest size." }),
+  showInFolder: msg({ id: 'console.showInFolder', defaultMessage: 'Show in folder', description: "The developer console's status bar: shows the recording's file in File Explorer." }),
+  unredactedStatus: msg({ id: 'console.unredactedStatus', defaultMessage: 'Unredacted: text shown; tokens and sign-ins masked', description: "The developer console's status bar while the setting that shows text is on." }),
+  redactedStatus: msg({ id: 'console.redactedStatus', defaultMessage: 'Redacted: no prompt or reply text, commands, tokens or sign-ins', description: "The developer console's status bar: what it hides." }),
+  nothing: msg({ id: 'console.nothing', defaultMessage: 'Nothing', description: "The developer console's event detail: an empty side (nothing came in, or Hive made nothing of it)." }),
+  captures: msg({ id: 'console.captures', defaultMessage: 'Captures', description: "The developer console's button and list of the flight recorder's captures: recent events Hive saved by itself when something rare happened to an agent." }),
+  capturesNone: msg({ id: 'console.capturesNone', defaultMessage: 'No captures yet. Turn on a flight recorder trigger in Settings → Advanced, and Hive saves an agent\'s recent events by itself when it fires.', description: "The developer console's list of captures, while there are none. Settings → Advanced is where the triggers are: use its name as Hive shows it." }),
+  captureRow: msg({ id: 'console.captureRow', defaultMessage: 'Captured {trigger} on {agent}, {when}', description: "A capture in the developer console's list, as the flight recorder's notice says it: what it caught (\"a safeguard stop\"), on which agent, and how long ago (\"5 minutes ago\")." }),
+  captureEvents: msg({ id: 'console.captureEvents', defaultMessage: '{events, plural, one {# event} other {# events}}', description: "A capture in the developer console's list: how many events it holds." }),
+  showCapture: msg({ id: 'console.showCapture', defaultMessage: 'Show in folder', description: "A link beside a capture in the developer console's list: shows its file in File Explorer." })
+}
+
+/** What a capture saw, in Hive's language when its file says it as a message this Hive knows; else its English. */
+const whatOf = (c: ConsoleRecordingInfo['capture']): string => {
+  const w = readFlightWhat(c?.whatText)
+  return w ? tr(FLIGHT_WHAT[w.id] as Msg, w.values as never) : (c?.what ?? '')
+}
+
+/** What the console's list calls a capture's trigger: one Hive knows, in its language; another as its file says it. */
+const triggerName = (t: string): string => (Object.hasOwn(FLIGHT_TRIGGER_NAME, t) ? tr(FLIGHT_TRIGGER_NAME[t as FlightTrigger]) : t)
+
+const bold = (chunks: ReactNode[]): ReactNode => <b>{chunks}</b>
+
+/** The window's language: it renders again when it changes (the main window's store does this for App). */
+function useLanguage(): string {
+  const [code, setCode] = useState(language)
+  useEffect(() => onLanguageChange(setCode), [])
+  return code
+}
+
 export function ConsoleApp() {
+  useLanguage()
   const [sources, setSources] = useState<ConsoleSource[]>(NO_SOURCES)
   const [source, setSource] = useState('')
   const [events, setEvents] = useState<ConsoleEvent[]>([])
@@ -42,6 +120,8 @@ export function ConsoleApp() {
   // This window's recording: going on, or the last one it stopped (#638). Text is asked for each time.
   const [recording, setRecording] = useState<ConsoleRecordingInfo | null>(null)
   const [recordMenu, setRecordMenu] = useState(false)
+  // The flight recorder's captures (#698), read when the list is opened.
+  const [captures, setCaptures] = useState<ConsoleRecordingInfo[] | null>(null)
   const [withText, setWithText] = useState(false)
   // Settings → Advanced → Developer console: show text (#699); main decides what it sends, this says so.
   const [showText, setShowText] = useState(false)
@@ -204,6 +284,13 @@ export function ConsoleApp() {
     call('console:record', from, { includeText: withText }).then(setRecording, (e) => setError(errorMessage(e)))
   }
   // The box starts as the setting says each time the menu opens.
+  const toggleCaptures = (): void => {
+    if (captures) return setCaptures(null)
+    setRecordMenu(false)
+    void call('console:captures')
+      .then(setCaptures)
+      .catch((e) => setError(errorMessage(e)))
+  }
   const toggleRecordMenu = (): void => {
     if (!recordMenu) setWithText(showText)
     setRecordMenu(!recordMenu)
@@ -245,8 +332,8 @@ export function ConsoleApp() {
   return (
     <div className="dc">
       <div className="dc-toolbar">
-        <select className="dc-source" value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source">
-          <option value="">Pick a source…</option>
+        <select className="dc-source" value={source} onChange={(e) => setSource(e.target.value)} aria-label={tr(M.source)}>
+          <option value="">{tr(M.pickSource)}</option>
           {groups.map((g) => (
             <optgroup key={g.label} label={g.label}>
               {g.sources.map((s) => (
@@ -257,47 +344,67 @@ export function ConsoleApp() {
             </optgroup>
           ))}
         </select>
-        <IconButton icon="refresh" title="Refresh the sources" onClick={loadSources} />
+        <IconButton icon="refresh" title={tr(M.refresh)} onClick={loadSources} />
         <span className={cx('dc-live', !source ? 'off' : paused ? 'paused' : 'live')} role="status">
           <Icon name={!source ? 'circle-large-outline' : paused ? 'debug-pause' : 'circle-filled'} />
-          {!source ? 'Not watching' : paused ? `Paused${waiting ? ` (${waiting} new)` : ''}` : 'Live'}
+          {!source ? tr(M.notWatching) : paused ? tr(M.paused, { waiting }) : tr(M.live)}
         </span>
-        <IconButton icon={paused ? 'debug-start' : 'debug-pause'} title={paused ? 'Resume' : 'Pause'} onClick={paused ? resume : pause} disabled={!source} className="dc-pause" />
-        <IconButton icon="clear-all" title="Clear" onClick={clear} disabled={!events.length && !waiting} className="dc-clear" />
+        <IconButton icon={paused ? 'debug-start' : 'debug-pause'} title={paused ? tr(M.resume) : tr(M.pause)} onClick={paused ? resume : pause} disabled={!source} className="dc-pause" />
+        <IconButton icon="clear-all" title={tr(M.clear)} onClick={clear} disabled={!events.length && !waiting} className="dc-clear" />
         {recording?.recording ? (
           <button className="btn small dc-record-stop" onClick={stopRecording}>
-            <Icon name="debug-stop" /> Stop recording
+            <Icon name="debug-stop" /> {tr(M.stopRecording)}
           </button>
         ) : (
           <span className="dc-record-wrap">
-            <IconButton icon="record" title="Record to a file" onClick={toggleRecordMenu} disabled={!source} className="dc-record" expanded={recordMenu} />
+            <IconButton icon="record" title={tr(M.recordToFile)} onClick={toggleRecordMenu} disabled={!source} className="dc-record" expanded={recordMenu} />
             {recordMenu && (
-              <div className="dc-record-menu" role="dialog" aria-label="Record">
-                <div>
-                  Record {watched ? sourceOption({ ...watched, events: 0 }) : 'this source'} to a file, from now until you stop. Redacted unless you tick text: no prompt or reply text, commands, tokens or sign-ins.
-                </div>
+              <div className="dc-record-menu" role="dialog" aria-label={tr(M.record)}>
+                <div>{tr(M.recordWhat, { source: watched ? sourceOption({ ...watched, events: 0 }) : tr(M.thisSource) })}</div>
                 <label className="flex dialog-check">
-                  <input type="checkbox" className="checkbox" checked={withText} onChange={(e) => setWithText(e.target.checked)} /> Include prompt and reply text in this recording (tokens and sign-ins stay masked)
+                  <input type="checkbox" className="checkbox" checked={withText} onChange={(e) => setWithText(e.target.checked)} /> {tr(M.includeText)}
                 </label>
                 <div className="dc-record-actions">
                   <button className="btn small subtle" onClick={() => setRecordMenu(false)}>
-                    Cancel
+                    {tr(M.cancel)}
                   </button>
                   <button className="btn small primary dc-record-start" onClick={startRecording}>
-                    Start recording
+                    {tr(M.startRecording)}
                   </button>
                 </div>
               </div>
             )}
           </span>
         )}
+        <span className="dc-record-wrap">
+          <IconButton icon="history" title={tr(M.captures)} onClick={toggleCaptures} className="dc-captures" expanded={captures !== null} />
+          {captures && (
+            <div className="dc-record-menu dc-captures-menu" role="dialog" aria-label={tr(M.captures)}>
+              {captures.length ? (
+                captures.map((c) => (
+                  <div key={c.name} className="dc-capture">
+                    <div>{tr(M.captureRow, { trigger: triggerName(c.capture?.trigger ?? ''), agent: c.label, when: timeAgo(c.startedAt) })}</div>
+                    <div className="faint dc-capture-what">
+                      {whatOf(c.capture)} · {tr(M.captureEvents, { events: c.events })} ·{' '}
+                      <a className="dc-show-capture" onClick={() => void call('console:showRecording', c.name).catch((e) => setError(errorMessage(e)))}>
+                        {tr(M.showCapture)}
+                      </a>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="faint">{tr(M.capturesNone)}</div>
+              )}
+            </div>
+          )}
+        </span>
         <span className="dc-sep" />
         <div className="dc-search">
           <Icon name="search" />
-          <SearchInput ref={searchRef} value={search} onChange={setSearch} placeholder="Search events (Ctrl+F)" aria-label="Search events" spellCheck={false} />
+          <SearchInput ref={searchRef} value={search} onChange={setSearch} placeholder={tr(M.search)} aria-label={tr(M.searchLabel)} spellCheck={false} />
         </div>
-        <select className="dc-provider" value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Provider">
-          <option value="">All providers</option>
+        <select className="dc-provider" value={provider} onChange={(e) => setProvider(e.target.value)} aria-label={tr(M.provider)}>
+          <option value="">{tr(M.allProviders)}</option>
           {choices.providers.map((p) => (
             <option key={p} value={p}>
               {providerName(p as never) || p}
@@ -306,7 +413,7 @@ export function ConsoleApp() {
         </select>
       </div>
       {choices.kinds.length > 0 && (
-        <div className="dc-kinds" role="group" aria-label="Event types">
+        <div className="dc-kinds" role="group" aria-label={tr(M.eventTypes)}>
           {choices.kinds.map((k) => (
             <button key={k} className={cx('dc-kind', !hiddenKinds.has(k) && 'on')} aria-pressed={!hiddenKinds.has(k)} onClick={() => toggleKind(k)} data-kind={k}>
               {k}
@@ -317,9 +424,7 @@ export function ConsoleApp() {
       {showText && (
         <div className="banner warn dc-unredacted" role="status">
           <Icon name="unlock" />
-          <span>
-            <b>Unredacted:</b> this console shows prompt, reply and command text (Settings → Advanced → Developer console: show prompt, reply and command text). Tokens, API keys and sign-in details stay masked.
-          </span>
+          <span>{Children.toArray(tRich<ReactNode>(M.unredacted, { b: bold }))}</span>
         </div>
       )}
       {error && <div className="dc-error">{error}</div>}
@@ -334,12 +439,9 @@ export function ConsoleApp() {
           }}
         >
           {!source && (
-            <div className="dc-empty">
-              Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted:{' '}
-              {showText ? 'no tokens or sign-in details (this window shows prompt, reply and command text while the setting is on).' : 'no prompt or reply text, commands, tokens or sign-in details.'}
-            </div>
+            <div className="dc-empty">{showText ? tr(M.emptyText) : tr(M.emptyRedacted)}</div>
           )}
-          {source && !shown.length && <div className="dc-empty">{events.length ? 'No events match.' : 'Waiting for events…'}</div>}
+          {source && !shown.length && <div className="dc-empty">{events.length ? tr(M.noMatch) : tr(M.waiting)}</div>}
           {shown.map((e) => (
             <div key={e.seq} role="listitem" className={cx('dc-row', picked === e.seq && 'picked')} data-kind={e.kind} data-seq={e.seq} onClick={() => setPicked(picked === e.seq ? null : e.seq)}>
               <span className="dc-time">{clockTime(e.at)}</span>
@@ -348,7 +450,7 @@ export function ConsoleApp() {
               <span className="dc-summary" title={e.summary}>
                 {e.summary}
               </span>
-              {e.truncated && <Icon name="fold" title="Cut down to its outline (too large)" />}
+              {e.truncated && <Icon name="fold" title={tr(M.outlineTip)} />}
             </div>
           ))}
         </div>
@@ -359,19 +461,19 @@ export function ConsoleApp() {
               <span className="dc-kind-tag">{current.kind}</span>
               {current.provider && <span className="dc-meta">{providerName(current.provider)}</span>}
               <span className="dc-meta">{clockTime(current.at)}</span>
-              <span className="dc-meta">{current.bytes.toLocaleString('en')} bytes</span>
-              {current.truncated && <span className="dc-meta">cut down to its outline</span>}
+              <span className="dc-meta">{tr(M.bytes, { n: current.bytes })}</span>
+              {current.truncated && <span className="dc-meta">{tr(M.outline)}</span>}
               <span className="dc-sep" />
-              <IconButton icon="close" title="Close (Esc)" onClick={() => setPicked(null)} />
+              <IconButton icon="close" title={tr(M.close)} onClick={() => setPicked(null)} />
             </div>
             <div className="dc-summary-full">{current.summary}</div>
             <div className="dc-sides">
               <section className="dc-side dc-raw">
-                <h3>Raw</h3>
+                <h3>{tr(M.raw)}</h3>
                 <Payload value={current.raw} />
               </section>
               <section className="dc-side dc-made">
-                <h3>What Hive made of it</h3>
+                <h3>{tr(M.made)}</h3>
                 <Payload value={current.made} />
               </section>
             </div>
@@ -379,41 +481,34 @@ export function ConsoleApp() {
         )}
       </div>
       <div className="dc-status">
-        <span>
-          {shown.length === events.length ? `${events.length} events` : `${shown.length} of ${events.length} events`}
-          {afterSeq ? ' (cleared)' : ''}
-        </span>
-        {dropped > 0 && <span className="dc-dropped">{dropped} not delivered (too many at once)</span>}
-        {watched && <span>{watched.capturing ? 'Capturing' : 'Not capturing'}</span>}
+        <span>{shown.length === events.length ? tr(M.events, { n: events.length, cleared: afterSeq ? 'yes' : 'no' }) : tr(M.eventsOf, { shown: shown.length, n: events.length, cleared: afterSeq ? 'yes' : 'no' })}</span>
+        {dropped > 0 && <span className="dc-dropped">{tr(M.dropped, { n: dropped })}</span>}
+        {watched && <span>{watched.capturing ? tr(M.capturing) : tr(M.notCapturing)}</span>}
         {recording && (
           <span className={cx('dc-recording', recording.recording && 'on')}>
             {recording.recording ? (
               <>
-                <Icon name="record" /> Recording {recording.events} events to {recording.name}
-                {recording.includeText ? ' (with text)' : ''}
+                <Icon name="record" /> {tr(M.recording, { n: recording.events, name: recording.name, withText: recording.includeText ? 'yes' : 'no' })}
               </>
             ) : (
               <>
                 {recording.reason === 'failed' ? (
                   <span className="dc-recording-failed">
-                    <Icon name="error" /> Recording failed after {recording.events} events in {recording.name}: {recording.error ?? 'it could not be written'}
+                    <Icon name="error" /> {tr(M.failed, { n: recording.events, name: recording.name, error: recording.error ?? tr(M.notWritten) })}
                   </span>
                 ) : (
-                  <>
-                    Saved {recording.events} events to {recording.name}
-                    {recording.reason === 'limit' ? ' (it reached its size limit)' : ''}
-                  </>
+                  tr(M.saved, { n: recording.events, name: recording.name, limit: recording.reason === 'limit' ? 'yes' : 'no' })
                 )}
                 {' · '}
                 <a className="dc-show-recording" onClick={() => void call('console:showRecording', recording.name).catch((e) => setError(errorMessage(e)))}>
-                  Show in folder
+                  {tr(M.showInFolder)}
                 </a>
               </>
             )}
           </span>
         )}
         <span className="dc-sep" />
-        <span className={cx('dc-redaction', showText && 'unredacted')}>{showText ? 'Unredacted: text shown; tokens and sign-ins masked' : 'Redacted: no prompt or reply text, commands, tokens or sign-ins'}</span>
+        <span className={cx('dc-redaction', showText && 'unredacted')}>{showText ? tr(M.unredactedStatus) : tr(M.redactedStatus)}</span>
       </div>
     </div>
   )
@@ -421,7 +516,7 @@ export function ConsoleApp() {
 
 /** A payload as a tree; a large node starts collapsed below the top level. */
 function Payload({ value }: { value: unknown }) {
-  if (value === undefined) return <div className="dc-none">Nothing</div>
+  if (value === undefined) return <div className="dc-none">{tr(M.nothing)}</div>
   return (
     <div className="dc-tree">
       <Node value={value} depth={0} />

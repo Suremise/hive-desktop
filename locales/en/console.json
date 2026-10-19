@@ -1,0 +1,306 @@
+{
+  "console.allProviders": {
+    "defaultMessage": "All providers",
+    "description": "The developer console's provider filter: no filter, every coding agent CLI's events."
+  },
+  "console.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The developer console's source picker: the Hive Assistant's session as a source. Hive's name stays as it is."
+  },
+  "console.bytes": {
+    "defaultMessage": "{n, plural, one {# byte} other {# bytes}}",
+    "description": "The developer console's event detail: the payload's size."
+  },
+  "console.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The developer console's recording box: closes it without recording."
+  },
+  "console.cancelled": {
+    "defaultMessage": "The recording was cancelled: the console stopped watching that source",
+    "description": "Why a developer console recording didn't start: meanwhile the window closed, picked another source or started another recording."
+  },
+  "console.captureEvents": {
+    "defaultMessage": "{events, plural, one {# event} other {# events}}",
+    "description": "A capture in the developer console's list: how many events it holds."
+  },
+  "console.captureRow": {
+    "defaultMessage": "Captured {trigger} on {agent}, {when}",
+    "description": "A capture in the developer console's list, as the flight recorder's notice says it: what it caught (\"a safeguard stop\"), on which agent, and how long ago (\"5 minutes ago\")."
+  },
+  "console.captures": {
+    "defaultMessage": "Captures",
+    "description": "The developer console's button and list of the flight recorder's captures: recent events Hive saved by itself when something rare happened to an agent."
+  },
+  "console.capturesNone": {
+    "defaultMessage": "No captures yet. Turn on a flight recorder trigger in Settings → Advanced, and Hive saves an agent's recent events by itself when it fires.",
+    "description": "The developer console's list of captures, while there are none. Settings → Advanced is where the triggers are: use its name as Hive shows it."
+  },
+  "console.capturing": {
+    "defaultMessage": "Capturing",
+    "description": "The developer console's status bar: Hive is capturing the watched source's events."
+  },
+  "console.clear": {
+    "defaultMessage": "Clear",
+    "description": "The developer console's button: hides the events so far; only later ones show."
+  },
+  "console.close": {
+    "defaultMessage": "Close (Esc)",
+    "description": "The developer console's event detail: closes it. Esc is its key: keep it."
+  },
+  "console.dropped": {
+    "defaultMessage": "{n, number} not delivered (too many at once)",
+    "description": "The developer console's status bar: events that came too fast for the window, so it never got them."
+  },
+  "console.emptyRedacted": {
+    "defaultMessage": "Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.",
+    "description": "The developer console while no source is picked."
+  },
+  "console.emptyText": {
+    "defaultMessage": "Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no tokens or sign-in details (this window shows prompt, reply and command text while the setting is on).",
+    "description": "The developer console while no source is picked, with the setting that shows text on (Settings → Advanced)."
+  },
+  "console.eventTypes": {
+    "defaultMessage": "Event types",
+    "description": "The developer console's row of buttons that show or hide each kind of event (accessible name)."
+  },
+  "console.events": {
+    "defaultMessage": "{n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}",
+    "description": "The developer console's status bar: how many events it lists; (cleared) when Clear hid the earlier ones."
+  },
+  "console.eventsOf": {
+    "defaultMessage": "{shown, number} of {n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}",
+    "description": "The developer console's status bar: how many events the search and filters show, of how many; (cleared) when Clear hid the earlier ones."
+  },
+  "console.failed": {
+    "defaultMessage": "Recording failed after {n, plural, one {# event} other {# events}} in {name}: {error}",
+    "description": "The developer console's status bar: a recording to the file {name} stopped as it couldn't be written; {error} says why."
+  },
+  "console.fileFull": {
+    "defaultMessage": "The recording file took nothing more",
+    "description": "Why a developer console recording failed: writing to its file wrote nothing (the disk may be full)."
+  },
+  "console.flight.captured": {
+    "defaultMessage": "Captured {trigger} on {agent}",
+    "description": "A notice: the developer console's flight recorder saved an agent's recent events because something rare happened. {trigger} is what (\"a safeguard stop\"), {agent} the agent."
+  },
+  "console.flight.capturedDetail": {
+    "defaultMessage": "{events, plural, one {# event} other {# events}} saved, redacted: {what}",
+    "description": "The notice that the flight recorder saved a capture: how many developer console events it holds, and what it saw (\"safeguards stopped a response on claude-opus-5-5\", itself translated)."
+  },
+  "console.flight.failed": {
+    "defaultMessage": "Couldn't save the capture of {agent}",
+    "description": "A warning: the developer console's flight recorder couldn't write its capture. The reason follows."
+  },
+  "console.flight.show": {
+    "defaultMessage": "Show in Folder",
+    "description": "A button on the flight recorder's notice: shows the capture's file in File Explorer."
+  },
+  "console.flight.trigger.pattern": {
+    "defaultMessage": "an event matching your pattern",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": an event the pattern in Settings → Advanced found."
+  },
+  "console.flight.trigger.safeguard": {
+    "defaultMessage": "a safeguard stop",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": a model's safeguards stopped a response or switched the model."
+  },
+  "console.flight.trigger.stalled": {
+    "defaultMessage": "a silence past its limit",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the agent went silent in a turn for longer than its limit."
+  },
+  "console.flight.trigger.unknown": {
+    "defaultMessage": "something unknown from its CLI",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the CLI sent a field Hive doesn't know."
+  },
+  "console.flight.trigger.version": {
+    "defaultMessage": "a CLI version change",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the agent started on a new version of its CLI."
+  },
+  "console.flight.what.modelSwitch": {
+    "defaultMessage": "the model switched from {from} to {to}",
+    "description": "What the flight recorder saw: after its safeguards stopped a response, the CLI switched the agent to another model. {from} and {to} are models' ids, as the CLI names them."
+  },
+  "console.flight.what.pattern": {
+    "defaultMessage": "an event matching your pattern: {event}",
+    "description": "What the flight recorder saw: a developer console event your pattern (Settings → Advanced) found. {event} is the event as the console records it, in English."
+  },
+  "console.flight.what.safeguardStop": {
+    "defaultMessage": "safeguards stopped a response",
+    "description": "What the flight recorder saw, after \"saved, redacted:\" in its notice and in the console's list of captures: a model's safeguards stopped one of its responses."
+  },
+  "console.flight.what.safeguardStopOn": {
+    "defaultMessage": "safeguards stopped a response on {model}",
+    "description": "What the flight recorder saw: a model's safeguards stopped one of its responses. {model} is the model's id, as the CLI names it (claude-opus-5-5)."
+  },
+  "console.flight.what.stalled": {
+    "defaultMessage": "silent in a turn for {seconds, number} s: its state is unknown",
+    "description": "What the flight recorder saw: an agent working on a turn has said nothing for {seconds} seconds, past its limit, so Hive can't tell what it is doing."
+  },
+  "console.flight.what.unknownEvent": {
+    "defaultMessage": "hook {event}, an event Hive doesn't know",
+    "description": "What the flight recorder saw: the CLI sent a hook (a message telling Hive what it is doing) with an event name Hive doesn't know. {event} is that name, as the CLI sends it."
+  },
+  "console.flight.what.unknownEventFields": {
+    "defaultMessage": "hook {event}, an event Hive doesn't know, with fields Hive doesn't know: {fields}",
+    "description": "What the flight recorder saw: the CLI sent a hook with an event name and fields Hive doesn't know. {event} is the name, {fields} the fields' names, as the CLI sends them (\"brand_new, other_one\")."
+  },
+  "console.flight.what.unknownFields": {
+    "defaultMessage": "a hook with fields Hive doesn't know: {fields}",
+    "description": "What the flight recorder saw: the CLI sent a hook with fields Hive doesn't know. {fields} are the fields' names, as the CLI sends them."
+  },
+  "console.flight.what.unknownHookFields": {
+    "defaultMessage": "hook {event} with fields Hive doesn't know: {fields}",
+    "description": "What the flight recorder saw: the CLI sent a hook (its event name {event}, which Hive knows) with fields Hive doesn't know. {fields} are the fields' names, as the CLI sends them."
+  },
+  "console.flight.what.unknownStatusFields": {
+    "defaultMessage": "status line with fields Hive doesn't know: {fields}",
+    "description": "What the flight recorder saw: Claude Code sent a status line (what it reports of its model, cost and limits) with fields Hive doesn't know. {fields} are the fields' names."
+  },
+  "console.flight.what.version": {
+    "defaultMessage": "{provider} {from} → {to}",
+    "description": "What the flight recorder saw: an agent started on a new version of its CLI. {provider} is the CLI's id (claude-code), {from} and {to} its old and new versions. Usually kept as it is."
+  },
+  "console.includeText": {
+    "defaultMessage": "Include prompt and reply text in this recording (tokens and sign-ins stay masked)",
+    "description": "A check box in the developer console's recording box: the recording keeps the prompts', replies' and commands' text; secrets stay hidden."
+  },
+  "console.live": {
+    "defaultMessage": "Live",
+    "description": "The developer console's indicator: events show as they come."
+  },
+  "console.made": {
+    "defaultMessage": "What Hive made of it",
+    "description": "The developer console's event detail: the heading of what Hive read from what came in."
+  },
+  "console.noMatch": {
+    "defaultMessage": "No events match.",
+    "description": "The developer console's list: the search and filters hide every event."
+  },
+  "console.notCapturing": {
+    "defaultMessage": "Not capturing",
+    "description": "The developer console's status bar: Hive isn't capturing the watched source's events."
+  },
+  "console.notWatching": {
+    "defaultMessage": "Not watching",
+    "description": "The developer console's indicator: no source is picked, so nothing is captured."
+  },
+  "console.notWritten": {
+    "defaultMessage": "it could not be written",
+    "description": "The developer console: why a recording failed, when there's no other reason: 'Recording failed after 3 events in <file>: it could not be written'."
+  },
+  "console.nothing": {
+    "defaultMessage": "Nothing",
+    "description": "The developer console's event detail: an empty side (nothing came in, or Hive made nothing of it)."
+  },
+  "console.outline": {
+    "defaultMessage": "cut down to its outline",
+    "description": "The developer console's event detail: the payload was too large to keep, so only its shape (fields, sizes) was kept."
+  },
+  "console.outlineTip": {
+    "defaultMessage": "Cut down to its outline (too large)",
+    "description": "The developer console: an event's payload was too large to keep, so only its shape (fields, sizes) was kept."
+  },
+  "console.pause": {
+    "defaultMessage": "Pause",
+    "description": "The developer console's button: the list stops moving (capture goes on)."
+  },
+  "console.paused": {
+    "defaultMessage": "{waiting, plural, =0 {Paused} other {Paused ({waiting, number} new)}}",
+    "description": "The developer console's indicator while paused: the list holds still; {waiting} events came meanwhile (shown on resume)."
+  },
+  "console.pickSource": {
+    "defaultMessage": "Pick a source…",
+    "description": "The developer console's source picker, while it watches none."
+  },
+  "console.provider": {
+    "defaultMessage": "Provider",
+    "description": "The developer console's filter by coding agent CLI (Claude Code, Codex, Copilot), accessible name."
+  },
+  "console.raw": {
+    "defaultMessage": "Raw",
+    "description": "The developer console's event detail: the heading of what came in, as it came (from the CLI)."
+  },
+  "console.record": {
+    "defaultMessage": "Record",
+    "description": "The developer console's recording box (accessible name)."
+  },
+  "console.recordToFile": {
+    "defaultMessage": "Record to a file",
+    "description": "The developer console's button that opens the recording box: the source's events from now on go to a file."
+  },
+  "console.recordWhat": {
+    "defaultMessage": "Record {source} to a file, from now until you stop. Redacted unless you tick text: no prompt or reply text, commands, tokens or sign-ins.",
+    "description": "The developer console's recording box. {source} is the watched agent's name, the Assistant, Hive, or the words 'this source'. 'Tick text' refers to the box below it (include prompt and reply text)."
+  },
+  "console.recording": {
+    "defaultMessage": "Recording {n, plural, one {# event} other {# events}} to {name}{withText, select, yes { (with text)} other {}}",
+    "description": "The developer console's status bar while it records: how many events so far, to the file {name}; (with text) when prompt and reply text are kept."
+  },
+  "console.redactedStatus": {
+    "defaultMessage": "Redacted: no prompt or reply text, commands, tokens or sign-ins",
+    "description": "The developer console's status bar: what it hides."
+  },
+  "console.refresh": {
+    "defaultMessage": "Refresh the sources",
+    "description": "The developer console's button that lists the sources (agents, the Assistant, Hive) again."
+  },
+  "console.resume": {
+    "defaultMessage": "Resume",
+    "description": "The developer console's button: the list moves again, filled in with what came while paused."
+  },
+  "console.saved": {
+    "defaultMessage": "Saved {n, plural, one {# event} other {# events}} to {name}{limit, select, yes { (it reached its size limit)} other {}}",
+    "description": "The developer console's status bar: a recording ended, with how many events, in the file {name}; the note when it stopped at its largest size."
+  },
+  "console.search": {
+    "defaultMessage": "Search events (Ctrl+F)",
+    "description": "The developer console's search box (placeholder). Ctrl+F is its shortcut: keep it."
+  },
+  "console.searchLabel": {
+    "defaultMessage": "Search events",
+    "description": "The developer console's search box (accessible name)."
+  },
+  "console.showCapture": {
+    "defaultMessage": "Show in folder",
+    "description": "A link beside a capture in the developer console's list: shows its file in File Explorer."
+  },
+  "console.showInFolder": {
+    "defaultMessage": "Show in folder",
+    "description": "The developer console's status bar: shows the recording's file in File Explorer."
+  },
+  "console.source": {
+    "defaultMessage": "Source",
+    "description": "The developer console's source picker (accessible name): which agent's session, the Assistant or Hive itself it watches."
+  },
+  "console.sourceCount": {
+    "defaultMessage": "{name} ({n, number})",
+    "description": "The developer console's source picker: a source ({name}: an agent, the Assistant or Hive) with how many events it has captured."
+  },
+  "console.startRecording": {
+    "defaultMessage": "Start recording",
+    "description": "The developer console's recording box: starts recording the source's events to a file."
+  },
+  "console.stopRecording": {
+    "defaultMessage": "Stop recording",
+    "description": "The developer console's button while it records the source's events to a file."
+  },
+  "console.thisSource": {
+    "defaultMessage": "this source",
+    "description": "The developer console's recording box, where the watched source's name goes when it isn't known: 'Record this source to a file…'."
+  },
+  "console.tooMany": {
+    "defaultMessage": "Too many developer consoles open at once",
+    "description": "An error opening a developer console window or starting a recording: Hive already watches for as many as it allows. Closing one helps."
+  },
+  "console.unredacted": {
+    "defaultMessage": "<b>Unredacted:</b> this console shows prompt, reply and command text (Settings → Advanced → Developer console: show prompt, reply and command text). Tokens, API keys and sign-in details stay masked.",
+    "description": "A warning banner in the developer console while the setting that shows text is on. Settings → Advanced → Developer console: show prompt, reply and command text is where it is: use those translated names. <b> is bold: keep the tags."
+  },
+  "console.unredactedStatus": {
+    "defaultMessage": "Unredacted: text shown; tokens and sign-ins masked",
+    "description": "The developer console's status bar while the setting that shows text is on."
+  },
+  "console.waiting": {
+    "defaultMessage": "Waiting for events…",
+    "description": "The developer console's list: the source is watched, and nothing has come yet."
+  }
+}

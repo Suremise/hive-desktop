@@ -187,7 +187,7 @@
   "workspace.move.untouched": "Nic w starym miejscu nie zostanie przeniesione ani usunięte.",
   "workspace.move.watches": "{count, plural, one {# obserwacja karty} few {# obserwacje kart} many {# obserwacji kart} other {# obserwacji karty}}",
   "workspace.move.working": "Ustalanie, co zostało przeniesione…",
-  "workspace.move.workingOn": "W pracy: ponownie oznacz {projects}, tak jak w starym folderze.",
+  "workspace.move.workingOn": "Aktywne: ponownie oznacz {projects}, tak jak w starym folderze.",
   "workspace.notes.delete": "Usuń notatkę",
   "workspace.notes.select": "Wybierz notatkę albo utwórz nową. Notatki wspólne są w <code>.hive/shared</code> i są dostępne dla każdego projektu i agenta.",
   "workspace.overview.agentLabel": "{project} · {agent}",

@@ -118,6 +118,8 @@
   "tips.fileLinks.title": "Ctrl+clic sur un chemin dans le terminal",
   "tips.filesTab.text": "L’onglet Fichiers parcourt et modifie le projet, prévisualise le Markdown, le CSV, le HTML et les images, et garde les modifications non enregistrées quand tu passes d’un fichier à l’autre.",
   "tips.filesTab.title": "Modifier des fichiers sans quitter Hive",
+  "tips.flightRecorder.text": "Active un déclencheur de l’enregistreur de vol dans Paramètres → Avancé (arrêts de sécurité, quelque chose d’inconnu venant d’une CLI, un changement de version d’une CLI, un agent devenu silencieux), et Hive enregistre les événements récents de la console de développement de l’agent, masqués, au moment même où cela se produit, avec une notification.",
+  "tips.flightRecorder.title": "Capturer automatiquement les événements rares",
   "tips.gitCheck.text": "Aide → Configuration des agents… montre le git trouvé par Hive et sa version. Les agents en worktree, la fusion et l’onglet Git nécessitent Git for Windows 2.38 ou ultérieur.",
   "tips.gitCheck.title": "Git est-il prêt pour les worktrees ?",
   "tips.gitInit.text": "Un projet sans git ? Initialiser le dépôt…, dans son onglet Git, en fait un dépôt sur main, garde .hive en dehors, ajoute un .gitignore de départ si tu veux et fait le premier commit, pour que les agents puissent tout de suite travailler dans des worktrees.",

@@ -49,6 +49,7 @@
   "shell.command.assistant.settings": "Assistenten-Einstellungen…",
   "shell.command.assistant.start": "Hive Assistant starten",
   "shell.command.assistant.toggle": "Hive Assistant ein-/ausblenden",
+  "shell.command.console.showCapture": "Mitschnitt im Ordner anzeigen",
   "shell.command.help.about": "Über {app}",
   "shell.command.help.agentSetup": "Agent-Einrichtung…",
   "shell.command.help.api": "Referenz der Agent API",
