@@ -44,6 +44,11 @@ const check = (name, ok, extra = '') => {
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
   const live = async (p, agentId) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === p.toLowerCase() && s.agentId === agentId)
+  // The doorbells Tester's CLI took (the fake records each in fake-wakes.jsonl).
+  const doorbells = () => {
+    const f = path.join(claudeHome, 'fake-wakes.jsonl')
+    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === 'Tester' && !!w.doorbell)
+  }
   const until = async (fn, ms = 20000) => {
     const t = Date.now()
     let v
@@ -117,13 +122,28 @@ const check = (name, ok, extra = '') => {
     return s?.runId !== before && s?.status === 'ready' && s
   }, HUNG_MS)
   check('its CLI is ready, its task held', !!ready, JSON.stringify(await live(alpha, id)))
+  // #721: a message left in that gap rings its doorbell only once its CLI has taken the task (typed before, the task's
+  // prompt would be taken for the doorbell's, and the doorbell would go first). Left before the gap's 5 s wait below,
+  // which is when it would have rung.
+  const rangBefore = doorbells().length
+  const inGap = await api('POST', '/v1/projects/alpha/agents/Tester/message', { text: 'The release notes are in the shared notes.' })
   const held = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 5 })
   check('a wait in that gap waits: the task counts as given (#712)', held.body?.timedOut === true && held.body.agents[0].status === 'ready', JSON.stringify(held.body))
+  check('no doorbell is typed in that gap (#721)', inGap.status === 200 && doorbells().length === rangBefore, JSON.stringify({ left: inGap.body, rang: doorbells().length - rangBefore }))
   const busyNow = await api('POST', '/v1/projects/alpha/agents/Tester/prompt', { text: 'something else' })
   check('and nothing more is given it meanwhile', busyNow.status === 409 && /hasn't taken yet/.test(busyNow.body?.error ?? ''), JSON.stringify(busyNow.body))
+  const goAt = new Date().toISOString()
   fs.writeFileSync(path.join(claudeHome, 'fake-launch-go-Tester'), '')
   const took = await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 30 })
   check('once it takes the task, the wait ends with the task done', took.body?.timedOut === false && took.body.agents[0].status === 'finished', JSON.stringify(took.body))
+  // It hears of it after the task (at its turn's end, or by a doorbell then), and reads it.
+  const gapRead = await until(async () => {
+    const inbox = (await api('GET', '/v1/projects/alpha/agents/Tester/activity')).body?.inbox
+    return !!inbox?.deliveries?.some((d) => d.id === inGap.body?.id && (d.state === 'received' || d.state === 'acked'))
+  }, HUNG_MS)
+  const early = doorbells().slice(rangBefore).filter((w) => w.at < goAt)
+  check('then it reads the message, nothing typed before its task was taken (#721)', gapRead && early.length === 0, JSON.stringify({ early, goAt, read: gapRead }))
+  await api('POST', '/v1/agents/wait', { agents: [{ project: 'alpha', agent: 'Tester' }], timeoutSeconds: 30 })
 
   // #726: its turn over while a long background task of its own runs (a timer to renew a merge slot, say), a message
   // rings its doorbell within seconds, not once the task ends; it reads the message from its inbox.
@@ -133,10 +153,6 @@ const check = (name, ok, extra = '') => {
     return s?.status === 'background' && s.backgroundTasks === 1 && s
   }, HUNG_MS)
   check('it waits on a long background task of its own', timer.status === 200 && !!timing, JSON.stringify(timer.body))
-  const doorbells = () => {
-    const f = path.join(claudeHome, 'fake-wakes.jsonl')
-    return (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []).filter((w) => w.agent === 'Tester' && !!w.doorbell)
-  }
   const rang = doorbells().length
   const t1 = Date.now()
   const left = await api('POST', '/v1/projects/alpha/agents/Tester/message', { text: 'Darren pushed the tag: carry on with the release.' })

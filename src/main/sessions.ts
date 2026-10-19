@@ -1,7 +1,9 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { fmt, msg, onLanguageChange, tr } from '../shared/i18n'
-import { englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { drawnWaitId, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { capturedText, hiveError, HiveError, shownError } from './hiveError'
+import { advanced } from './advanced'
+import { folderChanging, folderSteady } from './folderFence'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -272,6 +274,8 @@ interface LiveSession {
   initialPrompt?: string
   /** This launch was given its first task on its command line: until its CLI takes it, it is pending (#712). */
   launchTask?: true
+  /** When such a launch first became ready (or watching), in ms: its task is pending at most PENDING_MS from then (#721). */
+  launchReadyAt?: number
   /**
    * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
    * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
@@ -530,6 +534,17 @@ async function typeInto(key: string, text: string, still: () => boolean = () => 
   }
 }
 
+/**
+ * Whether a line Hive is typing has been drawn on an agent's screen (#600): its end (spaces left out, as a CLI wraps
+ * it) shows more often than when this was called, before it was typed (a doorbell's end is in its earlier ones too).
+ */
+export function drawnLine(screen: Pick<TerminalScreen, 'text'>, line: string): () => boolean {
+  const end = line.replace(/\s+/g, '').slice(-40)
+  const count = (): number => (end ? screen.text().replace(/\s+/g, '').split(end).length - 1 : 0)
+  const before = count()
+  return () => count() > before
+}
+
 /** Runs a worktree's setup command in the agent's terminal (Windows: cmd.exe, elsewhere: sh). */
 function shellCommand(command: string): { file: string; args: string[] } {
   return process.platform === 'win32' ? { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', command] } : { file: '/bin/sh', args: ['-c', command] }
@@ -677,6 +692,20 @@ const USER_REPLY_MS = 15_000
 /** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
 const PENDING_MS = 30_000
 
+/**
+ * A launch's task on its CLI's command line not taken yet (#712): the CLI is ready at its SessionStart and takes the task
+ * only after, so it is pending until its first prompt, at most PENDING_MS after it became ready. Ready shows as watching
+ * when a watch of the agent's outlived its last launch (#721 round 1 finding 1), and as finished once that watch ends:
+ * pending too, timed from when it first became ready (launchReadyAt), which a watch's coming or going doesn't move.
+ */
+function launchPending(l: LiveSession): boolean {
+  const st = l.state
+  if (!l.launchTask || (l.prompts ?? 0) > 0) return false
+  if (st.status === 'starting') return true
+  if (st.status !== 'ready' && st.status !== 'watching' && st.status !== 'finished') return false
+  return Date.now() - (l.launchReadyAt ?? Date.parse(st.statusSince ?? '')) < PENDING_MS
+}
+
 /** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
 const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
@@ -766,10 +795,18 @@ class SessionManager {
     if (!l) return null
     const prompts = l.prompts ?? 0
     const typed = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
-    const st = l.state
-    const launch = !!l.launchTask && prompts === 0 && (st.status === 'starting' || (st.status === 'ready' && Date.now() - Date.parse(st.statusSince ?? '') < PENDING_MS))
-    const pending = typed || launch
+    const pending = typed || launchPending(l)
     return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
+  }
+
+  /**
+   * Whether an agent's CLI hasn't taken its launch's task yet (#712), as agentNow counts it (#721): nothing of Hive's is
+   * typed into it meanwhile, or its CLI's first prompt, the task's, would be taken for that line's and the line would go
+   * first.
+   */
+  launchTaskWaiting(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    return !!l && launchPending(l)
   }
 
   /**
@@ -780,7 +817,8 @@ class SessionManager {
   submitAgain(projectPath: string, agentId: string, runId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    // Nor while its folder is being changed (#646 round 1: the Enter would start a turn under a Git switch or pull).
+    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key) || folderChanging(l.state.cwd)) return false
     // The prompt is the user's draft once they have typed in it (#652 round 1 finding 2): never sent by Hive's Enter.
     if (this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\r')
@@ -1463,6 +1501,8 @@ class SessionManager {
     if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
     // Through its gate when its processes can be tracked (#507), else directly, untracked, as said once.
     const tracked = await this.trackingReady()
+    // Not while its folder is being changed under it (#646: a Git switch or pull there): it starts once that is done.
+    await folderSteady(cwd)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(M.stoppedBeforeStart)
@@ -1514,7 +1554,8 @@ class SessionManager {
     // menu, whose entries Hive picks by what they say (#396).
     const key = this.key(projectPath, agent.id)
     const size = startSize(key)
-    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen ? new TerminalScreen(size.cols, size.rows) : null
+    const caps = l.adapter.descriptor.capabilities
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen || caps.bracketedPaste || caps.enterOnceDrawn ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
     // The developer console (#636): how it was started (launchEvent: never its arguments).
     devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
@@ -2261,10 +2302,25 @@ class SessionManager {
       // A CLI busy for a moment reads what Hive typed in one go, Ctrl+U and Enter included: Claude Code takes such a
       // read as a paste with those keys in it as text, and then Enter again doesn't send it either (#597). A bracketed
       // paste is text however it arrives. A slash command is still typed: pasted, it is sent as a message.
+      // Enter once the CLI has drawn the line (#600: a busy Codex drops an Enter it reads with the line): its end shows
+      // on the screen once more than before it was typed.
+      const drawn = l?.screen && l.adapter.descriptor.capabilities.enterOnceDrawn ? drawnLine(l.screen, line) : null
       if (l?.screen?.bracketedPaste() && l.adapter.descriptor.capabilities.bracketedPaste && !line.startsWith('/')) writePty(key, `\x1b[200~${line.replace(/[\x00-\x1f\x7f-\x9f]/g, '')}\x1b[201~`)
       else await typeInto(key, line, () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
       check()
+      if (drawn && !drawn()) {
+        // How long, at most: Settings → Advanced (a slower CLI may need longer).
+        const most = advanced.number(drawnWaitId(l!.adapter.id)) * 1000
+        // Typed, and not drawn yet (a busy CLI): e2e suites wait for this line (wakepaste-codex).
+        log.info(`${userText(this.label(l!.state))}: the line Hive typed is in; Enter once it shows`)
+        const t = Date.now()
+        while (!drawn() && Date.now() - t < most) {
+          await new Promise((r) => setTimeout(r, 50))
+          check()
+        }
+        if (!drawn()) log.info(`${userText(this.label(l!.state))}: the line Hive typed wasn't drawn within ${most} ms: Enter anyway`)
+      }
       const before = l?.prompts ?? 0
       writePty(key, '\r')
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
@@ -3248,6 +3304,8 @@ class SessionManager {
     // Its input as Hive holds it now (#648): a line typed or given up since the last report.
     const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
+    // A launch with its task on its command line: when it first became ready, before a watch shows that as watching (#721).
+    if (l?.state === state && l.launchTask && l.launchReadyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) l.launchReadyAt = Date.now()
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)

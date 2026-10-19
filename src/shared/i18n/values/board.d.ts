@@ -464,6 +464,7 @@ interface HiveMessageValues {
   'board.stall.hintReviewSilent': undefined
   'board.stall.hintReviewVerdict': undefined
   'board.stall.hintReviewWait': undefined
+  'board.stall.hintWakeUntaken': undefined
   'board.stalled.noAgent': undefined
   'board.stalled.notRunning': { agent: string | number }
   'board.stalled.notWatching': { agent: string | number; card: string | number }
@@ -473,6 +474,7 @@ interface HiveMessageValues {
   'board.stalled.reviewWait': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWaitBusy': { agent: string | number; card: string | number; waited: string | number }
   'board.stalled.reviewWaitSilent': { agent: string | number; card: string | number; silent: number; waited: string | number }
+  'board.stalled.wakeUntaken': { agent: string | number; card: string | number }
   'board.start.busy': { status: string | number }
   'board.start.idle': { status: string | number }
   'board.start.intro': undefined
