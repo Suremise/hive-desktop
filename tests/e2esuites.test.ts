@@ -22,7 +22,7 @@ import { makeDist } from '../scripts/distCopy.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { buildLock, buildStamp, buildStamped, buildStampedAt, builtOnce, devBuild, ensureBuild } from './e2e/build.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { LANES, LANE_PORTS, claimHeld, claimLane, describeHolder, laneHolders, lanePorts, laneWaitLine, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
+import { LANES, LANE_FIRST, LANE_PORTS, claimHeld, claimLane, describeHolder, laneHolders, lanePorts, laneWaitLine, lanesFirst, laneWork, pickLane, portFree, waitForLane } from './e2e/lanes.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { describeClaim, heavySlots, holdsMergeSlot, isFullUnitRun, isHeavy, launchEnded, leftOverCheck, leftOverLine, needsSlot, preMerge, runOwner, trySlot, waitForSlot, waitLine } from './e2e/slots.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -973,6 +973,22 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
     // A runner inside a suite takes 1000 above its parent's slot: still below 49152, where Windows hands ports out.
     expect(portBase({ E2E_RUN_SUITE: 's', E2E_RUN_PORT: String(top) })).toBeLessThan(49152)
     expect(portBase({ E2E_RUN_SUITE: 's', E2E_RUN_PORT: String(top) }) - 1 + LANE_PORTS).toBeLessThan(49152)
+  })
+
+  it("a pool of its own (HIVE_TEST_LANES_DIR) claims ports no lane of the machine pool has, and both runners pass the pool's (#1127)", async () => {
+    expect(lanesFirst(false)).toBe(LANE_FIRST)
+    const machineTop = lanePorts(LANES - 1).last
+    const own = Array.from({ length: LANES }, (_, k) => lanePorts(k, lanesFirst(true)))
+    expect(own[0].first).toBeGreaterThan(machineTop)
+    expect(own.at(-1)!.last).toBeLessThan(49152)
+    const lanesDir = tempDir('hive-own-lanes-')
+    try {
+      const got = await claimLane(lanesDir, { owner: 300, alive: () => true, free: async () => true, portsFrom: lanesFirst(true) })
+      expect(got).toMatchObject({ lane: 0, ...own[0] })
+    } finally {
+      rmSync(lanesDir, { recursive: true, force: true })
+    }
+    for (const file of [join(dir, 'run.mjs'), join(__dirname, 'scenarios', 'run.mjs')]) expect(readFileSync(file, 'utf8')).toContain('portsFrom: lanesFirst(runContext.OWN_LANES),')
   })
 
   it("each lane's suites have a folder of their own, never the work folder a suite run on its own uses", () => {

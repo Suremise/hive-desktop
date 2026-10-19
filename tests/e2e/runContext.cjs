@@ -31,6 +31,8 @@ const TEST_ROOT = path.join(LOCAL, 'hive-test')
  * gives a pool of its own, for checking a run that waits for a lane (concurrency.mjs, #735) without holding real runs'.
  */
 const LANES_DIR = process.env.HIVE_TEST_LANES_DIR || path.join(TEST_ROOT, 'e2e-lanes')
+/** Whether LANES_DIR is a pool of its own, whose lanes take ports above the machine pool's (lanes.mjs lanesFirst, #1127). */
+const OWN_LANES = !!process.env.HIVE_TEST_LANES_DIR
 /**
  * Where heavy runs claim their slots (slots.mjs): one pool for the machine. HIVE_TEST_HEAVY_DIR gives a pool of its own,
  * for checking the queue (concurrency.mjs --heavy) without waiting behind real runs; HIVE_TEST_HEAVY_SLOTS, how many.
@@ -187,4 +189,4 @@ function suiteEnv({ name, port = null, work = null, runDir, cliLog = null }, par
   return env
 }
 
-module.exports = { TEST_ROOT, LANES_DIR, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv, trashDir, cliHomes, isUserCliHome }
+module.exports = { TEST_ROOT, LANES_DIR, OWN_LANES, HEAVY_DIR, WORK, CODEX_HOME, CLAUDE_TEST_HOME, ALLOW, PASS_ENV, CARRIED, baseEnv, childEnv, hiveEnv, isHiveEnv, suiteEnv, trashDir, cliHomes, isUserCliHome }

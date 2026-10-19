@@ -33,7 +33,7 @@ import { createRequire } from 'module'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { devBuild, ensureBuild } from '../e2e/build.mjs'
-import { LANES, describeHolder, laneWaitLine, laneWork, waitForLane } from '../e2e/lanes.mjs'
+import { LANES, describeHolder, laneWaitLine, lanesFirst, laneWork, waitForLane } from '../e2e/lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from '../e2e/slots.mjs'
 import { waitForCodexHome } from '../e2e/codexHomeLock.mjs'
 import { autoClean } from '../e2e/clean.mjs'
@@ -139,6 +139,7 @@ const laneQueue = slotWaitProgress('scenarios', `npm run scenarios -- ${argv.joi
 let laneSaid = ''
 const lane = await waitForLane(runContext.LANES_DIR, {
   root: lib.ROOT,
+  portsFrom: lanesFirst(runContext.OWN_LANES),
   what: `scenarios: ${chosen.length} (${provider})${repeats > 1 ? ` × ${repeats}` : ''}`,
   wait: !argv.includes('--no-wait'),
   onWait: (look) => {

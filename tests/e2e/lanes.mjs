@@ -30,9 +30,21 @@ const CLAIM_MAX_MS = 24 * 60 * 60_000
 const LOCK = '.claiming'
 const LOCK_MAX_MS = 10_000
 
-/** Lane k's ports: { base (the first slot's), first, last }. */
-export function lanePorts(k) {
-  const base = LANE_FIRST + k * LANE_SPAN
+/**
+ * Where the lanes of a pool of its own (HIVE_TEST_LANES_DIR, runContext's OWN_LANES: concurrency.mjs's check of a run
+ * that waits for a lane, #735) have their ports: above the machine pool's. Runs in other worktrees claim the machine
+ * pool's lanes without seeing this pool's claims, so sharing ports let one of them start its test Hive on the port a
+ * scenario here had just claimed, and the scenario's Agent API calls reached that Hive, which refused its token (#1127).
+ * That check starts no runner inside a suite, the only thing that takes ports 1000 above a lane's.
+ */
+export const OWN_POOL_FIRST = LANE_FIRST + LANES * LANE_SPAN
+
+/** Where a runner's lanes have their ports: the machine pool's, or (ownPool) a pool of its own's. */
+export const lanesFirst = (ownPool) => (ownPool ? OWN_POOL_FIRST : LANE_FIRST)
+
+/** Lane k's ports (from: the pool's first, lanesFirst): { base (the first slot's), first, last }. */
+export function lanePorts(k, from = LANE_FIRST) {
+  const base = from + k * LANE_SPAN
   return { base, first: base - 1, last: base - 1 + LANE_PORTS - 1 }
 }
 
@@ -69,8 +81,8 @@ export function portFree(port) {
   })
 }
 
-async function lanePortsFree(k, free) {
-  const { first, last } = lanePorts(k)
+async function lanePortsFree(k, free, from) {
+  const { first, last } = lanePorts(k, from)
   for (let p = first; p <= last; p++) if (!(await free(p))) return false
   return true
 }
@@ -124,8 +136,9 @@ function readClaims(dir) {
  * Claims a lane in dir for this runner: { lane, ...lanePorts(lane), release() }, or null when every lane is taken.
  * Lanes held by a live claim are skipped without looking at their ports; the others are taken only if their ports are
  * free. release() removes the claim (only if it is still this runner's). what: what the run is, for others waiting.
+ * portsFrom: the pool's first port (lanesFirst).
  */
-export async function claimLane(dir, { owner = process.pid, root = '', what = '', alive = processAlive, free = portFree, now = () => Date.now() } = {}) {
+export async function claimLane(dir, { owner = process.pid, root = '', what = '', alive = processAlive, free = portFree, now = () => Date.now(), portsFrom = LANE_FIRST } = {}) {
   mkdirSync(dir, { recursive: true })
   return withLock(dir, async () => {
     const claims = readClaims(dir)
@@ -133,7 +146,7 @@ export async function claimLane(dir, { owner = process.pid, root = '', what = ''
     for (;;) {
       const k = pickLane(claims, busy, alive, now())
       if (k === null) return null
-      if (!(await lanePortsFree(k, free))) {
+      if (!(await lanePortsFree(k, free, portsFrom))) {
         busy.add(k)
         continue
       }
@@ -146,7 +159,7 @@ export async function claimLane(dir, { owner = process.pid, root = '', what = ''
           // Gone already.
         }
       }
-      return { lane: k, ...lanePorts(k), release }
+      return { lane: k, ...lanePorts(k, portsFrom), release }
     }
   })
 }
