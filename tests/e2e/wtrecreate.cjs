@@ -11,6 +11,7 @@ const { execFileSync } = require('child_process')
 const { baseEnv } = require('./runContext.cjs')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 
 const userData = path.join(lib.WORK, 'wtrecreate-profile')
 const ws = path.join(lib.WORK, 'wtrecreate-ws')
@@ -109,14 +110,14 @@ const check = (name, ok, extra = '') => {
     const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'))
     cfg.agents.find((a) => a.id === mover.id).worktree.path = away
     fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
-    const sessFile = path.join(proj, '.hive', 'sessions.json')
-    const sess = JSON.parse(fs.readFileSync(sessFile, 'utf8'))
+    // The records are in the workspace's database (#1061).
+    const sess = sessionsOf(proj)
     const now = new Date().toISOString()
     sess.sessions.push({ id: '11111111-2222-4333-8444-555555555555', agent: 'claude-code', name: 'Before', createdAt: now, lastActiveAt: now, archived: false, agentId: mover.id, cwd: away })
-    fs.writeFileSync(sessFile, JSON.stringify(sess, null, 2))
+    putSessions(proj, sess)
     const def = await inv('agents:recreateWorktree', proj, mover.id)
     check('a place that can’t be used: made at the agent’s default worktree place', same(def.worktree?.path, mover.worktree.path) && fs.existsSync(path.join(mover.worktree.path, '.git')), JSON.stringify(def.worktree))
-    check('…its session follows it there', JSON.parse(fs.readFileSync(sessFile, 'utf8')).sessions.some((x) => x.agentId === mover.id && same(x.cwd, mover.worktree.path)))
+    check('…its session follows it there', sessionsOf(proj).sessions.some((x) => x.agentId === mover.id && same(x.cwd, mover.worktree.path)))
     check('…and nothing is left pending', !JSON.parse(fs.readFileSync(cfgFile, 'utf8')).pendingCopies)
   } else console.log('SKIP the unusable-place case: every drive letter Q–Y exists here')
 

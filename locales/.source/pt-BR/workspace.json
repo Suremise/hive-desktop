@@ -316,6 +316,7 @@
   "workspace.statusBar.openWorkspace": "Open a workspace",
   "workspace.statusBar.planLine": "{provider}{hasPlan, select, yes { ({plan} plan)} other {}}",
   "workspace.statusBar.providerTip": "{provider} {version} ({source}){hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest} available} other {}}",
+  "workspace.statusBar.reportedBy": "Reported by {agent}, {when}",
   "workspace.statusBar.running": "{count, plural, other {# running session(s)}}: {working} working, {background, plural, =0 {} other {# waiting on background tasks, }}{waiting} waiting for you",
   "workspace.statusBar.shortLimit": "{window, select, fiveHour {5h} weekly {Week} other {{label}}}",
   "workspace.statusBar.workspace": "Workspace: {path}",

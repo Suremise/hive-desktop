@@ -316,6 +316,7 @@
   "workspace.statusBar.openWorkspace": "Ouvrir un espace de travail",
   "workspace.statusBar.planLine": "{provider}{hasPlan, select, yes { (forfait {plan})} other {}}",
   "workspace.statusBar.providerTip": "{provider} {version} ({source}){hasWarning, select, yes { — {warning}} other {}}{hasUpdate, select, yes { — {latest} disponible} other {}}",
+  "workspace.statusBar.reportedBy": "Signalé par {agent}, {when}",
   "workspace.statusBar.running": "{count, plural, one {# session en cours} many {# sessions en cours} other {# sessions en cours}} : {working} au travail, {background, plural, =0 {} one {# en attente de tâches en arrière-plan, } many {# en attente de tâches en arrière-plan, } other {# en attente de tâches en arrière-plan, }}{waiting} en attente de toi",
   "workspace.statusBar.shortLimit": "{window, select, fiveHour {5 h} weekly {Sem.} other {{label}}}",
   "workspace.statusBar.workspace": "Espace de travail : {path}",

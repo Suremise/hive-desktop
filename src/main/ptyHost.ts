@@ -4,6 +4,7 @@ import { sendPty } from './events'
 import { argsForLog, createLogger, userText } from './logger'
 import { allProviders } from './providers'
 import { launchGate, type GateWord } from './launchGate'
+import { envWithCliFolders } from './freshPath'
 
 const log = createLogger('pty')
 const MAX_BUFFER = 512 * 1024
@@ -140,7 +141,8 @@ export function childEnv(extra: Record<string, string> = {}): Record<string, str
   for (const k of Object.keys(env)) if (sessionVars.has(k) || (k.startsWith('HIVE_') && !SESSION_SETTINGS.has(k))) delete env[k]
   env.TERM_PROGRAM = 'Hive' // i18n-ignore: an environment variable's value, which programs in the terminal read
   env.COLORTERM = 'truecolor'
-  return { ...env, ...extra }
+  // The folders of the CLIs Hive found and its PATH lacks (#1103), so what it starts runs them by name.
+  return { ...envWithCliFolders(env), ...extra }
 }
 
 /** An argument as logged: bearer tokens hidden (Codex's hooks carry one), long values shortened. */

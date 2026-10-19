@@ -1,0 +1,83 @@
+{
+  "cli": "copilot",
+  "version": "1.0.98",
+  "recorded": "2026-10-19 (#1065): interactive in a ConPTY, offline against tests/e2e/fake-copilot-api.cjs, its own COPILOT_HOME; a prompt, /compact, a prompt",
+  "reply": {
+    "SessionStart": {
+      "additionalContext": "<flat: reached the model>",
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": "<nested: did not>"
+      }
+    },
+    "UserPromptSubmit": {
+      "additionalContext": "<flat: reached the model, as a system_reminder in the prompt>",
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<nested: did not>"
+      }
+    }
+  },
+  "modelSaw": {
+    "start": "the flat SessionStart context (a user message) and the flat prompt context",
+    "afterCompact": "no SessionStart after /compact (only PreCompact, trigger manual): the start context was gone from the next request; the flat prompt context reached it"
+  },
+  "hooks": [
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:31.178Z",
+      "cwd": "C:\\probe\\work",
+      "prompt": "say First reply."
+    },
+    {
+      "hook_event_name": "SessionStart",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:31.195Z",
+      "cwd": "C:\\probe\\work",
+      "source": "new",
+      "initial_prompt": "say First reply."
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:32.748Z",
+      "cwd": "C:\\probe\\work",
+      "transcript_path": "C:\\probe\\cli\\copilot-home\\session-state\\a4154aca-3ac6-419e-b834-eb58e2b6fcbb\\events.jsonl",
+      "stop_reason": "end_turn",
+      "stop_hook_active": false
+    },
+    {
+      "hook_event_name": "PreCompact",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:33.298Z",
+      "cwd": "C:\\probe\\work",
+      "transcript_path": "C:\\probe\\cli\\copilot-home\\session-state\\a4154aca-3ac6-419e-b834-eb58e2b6fcbb\\events.jsonl",
+      "trigger": "manual",
+      "custom_instructions": ""
+    },
+    {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:36.896Z",
+      "cwd": "C:\\probe\\work",
+      "prompt": "say Second reply."
+    },
+    {
+      "hook_event_name": "Stop",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:38.420Z",
+      "cwd": "C:\\probe\\work",
+      "transcript_path": "C:\\probe\\cli\\copilot-home\\session-state\\a4154aca-3ac6-419e-b834-eb58e2b6fcbb\\events.jsonl",
+      "stop_reason": "end_turn",
+      "stop_hook_active": false
+    },
+    {
+      "hook_event_name": "SessionEnd",
+      "session_id": "a4154aca-3ac6-419e-b834-eb58e2b6fcbb",
+      "timestamp": "2026-10-19T19:56:38.750Z",
+      "cwd": "C:\\probe\\work",
+      "reason": "user_exit"
+    }
+  ]
+}

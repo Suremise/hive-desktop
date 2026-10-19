@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { app } from 'electron'
-import { delimiter, join } from 'path'
+import { delimiter, dirname, join } from 'path'
 import { createLogger, userText } from './logger'
 
 // A CLI installed while Hive runs (#472): its installer adds its folder to the user's or the machine's PATH in the
@@ -135,6 +135,39 @@ export function refreshPath(): Promise<string[]> {
       refreshing = null
     })
   return refreshing
+}
+
+/** The folder of each provider's CLI as Hive last found it (#1103), by provider. */
+const cliFolders = new Map<string, string>()
+
+/**
+ * Notes where Hive found a provider's CLI (null: not found), for the PATH of what Hive starts (#1103): a standalone CLI
+ * found where its installer puts it (Claude Code's `~\.local\bin`) needn't be on any PATH, and Claude Code's native
+ * installer can leave it off, so Agent Setup found it while the sessions and terminals Hive starts couldn't run it by
+ * name. Hive's own PATH, which it finds the CLIs on, stays as it is (a folder found by a fixed place mustn't come before
+ * one an installer adds later), and the user's PATH in the registry is never changed.
+ */
+export function noteCliFolder(id: string, executable: string | null): void {
+  const folder = executable ? dirname(executable) : null
+  if ((cliFolders.get(id) ?? null) === folder) return
+  if (folder) cliFolders.set(id, folder)
+  else cliFolders.delete(id)
+  if (folder && !mergePath(process.env.PATH ?? process.env.Path ?? '', [folder]).added.length) return
+  if (folder) log.info(`A CLI found off Hive's PATH: what Hive starts gets its folder, ${userText(folder)}`)
+}
+
+/**
+ * The PATH for a process Hive starts (`childEnv`): `path` with the found CLIs' folders it lacks at its end, so the
+ * session or terminal runs by name the CLI Agent Setup found (#1103), and nothing already on PATH resolves differently.
+ */
+export function withCliFolders(path: string): string {
+  return mergePath(path, [...cliFolders.values()]).value
+}
+
+/** A copy of `env` whose PATH (however its name is cased) has the found CLIs' folders (withCliFolders). */
+export function envWithCliFolders<T extends Record<string, string | undefined>>(env: T): T {
+  const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
+  return { ...env, [key]: withCliFolders(env[key] ?? '') }
 }
 
 /** The longest a new process waits for the registry's PATH: slower, it starts with the PATH Hive has (as before #821). */

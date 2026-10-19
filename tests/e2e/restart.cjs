@@ -75,17 +75,19 @@ const launches = () => fs.readFileSync(path.join(claudeHome, 'fake-launches.json
 
   // Restart session while Hive is slow to save the stopped session (#218): under load, main writes the session's record
   // before it tells the window the session stopped, and Restart session used to ask to stop a session already stopped
-  // ("…already has a running session"). Here the record's file is held open (no delete sharing) while it restarts, so
-  // its save retries for a couple of seconds: the relaunch must still come, with no question.
+  // ("…already has a running session"). Here the workspace's database, where the record is (#1061), is held in a write
+  // transaction by another process for a few seconds (less than its busy timeout) while it restarts, so its save waits:
+  // the relaunch must still come, with no question.
   await inv('project:updateConfig', proj, { providers: { 'claude-code': { effort: 'high' } } })
   await inv('workspace:refresh')
   check('another changed effort offers Restart session', !!(await lib.until(async () => (await page.getByRole('button', { name: 'Restart session' }).count()) > 0, 10000)))
-  const sessionsFile = path.join(proj, '.hive', 'sessions.json')
-  const holder = require('child_process').spawn('powershell.exe', ['-NoProfile', '-Command', `$f = [System.IO.File]::Open('${sessionsFile}', 'Open', 'Read', 'Read'); 'held'; Start-Sleep -Seconds 6; $f.Close()`], { env: lib.baseEnv() })
+  const dbFile = path.join(ws, '.hive', 'hive.db')
+  const hold = `const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(${JSON.stringify(dbFile)}, { timeout: 5000 }); db.exec('BEGIN IMMEDIATE'); console.log('held'); setTimeout(() => { db.exec('COMMIT'); db.close() }, 3000)`
+  const holder = require('child_process').spawn(process.execPath, ['-e', hold], { env: lib.baseEnv() })
   const released = new Promise((r) => holder.once('exit', r))
   let heldOut = ''
   holder.stdout.on('data', (d) => (heldOut += d))
-  check('(the record is held open)', !!(await lib.until(() => heldOut.includes('held'), 15000)))
+  check('(the database is held)', !!(await lib.until(() => heldOut.includes('held'), 15000)))
   await page.getByRole('button', { name: 'Restart session' }).click()
   const again = !!(await lib.until(async () => launches().length === 3 && (await inv('session:live')).some((l) => l.status === 'ready'), 30000))
   const asked = await page.locator('.dialog').allInnerTexts()

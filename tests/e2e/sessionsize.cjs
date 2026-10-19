@@ -7,6 +7,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 15000
 
@@ -99,8 +100,8 @@ const sizeText = (n) => (n < MB ? `${Math.max(1, Math.round(n / 1024))} KB` : `$
     write(files.copilot, copilotEvents(S.copilot, 2, 'A Copilot one'))
     write(files.assistant, claudeLines(S.assistant, 7, 'Plan the week', Math.round(1.2 * MB)))
     const rec = (sid, name, h, more = {}) => ({ id: sid, agent: 'claude-code', name, createdAt: at(h), lastActiveAt: at(h), archived: false, ...more })
-    const sessionsFile = path.join(alpha, '.hive', 'sessions.json')
-    const file = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'))
+    // The records are in the workspace's database (#1061).
+    const file = sessionsOf(alpha)
     file.sessions.push(
       rec(S.small, 'Small session', 6),
       rec(S.long, 'Long session', 5),
@@ -108,11 +109,10 @@ const sizeText = (n) => (n < MB ? `${Math.max(1, Math.round(n / 1024))} KB` : `$
       rec(S.codex, 'Codex session', 4, { agent: 'codex', transcriptPath: files.codex }),
       rec(S.copilot, 'Copilot session', 2, { agent: 'copilot', transcriptPath: files.copilot })
     )
-    fs.writeFileSync(sessionsFile, JSON.stringify(file, null, 2))
-    const aFile = path.join(assistantHome, '.hive', 'sessions.json')
-    const aSessions = JSON.parse(fs.readFileSync(aFile, 'utf8'))
+    putSessions(alpha, file)
+    const aSessions = sessionsOf(assistantHome)
     aSessions.sessions.push(rec(S.assistant, 'Planning the week', 7, { agentId: 'assistant', agentName: 'Assistant', cwd: ws }))
-    fs.writeFileSync(aFile, JSON.stringify(aSessions, null, 2))
+    putSessions(assistantHome, aSessions)
 
     // --- The list's item carries the size, from a stat.
     const listed = await inv('session:list', alpha)

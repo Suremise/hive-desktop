@@ -48,6 +48,7 @@ const M = {
   shortLimit: msg({ id: 'workspace.statusBar.shortLimit', defaultMessage: '{window, select, fiveHour {5h} weekly {Week} other {{label}}}', description: "The status bar's plan limits, before each one's percent: the 5-hour window, the weekly one, or the provider's own name for another. Keep it very short." }),
   planLine: msg({ id: 'workspace.statusBar.planLine', defaultMessage: '{provider}{hasPlan, select, yes { ({plan} plan)} other {}}', description: "The first line of the status bar's plan limits tooltip (GitHub issue #1): the coding agent ({provider}: Claude Code) and its plan's name ({plan}: max, pro…)." }),
   limitLine: msg({ id: 'workspace.statusBar.limitLine', defaultMessage: '{window, select, fiveHour {5-hour limit} weekly {Weekly limit} other {{label} limit}}: {used, number, ::percent} used{hasReset, select, yes {, resets {when}} other {}}', description: 'A line of the status bar\'s plan limits tooltip (GitHub issue #1): a rolling usage window, how much of it is used, and when it resets ({when}: "in 2 h 5 min", or a weekday and time).' }),
+  reportedBy: msg({ id: 'workspace.statusBar.reportedBy', defaultMessage: 'Reported by {agent}, {when}', description: 'Under a line of the status bar\'s plan limits tooltip (#383): which agent\'s session reported the figure of the limit above ({agent}: its name) and when ({when}: "4 minutes ago").' }),
   asOf: msg({ id: 'workspace.statusBar.asOf', defaultMessage: 'As of {when}. Updates while a session is running.', description: 'The last line of the status bar\'s plan limits tooltip (GitHub issue #1): when the limits were reported ({when}: "4 minutes ago").' }),
   notInstalledUnused: msg({ id: 'workspace.statusBar.notInstalledUnused', defaultMessage: "{provider} isn't installed. Nothing uses it: new agents use another provider.", description: "Tooltip on a coding agent's status bar item: it is turned on but not installed, and nothing needs it." }),
   notInstalled: msg({ id: 'workspace.statusBar.notInstalled', defaultMessage: 'not installed', description: "A coding agent's status bar item, after its icon: it isn't installed. Lower case; keep it short." }),
@@ -226,19 +227,27 @@ function shortLimit(l: PlanLimit): string {
   return tr(M.shortLimit, { window: limitWindow(l), label: l.label })
 }
 
-/** Each enabled provider's plan limits, as its sessions last reported them: one item per provider. */
+/**
+ * Each enabled provider's plan limits, as Hive keeps them from its sessions' reports (the highest in each reset period,
+ * #383): one item per provider. A limit whose reset has passed with no new report is left out, not shown as it was.
+ */
 function PlanUsageStatus() {
   const all = useStore((s) => s.planUsage)
   const settings = useStore((s) => s.settings)
-  useNow(60000)
+  const now = useNow(60000)
   return (
     <>
       {enabledProviders(settings).map((p) => {
-        const usage = all[p.id]
-        if (!usage?.limits.length) return null
+        const kept = all[p.id]
+        const limits = (kept?.limits ?? []).filter((l) => !l.resetsAt || Date.parse(l.resetsAt) > now)
+        if (!kept || !limits.length) return null
+        const usage = { ...kept, limits }
         const worst = Math.max(...usage.limits.map((l) => l.usedPercent))
         // GitHub issue #1: every part in the window's language (the window's name, the percent, when it resets, how long ago).
-        const lines = usage.limits.map((l) => tr(M.limitLine, { window: limitWindow(l), label: l.label, used: Math.round(l.usedPercent) / 100, hasReset: l.resetsAt ? 'yes' : 'no', when: l.resetsAt ? resetsIn(l.resetsAt) : '' }))
+        const lines = usage.limits.flatMap((l) => [
+          tr(M.limitLine, { window: limitWindow(l), label: l.label, used: Math.round(l.usedPercent) / 100, hasReset: l.resetsAt ? 'yes' : 'no', when: l.resetsAt ? resetsIn(l.resetsAt) : '' }),
+          ...(l.reportedBy && l.reportedAt ? [tr(M.reportedBy, { agent: l.reportedBy, when: timeAgo(l.reportedAt) })] : [])
+        ])
         const tip = [tr(M.planLine, { provider: p.name, hasPlan: usage.plan ? 'yes' : 'no', plan: usage.plan ?? '' }), ...lines, tr(M.asOf, { when: timeAgo(usage.updatedAt) })].join('\n')
         return (
           <Tooltip key={p.id} content={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>

@@ -9,6 +9,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 const TURN_MS = 20000
@@ -73,17 +74,16 @@ const cliFile = (sid) => path.join(claudeHome, 'projects', alpha.replace(/[^a-zA
     const S = { fresh: id(1), day: id(2), week: id(3), month: id(4), archived: id(5), running: id(6) }
     const ages = { fresh: 2, day: 30, week: 24 * 8, month: 24 * 40, archived: 24 * 40, running: 24 * 10 }
     const names = { fresh: 'Fresh work', day: 'Day old', week: 'Week old', month: 'Month old', archived: 'Archived old', running: 'Running old' }
-    const sessionsFile = path.join(alpha, '.hive', 'sessions.json')
-    const file = fs.existsSync(sessionsFile) ? JSON.parse(fs.readFileSync(sessionsFile, 'utf8')) : { sessions: [] }
+    // The records are in the workspace's database (#1061).
+    const file = sessionsOf(alpha)
     for (const k of Object.keys(S)) {
       const at = new Date(Date.now() - ages[k] * HOUR).toISOString()
       file.sessions.push({ id: S[k], agent: 'claude-code', name: names[k], createdAt: at, lastActiveAt: at, archived: k === 'archived', agentId: claude.id, agentName: 'Claude' })
       write(cliFile(S[k]), claudeLines(S[k], ages[k], `Work of ${names[k]}`))
       write(backup(S[k], k === 'archived'), claudeLines(S[k], ages[k], `Work of ${names[k]}`))
     }
-    fs.mkdirSync(path.dirname(sessionsFile), { recursive: true })
-    fs.writeFileSync(sessionsFile, JSON.stringify(file, null, 2))
-    const records = () => JSON.parse(fs.readFileSync(sessionsFile, 'utf8')).sessions
+    putSessions(alpha, file)
+    const records = () => sessionsOf(alpha).sessions
     const record = (sid) => records().find((s) => s.id === sid)
 
     fs.writeFileSync(path.join(claudeHome, 'fake-title-untimed-Claude'), '')

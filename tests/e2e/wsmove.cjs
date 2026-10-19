@@ -1,5 +1,5 @@
 // A workspace moved to another folder (#146). Before: a git project with three worktree agents (Builder has run a
-// session in its worktree, so sessions.json and the fake Claude home have its folder; Third has a commit on its branch)
+// session in its worktree, so its session record and the fake Claude home have its folder; Third has a commit on its branch)
 // and a plain agent, plus Claude Code's memory for the project's folder. The workspace and its worktrees folder are
 // moved together, Second's worktree then on to somewhere else and Third's deleted, and a file blocks the copy of
 // Builder's Claude folder. Hive reopens it: the banner offers Repair…; Repair refuses while an agent runs; the dialog's
@@ -16,6 +16,8 @@ const { _electron } = require('playwright-core')
 const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const { DatabaseSync } = require('node:sqlite')
+const { deliveriesPlace, sessionsOf } = require('./storeDocs.cjs')
 
 const userData = path.join(lib.WORK, 'wsmove-profile')
 const root = path.join(lib.WORK, 'wsmove')
@@ -43,6 +45,23 @@ const check = (name, ok, extra = '') => {
 const { baseEnv } = require('./runContext.cjs')
 const gitOut = (cwd, args) => execFileSync('git', args, { cwd, env: baseEnv(), encoding: 'utf8' })
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'))
+/**
+ * Makes a host's session records unwritable, or writable again (#1061: rows of its workspace's database, where a
+ * read-only sessions.json stood in before): triggers that refuse every change to its rows, as SQLite refuses a write.
+ */
+const sessionsWritable = (host, writable) => {
+  const { ws, scope } = deliveriesPlace(host)
+  const db = new DatabaseSync(path.join(ws, '.hive', 'hive.db'), { timeout: 5000 })
+  try {
+    for (const op of ['INSERT', 'UPDATE', 'DELETE']) {
+      const name = `test_sessions_readonly_${op.toLowerCase()}`
+      const row = op === 'INSERT' ? 'NEW' : 'OLD'
+      db.exec(writable ? `DROP TRIGGER IF EXISTS ${name}` : `CREATE TRIGGER ${name} BEFORE ${op} ON store_rows WHEN ${row}.store = 'sessions' AND ${row}.scope = '${scope.replace(/'/g, "''")}' BEGIN SELECT RAISE(ABORT, 'attempt to write a readonly database (test)'); END`)
+    }
+  } finally {
+    db.close()
+  }
+}
 /** Every file under a folder with its size and time: what a repair that changes nothing leaves as it was. */
 const snapshot = (dir) => {
   const out = []
@@ -92,7 +111,7 @@ async function launch() {
     await lib.addAgent(inv, alpha1, { name: 'Coder' })
     await inv('project:setActive', alpha1, true)
     check('the worktree agent works in the workspace’s worktrees folder', same(builder.worktree?.path, wt1), builder.worktree?.path)
-    // Builder and Third each run a session in their worktree: sessions.json and the Claude home have their folders.
+    // Builder and Third each run a session in their worktree: their records and the Claude home have their folders.
     for (const agent of [builder, third]) {
       await inv('session:start', alpha1, { agentId: agent.id })
       const live = async () => (await inv('session:live')).find((s) => s.agentId === agent.id)
@@ -107,7 +126,7 @@ async function launch() {
     fs.writeFileSync(path.join(home, 'projects', enc(alpha1), 'memory', 'MEMORY.md'), '- [A fact](fact.md) — remembered before the move\n')
     const recorded = await lib.until(() => readJson(path.join(ws1, '.hive', 'workspace.json')).lastPath && readJson(path.join(alpha1, '.hive', 'project.json')).lastPath, 10000)
     check('Hive records where the workspace and its projects are', !!recorded && same(readJson(path.join(ws1, '.hive', 'workspace.json')).lastPath, ws1) && same(readJson(path.join(alpha1, '.hive', 'project.json')).lastPath, alpha1))
-    const sessions = readJson(path.join(alpha1, '.hive', 'sessions.json')).sessions
+    const sessions = sessionsOf(alpha1).sessions
     check('the sessions ran in the worktrees (their cwd)', sessions.some((s) => same(s.cwd, wt1)) && sessions.some((s) => same(s.cwd, third1)), JSON.stringify(sessions.map((s) => s.cwd)))
     check('…and the fake Claude home has its transcript under the worktree’s folder name', fs.existsSync(path.join(home, 'projects', enc(wt1))))
     await app.close()
@@ -201,28 +220,25 @@ async function launch() {
     const third = located.hosts.find((h) => h.name === 'alpha').worktrees.find((x) => x.agentName === 'Third')
     check('Locate…: the plan uses the folder picked', second?.how === 'located' && same(second.to, elsewhere), JSON.stringify(second))
     check('Recreate: at its moved-along place', third?.how === 'recreate' && same(third.to, third2), JSON.stringify(third))
-    // sessions.json can't be written while it runs: the worktrees are repaired and Third made again, but the sessions
-    // can't follow them yet.
-    const sessionsFile = path.join(alpha2, '.hive', 'sessions.json')
-    fs.chmodSync(sessionsFile, 0o444)
-    const report = await inv('workspace:moveRepair', choices)
-    fs.chmodSync(sessionsFile, 0o666)
-    check('with sessions.json unwritable, Repair says so and isn’t complete', !report.complete && report.failed.some((l) => /sessions' folders couldn't be updated/.test(l)), JSON.stringify(report))
+    // The session records can't be written while it runs: the worktrees are repaired and Third made again, but the
+    // sessions can't follow them yet.
+    sessionsWritable(alpha2, false)
+    const report = await inv('workspace:moveRepair', choices).finally(() => sessionsWritable(alpha2, true))
+    check('with the session records unwritable, Repair says so and isn’t complete', !report.complete && report.failed.some((l) => /sessions' folders couldn't be updated/.test(l)), JSON.stringify(report))
     check('Third is back at its moved-along place, on its branch, with its commit', report.done.some((l) => /Third's worktree was recreated on its branch hive\/ws\/alpha\/third/.test(l)) && same(gitOut(third2, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(), 'hive/ws/alpha/third') && gitOut(third2, ['log', '--oneline']).includes('third work'))
     check('…copying Builder’s data this time, without repeating what was done', report.done.some((l) => /copied \d+ files? .* for Builder's worktree/.test(l)) && !report.done.some((l) => /Builder's worktree (is now at|was)/.test(l)), JSON.stringify(report.done))
     const kept = readJson(path.join(alpha2, '.hive', 'project.json'))
     check('Third’s new path and the move its sessions and data follow were saved together', same(kept.agents.find((a) => a.name === 'Third').worktree?.path, third2) && (kept.pendingCopies ?? []).some((m) => same(m.from, third1) && same(m.to, third2)), JSON.stringify(kept.pendingCopies))
-    check('…its sessions still point to the old folder', readJson(sessionsFile).sessions.some((s) => same(s.cwd, third1)))
+    check('…its sessions still point to the old folder', sessionsOf(alpha2).sessions.some((s) => same(s.cwd, third1)))
     check('…its Claude data copied all the same (the move stays pending for the sessions)', report.done.some((l) => /copied \d+ files? .* for Third's worktree/.test(l)))
     await app.close()
   }
 
-  // Hive restarts, sessions.json writable again: Repair finishes Third's sessions and data without repeating git.
+  // Hive restarts, the records writable again: Repair finishes Third's sessions and data without repeating git.
   {
     const { app, page, inv } = await launch()
     await lib.openWorkspace(inv, page, ws2)
     const banner = page.locator('.moved-banner')
-    const sessionsFile = path.join(alpha2, '.hive', 'sessions.json')
     check('after the failed write and a restart, the banner is still there', !!(await lib.until(async () => (await banner.count()) === 1, 15000)))
     const plan = await inv('workspace:movePlan')
     const host = plan?.hosts.find((h) => h.name === 'alpha')
@@ -230,7 +246,7 @@ async function launch() {
     const report = await inv('workspace:moveRepair')
     check('…and Repair finishes', report.complete && report.failed.length === 0, JSON.stringify(report))
     check('…rewriting the session, nothing repeated (no git step, no copy)', report.done.length === 1 && /1 session now points/.test(report.done[0]), JSON.stringify(report.done))
-    check('Third’s session points to its new folder', readJson(sessionsFile).sessions.some((s) => same(s.cwd, third2)) && !readJson(sessionsFile).sessions.some((s) => same(s.cwd, third1)))
+    check('Third’s session points to its new folder', sessionsOf(alpha2).sessions.some((s) => same(s.cwd, third2)) && !sessionsOf(alpha2).sessions.some((s) => same(s.cwd, third1)))
     check('…its Claude data copied, the old folder kept', fs.readdirSync(path.join(home, 'projects', enc(third2))).some((f) => f.endsWith('.jsonl')) && fs.readdirSync(path.join(home, 'projects', enc(third1))).some((f) => f.endsWith('.jsonl')))
     check('the banner is gone', !!(await lib.until(async () => (await banner.count()) === 0, 10000)))
     check('nothing is left to do in project.json', !readJson(path.join(alpha2, '.hive', 'project.json')).pendingCopies)
@@ -244,7 +260,7 @@ async function launch() {
     check('…and they work: git in the worktree finds itself', same(gitOut(wt2, ['rev-parse', '--show-toplevel']).trim(), wt2) && same(gitOut(elsewhere, ['rev-parse', '--show-toplevel']).trim(), elsewhere))
     const agents = (await inv('workspace:refresh')).projects.find((p) => p.name === 'alpha').agents
     check('the agents’ worktree records point there', same(agents.find((a) => a.name === 'Builder').worktree?.path, wt2) && same(agents.find((a) => a.name === 'Second').worktree?.path, elsewhere) && same(agents.find((a) => a.name === 'Third').worktree?.path, third2), JSON.stringify(agents.map((a) => a.worktree?.path)))
-    const sessions = readJson(path.join(alpha2, '.hive', 'sessions.json')).sessions
+    const sessions = sessionsOf(alpha2).sessions
     check('the session’s folder is the new one', sessions.some((s) => same(s.cwd, wt2)) && !sessions.some((s) => same(s.cwd, wt1)), JSON.stringify(sessions.map((s) => s.cwd)))
     check('Claude Code’s memory copied to the folder for the new path', fs.existsSync(path.join(home, 'projects', enc(alpha2), 'memory', 'MEMORY.md')))
     check('…the transcript too', fs.readdirSync(path.join(home, 'projects', enc(wt2))).some((f) => f.endsWith('.jsonl')))
@@ -255,7 +271,7 @@ async function launch() {
     check('the new folders are recorded', same(readJson(path.join(ws2, '.hive', 'workspace.json')).lastPath, ws2) && same(readJson(path.join(alpha2, '.hive', 'project.json')).lastPath, alpha2))
 
     // Repair again: nothing to do, nothing changed.
-    const files = () => [snapshot(path.join(alpha2, '.hive')), snapshot(path.join(home, 'projects')), gitOut(alpha2, ['worktree', 'list', '--porcelain'])].join('\n--\n')
+    const files = () => [snapshot(path.join(alpha2, '.hive')), JSON.stringify(sessionsOf(alpha2)), snapshot(path.join(home, 'projects')), gitOut(alpha2, ['worktree', 'list', '--porcelain'])].join('\n--\n')
     const before2 = files()
     const again = await inv('workspace:moveRepair')
     check('Repair again: nothing to repair', again.complete && again.done.length === 0 && again.failed.length === 0, JSON.stringify(again))

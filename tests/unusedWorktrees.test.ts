@@ -160,7 +160,8 @@ describe('listing', () => {
     const at = (m: number): string => new Date(Date.UTC(2026, 9, 9, 10, m)).toISOString()
     const session = (id: string, cwd: string, agentName: string, m: number) => ({ id, agent: 'claude-code', name: id, createdAt: at(m), lastActiveAt: at(m), archived: false, agentId: `a-${agentName}`, agentName, cwd })
     // Two agents ran there: the later one names it. A session in the project folder says nothing about worktrees.
-    writeFileSync(join(proj, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [session('s1', ran.path, 'Old', 1), session('s2', ran.path, 'B4', 2), session('s3', proj, 'Main', 3)] }))
+    // The project's session records (#1061: in the workspace's database).
+    await run(() => w.mutateSessions(proj, (f) => void (f.sessions = [session('s1', ran.path, 'Old', 1), session('s2', ran.path, 'B4', 2), session('s3', proj, 'Main', 3)])))
     try {
       // One listing (it reads git for every worktree): each is looked up in it.
       const list = await listOf()
@@ -173,7 +174,7 @@ describe('listing', () => {
       expect(originLabel(of(other.path))).toBe('not made by Hive')
       expect(unusedPickerLabel(of(other.path))).toBe(`feature/other${n} · not made by Hive · merged, clean`)
     } finally {
-      writeFileSync(join(proj, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [] }))
+      await run(() => w.mutateSessions(proj, (f) => void (f.sessions = [])))
     }
   })
 
