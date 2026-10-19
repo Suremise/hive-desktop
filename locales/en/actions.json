@@ -253,7 +253,7 @@
   },
   "actions.mcp.updateFailed": {
     "defaultMessage": "Could not update the server",
-    "description": "An error's title: turning an MCP server on or off for all projects failed."
+    "description": "An error's title: turning an MCP server on or off in the workspace failed."
   },
   "actions.project.activateFailed": {
     "defaultMessage": "Could not activate project",

@@ -56,7 +56,9 @@ interface HiveMessageValues {
   'providers.copilot.signIn.gh': undefined
   'providers.copilot.signIn.ignored': { n: number; variables: string | number }
   'providers.copilot.signIn.runs': undefined
+  'providers.copilot.updateAnyway': undefined
   'providers.copilot.updateManual': { provider: string | number }
+  'providers.copilot.updateModified': undefined
   'providers.export.compacted': { trigger: string | number; before: string | number; after: string | number }
   'providers.export.error': undefined
   'providers.export.image': undefined

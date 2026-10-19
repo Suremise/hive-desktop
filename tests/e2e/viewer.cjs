@@ -158,9 +158,21 @@ function stream(token) {
       .replace(/\{n\}/g, String(card))
       .replace(/\{id\}/g, 'x')
       .replace(/\{[a-z]+\}/gi, 'x')
-  const documented = (method) => [...new Set([...String(doc.body?.content ?? '').matchAll(new RegExp('`' + method + ' (/v1/[^`\\s?\\[]*)', 'g'))].map((m) => fill(m[1])))]
-  const gets = documented('GET').filter((r) => r !== '/v1/events')
+  const docText = String(doc.body?.content ?? '').replace(/\r\n/g, '\n')
+  const routesIn = (text, method) => [...new Set([...text.matchAll(new RegExp('`' + method + ' (/v1/[^`\\s?\\[]*)', 'g'))].map((m) => fill(m[1])))]
+  const documented = (method) => routesIn(docText, method)
+  // The routes the reference says are the Assistant's only: the tables after a line saying so.
+  const assistantTables = [...docText.matchAll(/^.*the Assistant's only.*\n\n((?:\|.*\n?)+)/gim)].map((m) => m[1]).join('\n')
+  const assistantGets = routesIn(assistantTables, 'GET')
+  const gets = documented('GET').filter((r) => r !== '/v1/events' && !assistantGets.includes(r))
   check('the reference lists the GET routes', gets.length >= 20 && gets.includes('/v1/progress'), gets.join(' '))
+  check("…and which are the Assistant's only", assistantGets.includes('/v1/journal/x') && !assistantGets.includes('/v1/progress'), assistantGets.join(' '))
+  const openToViewer = []
+  for (const r of assistantGets) {
+    const res = await as('GET', r)
+    if (res.status !== 403) openToViewer.push(`${r} ${res.status}`)
+  }
+  check("a viewer is refused the Assistant's GET routes (403)", openToViewer.length === 0, openToViewer.join(', '))
   const refusedGets = []
   for (const r of gets) {
     const res = await as('GET', r)
@@ -175,6 +187,8 @@ function stream(token) {
   const notesBefore = JSON.stringify((await api('GET', '/v1/shared')).body)
   const writes = ['POST', 'PUT', 'PATCH', 'DELETE'].flatMap((m) => documented(m).map((r) => [m, r]))
   check('the reference lists the writes', writes.length >= 20 && writes.some(([m, r]) => m === 'POST' && r === '/v1/tasks/wait'), writes.map((w) => w.join(' ')).join(', '))
+  const journalWrites = ['POST /v1/journal', 'POST /v1/journal/recall', 'PATCH /v1/journal/x', 'DELETE /v1/journal/x']
+  check("…the Assistant's journal among them", journalWrites.every((w) => writes.some((x) => x.join(' ') === w)), journalWrites.join(', '))
   const allowed = []
   for (const [m, r] of writes) {
     const res = await as(m, r, { title: 'Viewer was here', text: 'x', path: 'viewer.md', content: 'x', message: 'x', column: 'done', action: 'claim', cards: [card] })

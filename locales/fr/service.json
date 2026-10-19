@@ -119,6 +119,7 @@
   "service.providers.noSetup": "La CLI {cli} n’a pas de tâche de configuration.",
   "service.providers.notInstalled": "La CLI {cli} n’est pas installée.",
   "service.providers.pickNotFound": "{task} : Hive n’a pas trouvé {item}. Fais-le dans le terminal, ou mets à jour Hive.",
+  "service.providers.retryUnavailable": "Cette nouvelle tentative de mise à jour n’est plus disponible. Choisis Vérifier à nouveau, puis Mettre à jour.",
   "service.providers.stillLooking": "Hive cherche encore la CLI {cli}. Réessaie dans un instant.",
   "service.providers.stillLookingAll": "Hive cherche encore les CLI des agents de code. Réessaie dans un instant.",
   "service.providers.stopFirst": "Arrête tous les agents {cli} en cours avant de mettre la CLI à jour.",

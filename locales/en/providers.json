@@ -219,9 +219,17 @@
     "defaultMessage": "**Sign in** runs `copilot login` in a terminal: it opens GitHub in your browser to authorise Copilot. Hive never signs in for you.",
     "description": "Agent Setup, under GitHub Copilot's Sign in: what it does. **…** marks bold text and `…` a command: keep the marks and the command."
   },
+  "providers.copilot.updateAnyway": {
+    "defaultMessage": "Update anyway",
+    "description": "Agent Setup button: explicitly retry a failed WinGet Copilot update with --force, replacing the old package despite changed files."
+  },
   "providers.copilot.updateManual": {
-    "defaultMessage": "Update {provider} the way you installed it: Hive’s Copilot agents run the installed version, not one `copilot update` downloads.",
-    "description": "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. `…` marks a command: keep it."
+    "defaultMessage": "Update {provider} the way you installed it, then choose Check again.",
+    "description": "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. Check again is the button in Agent Setup."
+  },
+  "providers.copilot.updateModified": {
+    "defaultMessage": "WinGet could not remove the old Copilot package. Its installed files may have changed since WinGet installed them, often because Copilot updated itself. Update anyway asks WinGet to replace them with --force. Stop Copilot agents first.",
+    "description": "Agent Setup after WinGet portable removal failed. The exit code can also mean other removal failures, so the cause is tentative. Update anyway is the adjacent button; keep WinGet, Copilot and --force unchanged."
   },
   "providers.export.compacted": {
     "defaultMessage": "**Conversation compacted** ({trigger}) · {before} → {after} tokens",

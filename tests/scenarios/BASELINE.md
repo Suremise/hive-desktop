@@ -36,6 +36,30 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Starting fresh at a natural break: fakes, Claude Code (its default model, and haiku), Codex (its default model), fixtures v58, 18 October 2026
+
+#1082 (#1080's gaps 1 and 3, guidance only): run-lanes and coordinate-agents have the Assistant suggest once, in a line,
+starting fresh conversations when every lane has ended or an agent's card is done with nothing else running, never while
+work, a question or a watch remains; the journal skill has it save what is open first. Five new scenarios: **fresh-start-lanes-ended**
+(both lanes ended, their work committed at the lanes' merge commit), **fresh-start-lane-running** (one ended, the other's
+builder working), **fresh-start-question-waits** (the lanes ended, an agent waiting for the user's answer),
+**fresh-start-solo-done** (one agent, its card Done, nothing else) and **fresh-start-saves-first** (the user, at the end
+of a block, mentions an idea that is in no card).
+- **Fakes**: the whole set passes before and after the skill change (`2026-10-18T13-19-46-fake`, baseline
+  `hb3-1082-before`, against `2026-10-18T13-45-46-fake`, fixtures v57: 346 checks pass in each, measures the same but
+  for the delivered skills, +0.46%). The new scenarios pass with the fake Claude Code (`2026-10-18T14-42-13-fake`).
+- **Codex**: all five pass (`2026-10-18T14-34-03-codex`; its "said the lanes are done" missed "Merged" in that run, a
+  check fixed since). It read run-lanes or coordinate-agents (and journal) in each.
+- **Claude Code (default model)**: lanes-ended, lane-running and question-waits pass (`2026-10-18T14-31-07-claude-code`);
+  solo-done and saves-first don't suggest a fresh start in 4 of 4 samples each (that run and `2026-10-18T14-38-23-claude-code`,
+  `--repeat 3`), though saves-first writes the idea to its journal, kept open, every time. In each miss it read no skill
+  (a card-done wake and a wrap-up message don't lead it to coordinate-agents), so the new line was never seen; it
+  suggested starting fresh where it read run-lanes. Follow-up #1090.
+- **Claude Code (haiku)**: read no skill in any of the five (`2026-10-18T14-19-10-claude-code`, before the fixtures
+  committed the lanes' work).
+- A first model run, with nothing committed though the board said merged, got no suggestion from any model: each checked
+  git and reported the missing work instead (run-lanes, Verify), rightly. The fixtures now commit it.
+
 ## A merge step at the lane's end that needs the user: fakes, Claude Code (haiku), Codex (its default model), fixtures v57, 15 October 2026
 
 #869: lane G's builder had every card passed when its CLI refused the commit; it told the user only, and nothing woke

@@ -1,9 +1,11 @@
 // Add MCP Server from File (#550), in the window: a .json definition and a .zip of a server folder are added from the
-// MCP view's button (the file picker stubbed), the dialog showing what each runs before it is added and where to turn it
-// on (#713): the selected project (the default), all projects or none yet; a name in use asks to replace it or choose
-// another; turning one on for all projects, or in a project's MCP tab, asks first, showing what it runs; and a new
-// session gets only the servers on in its project (the fake Claude Code's --mcp-config). Throwaway profile, workspace
-// and CLAUDE_CONFIG_DIR.
+// MCP view's button (the file picker stubbed), the dialog showing what each runs before it is added; it is added off
+// in the workspace and in every project, with no questions (#1093); a name in use asks to replace it or choose another;
+// turning one on in the workspace asks first, showing what it runs and which projects to turn it on in (the selected
+// project, and those that had it on, ticked), and off keeps the projects' choices; a project's switch is its own choice,
+// shown inactive ("Off in the workspace") while the workspace has the server off; and a new session gets only the
+// servers on in the workspace and its project (the fake Claude Code's --mcp-config). Throwaway profile, workspace and
+// CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -63,7 +65,7 @@ const check = (name, ok, extra = '') => {
   await page.keyboard.press('Control+Shift+M')
   check('the MCP view has Add MCP Server from File', !!(await lib.until(async () => (await addButton.count()) === 1, HUNG_MS)))
 
-  // --- A .json definition: the dialog shows what it runs, named after the file; on in the selected project only.
+  // --- A .json definition: the dialog shows what it runs, named after the file, and asks nothing else; added off.
   await pick(path.join(dump, 'github.json'))
   await addButton.click()
   const add = dialog('Add MCP Server from File')
@@ -71,46 +73,30 @@ const check = (name, ok, extra = '') => {
   const said = await add.innerText()
   check('it shows the command it runs', said.includes('Runs: npx -y @modelcontextprotocol/server-github'), said)
   check('and its environment by name, a reference as itself', said.includes('Environment: GITHUB_TOKEN=${GITHUB_TOKEN}'), said)
-  check('and says it runs only where it is on', /runs only where it is on/.test(said), said)
+  check('and says it is added turned off', /turned off\. Turn it on in the MCP view/.test(said), said)
   check("the name is the file's", (await add.locator('input').inputValue()) === 'github')
-  const turnOn = add.getByLabel('Turn on for')
-  const offered = await turnOn.locator('option').allInnerTexts()
-  check('Turn on for offers the selected project, all projects and none yet', JSON.stringify(offered) === JSON.stringify(['demo (the selected project)', 'All projects', 'None yet']), JSON.stringify(offered))
-  check('the selected project first', (await turnOn.inputValue()) === 'project')
+  check('no question where to turn it on', (await add.locator('select').count()) === 0)
   await shot('1-json-dialog')
   await add.getByRole('button', { name: 'Add' }).click()
   check('it is added', !!(await lib.until(async () => !!(await server('github')), HUNG_MS)))
-  check('not on for all projects', (await server('github'))?.globallyEnabled === false)
-  check('on in demo, not in other', !!(await lib.until(async () => (projectMcp(proj).enabled ?? []).includes('github'), HUNG_MS)) && !(projectMcp(other).enabled ?? []).includes('github'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
-  check('its row says where it is on', !!(await lib.until(async () => (await where('github')) === 'On in demo', HUNG_MS)), await where('github'))
-  check('its all projects switch is off', (await row('github').getByRole('switch').getAttribute('aria-checked')) === 'false')
+  check('off in the workspace', (await server('github'))?.globallyEnabled === false)
+  check('and in every project', !(projectMcp(proj).enabled ?? []).includes('github') && !(projectMcp(other).enabled ?? []).includes('github'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
+  check('its row says it is off in the workspace', !!(await lib.until(async () => (await where('github')) === 'Off in the workspace', HUNG_MS)), await where('github'))
+  check('its workspace switch is off', (await row('github').getByRole('switch').getAttribute('aria-checked')) === 'false')
   const runs = page.getByLabel('What it runs')
   check("its view shows what it runs", !!(await lib.until(async () => (await runs.innerText().catch(() => '')).includes('Runs: npx -y @modelcontextprotocol/server-github'), HUNG_MS)))
   await shot('2-json-added')
 
-  // --- A file changed after the dialog showed it is refused: nothing is added or turned on that wasn't shown.
-  const changing = path.join(dump, 'changing.json')
-  fs.writeFileSync(changing, JSON.stringify({ command: 'node', args: ['shown.js'] }))
-  await pick(changing)
-  await addButton.click()
-  await lib.until(async () => (await add.count()) === 1, HUNG_MS)
-  check('the dialog shows the file as it was', (await add.innerText()).includes('Runs: node shown.js'))
-  fs.writeFileSync(changing, JSON.stringify({ command: 'node', args: ['changed-after-preview.js'] }))
-  await add.getByRole('button', { name: 'Add' }).click()
-  check('a file changed since it was shown is refused, saying so', !!(await lib.until(async () => (await page.getByText('has changed since it was shown to you').count()) > 0, HUNG_MS)))
-  check('and nothing is added', !(await server('changing')) && !fs.existsSync(path.join(mcpDir, 'changing.json')) && !(projectMcp(proj).enabled ?? []).includes('changing'))
-
-  // --- A .zip of a server folder: unpacked to .hive/mcp/notes/, its definition from hive-mcp.json; on in none yet.
+  // --- A .zip of a server folder: unpacked to .hive/mcp/notes/, its definition from hive-mcp.json; added off.
   await pick(path.join(dump, 'notes.zip'))
   await addButton.click()
   await lib.until(async () => (await add.count()) === 1, HUNG_MS)
   const zipSaid = await add.innerText()
   check('the zip shows what it runs', zipSaid.includes('Runs: node ${HIVE_MCP_DIR}/notes/server.js') && zipSaid.includes('NOTES_DIR (set)'), zipSaid)
   check('and that its file goes in a folder of its own', /with its file in a folder of its own/.test(zipSaid), zipSaid)
-  await turnOn.selectOption('none')
   await add.getByRole('button', { name: 'Add' }).click()
   check('the zip is added', !!(await lib.until(async () => !!(await server('notes')), HUNG_MS)))
-  check('on in no project', !!(await lib.until(async () => (await where('notes')) === 'Not on in any project', HUNG_MS)) && !(projectMcp(proj).enabled ?? []).includes('notes'), await where('notes'))
+  check('off in the workspace', !!(await lib.until(async () => (await where('notes')) === 'Off in the workspace', HUNG_MS)) && !(projectMcp(proj).enabled ?? []).includes('notes'), await where('notes'))
   check("its code is in .hive/mcp/notes", fs.existsSync(path.join(mcpDir, 'notes', 'server.js')))
 
   // --- The same name again: Replace or Choose Another Name; another name moves its folder references.
@@ -124,40 +110,60 @@ const check = (name, ok, extra = '') => {
   await clash.getByRole('button', { name: 'Choose Another Name' }).click()
   check('Choose Another Name asks for the name again', !!(await lib.until(async () => (await add.count()) === 1, HUNG_MS)))
   await add.locator('input').fill('notes-2')
-  await turnOn.selectOption('none')
   await add.getByRole('button', { name: 'Add' }).click()
   check('it is added under the new name', !!(await lib.until(async () => !!(await server('notes-2')), HUNG_MS)))
   check('running its own folder', (await server('notes-2'))?.def?.args?.[0] === '${HIVE_MCP_DIR}/notes-2/server.js' && fs.existsSync(path.join(mcpDir, 'notes-2', 'server.js')))
   check('and the first is untouched', (await server('notes'))?.def?.args?.[0] === '${HIVE_MCP_DIR}/notes/server.js')
 
-  // --- Turning one on for all projects asks first, showing what it runs.
-  await row('notes').getByRole('switch').click()
-  const enable = dialog('Turn on notes for all projects?')
-  check('turning on for all projects asks first', !!(await lib.until(async () => (await enable.count()) === 1, HUNG_MS)), JSON.stringify(await page.getByRole('dialog').allInnerTexts()))
-  check('showing what it runs', (await enable.innerText()).includes('Runs: node ${HIVE_MCP_DIR}/notes/server.js'))
+  // --- Turning one on in the workspace asks first, showing what it runs and the projects, the selected one ticked.
+  const enableDialog = async (name) => {
+    await row(name).getByRole('switch').click()
+    const d = dialog(`Turn on ${name}?`)
+    check(`turning ${name} on asks first`, !!(await lib.until(async () => (await d.count()) === 1, HUNG_MS)), JSON.stringify(await page.getByRole('dialog').allInnerTexts()))
+    return d
+  }
+  const ticked = (d, project) => d.getByRole('group', { name: 'Projects to turn it on in' }).getByRole('checkbox', { name: project, exact: true }).isChecked()
+  const enableGithub = await enableDialog('github')
+  check('showing what it runs', (await enableGithub.innerText()).includes('Runs: npx -y @modelcontextprotocol/server-github'))
+  check('demo (selected) ticked, other not', (await ticked(enableGithub, 'demo')) && !(await ticked(enableGithub, 'other')))
   await shot('4-enable')
-  await enable.getByRole('button', { name: 'Turn On for All Projects' }).click()
-  check('it is on for all projects', !!(await lib.until(async () => (await server('notes'))?.globallyEnabled === true, HUNG_MS)))
-  check('its row says so', !!(await lib.until(async () => (await where('notes')) === 'On in all projects', HUNG_MS)), await where('notes'))
+  await enableGithub.getByRole('button', { name: 'Turn On', exact: true }).click()
+  check('it is on in the workspace', !!(await lib.until(async () => (await server('github'))?.globallyEnabled === true, HUNG_MS)))
+  check('and in demo only', !!(await lib.until(async () => (projectMcp(proj).enabled ?? []).includes('github'), HUNG_MS)) && !(projectMcp(other).enabled ?? []).includes('github'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
+  check('its row says so', !!(await lib.until(async () => (await where('github')) === 'On in demo', HUNG_MS)), await where('github'))
 
-  // --- A project's MCP tab lists every server with a switch: turning notes-2 on in other asks first, and is there only.
+  // --- All ticks every project; off keeps their choices, and on again shows them ticked.
+  const enableNotes = await enableDialog('notes')
+  await enableNotes.getByRole('button', { name: 'All', exact: true }).click()
+  check('All ticks every project', (await ticked(enableNotes, 'demo')) && (await ticked(enableNotes, 'other')))
+  await enableNotes.getByRole('button', { name: 'Turn On', exact: true }).click()
+  check('notes is on in both', !!(await lib.until(async () => (await where('notes')) === 'On in demo and other', HUNG_MS)), await where('notes'))
+  await row('notes').getByRole('switch').click()
+  check('off at once, with no question', !!(await lib.until(async () => (await where('notes')) === 'Off in the workspace', HUNG_MS)), await where('notes'))
+  check('the projects keep their choices', (projectMcp(proj).enabled ?? []).includes('notes') && (projectMcp(other).enabled ?? []).includes('notes'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
+  const again = await enableDialog('notes')
+  check('on again: both ticked', (await ticked(again, 'demo')) && (await ticked(again, 'other')))
+  await again.getByRole('button', { name: 'Turn On', exact: true }).click()
+  check('notes is on in both again', !!(await lib.until(async () => (await where('notes')) === 'On in demo and other', HUNG_MS)), await where('notes'))
+
+  // --- A project's MCP tab lists every server with its own switch: notes-2, off in the workspace, is turned on in
+  // other with no question, and shown inactive there.
   await page.keyboard.press('Control+Shift+E')
   await page.locator('.project-row', { hasText: 'other' }).click()
   await lib.openMoreTab(page, 'MCP')
   const tabSwitch = (name) => page.getByRole('switch', { name: `${name} on in other`, exact: true })
+  const tabRow = (name) => page.locator(`.toggle-item[data-mcp="${name}"]`)
   check("other's MCP tab lists every server", !!(await lib.until(async () => (await tabSwitch('github').count()) === 1 && (await tabSwitch('notes').count()) === 1 && (await tabSwitch('notes-2').count()) === 1, HUNG_MS)))
-  check('github is off there, notes on (all projects)', (await tabSwitch('github').getAttribute('aria-checked')) === 'false' && (await tabSwitch('notes').getAttribute('aria-checked')) === 'true')
+  check('github is off there, notes on', (await tabSwitch('github').getAttribute('aria-checked')) === 'false' && (await tabSwitch('notes').getAttribute('aria-checked')) === 'true')
+  check('notes-2 says it is off in the workspace', (await tabRow('notes-2').innerText()).includes('Off in the workspace') && !(await tabRow('notes').innerText()).includes('Off in the workspace'))
   await tabSwitch('notes-2').click()
-  const inOther = dialog('Turn on notes-2 in other?')
-  check('turning one on in a project asks first', !!(await lib.until(async () => (await inOther.count()) === 1, HUNG_MS)))
-  check('showing what it runs', (await inOther.innerText()).includes('Runs: node ${HIVE_MCP_DIR}/notes-2/server.js'))
+  check("other's switch for it turns on", !!(await lib.until(async () => (await tabSwitch('notes-2').getAttribute('aria-checked')) === 'true', HUNG_MS)))
+  check('with no question', (await page.getByRole('dialog').count()) === 0)
+  check("other's choice is kept, demo's not changed", (projectMcp(other).enabled ?? []).includes('notes-2') && !(projectMcp(proj).enabled ?? []).includes('notes-2'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
+  check('and it is still shown inactive', (await tabRow('notes-2').getAttribute('class')).includes('disabled') && (await tabRow('notes-2').getAttribute('data-gated')) === 'true')
   await shot('5-project-tab')
-  await inOther.getByRole('button', { name: 'Turn On', exact: true }).click()
-  check('it is on in other', !!(await lib.until(async () => (await tabSwitch('notes-2').getAttribute('aria-checked')) === 'true', HUNG_MS)))
-  check('only there', (projectMcp(other).enabled ?? []).includes('notes-2') && !(projectMcp(proj).enabled ?? []).includes('notes-2'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
-  await shot('6-project-tab-on')
 
-  // --- Copy to workspace: a server other defines itself, shown first, is copied on in other straight away.
+  // --- Copy to workspace: a server other defines itself, shown first, is copied on in the workspace and in other.
   const copy = page.locator('.toggle-item', { hasText: 'docs' }).getByRole('button', { name: 'Copy to workspace' })
   check("other's own server is offered to copy", !!(await lib.until(async () => (await copy.count()) === 1, HUNG_MS)))
   await copy.click()
@@ -166,6 +172,8 @@ const check = (name, ok, extra = '') => {
   check('showing what it runs and where it goes on', /Runs: node docs\.js/.test(await copying.innerText()) && /turned on in other straight away/.test(await copying.innerText()), await copying.innerText())
   await copying.getByRole('button', { name: 'Copy and Turn On' }).click()
   check('it is copied, on in other', !!(await lib.until(async () => (await tabSwitch('docs').getAttribute('aria-checked').catch(() => null)) === 'true', HUNG_MS)) && !(projectMcp(proj).enabled ?? []).includes('docs'), JSON.stringify([projectMcp(proj), projectMcp(other)]))
+  check('and on in the workspace', (await server('docs'))?.globallyEnabled === true)
+  await shot('6-project-tab-on')
 
   // --- New sessions get the servers on in their project, and only those.
   const mcpOf = (cwd) =>
@@ -177,13 +185,13 @@ const check = (name, ok, extra = '') => {
   const agent = await lib.addAgent(inv, proj, { name: 'User' })
   await inv('session:start', proj, { agentId: agent.id })
   const launched = await mcpOf(proj)
-  check("demo's session gets github (on in demo) and notes (all projects)", !!launched?.github && !!launched?.notes, JSON.stringify(Object.keys(launched ?? {})))
+  check("demo's session gets github and notes (on in the workspace and demo)", !!launched?.github && !!launched?.notes, JSON.stringify(Object.keys(launched ?? {})))
   check('running its code from the workspace', String(launched?.notes?.args?.[0] ?? '').replace(/\\/g, '/').toLowerCase() === `${mcpDir.replace(/\\/g, '/')}/notes/server.js`.toLowerCase(), JSON.stringify(launched?.notes))
-  check('and not notes-2 or docs (on in other only)', !launched?.['notes-2'] && !launched?.docs)
+  check('and not notes-2 or docs (not on in demo)', !launched?.['notes-2'] && !launched?.docs)
   const otherAgent = await lib.addAgent(inv, other, { name: 'Other' })
   await inv('session:start', other, { agentId: otherAgent.id })
   const launchedOther = await mcpOf(other)
-  check("other's session gets notes, notes-2 and docs, not github", !!launchedOther?.notes && !!launchedOther?.['notes-2'] && !!launchedOther?.docs && !launchedOther?.github, JSON.stringify(Object.keys(launchedOther ?? {})))
+  check("other's session gets notes and docs, not github (off in other) or notes-2 (off in the workspace)", !!launchedOther?.notes && !launchedOther?.['notes-2'] && !!launchedOther?.docs && !launchedOther?.github, JSON.stringify(Object.keys(launchedOther ?? {})))
   await inv('session:stop', proj, agent.id)
   await inv('session:stop', other, otherAgent.id)
 

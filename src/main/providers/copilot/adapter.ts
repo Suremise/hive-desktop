@@ -16,7 +16,7 @@ import type { CatalogRead, CommandSpec, ConversationParserLike, ExternalSession,
 import { copilotEnv, copilotHome } from './home'
 import { CopilotConversationParser, CopilotUsageParser, copilotDetailsMemo, copilotEventsPath, copilotImageData, eventsDetails, listCopilotSessions, parseEvents, workspaceInfo, type CopilotDetailsMemo } from './events'
 import { readCopilotModels } from './models'
-import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, locateCopilot } from './install'
+import { copilotInstallCommand, copilotLatestVersion, copilotLoginCommand, copilotReadiness, copilotUpdateCommand, copilotUpdateRetry, locateCopilot } from './install'
 import { advanced } from '../../advanced'
 
 const log = createLogger('copilot')
@@ -144,6 +144,10 @@ export class CopilotAdapter implements ProviderAdapter {
 
   updateCommand(executable: string): CommandSpec {
     return copilotUpdateCommand(executable)
+  }
+
+  updateRetry(executable: string, exitCode: number): ReturnType<typeof copilotUpdateRetry> {
+    return copilotUpdateRetry(executable, exitCode)
   }
 
   /** Copilot's own sign-in, run in a terminal for the user to complete (never typed into by Hive). */

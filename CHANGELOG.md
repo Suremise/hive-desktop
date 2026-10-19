@@ -1,6 +1,17 @@
 # Release Notes
 
-## Unreleased
+## 0.9.2 — 2026-10-19
+
+- **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).
+
+## 0.9.1 — 18 October 2026
+
+- **MCP servers: a workspace switch and each project's own choice.** A server now runs in a project only when it's on in the workspace and on in that project. Adding a server adds it turned off, with no questions. Turning its switch on in the MCP view shows what it runs and asks which projects to turn it on in (the selected project ticked); turning it off stops it everywhere and keeps each project's choice for next time. New projects start with servers off, and a project's MCP tab says **Off in the workspace** where its switch is waiting on the workspace. Upgrading changes nothing that runs: servers on for all projects stay on wherever they were.
+
+- **Start small, finish a block, start fresh.** The user guide's Getting started now says how to keep a plan's usage down: one agent to begin with, a lighter model for routine work on project agents (not the Assistant), work in blocks of a few hours, then start every session fresh. The Assistant suggests it once, in a line, when every lane has ended or an agent's card is done with nothing else running, and checks its journal holds what is still open before it does.
+- **The Assistant's start view stays short on a big board.** What waits on you now shows at most ten lines; past that, agents asking now and cards blocked on a question first, then On Hold cards waiting on a decision of yours, before those waiting for a later version, then a count of the rest. The other sections are capped too, so a board with sixty On Hold cards no longer adds thousands of tokens to every new Assistant conversation (#1078).
+
+## 0.9.0 — 18 October 2026
 
 - **The Assistant keeps a journal.** Each workspace's Assistant has a journal, its memory across sessions: decisions, plans, events, incidents and what it learned, each a line with optional detail and links to cards and commits, searchable and recalled a few lines at a time instead of a long handover. Hive adds facts as they happen (lanes started and ended, merges, cards into Done, an unexpected close). **Settings → Assistant → Journal** turns it off (keeping it), chooses what it may store (work only by default), how long everyday entries stay (90 days) and a size cap (50 MB), and deletes it. It is kept on this computer only, in `.hive/assistant/journal.db` (#1031).
 - **The Assistant picks up where it left off.** With its journal on, the Assistant gets a short view of where things stand each time it starts and after every compaction: what waits on you, the cards in hand, lanes and agents, and the few journal entries that matter now, kept to about two thousand tokens. It writes your decisions in your words as you make them, recalls before deciding from memory, and writes a weekly digest. Asked for a handover, it says one isn't needed and writes one only if you still want it; with the journal off it writes handovers as before and suggests the journal once (#1032).

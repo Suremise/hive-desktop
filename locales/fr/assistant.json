@@ -255,7 +255,7 @@
   "assistant.sidebar.markNotWorking": "Ne plus marquer comme actif",
   "assistant.sidebar.markWorking": "Marquer comme actif",
   "assistant.sidebar.mcpServers": "Serveurs MCP",
-  "assistant.sidebar.mcpTip": "Les serveurs MCP déployés dans l’espace de travail (.hive/mcp) sont disponibles pour chaque projet et ne tournent que là où ils sont activés : active-en un dans l’onglet MCP d’un projet, ou pour tous les projets avec son interrupteur ici. Les changements s’appliquent aux nouvelles sessions.",
+  "assistant.sidebar.mcpTip": "Les serveurs MCP déployés dans l’espace de travail (.hive/mcp) sont disponibles pour chaque projet et ne tournent dans un projet que s’ils sont activés ici (leur interrupteur, qui demande les projets) et dans l’onglet MCP de ce projet. Les changements s’appliquent aux nouvelles sessions.",
   "assistant.sidebar.needYou": "{count, plural, one {# agent a besoin de toi} many {# agents ont besoin de toi} other {# agents ont besoin de toi}}",
   "assistant.sidebar.newFolder": "Nouveau dossier",
   "assistant.sidebar.newFolderButton": "Nouveau dossier…",

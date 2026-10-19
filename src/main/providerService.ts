@@ -5,7 +5,7 @@ import { observedEffortKey } from '../shared/models'
 import { autoProviderPending, isProviderEnabled, providerSettings, setInstalledCheck } from '../shared/providers'
 import { shownInstallInfo, toSpawnable } from './providers/common'
 import { allProviders, provider } from './providers'
-import type { KeySteps } from './providers/types'
+import type { KeySteps, UpdateRetry } from './providers/types'
 import { msg, onLanguageChange, tr } from '../shared/i18n'
 import { hiveError } from './hiveError'
 import { config } from './config'
@@ -53,6 +53,8 @@ const blank = (id: ProviderId): AgentInstallInfo => ({
 class ProviderService {
   private infos = new Map<ProviderId, AgentInstallInfo>(allProviders().map((p) => [p.id, blank(p.id)]))
   private liveSessionCount: (provider: ProviderId) => number = () => 0
+  /** At most one retry per provider, bound to the executable and version that failed. */
+  private updateRetries = new Map<ProviderId, { path: string; version: string | null; retry: UpdateRetry }>()
 
   info(id: ProviderId): AgentInstallInfo {
     return this.infos.get(id) ?? blank(id)
@@ -138,6 +140,9 @@ class ProviderService {
 
   private set(id: ProviderId, info: AgentInstallInfo): void {
     const was = this.infos.get(id)?.loggedIn
+    const pending = this.updateRetries.get(id)
+    if (pending && (pending.path !== info.path || pending.version !== info.version)) this.updateRetries.delete(id)
+    info = { ...info, updateRetry: this.updateRetries.get(id)?.retry.notice }
     this.infos.set(id, info)
     emit({ type: 'provider-install', provider: id, info: shownInstallInfo(info) })
     for (const fn of [...this.changed]) fn()
@@ -256,7 +261,7 @@ class ProviderService {
     return next
   }
 
-  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; busyScreen?: (screen: string) => boolean; done?: () => boolean }, shown: () => string = () => label): string {
+  private runTask(id: ProviderId, task: ProviderTask, file: string, args: string[], label: string, typed?: { keys: KeySteps; ready?: RegExp; busyTitle?: RegExp; busyScreen?: (screen: string) => boolean; done?: () => boolean }, shown: () => string = () => label, onExit?: (code: number) => void): string {
     const key = `task:${id}:${task}`
     if (hasPty(key)) return key
     const s = toSpawnable(file, args)
@@ -335,6 +340,7 @@ class ProviderService {
       onExit: (code) => {
         if (watch) clearInterval(watch)
         gate?.dispose()
+        onExit?.(code)
         if (code === 0 || finished) toast('success', tr(msg({ id: 'service.providers.taskDone', defaultMessage: '{task} finished', description: "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended well." }), { task: shown() }))
         else toast('warning', tr(msg({ id: 'service.providers.taskFailed', defaultMessage: '{task} exited with code {code}', description: "A notification: a coding agent CLI's task ({task}: \"Codex install\") ended with the exit code {code}." }), { task: shown(), code: String(code) }))
         if (task === 'login' && code === 0) this.signedIn(id)
@@ -345,7 +351,7 @@ class ProviderService {
   }
 
   /** Starts a provider task in a terminal and returns its terminal key. */
-  runProviderTask(id: ProviderId, task: ProviderTask): string {
+  runProviderTask(id: ProviderId, task: ProviderTask, retryUpdate = false): string {
     const adapter = provider(id)
     const name = adapter.descriptor.name
     const info = this.info(id)
@@ -358,8 +364,18 @@ class ProviderService {
     if (!info.path) throw hiveError(msg({ id: 'service.providers.notInstalled', defaultMessage: '{cli} is not installed.', description: 'An error running a coding agent CLI\'s task (update, sign-in, setup): the CLI {cli} ("Codex") is not installed.' }), { cli: name })
     if (task === 'update') {
       if (this.liveSessionCount(id) > 0) throw hiveError(msg({ id: 'service.providers.stopFirst', defaultMessage: 'Stop all running {cli} agents before updating it.', description: 'An error updating the coding agent CLI {cli} ("Codex") while agents run it.' }), { cli: name }, { kind: 'conflict' })
-      const cmd = adapter.updateCommand(info.path)
-      return this.runTask(id, task, cmd.file, cmd.args, `${name} update`, undefined, shown) // i18n-ignore: the task's name in the log
+      const pending = this.updateRetries.get(id)
+      if (retryUpdate && (!pending || pending.path !== info.path || pending.version !== info.version)) throw hiveError(msg({ id: 'service.providers.retryUnavailable', defaultMessage: 'This update retry is no longer available. Check again, then try Update.', description: 'Agent Setup error when a user tries to retry an update whose failure is no longer current. Check again and Update are buttons.' }), undefined, { kind: 'conflict' })
+      if (hasPty(`task:${id}:${task}`)) return `task:${id}:${task}`
+      const cmd = retryUpdate ? pending!.retry.command : adapter.updateCommand(info.path)
+      const key = this.runTask(id, task, cmd.file, cmd.args, `${name} update`, undefined, shown, (code) => { // i18n-ignore: the task's name in the log
+        const retry = adapter.updateRetry?.(info.path!, code)
+        if (retry && this.info(id).path === info.path && this.info(id).version === info.version) this.updateRetries.set(id, { path: info.path!, version: info.version, retry })
+        this.set(id, this.info(id))
+      })
+      this.updateRetries.delete(id)
+      this.set(id, this.info(id))
+      return key
     }
     if (task === 'login') {
       const cmd = adapter.loginCommand(info.path)

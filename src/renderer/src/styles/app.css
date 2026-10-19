@@ -2324,6 +2324,10 @@ p.hint {
 .toggle-item.disabled .ti-name {
   color: var(--fg-muted);
 }
+/* A project's switch for an MCP server the workspace has off (#1093): its choice is kept but waits on the workspace. */
+.toggle-item[data-gated] .switch {
+  opacity: 0.45;
+}
 
 /* ---------- Split views (changes, memory, notes) ---------- */
 .split {

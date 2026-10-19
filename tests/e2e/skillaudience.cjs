@@ -22,6 +22,10 @@ const skill = (dir, name, audience) => {
   const meta = audience ? `metadata:\n  audience: ${audience}\n` : ''
   fs.writeFileSync(path.join(dir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: The ${name} skill.\n${meta}---\n\nSteps.\n`)
 }
+// The Hive skills left out of the project tab: the bundled ones for the Assistant, and this suite's weekly-report.
+const bundledDir = path.join(lib.ROOT, 'resources', 'skills')
+const bundledForAssistant = fs.readdirSync(bundledDir).filter((n) => /^\s*audience:\s*assistant\s*$/m.test(fs.readFileSync(path.join(bundledDir, n, 'SKILL.md'), 'utf8')))
+const assistantOnly = bundledForAssistant.length + 1
 
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
@@ -128,7 +132,7 @@ const skill = (dir, name, audience) => {
   check("project tab: the Assistant's skills aren't listed", !has('weekly-report') && !has('coordinate-agents'), tabRows.join(' | '))
   check('project tab: the default and both are', has('plain') && has('both-ways') && has('work-on-card'))
   const note = await page.locator('.assistant-only-note').innerText().catch(() => '')
-  check('project tab: says how many are left out, and why', note.startsWith('4 Hive skills are for the Hive Assistant only') && /don't get them/.test(note), note)
+  check('project tab: says how many are left out, and why', note.startsWith(`${assistantOnly} Hive skills are for the Hive Assistant only`) && /don't get them/.test(note), note)
   const agentsGet = (await inv('skills:list', proj)).filter((s) => s.level === 'hive' && s.audience !== 'assistant').length
   check('project tab: its Hive rows are what project agents are given', tabRows.filter((t) => !/Local|User|Plugin/.test(t)).length >= agentsGet)
 

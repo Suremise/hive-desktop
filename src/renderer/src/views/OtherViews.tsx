@@ -461,7 +461,7 @@ function McpServerView({ selected }: { selected: string | null }) {
                   disabled={!!info.error}
                   onChange={(v) => void actions.setMcpServerEnabled(info, v)}
                 />
-                {tr(msg({ id: 'mcp.view.allProjects', defaultMessage: 'All projects', description: "Beside the switch in an MCP server's view that turns it on in every project." }))}
+                {tr(msg({ id: 'mcp.view.allProjects', defaultMessage: 'Workspace', description: "Beside the switch in an MCP server's view that turns it on or off in the workspace (on: it runs in the projects that have it on)." }))}
               </label>
             </>
           )}

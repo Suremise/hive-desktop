@@ -51,6 +51,10 @@ Once a week (Hive's view says when last week has no digest), write a **digest** 
 
 Your instructions list the kinds the user lets you store (Settings → Assistant → Journal). Write only those; Hive refuses the rest. A digest is always allowed, but keeps to the scope too: don't sum up what you weren't allowed to store. When Hive tells you the scope changed, follow it from then on.
 
+## Before a fresh start
+
+Before you suggest a fresh start, or start one yourself, check that your journal holds the open plans, the half-formed ideas and what waits on the user, and write what is missing: nothing should exist only in this conversation.
+
 ## Handovers
 
 With your journal on, you don't need handovers to carry on: asked for one, say so in a line (your journal and Hive's view at each start keep the state), and write one only if the user still wants it, for another agent or a person to read (the handover skill).

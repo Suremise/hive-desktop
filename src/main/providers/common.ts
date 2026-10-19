@@ -392,6 +392,7 @@ export function shownInstallInfo(info: AgentInstallInfo): AgentInstallInfo {
   }
   return {
     ...info,
+    ...(info.updateRetry ? { updateRetry: { message: shown(info.updateRetry.message), label: shown(info.updateRetry.label) } } : {}),
     ...(info.readiness ? { readiness: info.readiness.map((r) => ({ ...r, message: shown(r.message), ...(r.action ? { action: { ...r.action, label: shown(r.action.label) } } : {}), ...(r.detail ? { detail: r.detail.map(shown) } : {}) })) } : {}),
     ...(info.notes ? { notes: info.notes.map(shown) } : {})
   }

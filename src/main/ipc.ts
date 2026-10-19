@@ -905,8 +905,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'skills:openFolder': () => void shell.openPath(workspace.skillsDir),
 
     'mcp:list': () => mcp.listMcp(),
-    'mcp:setGlobal': async (name, enabled, expected) => {
-      await mcp.setMcpGlobal(name, enabled, expected)
+    'mcp:setGlobal': async (name, enabled, expected, projects) => {
+      // The projects to set are this window's workspace's.
+      const picks = projects && typeof projects === 'object' ? Object.fromEntries(Object.entries(projects).map(([p, on]) => [workspace.assertProject(p), on === true])) : {}
+      await mcp.setMcpGlobal(name, enabled, expected, picks)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
     },
@@ -948,10 +950,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       return r.canceled || !r.filePaths[0] ? null : r.filePaths[0]
     },
     'mcp:previewFile': (file) => mcp.previewMcpFile(file),
-    'mcp:addFromFile': async (file, name, replace, turnOn, shown) => {
-      // A project to turn it on in is one of this window's workspace's.
-      const on = turnOn && typeof turnOn === 'object' ? { project: workspace.assertProject(turnOn.project) } : turnOn === 'all' ? 'all' : 'none'
-      const m = await mcp.addMcpFromFile(file, name, replace, on, typeof shown === 'string' ? shown : undefined)
+    'mcp:addFromFile': async (file, name, replace) => {
+      const m = await mcp.addMcpFromFile(file, name, replace)
       emit({ type: 'skills-changed' })
       workspace.scheduleRefresh()
       return m
@@ -1149,6 +1149,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'provider:task': async (id, task) => {
       await refreshPathBeforeStart()
       return providerService.runProviderTask(id, task)
+    },
+    'provider:retryUpdate': async (id) => {
+      await refreshPathBeforeStart()
+      return providerService.runProviderTask(id, 'update', true)
     },
     'provider:stopAgents': (id) => sessions.stopProvider(id),
 
