@@ -1,6 +1,6 @@
 ---
 name: card-loop
-description: "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review several cards in order."
+description: "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review cards (one or several) as a builder or reviewer, or given rounds."
 metadata:
   audience: agents
 ---

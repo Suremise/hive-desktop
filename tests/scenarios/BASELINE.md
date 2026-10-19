@@ -36,6 +36,23 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## One card as a loop's builder picks card-loop: fakes, Claude Code (haiku), Codex (its default model), fixtures v59, 19 October 2026
+
+#878: haiku sometimes read work-on-card for card-loop-rounds ("Work through card #N as its builder (rounds: 2)") and
+treated the card at its round limit as a fix. card-loop's description said "Use when told to work through or review
+**several** cards in order", and the session contract "several cards in turn", which one card doesn't match. Now
+card-loop's says "cards (one or several) as a builder or reviewer, or given rounds", the contract "as a loop's builder
+or reviewer (one card or several, with rounds)", and work-on-card's "Not for reviewing one, nor a card loop".
+- **Claude Code (haiku), before**: card-loop-rounds 9 of 10 (`2026-10-19T19-29-31-claude-code`, baseline
+  `hb5-878-haiku-before`, 5 of 5; `2026-10-19T19-36-32-claude-code`, 4 of 5: sample 5 read work-on-card, moved the card
+  to Doing and blocked it asking where the sync code is, as on 15 Oct).
+- **Claude Code (haiku), after**: card-loop-rounds 10 of 10, each reading card-loop (`2026-10-19T19-42-52-claude-code`,
+  baseline `hb5-878-haiku-after`); work-on-card and review-card 3 of 3 each (`2026-10-19T19-50-32-claude-code`).
+- **Codex**: card-loop-rounds and work-on-card pass (`2026-10-19T19-55-30-codex`).
+- **Fakes**: work-on-card, review-card, card-loop-rounds, -return and -lane pass before and after (`hb5-878-fake-before`
+  against `hb5-878-fake-after`): calls and replies the same; core guidance -13 bytes, the skills' catalog +71, delivered
+  skills +71.
+
 ## Card loops review a commit: fakes, Claude Code (haiku), Codex (its default model), fixtures v59, 19 October 2026
 
 #1074: card-loop has the builder commit each round before Review and name the commit, and a reviewer handed uncommitted
