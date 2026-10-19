@@ -176,6 +176,8 @@ describe('the bundled skills', () => {
     const brief = catalog.get('run-lanes')!.text
     expect(brief).toMatch(/Commit each round on your branch before sending the card to Review \(card-loop\)\./)
     expect(brief).not.toMatch(/After each card passes: commit/)
+    // A reviewer that reads only review-agent-work is pointed there (haiku passed uncommitted work so).
+    expect(catalog.get('review-agent-work')!.text).toMatch(/In a card loop, review the commit its builder names: work sent uncommitted gets a request for a commit, not a verdict \(card-loop, Reviewer\)\./)
   })
 })
 
