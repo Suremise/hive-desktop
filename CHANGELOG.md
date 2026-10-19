@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The Performance view and the developer console are translated.** Both were English in every language; their headings, buttons, filters, explanations and notices now follow Hive's language, like the rest of the app. What the developer console records (events and recordings) stays English, as Hive's log does, so a recording reads the same to whoever it's sent to. The descriptions of the skills Hive ships are translated in the Skills view too, as the Assistant modes' already were; the skills themselves, which agents read, stay English (#1104).
+- **Polish: "Aktywne" in the sidebar.** The Projects sidebar's section of active projects is now *Aktywne* in Polish, instead of *W pracy* (#1104).
+
 - **The code editor's right-click menu is readable again.** In the Files tab, the editor's menu (Go to Symbol, Format Document, Cut, Copy, Paste…) showed dark text with no background or border. It now looks like Hive's other menus in both themes: a surface with a border, readable entries and shortcuts, and the hovered entry filled with the accent colour (#1102).
 
 ## 0.9.2 — 2026-10-19

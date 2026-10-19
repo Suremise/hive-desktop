@@ -291,6 +291,18 @@
     "defaultMessage": "{n, plural, one {{agent} left # process running} other {{agent} left # processes running}}",
     "description": "A notice at start: processes an agent started before Hive last closed still run. {agent} is the agent (or project) name; {n} how many."
   },
+  "main.mergeSlot.leftBody": {
+    "defaultMessage": "It held the merge slot for {branch}{hasCards, select, yes { ({cards})} other {}}. Check {folder} for a merge left half done (git status there) before the next merge.",
+    "description": "The notice that an agent was merging when Hive closed: {branch} is the branch it held the slot for, {cards} the cards it named (\"#7, #9\"; shown when {hasCards} is yes), {folder} where the merge was. 'git status' is a command: keep it."
+  },
+  "main.mergeSlot.leftBodyGone": {
+    "defaultMessage": "It held the merge slot for {branch}{hasCards, select, yes { ({cards})} other {}} in {project}, a project this workspace no longer has (its folder is another project's now, or gone). Check {folder} for a merge left half done (git status there) before the next merge.",
+    "description": "The notice that an agent was merging when Hive closed, in a project ({project}, its name) the workspace no longer has: {branch} is the branch it held the slot for, {cards} the cards it named (\"#7, #9\"; shown when {hasCards} is yes), {folder} where the merge was. 'git status' is a command: keep it."
+  },
+  "main.mergeSlot.leftTitle": {
+    "defaultMessage": "{agent} was merging when Hive closed",
+    "description": "A notice's title as a workspace opens: the agent {agent} (its name) held the merge slot when Hive last closed, so its merge may be half done."
+  },
   "main.move.adoptFailed": {
     "defaultMessage": "The handovers and kept comparisons saved under a project's earlier name couldn't all be given to it ({why}). Repair tries again.",
     "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {why} is the system's message. Kept comparisons are benchmarks kept in Performance → Compare."

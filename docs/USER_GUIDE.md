@@ -341,7 +341,7 @@ Numbers, sizes, percentages, money and the words in dates (weekdays, months, AM 
 
 A new language shows at once. A few parts that come from Chromium, the engine Hive is built on (the PDF viewer, date pickers), change when Hive next starts, and the setting says so.
 
-What stays in English: this user guide and the other documents in the Docs view, for now (the Hive Assistant knows Hive well and can answer your questions in your language); the **Performance** view and the developer console, which are tools for developers; and what Hive tells agents and the Hive Assistant (their instructions, skills, notices and the hive tools' replies), so they work the same whatever your language; they can still answer you in yours. Names you gave things, and what agents wrote, stay as they are. The installer follows Windows' display language too.
+What stays in English: this user guide and the other documents in the Docs view, for now (the Hive Assistant knows Hive well and can answer your questions in your language); what the developer console records (the events it shows and the recordings it saves, like Hive's log); and what Hive tells agents and the Hive Assistant (their instructions, skills, notices and the hive tools' replies), so they work the same whatever your language; they can still answer you in yours. Names you gave things, and what agents wrote, stay as they are. The installer follows Windows' display language too.
 
 **Starting Hive in a language:** `--lang=<code>` (for example `Hive.exe --lang=pl`) starts Hive in that language for one run, whatever the setting says, which is how translators check their work. While Hive runs that way, the setting says it applies from the next start.
 

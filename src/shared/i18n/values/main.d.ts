@@ -74,6 +74,9 @@ interface HiveMessageValues {
   'main.leftovers.quitMessage': { n: number }
   'main.leftovers.restoredBody': { n: number; processes: string | number }
   'main.leftovers.restoredTitle': { n: number; agent: string | number }
+  'main.mergeSlot.leftBody': { branch: string | number; hasCards: string; cards: string | number; folder: string | number }
+  'main.mergeSlot.leftBodyGone': { branch: string | number; hasCards: string; cards: string | number; project: string | number; folder: string | number }
+  'main.mergeSlot.leftTitle': { agent: string | number }
   'main.move.adoptFailed': { why: string | number }
   'main.move.already': undefined
   'main.move.alsoMoved': { n: number; things: string | number; from: string | number; to: string | number }
