@@ -2303,8 +2303,13 @@ export type HiveEvent =
   | { type: 'update-state'; state: UpdateState }
   /** The language Hive shows changed (Settings → General → Language): every window shows it. */
   | { type: 'language-changed'; language: LanguageInfo }
-  /** A workspace's progress runs changed (all of them, newest first). */
+  /** A workspace's progress runs changed (all of them, newest first): for in-process listeners (the Agent API's stream, the developer console). */
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
+  /**
+   * The window's telling of the same (#1108): `whole`, every run (newest first); else only the runs that changed, to put
+   * in place by id (a new one by when it started). `seq` counts a workspace's tellings: one skipped means read the list again.
+   */
+  | { type: 'progress-runs'; workspacePath: string; seq: number; whole: boolean; runs: ProgressRun[] }
   /** A workspace's merge slots changed (those held or waited for). */
   | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */

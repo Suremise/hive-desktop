@@ -202,6 +202,25 @@ export function shortDuration(ms: number): string {
   return `${h} h${min % 60 ? ` ${min % 60} min` : ''}`
 }
 
+/**
+ * A window's runs with the runs that changed put in place by id (#1108), newest first: a new one by when it started. The
+ * runs that didn't change stay the same objects, so what shows them needn't draw them again.
+ */
+export function applyRunsPatch(runs: readonly ProgressRun[], patch: readonly ProgressRun[]): ProgressRun[] {
+  const changed = new Map(patch.map((r) => [r.id, r]))
+  const out = runs.map((r) => {
+    const next = changed.get(r.id)
+    if (!next) return r
+    changed.delete(r.id)
+    return next
+  })
+  for (const r of changed.values()) {
+    const at = out.findIndex((x) => x.startedAt <= r.startedAt)
+    out.splice(at < 0 ? out.length : at, 0, r)
+  }
+  return out
+}
+
 /** An agent's newest open run (running or stale), for what it is doing elsewhere (the Assistant's overview, #311). */
 export function agentOpenRun(runs: readonly ProgressRun[], projectPath: string, agentId: string): ProgressRun | null {
   const p = projectPath.toLowerCase()

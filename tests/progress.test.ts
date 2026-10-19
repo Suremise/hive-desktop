@@ -2,7 +2,7 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import { FINISHING_MS, MAX_OPEN_PER_OWNER, applyRunsPatch, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
 import type { MergeSlotInfo, ProgressRun } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 import { fmt, setLanguage, tr } from '../src/shared/i18n'
@@ -26,12 +26,12 @@ const otherWsScript: ProgressCaller = { source: 'api', workspacePath: 'C:\\other
 const assistant: ProgressCaller = { source: 'assistant', workspacePath: WS, agentName: 'Hive Assistant', provider: 'claude-code' }
 
 let now = 1_000_000
-let changes: { ws: string; runs: ProgressRun[] }[] = []
+let changes: { ws: string; runs: ProgressRun[]; patch?: ProgressRun[] | null }[] = []
 let running = true
 /** The reporters' processes still there (#549), by pid. */
 let alivePids = new Set<number>()
 const store = (): ProgressStore =>
-  new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, processAlive: (pid) => alivePids.has(pid), emitEveryMs: 250 })
+  new ProgressStore({ now: () => now, changed: (ws, runs, patch) => changes.push({ ws, runs, patch }), ownerRunning: () => running, processAlive: (pid) => alivePids.has(pid), emitEveryMs: 250 })
 
 const status = (fn: () => unknown): number | null => {
   try {
@@ -50,6 +50,64 @@ beforeEach(() => {
   vi.useFakeTimers()
 })
 afterEach(() => vi.useRealTimers())
+
+describe("the window's tellings (#1108)", () => {
+  const ids = (runs: ProgressRun[] | null | undefined): string[] | null => (runs ? runs.map((r) => r.id) : null)
+
+  it('an update tells only the run that changed; runs updated together within the interval are told together', () => {
+    const s = store()
+    const a = s.start(alfie, { title: 'a', total: 10 })
+    const b = s.start(betty, { title: 'b', total: 10 })
+    for (let i = 0; i < 150; i++) {
+      const done = s.start(script, { title: `old ${i}` })
+      s.finish(script, done.id, { ok: true })
+    }
+    changes = []
+    now += 1000
+    s.update(alfie, a.id, { step: 1 })
+    expect(changes.map((c) => ids(c.patch))).toEqual([[a.id]])
+    expect(changes[0].runs).toHaveLength(152)
+    expect(changes[0].patch![0]).toMatchObject({ id: a.id, step: 1 })
+    // Within 250 ms: held, then both together.
+    s.update(alfie, a.id, { step: 2 })
+    s.update(betty, b.id, { step: 1 })
+    expect(changes).toHaveLength(1)
+    vi.advanceTimersByTime(250)
+    expect(changes.map((c) => ids(c.patch))).toEqual([[a.id], [b.id, a.id]])
+  })
+
+  it('a new run, a run gone stale and runs seen are told as patches; an end, a dismissal or the history the whole list', () => {
+    const s = store()
+    const a = s.start(alfie, { title: 'a' })
+    expect(ids(changes.at(-1)!.patch)).toEqual([a.id])
+    now += 1000
+    s.update(alfie, a.id, { step: 1 })
+    // A run's update waiting when it ends: the end tells the whole list, which has it.
+    s.update(alfie, a.id, { step: 2 })
+    s.finish(alfie, a.id, { ok: false })
+    expect(changes.at(-1)!.patch).toBeNull()
+    s.seen(WS)
+    expect(ids(changes.at(-1)!.patch)).toEqual([a.id])
+    const b = s.start(betty, { title: 'b' })
+    running = false
+    s.sweep()
+    expect(ids(changes.at(-1)!.patch)).toEqual([b.id])
+    s.dismiss(WS, b.id)
+    expect(changes.at(-1)!.patch).toBeNull()
+    s.clear(WS)
+    expect(changes.at(-1)).toMatchObject({ runs: [], patch: null })
+  })
+
+  it('a patch puts runs in place by id, keeps the others the same objects, and a new run by when it started', () => {
+    const run = (id: string, startedAt: number, step = 0): ProgressRun => ({ id, startedAt, step }) as ProgressRun
+    const before = [run('c', 30), run('b', 20), run('a', 10)]
+    const after = applyRunsPatch(before, [run('b', 20, 5), run('d', 25), run('e', 40), run('z', 1)])
+    expect(after.map((r) => r.id)).toEqual(['e', 'c', 'd', 'b', 'a', 'z'])
+    expect(after[1]).toBe(before[0])
+    expect(after[3]).toMatchObject({ step: 5 })
+    expect(after[4]).toBe(before[2])
+  })
+})
 
 describe('progress runs', () => {
   it("is the starter's: its agent, name and provider come from the caller, not the request", () => {
@@ -388,7 +446,7 @@ describe('progress runs', () => {
     s.update(script, mine.id, { step: 2 }) // a merged window event is pending
     changes = []
     s.clear(WS)
-    expect(changes).toEqual([{ ws: WS, runs: [] }])
+    expect(changes).toEqual([{ ws: WS, runs: [], patch: null }])
     expect(s.list(WS)).toEqual([])
     expect(s.failureUnseen(WS)).toBe(false)
     expect(status(() => s.update(script, mine.id, { step: 3 }))).toBe(404)

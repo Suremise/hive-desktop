@@ -236,6 +236,8 @@ interface State {
   assistantOpen: boolean
   /** This window's workspace's progress runs (newest first), for the Progress panel. */
   progressRuns: ProgressRun[]
+  /** The last telling of them applied (#1108: `progress-runs`' seq), null until one is, or after the list was read again. */
+  progressSeq: number | null
   /** This window's workspace's merge slots (#350): those held or waited for. */
   mergeSlots: MergeSlotInfo[]
   /** This window's workspace's lanes (#483), for the Progress panel (#484): running ones and those ended lately. */
@@ -450,6 +452,7 @@ export const useStore = create<State>(() => ({
   journalVersion: 0,
   assistantOpen: false,
   progressRuns: [],
+  progressSeq: null,
   mergeSlots: [],
   lanes: [],
   paneFlash: null,
