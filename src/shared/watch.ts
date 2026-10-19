@@ -209,15 +209,16 @@ export function carriedOver(card: TaskCard, told: Baseline, self: string): CardM
  * What changed on one card since a watch's starting point (`base`), of the kinds that count (a card gone or archived
  * always counts): its column and agent against the starting mark; comments, verdicts and moves into a column by the
  * entries after where its view ended, so none is missed for sharing a millisecond with one already seen (#224). What
- * the watcher (`self`) did itself before the watch began (`since`) isn't news.
+ * the watcher (`self`) did itself before the watch began (`since`) isn't news, nor is a comment of its own (`watcher`,
+ * #1074: a builder watching for its verdict and a reviewer's comment isn't woken by its own Review comment).
  */
-export function changesSince(card: TaskCard | null, base: Baseline & { since: string; self?: string }, cond: Pick<WatchCondition, 'changes' | 'column' | 'moveInto' | 'blocked'>): WatchChange[] | 'gone' {
+export function changesSince(card: TaskCard | null, base: Baseline & { since: string; self?: string; watcher?: string }, cond: Pick<WatchCondition, 'changes' | 'column' | 'moveInto' | 'blocked'>): WatchChange[] | 'gone' {
   const now = markOf(card)
   if (!card || now.column === 'gone' || (now.archived && !base.mark.archived)) return 'gone'
   const kinds = new Set(cond.changes.length ? cond.changes : WATCH_CHANGES)
   const news = <T extends { at: string; by: string }>(xs: T[]): T[] => (base.self ? xs.filter((x) => !(x.by === base.self && x.at <= base.since)) : xs)
   const h = news(entriesAfter(card.history, base.seen.h))
-  const c = news(entriesAfter(card.comments, base.seen.c))
+  const c = news(entriesAfter(card.comments, base.seen.c)).filter((x) => !base.watcher || x.by !== base.watcher)
   const out: WatchChange[] = []
   // Any move into the column counts, also for a watch that waits only to see it there (#521): a starting mark carried
   // over from a wake can say the card was there when it has left and come back since (told in Review, then Doing).
