@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **The Assistant's start view on Codex and Copilot.** An Assistant running on Codex or Copilot now gets the same short view of where things stand as on Claude Code: each time it starts, and again after its conversation is compacted (on Copilot, with your next message after a compaction) (#1065).
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).

@@ -689,6 +689,14 @@ export class CodexAdapter implements ProviderAdapter {
     return null
   }
 
+  /**
+   * SessionStart's context (0.163.0, #1065's probe: tests/fixtures/sessionstart-codex-0.163.0.json): reaches the model
+   * whole (8 KB tried) at the first prompt (source startup), on resuming and after each compaction (source compact).
+   */
+  startContextReply(text: string): Record<string, unknown> {
+    return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }
+  }
+
   /** A Stop blocked carries the turn on, its reason as a new prompt (Codex's hooks reference; 0.162.1, #645's spike). */
   stopContinues(reply: Record<string, any>): boolean {
     return reply.decision === 'block'

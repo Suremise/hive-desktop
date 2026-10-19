@@ -330,6 +330,12 @@ export interface ProviderAdapter {
    */
   startContextReply?(text: string): Record<string, unknown>
   /**
+   * Where the start context goes after a compaction, on a CLI that starts no session then (#1065): 'prompt' puts it in
+   * the reply to the next prompt hook (startContextReply's form), once. Absent: its SessionStart after a compaction
+   * carries it, as for a start.
+   */
+  readonly startContextAfterCompaction?: 'prompt'
+  /**
    * Whether the turn a drain carries on comes back to Hive as a new prompt hook, with the notice as its prompt (Copilot):
    * the turn ledger then takes it as Hive's own in the running turn, not a new one.
    */

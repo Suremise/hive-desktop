@@ -3606,6 +3606,8 @@ class SessionManager {
    */
   hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
     if (body.hook_event_name === 'SessionStart') return this.startReply(runId, body)
+    const afterCompaction = this.compactionContextReply(runId, body)
+    if (afterCompaction) return afterCompaction
     const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
     if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
@@ -3631,8 +3633,33 @@ class SessionManager {
     if (!l || !this.startContext || !l.adapter.startContextReply) return null
     const hook = l.adapter.normalizeHook(body)
     if (hook.ids.sub || hook.event.kind !== 'start') return null
+    return this.startContextFor(l, hook.event.source)
+  }
+
+  /** Launches whose start context is due with their next prompt: compacted, on a CLI that starts no session then. */
+  private contextDue = new WeakSet<LiveSession>()
+
+  /**
+   * On a CLI that starts no session after a compaction (startContextAfterCompaction 'prompt': Copilot, #1065), its
+   * compaction makes the start context due, and the next prompt hook's reply carries it, once (source compact). Null
+   * for any other hook, which hookReply then answers as usual.
+   */
+  private compactionContextReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> | null {
+    if (!this.startContext) return null
+    const l = this.findLaunch(runId, body.session_id)?.[1]
+    if (!l || l.adapter.startContextAfterCompaction !== 'prompt') return null
+    const hook = l.adapter.normalizeHook(body)
+    if (hook.ids.sub) return null
+    if (hook.event.kind === 'compactStart') this.contextDue.add(l)
+    else if (hook.event.kind === 'prompt' && this.contextDue.delete(l)) return this.startContextFor(l, 'compact')
+    return null
+  }
+
+  /** The start context for a launch, in its CLI's reply form, or null (none, or it couldn't be made). */
+  private async startContextFor(l: LiveSession, source: string | null): Promise<Record<string, unknown> | null> {
+    if (!this.startContext || !l.adapter.startContextReply) return null
     try {
-      const text = await this.startContext(l.state, hook.event.source)
+      const text = await this.startContext(l.state, source)
       return text ? l.adapter.startContextReply(text) : null
     } catch (e) {
       log.warn('start context', e)
