@@ -63,6 +63,7 @@ export function whyNoLine(projectPath: string, agentId: string, need: DeliveryNe
   if (!readyFor(st, need)) return st.status === 'watching' ? 'it is waiting on cards, and takes no new work until it is woken' : `it is ${st.status}` // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.userMayBeTyping(projectPath, agentId)) return 'the user has just typed in its terminal and may still be writing there' // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.lineWaiting(projectPath, agentId)) return "its CLI hasn't taken the line Hive typed before" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (sessions.launchTaskWaiting(projectPath, agentId)) return "its CLI hasn't taken its launch's task yet" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (lineComing(projectPath, agentId)) return "a watch's wake goes first" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   return null
 }

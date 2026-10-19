@@ -267,6 +267,8 @@ interface LiveSession {
   initialPrompt?: string
   /** This launch was given its first task on its command line: until its CLI takes it, it is pending (#712). */
   launchTask?: true
+  /** When such a launch first became ready (or watching), in ms: its task is pending at most PENDING_MS from then (#721). */
+  launchReadyAt?: number
   /**
    * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
    * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
@@ -638,6 +640,20 @@ const USER_REPLY_MS = 15_000
 /** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
 const PENDING_MS = 30_000
 
+/**
+ * A launch's task on its CLI's command line not taken yet (#712): the CLI is ready at its SessionStart and takes the task
+ * only after, so it is pending until its first prompt, at most PENDING_MS after it became ready. Ready shows as watching
+ * when a watch of the agent's outlived its last launch (#721 round 1 finding 1), and as finished once that watch ends:
+ * pending too, timed from when it first became ready (launchReadyAt), which a watch's coming or going doesn't move.
+ */
+function launchPending(l: LiveSession): boolean {
+  const st = l.state
+  if (!l.launchTask || (l.prompts ?? 0) > 0) return false
+  if (st.status === 'starting') return true
+  if (st.status !== 'ready' && st.status !== 'watching' && st.status !== 'finished') return false
+  return Date.now() - (l.launchReadyAt ?? Date.parse(st.statusSince ?? '')) < PENDING_MS
+}
+
 /** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
 const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
@@ -727,10 +743,18 @@ class SessionManager {
     if (!l) return null
     const prompts = l.prompts ?? 0
     const typed = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
-    const st = l.state
-    const launch = !!l.launchTask && prompts === 0 && (st.status === 'starting' || (st.status === 'ready' && Date.now() - Date.parse(st.statusSince ?? '') < PENDING_MS))
-    const pending = typed || launch
+    const pending = typed || launchPending(l)
     return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
+  }
+
+  /**
+   * Whether an agent's CLI hasn't taken its launch's task yet (#712), as agentNow counts it (#721): nothing of Hive's is
+   * typed into it meanwhile, or its CLI's first prompt, the task's, would be taken for that line's and the line would go
+   * first.
+   */
+  launchTaskWaiting(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    return !!l && launchPending(l)
   }
 
   /**
@@ -3197,6 +3221,8 @@ class SessionManager {
     // Its input as Hive holds it now (#648): a line typed or given up since the last report.
     const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
+    // A launch with its task on its command line: when it first became ready, before a watch shows that as watching (#721).
+    if (l?.state === state && l.launchTask && l.launchReadyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) l.launchReadyAt = Date.now()
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)

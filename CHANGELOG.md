@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **A message left for an agent that's just starting on a task waits for that task.** An agent started with a task (a card's Start, a new conversation) is ready a moment before its coding agent takes the task. A message or wake that arrived just then could be typed first, so the agent read it before its task and Hive lost track of the line. Hive now waits until the task has been taken.
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).
