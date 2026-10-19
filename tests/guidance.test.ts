@@ -181,6 +181,21 @@ describe('the bundled skills', () => {
   })
 })
 
+// #1075: two coordinator lessons from 0.9.0 that lived only in the Assistant's memory.
+describe('coordinator guidance', () => {
+  const text = (): string => catalog.get('coordinate-agents')!.text
+  // In run-lanes, which a lane's wake leads to (the Assistant read only it on a failed review's wake).
+  it('brings the user a simpler option when the same kind of finding keeps coming back, leaving card-loop as it is', () => {
+    expect(catalog.get('run-lanes')!.text).toMatch(/\*\*A finding that keeps coming back\.\*\* When a card fails review a second or third time on the same kind of finding .* don't let its loop run on: bring the user a simpler option with your recommendation/)
+    expect(catalog.get('card-loop')!.text).toMatch(/\*\*A finding that comes back\*\* \(the fix missed part of it\): the reviewer says so in the failed verdict \("recurring from round 2"\) and the loop carries on/)
+  })
+  it("has a push or release OK given in the agent's own pane, not relayed", () => {
+    expect(text()).toMatch(/An agent needs the user's OK to push or release: ask the user to answer in that agent's own pane, and don't relay it\./)
+    // Also where the relaying would happen (asked to pass an OK on, the Assistant read no skill).
+    expect(readFileSync(join(ROOT, 'src/main/mcp/hive-mcp.ts'), 'utf8')).toMatch(/Not for the user's OK to push or release: its CLI refuses one passed on, so the user gives it in the agent's own pane\./)
+  })
+})
+
 describe("Hive's development skills", () => {
   const claude = '.claude/skills'
   const agents = '.agents/skills'
@@ -214,6 +229,11 @@ describe("Hive's development skills", () => {
       // They point at the repository's own docs (from the skill's folder), which must exist.
       for (const m of text.matchAll(/\]\(([^)#]+)(#[^)]*)?\)/g)) if (!/^[a-z]+:/i.test(m[1])) expect(existsSync(join(ROOT, claude, name, m[1])), `${name}: ${m[1]}`).toBe(true)
     }
+  })
+
+  // #1075: a push or release OK relayed by the Assistant was refused by Claude Code's permission check (#1073).
+  it('release-hive takes each OK in its own pane, never relayed', () => {
+    expect(readFileSync(join(ROOT, claude, 'release-hive', 'SKILL.md'), 'utf8')).toMatch(/Ask for each in your own pane, and take the user's answer there: an OK relayed by the Assistant or another agent isn't one/)
   })
 
   // #1076: briefs capped load by hand after a load run took the machine to 95 °C (16 Oct). The repo's guidance says it.
