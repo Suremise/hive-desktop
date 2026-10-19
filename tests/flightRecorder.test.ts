@@ -5,6 +5,7 @@ import { ADVANCED_DEFS } from '../src/shared/advanced'
 import { FLIGHT_PATTERN_OFF, knownIds, unknownIn } from '../src/shared/flightRecorder'
 import { parseRecording } from '../src/shared/consoleFixtures.mts'
 import { sessionSourceId, hiveSourceId } from '../src/shared/devConsole'
+import { setLanguage } from '../src/shared/i18n'
 
 // The developer console's flight recorder (#698): the events and fields each CLI is known to send (advanced values; every
 // recorded fixture's are known), the console keeping agents' events while a trigger is on (and nothing while none is),
@@ -203,7 +204,7 @@ describe('captures and triggers', async () => {
     expect(t.actions?.[0]).toMatchObject({ command: 'console.showCapture' })
     expect(t.source).toBe(who.projectPath)
     const r = fileOf(String(t.actions![0].args![0]))
-    expect(r.header?.capture).toEqual({ trigger: 'safeguard', what: 'safeguards stopped a response on opus' })
+    expect(r.header?.capture).toEqual({ trigger: 'safeguard', what: 'safeguards stopped a response on opus', whatText: { id: 'safeguardStopOn', values: { model: 'opus' } } })
     expect(r.events.map((e) => `${e.kind} ${e.name}`)).toEqual(['hook PreToolUse', 'trigger safeguard'])
     expect(JSON.stringify(r)).not.toContain('secret words')
     expect(captures().length).toBe(before + 1)
@@ -235,6 +236,26 @@ describe('captures and triggers', async () => {
     expect(whats.some((w) => /claude-code 2\.1\.999 → 2\.2\.0/.test(w))).toBe(true)
     expect(whats.some((w) => /silent in a turn for 300 s/.test(w))).toBe(true)
     expect(whats.some((w) => /terminal title: found the needle/.test(w))).toBe(true)
+  })
+
+  it("the notice and the list say what a capture saw in Hive's language; the file keeps its English beside it", async () => {
+    const PL = join(__dirname, '..', 'locales', 'pl')
+    const polish = Object.assign({}, ...readdirSync(PL).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(PL, f), 'utf8'))))
+    set({ 'hive.recorder.safeguard': true, 'hive.recorder.unknown': true })
+    setLanguage('pl', polish, 'pl-PL')
+    try {
+      flightRecorder.safeguard(agent(), () => 'proj · P', { kind: 'stop', model: 'opus' })
+      flightRecorder.arrived(agent(), () => 'proj · Q', 'hook', { hook_event_name: 'Stop', session_id: 's', brand_new: 1 })
+      await vi.waitFor(() => expect(toasts.list.length).toBe(2), { timeout: 10_000 })
+      for (const t of toasts.list) expect(`${t.title} ${t.message}`).not.toMatch(/Captured|saved|safeguards stopped|doesn't know/)
+      expect(toasts.list.map((t) => t.message).join()).toMatch(/opus/)
+      const file = fileOf(String(toasts.list[0].actions![0].args![0]))
+      expect(file.header?.capture?.what).toBe('safeguards stopped a response on opus')
+      const listed = (await listCaptures()).find((c) => c.name === toasts.list[0].actions![0].args![0])
+      expect(listed?.capture?.whatText).toEqual({ id: 'safeguardStopOn', values: { model: 'opus' } })
+    } finally {
+      setLanguage('en', {})
+    }
   })
 
   it('what a capture says it saw is masked in its file, its notice and the list, as events are', async () => {

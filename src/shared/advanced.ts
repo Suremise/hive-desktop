@@ -235,7 +235,7 @@ const SOURCES: readonly AdvancedSource[] = [
     id: 'hive.recorder.unknown',
     group: 'hive',
     title: msg({ id: 'settings.advanced.hive.recorder.unknown.title', defaultMessage: 'Flight recorder: capture something unknown from a CLI', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens." }),
-    desc: msg({ id: 'settings.advanced.hive.recorder.unknown.desc', defaultMessage: "Save a capture when a CLI sends a hook or a status line with a field Hive doesn't know: often the first sign that a CLI update changed something. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.", description: 'What the advanced setting "Flight recorder: capture something unknown from a CLI" does (Settings → Advanced). A hook and a status line are what a CLI sends Hive as it works.' }),
+    desc: msg({ id: 'settings.advanced.hive.recorder.unknown.desc', defaultMessage: "Save a capture when a CLI sends a hook or a status line with a field Hive doesn't know: often the first sign that a CLI update changed something.", description: 'What the advanced setting "Flight recorder: capture something unknown from a CLI" does (Settings → Advanced). A hook and a status line are what a CLI sends Hive as it works.' }),
     kind: 'boolean',
     default: false,
     applies: 'now'
@@ -244,7 +244,7 @@ const SOURCES: readonly AdvancedSource[] = [
     id: 'hive.recorder.version',
     group: 'hive',
     title: msg({ id: 'settings.advanced.hive.recorder.version.title', defaultMessage: 'Flight recorder: capture a CLI version change', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens." }),
-    desc: msg({ id: 'settings.advanced.hive.recorder.version.desc', defaultMessage: "Save a capture when an agent starts on a version of its CLI other than the one the last agent of that CLI started on. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.", description: 'What the advanced setting "Flight recorder: capture a CLI version change" does (Settings → Advanced).' }),
+    desc: msg({ id: 'settings.advanced.hive.recorder.version.desc', defaultMessage: "Save a capture when an agent starts on a version of its CLI other than the one the last agent of that CLI started on.", description: 'What the advanced setting "Flight recorder: capture a CLI version change" does (Settings → Advanced).' }),
     kind: 'boolean',
     default: false,
     applies: 'now'
@@ -253,7 +253,7 @@ const SOURCES: readonly AdvancedSource[] = [
     id: 'hive.recorder.stalled',
     group: 'hive',
     title: msg({ id: 'settings.advanced.hive.recorder.stalled.title', defaultMessage: 'Flight recorder: capture an agent gone silent', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens." }),
-    desc: msg({ id: 'settings.advanced.hive.recorder.stalled.desc', defaultMessage: "Save a capture when an agent working on a turn goes silent past its limit, so Hive can't tell what it is doing. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.", description: 'What the advanced setting "Flight recorder: capture an agent gone silent" does (Settings → Advanced).' }),
+    desc: msg({ id: 'settings.advanced.hive.recorder.stalled.desc', defaultMessage: "Save a capture when an agent working on a turn goes silent past its limit, so Hive can't tell what it is doing.", description: 'What the advanced setting "Flight recorder: capture an agent gone silent" does (Settings → Advanced).' }),
     kind: 'boolean',
     default: false,
     applies: 'now'
@@ -262,7 +262,7 @@ const SOURCES: readonly AdvancedSource[] = [
     id: 'hive.recorder.pattern',
     group: 'hive',
     title: msg({ id: 'settings.advanced.hive.recorder.pattern.title', defaultMessage: 'Flight recorder: capture events matching', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens." }),
-    desc: msg({ id: 'settings.advanced.hive.recorder.pattern.desc', defaultMessage: "Save a capture when an agent's developer console event has a name or summary this regular expression finds (case-insensitive). The default, (?!), never finds anything: it is off. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.", description: 'What the advanced setting "Flight recorder: capture events matching" does (Settings → Advanced). (?!) is a regular expression: keep it.' }),
+    desc: msg({ id: 'settings.advanced.hive.recorder.pattern.desc', defaultMessage: "Save a capture when an agent's developer console event has a name or summary this regular expression finds (case-insensitive). The default, (?!), never finds anything: it is off.", description: 'What the advanced setting "Flight recorder: capture events matching" does (Settings → Advanced). (?!) is a regular expression: keep it.' }),
     kind: 'pattern',
     default: '(?!)',
     flags: 'i',

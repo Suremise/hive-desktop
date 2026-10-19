@@ -81,7 +81,7 @@ export interface ConsoleRecordingInfo {
   recording: boolean
   reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed' | 'captured'
   /** A flight recorder capture (#698): the trigger that fired and what it saw, in English. */
-  capture?: { trigger: string; what: string }
+  capture?: { trigger: string; what: string; whatText?: { id: string; values: Record<string, string | number> } }
   /** Why a failed recording failed (its file is kept as it was written). */
   error?: string
 }

@@ -30,6 +30,17 @@ interface HiveMessageValues {
   'console.flight.trigger.stalled': undefined
   'console.flight.trigger.unknown': undefined
   'console.flight.trigger.version': undefined
+  'console.flight.what.modelSwitch': { from: string | number; to: string | number }
+  'console.flight.what.pattern': { event: string | number }
+  'console.flight.what.safeguardStop': undefined
+  'console.flight.what.safeguardStopOn': { model: string | number }
+  'console.flight.what.stalled': { seconds: number }
+  'console.flight.what.unknownEvent': { event: string | number }
+  'console.flight.what.unknownEventFields': { event: string | number; fields: string | number }
+  'console.flight.what.unknownFields': { fields: string | number }
+  'console.flight.what.unknownHookFields': { event: string | number; fields: string | number }
+  'console.flight.what.unknownStatusFields': { fields: string | number }
+  'console.flight.what.version': { provider: string | number; from: string | number; to: string | number }
   'console.includeText': undefined
   'console.live': undefined
   'console.made': undefined

@@ -1,10 +1,10 @@
 import { Children, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '@shared/devConsole'
-import { language, msg, onLanguageChange, tr, tRich } from '@shared/i18n'
+import { language, msg, onLanguageChange, tr, tRich, type Msg } from '@shared/i18n'
 import { clockTime, filterChoices, filterEvents, mergeEvents, sourceGroups, sourceOption, startsOpen } from '@shared/consoleView'
 import type { AppSettings, HiveEvent } from '@shared/types'
 import { providerName } from '@shared/providers'
-import { FLIGHT_TRIGGER_NAME, type FlightTrigger } from '@shared/flightRecorder'
+import { FLIGHT_TRIGGER_NAME, readFlightWhat, FLIGHT_WHAT, type FlightTrigger } from '@shared/flightRecorder'
 import { timeAgo } from './util'
 import { call, errorMessage } from './api'
 import { Icon, IconButton, SearchInput } from './components/ui'
@@ -83,6 +83,12 @@ const M = {
   captureRow: msg({ id: 'console.captureRow', defaultMessage: 'Captured {trigger} on {agent}, {when}', description: "A capture in the developer console's list, as the flight recorder's notice says it: what it caught (\"a safeguard stop\"), on which agent, and how long ago (\"5 minutes ago\")." }),
   captureEvents: msg({ id: 'console.captureEvents', defaultMessage: '{events, plural, one {# event} other {# events}}', description: "A capture in the developer console's list: how many events it holds." }),
   showCapture: msg({ id: 'console.showCapture', defaultMessage: 'Show in folder', description: "A link beside a capture in the developer console's list: shows its file in File Explorer." })
+}
+
+/** What a capture saw, in Hive's language when its file says it as a message this Hive knows; else its English. */
+const whatOf = (c: ConsoleRecordingInfo['capture']): string => {
+  const w = readFlightWhat(c?.whatText)
+  return w ? tr(FLIGHT_WHAT[w.id] as Msg, w.values as never) : (c?.what ?? '')
 }
 
 /** What the console's list calls a capture's trigger: one Hive knows, in its language; another as its file says it. */
@@ -379,7 +385,7 @@ export function ConsoleApp() {
                   <div key={c.name} className="dc-capture">
                     <div>{tr(M.captureRow, { trigger: triggerName(c.capture?.trigger ?? ''), agent: c.label, when: timeAgo(c.startedAt) })}</div>
                     <div className="faint dc-capture-what">
-                      {c.capture?.what} · {tr(M.captureEvents, { events: c.events })} ·{' '}
+                      {whatOf(c.capture)} · {tr(M.captureEvents, { events: c.events })} ·{' '}
                       <a className="dc-show-capture" onClick={() => void call('console:showRecording', c.name).catch((e) => setError(errorMessage(e)))}>
                         {tr(M.showCapture)}
                       </a>

@@ -20,7 +20,7 @@ export interface RecordingHeader {
   /** Each coding agent's CLI as installed when it started, and the version this Hive release was tested with. */
   clis: { provider: string; version: string | null; tested: string | null }[]
   /** A flight recorder capture (#698): the trigger that fired and what it saw, in English. */
-  capture?: { trigger: string; what: string }
+  capture?: { trigger: string; what: string; whatText?: unknown }
 }
 
 /** One event as the console captured it (`ConsoleEvent`), a line each. */

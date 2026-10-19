@@ -5,6 +5,7 @@ import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '../share
 import { RECORDING_FORMAT, isRecordingName, newestRecordingsFirst, parseRecording, recordingName, type RecordingEnd, type RecordingHeader } from '../shared/consoleFixtures.mts'
 import type { ProviderId } from '../shared/types'
 import { devConsole } from './devConsole'
+import { readFlightWhat, type FlightWhat } from '../shared/flightRecorder'
 import { providerService } from './providerService'
 import { createLogger, userText } from './logger'
 import { englishError, hiveError, shownError } from './hiveError'
@@ -331,12 +332,12 @@ async function reserve(dir: string, at: Date, kind: string): Promise<{ fh: FileH
  * with the trigger in its header, in the recordings folder; then only the newest `keep` captures stay (the user's own
  * recordings are never removed). Returns what it wrote.
  */
-export async function saveCapture(c: { source: Pick<ConsoleSource, 'kind' | 'label' | 'provider'>; events: ConsoleEvent[]; trigger: string; what: string; keep: number }): Promise<ConsoleRecordingInfo> {
+export async function saveCapture(c: { source: Pick<ConsoleSource, 'kind' | 'label' | 'provider'>; events: ConsoleEvent[]; trigger: string; what: string; whatText?: FlightWhat; keep: number }): Promise<ConsoleRecordingInfo> {
   const dir = recordingsDir()
   await mkdir(dir, { recursive: true })
   const at = new Date()
   const { fh, name } = await reserve(dir, at, CAPTURE_KIND)
-  const header: RecordingHeader = { type: 'recording', format: RECORDING_FORMAT, hive: app.getVersion(), startedAt: at.toISOString(), source: { kind: c.source.kind, label: c.source.label, ...(c.source.provider ? { provider: c.source.provider } : {}) }, text: false, clis: clisNow(), capture: { trigger: c.trigger, what: c.what } }
+  const header: RecordingHeader = { type: 'recording', format: RECORDING_FORMAT, hive: app.getVersion(), startedAt: at.toISOString(), source: { kind: c.source.kind, label: c.source.label, ...(c.source.provider ? { provider: c.source.provider } : {}) }, text: false, clis: clisNow(), capture: { trigger: c.trigger, what: c.what, ...(c.whatText ? { whatText: c.whatText } : {}) } }
   // i18n-ignore: a recording's end reason, a field value in its file
   const end: RecordingEnd = { type: 'end', at: new Date().toISOString(), events: c.events.length, dropped: 0, reason: 'captured' }
   const text = [header, ...c.events.map((e) => ({ type: 'event', ...e })), end].map((l) => `${JSON.stringify(l)}\n`).join('')
@@ -348,7 +349,7 @@ export async function saveCapture(c: { source: Pick<ConsoleSource, 'kind' | 'lab
   }
   await pruneCaptures(dir, c.keep)
   // i18n-ignore: the end reason is a field value (as the file's), not text
-  return { name, file: join(dir, name), label: c.source.label, kind: c.source.kind, ...(c.source.provider ? { provider: c.source.provider } : {}), includeText: false, startedAt: header.startedAt, endedAt: end.at, events: c.events.length, bytes, dropped: 0, recording: false, reason: 'captured', capture: header.capture }
+  return { name, file: join(dir, name), label: c.source.label, kind: c.source.kind, ...(c.source.provider ? { provider: c.source.provider } : {}), includeText: false, startedAt: header.startedAt, endedAt: end.at, events: c.events.length, bytes, dropped: 0, recording: false, reason: 'captured', capture: { trigger: c.trigger, what: c.what, ...(c.whatText ? { whatText: c.whatText } : {}) } }
 }
 
 /** Keeps the newest `keep` captures; older ones go (a file that can't be removed is left for the next time). */
@@ -366,7 +367,8 @@ export async function listCaptures(limit = 50): Promise<ConsoleRecordingInfo[]> 
     try {
       const r = parseRecording(await readRecordingText(file, 64 * 1024))
       if (!r.header?.capture) continue
-      out.push({ name, file, label: r.header.source.label, kind: r.header.source.kind, ...(r.header.source.provider ? { provider: r.header.source.provider } : {}), includeText: false, startedAt: r.header.startedAt, ...(r.end ? { endedAt: r.end.at, reason: r.end.reason } : {}), events: r.end?.events ?? r.events.length, bytes: (await stat(file)).size, dropped: 0, recording: false, capture: { trigger: String(r.header.capture.trigger), what: String(r.header.capture.what) } })
+      const whatText = readFlightWhat(r.header.capture.whatText)
+      out.push({ name, file, label: r.header.source.label, kind: r.header.source.kind, ...(r.header.source.provider ? { provider: r.header.source.provider } : {}), includeText: false, startedAt: r.header.startedAt, ...(r.end ? { endedAt: r.end.at, reason: r.end.reason } : {}), events: r.end?.events ?? r.events.length, bytes: (await stat(file)).size, dropped: 0, recording: false, capture: { trigger: String(r.header.capture.trigger), what: String(r.header.capture.what), ...(whatText ? { whatText } : {}) } })
     } catch {
       // Unreadable: left out.
     }

@@ -50,3 +50,35 @@ export const FLIGHT_TRIGGER_NAME: Record<FlightTrigger, Msg> = {
   stalled: msg({ id: 'console.flight.trigger.stalled', defaultMessage: 'a silence past its limit', description: 'What the flight recorder caught, in "Captured {trigger} on {agent}": the agent went silent in a turn for longer than its limit.' }),
   pattern: msg({ id: 'console.flight.trigger.pattern', defaultMessage: 'an event matching your pattern', description: 'What the flight recorder caught, in "Captured {trigger} on {agent}": an event the pattern in Settings → Advanced found.' })
 }
+
+/**
+ * What a capture says it saw (#698): a message per kind, its names and numbers as values, so the notice and the console's
+ * list say it in Hive's language; the capture's file keeps its English beside it (`what`), for maintainers and older Hives.
+ */
+export const FLIGHT_WHAT = {
+  safeguardStop: msg({ id: 'console.flight.what.safeguardStop', defaultMessage: 'safeguards stopped a response', description: "What the flight recorder saw, after \"saved, redacted:\" in its notice and in the console's list of captures: a model's safeguards stopped one of its responses." }),
+  safeguardStopOn: msg({ id: 'console.flight.what.safeguardStopOn', defaultMessage: 'safeguards stopped a response on {model}', description: "What the flight recorder saw: a model's safeguards stopped one of its responses. {model} is the model's id, as the CLI names it (claude-opus-5-5)." }),
+  modelSwitch: msg({ id: 'console.flight.what.modelSwitch', defaultMessage: 'the model switched from {from} to {to}', description: "What the flight recorder saw: after its safeguards stopped a response, the CLI switched the agent to another model. {from} and {to} are models' ids, as the CLI names them." }),
+  unknownEvent: msg({ id: 'console.flight.what.unknownEvent', defaultMessage: "hook {event}, an event Hive doesn't know", description: "What the flight recorder saw: the CLI sent a hook (a message telling Hive what it is doing) with an event name Hive doesn't know. {event} is that name, as the CLI sends it." }),
+  unknownEventFields: msg({ id: 'console.flight.what.unknownEventFields', defaultMessage: "hook {event}, an event Hive doesn't know, with fields Hive doesn't know: {fields}", description: "What the flight recorder saw: the CLI sent a hook with an event name and fields Hive doesn't know. {event} is the name, {fields} the fields' names, as the CLI sends them (\"brand_new, other_one\")." }),
+  unknownHookFields: msg({ id: 'console.flight.what.unknownHookFields', defaultMessage: "hook {event} with fields Hive doesn't know: {fields}", description: "What the flight recorder saw: the CLI sent a hook (its event name {event}, which Hive knows) with fields Hive doesn't know. {fields} are the fields' names, as the CLI sends them." }),
+  unknownFields: msg({ id: 'console.flight.what.unknownFields', defaultMessage: "a hook with fields Hive doesn't know: {fields}", description: "What the flight recorder saw: the CLI sent a hook with fields Hive doesn't know. {fields} are the fields' names, as the CLI sends them." }),
+  unknownStatusFields: msg({ id: 'console.flight.what.unknownStatusFields', defaultMessage: "status line with fields Hive doesn't know: {fields}", description: "What the flight recorder saw: Claude Code sent a status line (what it reports of its model, cost and limits) with fields Hive doesn't know. {fields} are the fields' names." }),
+  version: msg({ id: 'console.flight.what.version', defaultMessage: '{provider} {from} → {to}', description: "What the flight recorder saw: an agent started on a new version of its CLI. {provider} is the CLI's id (claude-code), {from} and {to} its old and new versions. Usually kept as it is." }),
+  stalled: msg({ id: 'console.flight.what.stalled', defaultMessage: 'silent in a turn for {seconds, number} s: its state is unknown', description: "What the flight recorder saw: an agent working on a turn has said nothing for {seconds} seconds, past its limit, so Hive can't tell what it is doing." }),
+  pattern: msg({ id: 'console.flight.what.pattern', defaultMessage: 'an event matching your pattern: {event}', description: "What the flight recorder saw: a developer console event your pattern (Settings → Advanced) found. {event} is the event as the console records it, in English." })
+}
+export type FlightWhatId = keyof typeof FLIGHT_WHAT
+/** What a capture saw, as data: its message and values (names and numbers only). */
+export interface FlightWhat {
+  id: FlightWhatId
+  values: Record<string, string | number>
+}
+/** A capture file's `whatText`, re-read as untrusted input: one of FLIGHT_WHAT with short names and numbers, or null. */
+export function readFlightWhat(v: unknown): FlightWhat | null {
+  const o = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  const values = o?.values && typeof o.values === 'object' && !Array.isArray(o.values) ? (o.values as Record<string, unknown>) : null
+  if (!o || typeof o.id !== 'string' || !Object.hasOwn(FLIGHT_WHAT, o.id) || !values) return null
+  const ok = Object.entries(values).every(([k, x]) => k.length <= 20 && ((typeof x === 'string' && x.length <= 300) || (typeof x === 'number' && Number.isFinite(x))))
+  return ok && Object.keys(values).length <= 5 ? { id: o.id as FlightWhatId, values: values as Record<string, string | number> } : null
+}

@@ -8,9 +8,10 @@ import { toast } from './events'
 import { writeTextAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { workspace } from './workspace'
-import { msg, tr } from '../shared/i18n'
+import { msg, tr, type Msg } from '../shared/i18n'
 import { sessionSourceId, type ConsoleEvent } from '../shared/devConsole'
-import { FLIGHT_PATTERN_OFF, FLIGHT_TRIGGER_NAME, knownIds, unknownIn, type FlightTrigger } from '../shared/flightRecorder'
+import { FLIGHT_PATTERN_OFF, FLIGHT_TRIGGER_NAME, FLIGHT_WHAT, knownIds, unknownIn, type FlightTrigger, type FlightWhat } from '../shared/flightRecorder'
+import { englishText, withValues } from '../shared/advanced'
 import { maskText } from '../shared/redact'
 
 /**
@@ -45,7 +46,7 @@ const SETTING: Record<FlightTrigger, string> = {
 
 const M = {
   captured: msg({ id: 'console.flight.captured', defaultMessage: 'Captured {trigger} on {agent}', description: "A notice: the developer console's flight recorder saved an agent's recent events because something rare happened. {trigger} is what (\"a safeguard stop\"), {agent} the agent." }),
-  capturedDetail: msg({ id: 'console.flight.capturedDetail', defaultMessage: '{events, plural, one {# event} other {# events}} saved, redacted: {what}', description: "The notice that the flight recorder saved a capture: how many developer console events it holds, and what it saw, in Hive's recorded words (English)." }),
+  capturedDetail: msg({ id: 'console.flight.capturedDetail', defaultMessage: '{events, plural, one {# event} other {# events}} saved, redacted: {what}', description: "The notice that the flight recorder saved a capture: how many developer console events it holds, and what it saw (\"safeguards stopped a response on claude-opus-5-5\", itself translated)." }),
   show: msg({ id: 'console.flight.show', defaultMessage: 'Show in Folder', description: "A button on the flight recorder's notice: shows the capture's file in File Explorer." }),
   failed: msg({ id: 'console.flight.failed', defaultMessage: "Couldn't save the capture of {agent}", description: "A warning: the developer console's flight recorder couldn't write its capture. The reason follows." })
 }
@@ -117,8 +118,8 @@ class FlightRecorder {
     if (!re.test(`${e.name} ${e.summary}`)) return
     // Whoever the source is now: an agent started before the pattern was set too.
     const who = this.agentOf(e.source)
-    // i18n-ignore: what the capture says it saw: recorded data, in English (#1104)
-    if (who) this.fire('pattern', who, `${e.kind} ${e.name}: ${e.summary}`)
+    // The event as the console recorded it: its kind, name and summary, in English (#1104).
+    if (who) this.fire('pattern', who, { id: 'pattern', values: { event: `${e.kind} ${e.name}: ${e.summary}`.slice(0, 200) } })
   }
 
   /** An agent launched: the version trigger when its CLI's version changed since the last launch. */
@@ -148,16 +149,14 @@ class FlightRecorder {
     versions[who.provider] = now
     // Kept whether the trigger is on or not, so turning it on later doesn't fire for a change long past.
     await writeTextAtomic(file, `${JSON.stringify({ versions })}\n`).catch((e) => log.warn('flight recorder: could not keep the CLI versions', e))
-    // i18n-ignore: what the capture says it saw: recorded data, in English (#1104)
-    if (was) this.fire('version', who, `${who.provider} ${was} → ${now}`)
+    if (was) this.fire('version', who, { id: 'version', values: { provider: who.provider, from: was, to: now } })
   }
 
   /** A model's safeguards stopped a response or switched the model (sessions.ts noteSafeguard). */
   safeguard(st: { projectPath: string; agentId: string; provider: string }, label: () => string, ev: { kind: 'stop' | 'switch'; model?: string; from?: string; to?: string }): void {
     if (!this.on('safeguard')) return
     const model = (m: string | undefined): string => (m ?? '').slice(0, 80)
-    // i18n-ignore: what the capture says it saw: recorded data, in English (#1104)
-    const what = ev.kind === 'switch' ? `the model switched${ev.from ? ` from ${model(ev.from)}` : ''}${ev.to ? ` to ${model(ev.to)}` : ''}` : `safeguards stopped a response${ev.model ? ` on ${model(ev.model)}` : ''}`
+    const what: FlightWhat = ev.kind === 'switch' ? { id: 'modelSwitch', values: { from: model(ev.from) || '?', to: model(ev.to) || '?' } } : ev.model ? { id: 'safeguardStopOn', values: { model: model(ev.model) } } : { id: 'safeguardStop', values: {} }
     this.fire('safeguard', { ...st, label }, what)
   }
 
@@ -179,25 +178,29 @@ class FlightRecorder {
     const named = typeof body.hook_event_name === 'string' ? body.hook_event_name : typeof body.hookEventName === 'string' ? body.hookEventName : ''
     // The event's name only once it is a known one, or as unknownIn made it safe.
     const name = kind !== 'hook' ? '' : (found.event ?? (this.known(ids.events)?.includes(named) ? named : ''))
-    // i18n-ignore: what the capture says it saw: recorded data, in English (#1104)
-    const what = `${kind === 'hook' ? 'hook' : 'status line'}${name ? ` ${name}` : ''}${found.event ? ", an event Hive doesn't know" : ''}${found.fields.length ? ` with fields Hive doesn't know: ${found.fields.join(', ')}` : ''}`
+    const fields = found.fields.join(', ')
+    const what: FlightWhat =
+      kind !== 'hook' ? { id: 'unknownStatusFields', values: { fields } }
+      : found.event ? (fields ? { id: 'unknownEventFields', values: { event: found.event, fields } } : { id: 'unknownEvent', values: { event: found.event } })
+      : name ? { id: 'unknownHookFields', values: { event: name, fields } }
+      : { id: 'unknownFields', values: { fields } }
     this.fire('unknown', { ...st, label }, what)
   }
 
   /** An agent working on a turn went silent past its limit: its state is unknown (sessions.ts checkSilence). */
   stalled(st: { projectPath: string; agentId: string; provider: string }, label: () => string, silentMs: number | null): void {
-    // i18n-ignore: what the capture says it saw: recorded data, in English (#1104)
-    this.fire('stalled', { ...st, label }, `silent in a turn for ${Math.round((silentMs ?? 0) / 1000)} s: its state is unknown`)
+    this.fire('stalled', { ...st, label }, { id: 'stalled', values: { seconds: Math.round((silentMs ?? 0) / 1000) } })
   }
 
   /**
    * A trigger fired on an agent: unless it is off, fired on that agent within the last `hive.recorder.minutes`, or as many
    * captures as the recorder holds are waiting, it is noted as an event of the agent's own (kind `trigger`), and its
-   * capture is written a short while later. What it saw is masked as an event's summary is.
+   * capture is written a short while later. What it saw is masked as an event's summary is: each value, and its English.
    */
-  private fire(trigger: FlightTrigger, who: FlightAgent, seen: string): void {
+  private fire(trigger: FlightTrigger, who: FlightAgent, seen: FlightWhat): void {
     if (!this.on(trigger)) return
-    const what = clean(seen)
+    const shown: FlightWhat = { id: seen.id, values: Object.fromEntries(Object.entries(seen.values).map(([k, v]) => [k, typeof v === 'string' ? clean(v) : v])) }
+    const what = clean(englishText(withValues(FLIGHT_WHAT[shown.id], shown.values)))
     const source = sessionSourceId(who.projectPath, who.agentId)
     const key = `${trigger}|${source}`
     const now = Date.now()
@@ -216,7 +219,7 @@ class FlightRecorder {
       if (this.jobs.get(key) !== job) return
       // Writing: its slot stays taken until the write settles, however long the disk takes.
       job.timer = null
-      void this.save(trigger, who, source, what).finally(() => {
+      void this.save(trigger, who, source, what, shown).finally(() => {
         if (this.jobs.get(key) === job) this.jobs.delete(key)
       })
     }, afterMs())
@@ -224,16 +227,16 @@ class FlightRecorder {
     this.jobs.set(key, job)
   }
 
-  private async save(trigger: FlightTrigger, who: FlightAgent, source: string, what: string): Promise<void> {
+  private async save(trigger: FlightTrigger, who: FlightAgent, source: string, what: string, shown: FlightWhat): Promise<void> {
     // Turned off meanwhile: nothing is saved.
     if (!this.on(trigger)) return
     const label = who.label()
     try {
       const events = devConsole.flightEvents(source)
       const kind = workspace.isAssistantHome(who.projectPath) ? 'assistant' : 'session'
-      const info = await saveCapture({ source: { kind, label, provider: who.provider as never }, events, trigger, what, keep: advanced.number('hive.recorder.keep') })
+      const info = await saveCapture({ source: { kind, label, provider: who.provider as never }, events, trigger, what, whatText: shown, keep: advanced.number('hive.recorder.keep') })
       log.info(`flight recorder: saved ${info.name} (${trigger}, ${events.length} events)`)
-      toast('info', tr(M.captured, { trigger: tr(FLIGHT_TRIGGER_NAME[trigger]), agent: label }), tr(M.capturedDetail, { events: events.length, what }), [{ label: tr(M.show), command: 'console.showCapture', args: [info.name] }], who.projectPath)
+      toast('info', tr(M.captured, { trigger: tr(FLIGHT_TRIGGER_NAME[trigger]), agent: label }), tr(M.capturedDetail, { events: events.length, what: tr(FLIGHT_WHAT[shown.id] as Msg, shown.values as never) }), [{ label: tr(M.show), command: 'console.showCapture', args: [info.name] }], who.projectPath)
     } catch (e) {
       log.warn(`flight recorder: couldn't save the ${trigger} capture of ${userText(label)}`, e)
       toast('warning', tr(M.failed, { agent: label }), String((e as Error)?.message ?? e), undefined, who.projectPath)
