@@ -2463,6 +2463,8 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     sseClients.set(res, { agent: agentCaller(), viewer: viewerCaller()?.id ?? null })
     // A stream is counted as one (connections, events, bytes, how long it stayed open), not as a request's latency.
     m.skip = true
+    // Named so in a "main process was busy" warning (mainStalls.ts), which leaves it out once it is just open.
+    m.route = '/v1/events'
     const opened = metricsClock.mono()
     appMetrics.stream({ connections: 1 })
     req.on('close', () => {

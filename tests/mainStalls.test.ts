@@ -137,6 +137,31 @@ describe('main process stalls (#1109)', () => {
     expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/:n (3.5 s, still running)')
   })
 
+  it('leaves out waits begun before the stall and still open, which would crowd out the work that blocked', () => {
+    const s = watcher()
+    const waits = ['api GET /v1/events', 'api POST /v1/tasks/wait', 'api POST /v1/agents/wait'].map((l) => beginWork(l))
+    for (let i = 0; i < 10; i++) s.tick()
+    const done = beginWork('ipc app:info')
+    s.stall(1500)
+    done()
+    now += 2500
+    s.settle()
+    for (const w of waits) w()
+    expect(s.warnings[0]).toMatch(/during it: ipc app:info \(1\.5 s\)$/)
+  })
+
+  it('names a wait that ended during the stall, and a request begun in it and still running', () => {
+    const s = watcher()
+    const wait = beginWork('api POST /v1/tasks/wait')
+    for (let i = 0; i < 10; i++) s.tick()
+    const fresh = beginWork('api GET /v1/tasks')
+    s.stall(1500)
+    wait()
+    s.settle()
+    fresh()
+    expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/wait (6.5 s), api GET /v1/tasks (1.5 s, still running)')
+  })
+
   it("names hooks and requests only by names Hive knows, never by what a client sent", () => {
     expect(hookLabel(false, { hook_event_name: 'PreToolUse' })).toBe('hook PreToolUse')
     expect(hookLabel(false, { hook_event_name: 'PrivateCustomerName' })).toBe('hook (other event)')

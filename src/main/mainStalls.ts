@@ -63,11 +63,15 @@ const seconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`
 
 const overlapOf = (w: Work, from: number, to: number, now: number): number => Math.min(to, w.end ?? now) - Math.max(from, w.start)
 
-/** The work that overlapped [from, to] (with `held`, found earlier), the most overlap first. */
+/**
+ * The work that may have held up [from, to] (with `held`, found earlier), the most overlap first: work that overlapped
+ * it and began in it or has ended since. Work begun before it and still running was waiting (an event stream, a long
+ * wait for cards or agents), never the cause, and would only crowd out the work that was.
+ */
 function overlapping(from: number, to: number, held: Work[] = []): Work[] {
   const now = stallClock.mono()
   const o = (w: Work): number => overlapOf(w, from, to, now)
-  return [...new Set([...held, ...running, ...ended])].filter((w) => o(w) > 0).sort((a, b) => o(b) - o(a) || b.start - a.start)
+  return [...new Set([...held, ...running, ...ended])].filter((w) => o(w) > 0 && (w.start >= from || w.end !== null)).sort((a, b) => o(b) - o(a) || b.start - a.start)
 }
 
 /** The work that overlapped [from, to], the most overlap first: at most `max` described, and how many more. */
