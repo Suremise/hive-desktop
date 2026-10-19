@@ -21,7 +21,7 @@ vi.mock('fs/promises', async (importOriginal) => {
 })
 
 const { writeTextAtomic } = await import('../src/main/fsutil')
-const { BAK_AGE_MS, PROJECT_STORES, WORKSPACE_STORES, sweepLeftovers, sweepWorkspaceLeftovers } = await import('../src/main/leftovers')
+const { BAK_AGE_MS, IMPORTED_AGE_MS, PROJECT_STORES, WORKSPACE_STORES, importedBackup, sweepLeftovers, sweepWorkspaceLeftovers } = await import('../src/main/leftovers')
 
 const HOUR = 60 * 60 * 1000
 
@@ -40,6 +40,47 @@ function put(file: string, now: number, ageFromNow?: number): string {
 }
 
 describe('sweeping the leftovers (#1016)', () => {
+  it("sends a move's backups to the Recycle Bin two weeks after the move, by the time in their name, and nothing else (#1111)", async () => {
+    const ws = tempDir('hive-leftovers-imported-')
+    const hive = join(ws, '.hive')
+    const project = join(ws, 'alpha', '.hive')
+    const moved = Date.parse('2026-10-01T12:00:00.000Z')
+    const now = moved + IMPORTED_AGE_MS + HOUR
+    const name = (base: string, at = moved): string => `${base}.imported-${new Date(at).toISOString().replace(/[:.]/g, '-')}`
+    const folder = join(hive, name('tasks'))
+    put(join(folder, '1.json'), now)
+    const gone = [folder, put(join(hive, 'metrics', name('metrics.json')), now), put(join(hive, name('lanes.json')), now), put(join(hive, 'assistant', name('sessions.json')), now), put(join(project, name('deliveries.json')), now)]
+    const kept = [
+      put(join(hive, 'metrics', name('metrics.json', moved + 2 * HOUR)), now), // moved less than two weeks ago
+      put(join(hive, name('notes.json')), now), // not a store that moved
+      put(join(hive, 'shared', name('metrics.json')), now), // not in its store's folder
+      put(join(hive, 'metrics', 'metrics.json.imported-yesterday'), now), // no time in its name
+      put(join(project, name('project.json')), now)
+    ]
+    // A link named like a backup is never followed nor removed.
+    const target = tempDir('hive-leftovers-target-')
+    put(join(target, 'keep.json'), now)
+    const link = join(hive, name('watches.json'))
+    junction(target, link)
+    const binned: string[] = []
+    const swept = await sweepLeftovers([{ hive, stores: WORKSPACE_STORES }, { hive: project, stores: PROJECT_STORES }], { now, trash: async (p) => void binned.push(p) })
+    expect(binned.sort()).toEqual([...gone].sort())
+    expect(swept.imported).toBe(5)
+    for (const f of kept) expect(existsSync(f), f).toBe(true)
+    expect(existsSync(join(target, 'keep.json'))).toBe(true)
+    // One the Recycle Bin refused stays for the next open, and isn't counted.
+    const again = await sweepLeftovers([{ hive, stores: WORKSPACE_STORES }], { now, trash: async () => Promise.reject(new Error('held')) })
+    expect(again.imported).toBe(0)
+  })
+
+  it("reads a move's backup name: what moved, and when", () => {
+    expect(importedBackup('tasks.imported-2026-10-18T09-30-05-123Z')).toEqual({ base: 'tasks', at: Date.parse('2026-10-18T09:30:05.123Z') })
+    expect(importedBackup('metrics.json.imported-2026-10-18T09-30-05-123Z')?.base).toBe('metrics.json')
+    expect(importedBackup('metrics.json.imported-2026-13-45T09-30-05-123Z')).toBeNull()
+    expect(importedBackup('metrics.json.imported')).toBeNull()
+    expect(importedBackup('tasks')).toBeNull()
+  })
+
   it("removes old temp files and the migration's old backups, and nothing else", async () => {
     const hive = join(tempDir('hive-leftovers-'), '.hive')
     // Files made now are eight days old at `now`: older than both limits. Ones dated an hour before `now` are new.
@@ -78,9 +119,9 @@ describe('sweeping the leftovers (#1016)', () => {
     expect({ temp: swept.temp, bak: swept.bak }).toEqual({ temp: 4, bak: 3 })
     expect(swept.removed).toEqual(
       expect.arrayContaining([
-        { dir: hive, temp: 1, bak: 1 },
-        { dir: join(hive, 'tasks'), temp: 1, bak: 2 },
-        { dir: join(hive, 'metrics'), temp: 1, bak: 0 }
+        { dir: hive, temp: 1, bak: 1, imported: 0 },
+        { dir: join(hive, 'tasks'), temp: 1, bak: 2, imported: 0 },
+        { dir: join(hive, 'metrics'), temp: 1, bak: 0, imported: 0 }
       ])
     )
     // A second open finds nothing.

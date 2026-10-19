@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runAgentName, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, ProgressSync, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runAgentName, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
 import { durationText } from '@shared/tasks'
-import type { MergeSlotInfo, ProgressRun } from '@shared/types'
+import type { MergeSlotInfo, ProgressRun, ProgressTelling } from '@shared/types'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { attempt, selectProject } from '../actions'
 import { call } from '../api'
@@ -70,17 +70,25 @@ const showLabel = (r: ProgressRun): string =>
     ? tr(msg({ id: 'board.progress.showAssistant', defaultMessage: 'Show the Assistant, which ran {run}', description: "Accessible name of the button showing the Hive Assistant, which ran a Progress panel run ({run}: the run's title)." }), { run: r.title })
     : tr(msg({ id: 'board.progress.showAgent', defaultMessage: 'Show {agent}, which ran {run}', description: "Accessible name of the button showing the agent ({agent}) that ran a Progress panel run ({run}: the run's title)." }), { agent: runAgentName(r, tr), run: r.title })
 
-/** This window's runs, loaded when its workspace changes (events keep them current). */
+/** This window's runs, kept in step with main's tellings (#1108): the others stay the same objects. */
+const progressSync = new ProgressSync({
+  workspace: () => get().workspace?.path ?? null,
+  runs: () => get().progressRuns,
+  set: (runs) => set({ progressRuns: runs }),
+  load: () => call('progress:snapshot')
+})
+
+/** A telling of this window's runs (`progress-runs`). */
+export function progressRunsChanged(e: ProgressTelling): void {
+  progressSync.told(e)
+}
+
+/** This window's runs, read when its workspace changes (tellings keep them current). */
 function useProgressRuns(): ProgressRun[] {
   const ws = useStore((s) => s.workspace?.path)
   const on = useStore((s) => s.settings?.general.progressPanel !== false)
   useEffect(() => {
-    if (!ws || !on) return
-    let current = true
-    void call('progress:list').then((runs) => current && set({ progressRuns: runs }))
-    return () => {
-      current = false
-    }
+    if (ws && on) progressSync.reload()
   }, [ws, on])
   return useStore((s) => s.progressRuns ?? NO_RUNS)
 }
@@ -98,6 +106,8 @@ export function ProgressPanel() {
   const width = usePaneSize('progress', 280)
   // The run whose details are open.
   const [detail, setDetail] = useState<string | null>(null)
+  // The same function every time, so a row whose run didn't change isn't drawn again (#1108).
+  const toggle = useCallback((id: string): void => setDetail((d) => (d === id ? null : id)), [])
   const anyOpen = runs.some(isOpenRun)
   // Once a second while something runs or is about to fold into Recent (a passed run, a failure just seen), else now
   // and then.
@@ -133,7 +143,6 @@ export function ProgressPanel() {
   const recent = shown.filter((r) => isRecent(r, now))
   const agents = filter.project !== ALL_PROJECTS ? agentChoices(runs, filter.project, tr) : []
   const kb = commandKeybinding('progress.toggle')
-  const toggle = (id: string): void => setDetail((d) => (d === id ? null : id))
 
   return (
     <div
@@ -188,7 +197,7 @@ export function ProgressPanel() {
           </div>
         )}
         {listed.map((r) => (
-          <RunRow key={r.id} run={r} now={now} open={detail === r.id} onToggle={() => toggle(r.id)} />
+          <RunRow key={r.id} run={r} now={now} open={detail === r.id} onToggle={toggle} />
         ))}
         {recent.length > 0 && (
           <>
@@ -197,7 +206,7 @@ export function ProgressPanel() {
               items={recent}
               few={RECENT_RUNS}
               keyOf={(r) => r.id}
-              renderItem={(r) => <RecentRow run={r} now={now} open={detail === r.id} onToggle={() => toggle(r.id)} />}
+              renderItem={(r) => <RecentRow run={r} now={detail === r.id ? now : 0} open={detail === r.id} onToggle={toggle} />}
               label={tr(msg({ id: 'board.progress.recentRuns', defaultMessage: 'Recent runs', description: "What the Progress panel's Recent list holds, for its Show all button and accessible name." }))}
               foldKey={workspace ? `progress-recent-all:${workspace.path.toLowerCase()}` : undefined}
               className="progress-recent-list"
@@ -223,7 +232,9 @@ function stepLine(r: ProgressRun): string | null {
  * One run: who, what, a bar, the step, elapsed time and time left; a failed or stale one can be dismissed. A click on it
  * opens its details (and closes them); its agent's name shows the agent.
  */
-function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: () => void }) {
+const RunRow = memo(function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: (id: string) => void }) {
+  // Its own: a memo'd row isn't drawn with its parent, so it follows the language itself.
+  useLanguage()
   const project = useStore((s) => (r.projectPath ? (findProject(s, r.projectPath)?.name ?? null) : null))
   const showable = useStore((s) => whyNotShown(s, r) === null)
   const fraction = fractionDone(r)
@@ -235,7 +246,7 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
       data-run={r.id}
       onClick={() => {
         // Not when the click ended a text selection (copying a failure's summary).
-        if (!window.getSelection()?.toString()) onToggle()
+        if (!window.getSelection()?.toString()) onToggle(r.id)
       }}
     >
       <div className="progress-run-top">
@@ -296,10 +307,10 @@ function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number
       {open && <RunDetails run={r} now={now} />}
     </div>
   )
-}
+})
 
 /** The button opening or closing a run's details (the row's click does the same; this is it for the keyboard). */
-function DetailsToggle({ run: r, open, onToggle }: { run: ProgressRun; open: boolean; onToggle: () => void }) {
+function DetailsToggle({ run: r, open, onToggle }: { run: ProgressRun; open: boolean; onToggle: (id: string) => void }) {
   return (
     <IconButton
       icon={open ? 'chevron-up' : 'chevron-down'}
@@ -312,7 +323,7 @@ function DetailsToggle({ run: r, open, onToggle }: { run: ProgressRun; open: boo
       expanded={open}
       onClick={(e) => {
         e.stopPropagation()
-        onToggle()
+        onToggle(r.id)
       }}
     />
   )
@@ -333,7 +344,9 @@ function RunWho({ run: r, project }: { run: ProgressRun; project: string | null 
  * A finished run under Recent: one line, red when it failed, with how long it took and a chevron after it (#251); a
  * click on the line, or the chevron (the keyboard's way), opens its details.
  */
-function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: () => void }) {
+// A closed one's `now` is 0: nothing in it shows the time, so a second passing doesn't draw it again.
+const RecentRow = memo(function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: (id: string) => void }) {
+  useLanguage()
   const item = useRef<HTMLDivElement>(null)
   // Opened in the scrolling box of all of them, its details scroll into view.
   useEffect(() => {
@@ -350,7 +363,7 @@ function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: num
       <div
         className={cx('progress-recent', r.state)}
         onClick={() => {
-          if (!window.getSelection()?.toString()) onToggle()
+          if (!window.getSelection()?.toString()) onToggle(r.id)
         }}
       >
         <Tooltip block content={`${hover}${r.summary ? `\n${r.summary}` : ''}`}>
@@ -362,7 +375,7 @@ function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: num
       {open && <RunDetails run={r} now={now} />}
     </div>
   )
-}
+})
 
 /** Copies a run's command or its details, saying so. */
 function copy(what: 'command' | 'details', text: string): void {
