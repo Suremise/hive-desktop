@@ -1,4 +1,20 @@
 {
+  "settings.advanced.claude-code.hooks.knownEvents.desc": {
+    "defaultMessage": "The hook events Hive knows Claude Code sends. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook named outside this list saves a capture of the agent's recent events.",
+    "description": "What the advanced setting \"Hooks: known events\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.claude-code.hooks.knownEvents.title": {
+    "defaultMessage": "Hooks: known events",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.hooks.knownFields.desc": {
+    "defaultMessage": "The top-level fields Hive knows Claude Code sends in its hooks. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook with a field outside this list saves a capture of the agent's recent events: often the first sign that a Claude Code update changed something. Add a field here once you know it is harmless.",
+    "description": "What the advanced setting \"Hooks: known fields\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.claude-code.hooks.knownFields.title": {
+    "defaultMessage": "Hooks: known fields",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
   "settings.advanced.claude-code.hooks.preToolUseTimeoutSeconds.desc": {
     "defaultMessage": "How long Claude Code waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
     "description": "What the advanced setting \"Hooks: before a tool, timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
@@ -45,6 +61,14 @@
   },
   "settings.advanced.claude-code.statusLine.fiveHour.title": {
     "defaultMessage": "Status line: 5-hour limit field",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.claude-code.statusLine.knownFields.desc": {
+    "defaultMessage": "The top-level fields Hive knows Claude Code sends in its status line. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a status line with a field outside this list saves a capture of the agent's recent events. Add a field here once you know it is harmless.",
+    "description": "What the advanced setting \"Status line: known fields\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.claude-code.statusLine.knownFields.title": {
+    "defaultMessage": "Status line: known fields",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
   "settings.advanced.claude-code.statusLine.rateLimits.desc": {
@@ -118,6 +142,22 @@
   "settings.advanced.codex.fullAccess.warningAfterSeconds.title": {
     "defaultMessage": "Full Access warning: time to appear",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. Full Access is Codex's mode: keep it."
+  },
+  "settings.advanced.codex.hooks.knownEvents.desc": {
+    "defaultMessage": "The hook events Hive knows Codex sends. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook named outside this list saves a capture of the agent's recent events.",
+    "description": "What the advanced setting \"Hooks: known events\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.codex.hooks.knownEvents.title": {
+    "defaultMessage": "Hooks: known events",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.codex.hooks.knownFields.desc": {
+    "defaultMessage": "The top-level fields Hive knows Codex sends in its hooks. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook with a field outside this list saves a capture of the agent's recent events: often the first sign that a Codex update changed something. Add a field here once you know it is harmless.",
+    "description": "What the advanced setting \"Hooks: known fields\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.codex.hooks.knownFields.title": {
+    "defaultMessage": "Hooks: known fields",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
   "settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc": {
     "defaultMessage": "How long Codex waits for Hive's answer before a tool runs (an edit waits for a file lock). If Hive doesn't answer in time, the tool goes ahead.",
@@ -229,6 +269,22 @@
   },
   "settings.advanced.copilot.exit.graceSeconds.title": {
     "defaultMessage": "Stop: exit grace",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.hooks.knownEvents.desc": {
+    "defaultMessage": "The hook events Hive knows GitHub Copilot sends. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook named outside this list saves a capture of the agent's recent events.",
+    "description": "What the advanced setting \"Hooks: known events\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.copilot.hooks.knownEvents.title": {
+    "defaultMessage": "Hooks: known events",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
+  "settings.advanced.copilot.hooks.knownFields.desc": {
+    "defaultMessage": "The top-level fields Hive knows GitHub Copilot sends in its hooks. With Settings → Advanced → Flight recorder: capture something unknown from a CLI on, a hook with a field outside this list saves a capture of the agent's recent events: often the first sign that a GitHub Copilot update changed something. Add a field here once you know it is harmless.",
+    "description": "What the advanced setting \"Hooks: known fields\" is for (Settings → Advanced). Flight recorder: capture something unknown from a CLI is another setting's title: use it as Settings shows it."
+  },
+  "settings.advanced.copilot.hooks.knownFields.title": {
+    "defaultMessage": "Hooks: known fields",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
   "settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.desc": {
@@ -399,6 +455,70 @@
     "defaultMessage": "Progress panel: lanes shown",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
+  "settings.advanced.hive.recorder.afterSeconds.desc": {
+    "defaultMessage": "How long a capture waits after its trigger before it is saved, so it holds what followed too: what the CLI did next.",
+    "description": "What the advanced setting \"Flight recorder: wait after a trigger\" does (Settings → Advanced)."
+  },
+  "settings.advanced.hive.recorder.afterSeconds.title": {
+    "defaultMessage": "Flight recorder: wait after a trigger",
+    "description": "An advanced setting's title (Settings → Advanced), followed by its value in seconds (\"10 s\")."
+  },
+  "settings.advanced.hive.recorder.keep.desc": {
+    "defaultMessage": "How many captures Hive keeps in its console-recordings folder: past it, the oldest go. Recordings you made in the developer console are never removed.",
+    "description": "What the advanced setting \"Flight recorder: captures kept\" does (Settings → Advanced). console-recordings is a folder name: keep it."
+  },
+  "settings.advanced.hive.recorder.keep.title": {
+    "defaultMessage": "Flight recorder: captures kept",
+    "description": "An advanced setting's title (Settings → Advanced)."
+  },
+  "settings.advanced.hive.recorder.minutes.desc": {
+    "defaultMessage": "How long after a capture the same trigger waits before it captures the same agent again, so something that keeps happening saves one capture, not many.",
+    "description": "What the advanced setting \"Flight recorder: one capture per trigger and agent every\" does (Settings → Advanced)."
+  },
+  "settings.advanced.hive.recorder.minutes.title": {
+    "defaultMessage": "Flight recorder: one capture per trigger and agent every",
+    "description": "An advanced setting's title (Settings → Advanced), followed by its value in minutes (\"10 min\")."
+  },
+  "settings.advanced.hive.recorder.pattern.desc": {
+    "defaultMessage": "Save a capture when an agent's developer console event has a name or summary this regular expression finds (case-insensitive). The default, (?!), never finds anything: it is off. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.",
+    "description": "What the advanced setting \"Flight recorder: capture events matching\" does (Settings → Advanced). (?!) is a regular expression: keep it."
+  },
+  "settings.advanced.hive.recorder.pattern.title": {
+    "defaultMessage": "Flight recorder: capture events matching",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens."
+  },
+  "settings.advanced.hive.recorder.safeguard.desc": {
+    "defaultMessage": "Save a capture when a model's safeguards stop a response or switch the model: the agent's newest developer console events, redacted, in Hive's console-recordings folder, with a notice. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.",
+    "description": "What the advanced setting \"Flight recorder: capture safeguard stops\" does (Settings → Advanced). console-recordings is a folder name: keep it."
+  },
+  "settings.advanced.hive.recorder.safeguard.title": {
+    "defaultMessage": "Flight recorder: capture safeguard stops",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens."
+  },
+  "settings.advanced.hive.recorder.stalled.desc": {
+    "defaultMessage": "Save a capture when an agent working on a turn goes silent past its limit, so Hive can't tell what it is doing. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.",
+    "description": "What the advanced setting \"Flight recorder: capture an agent gone silent\" does (Settings → Advanced)."
+  },
+  "settings.advanced.hive.recorder.stalled.title": {
+    "defaultMessage": "Flight recorder: capture an agent gone silent",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens."
+  },
+  "settings.advanced.hive.recorder.unknown.desc": {
+    "defaultMessage": "Save a capture when a CLI sends a hook or a status line with a field Hive doesn't know: often the first sign that a CLI update changed something. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.",
+    "description": "What the advanced setting \"Flight recorder: capture something unknown from a CLI\" does (Settings → Advanced). A hook and a status line are what a CLI sends Hive as it works."
+  },
+  "settings.advanced.hive.recorder.unknown.title": {
+    "defaultMessage": "Flight recorder: capture something unknown from a CLI",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens."
+  },
+  "settings.advanced.hive.recorder.version.desc": {
+    "defaultMessage": "Save a capture when an agent starts on a version of its CLI other than the one the last agent of that CLI started on. With any flight recorder trigger on, Hive keeps each agent's newest developer console events in memory (redacted), whether a console is open or not.",
+    "description": "What the advanced setting \"Flight recorder: capture a CLI version change\" does (Settings → Advanced)."
+  },
+  "settings.advanced.hive.recorder.version.title": {
+    "defaultMessage": "Flight recorder: capture a CLI version change",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive. The flight recorder saves the developer console's recent events when something rare happens."
+  },
   "settings.advanced.hive.showDeveloperFeatures.desc": {
     "defaultMessage": "Show Help → Developer Console (Ctrl+Alt+J): what each CLI sends Hive, next to what Hive made of it.",
     "description": "What the advanced setting \"Show developer features\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
@@ -438,6 +558,10 @@
   "settings.advanced.miss.field": {
     "defaultMessage": "{cli} {version} sent no field \"{field}\" here (it sent {fields}). Fine if {cli} has changed since.",
     "description": "Under an advanced setting whose value no longer reads what the CLI was recorded sending (Settings → Advanced). {cli} is the CLI's name, {version} its version; {field} and {fields} are field names, as the CLI sends them."
+  },
+  "settings.advanced.miss.list": {
+    "defaultMessage": "{cli} {version} sent {missing}, which this list doesn't have (it sent {fields}). Fine if {cli} has changed since.",
+    "description": "Under an advanced setting listing the fields Hive knows a CLI sends, when the CLI was recorded sending one it leaves out (Settings → Advanced). {cli} is the CLI's name, {version} its version; {missing} and {fields} are field names, as the CLI sends them."
   },
   "settings.advanced.miss.text": {
     "defaultMessage": "It doesn't find what {cli} {version} showed (\"{shown}\"). Fine if {cli} has changed since.",
@@ -503,9 +627,17 @@
     "defaultMessage": "{n, plural, one {# agent} other {# agents}}",
     "description": "An advanced setting's value: a number of agents."
   },
+  "settings.advanced.unit.captures": {
+    "defaultMessage": "{n, plural, one {# capture} other {# captures}}",
+    "description": "An advanced setting's value: a number of the flight recorder's captures (saved recordings of the developer console)."
+  },
   "settings.advanced.unit.lanes": {
     "defaultMessage": "{n, plural, one {# lane} other {# lanes}}",
     "description": "An advanced setting's value: a number of card-loop lanes the Progress panel shows."
+  },
+  "settings.advanced.unit.minutes": {
+    "defaultMessage": "{n, number} min",
+    "description": "An advanced setting's value in minutes, short: \"10 min\". {n} is the number."
   },
   "settings.advanced.unit.seconds": {
     "defaultMessage": "{n, number} s",

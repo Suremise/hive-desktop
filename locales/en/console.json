@@ -19,6 +19,22 @@
     "defaultMessage": "The recording was cancelled: the console stopped watching that source",
     "description": "Why a developer console recording didn't start: meanwhile the window closed, picked another source or started another recording."
   },
+  "console.captureEvents": {
+    "defaultMessage": "{events, plural, one {# event} other {# events}}",
+    "description": "A capture in the developer console's list: how many events it holds."
+  },
+  "console.captureRow": {
+    "defaultMessage": "Captured {trigger} on {agent}, {when}",
+    "description": "A capture in the developer console's list, as the flight recorder's notice says it: what it caught (\"a safeguard stop\"), on which agent, and how long ago (\"5 minutes ago\")."
+  },
+  "console.captures": {
+    "defaultMessage": "Captures",
+    "description": "The developer console's button and list of the flight recorder's captures: recent events Hive saved by itself when something rare happened to an agent."
+  },
+  "console.capturesNone": {
+    "defaultMessage": "No captures yet. Turn on a flight recorder trigger in Settings → Advanced, and Hive saves an agent's recent events by itself when it fires.",
+    "description": "The developer console's list of captures, while there are none. Settings → Advanced is where the triggers are: use its name as Hive shows it."
+  },
   "console.capturing": {
     "defaultMessage": "Capturing",
     "description": "The developer console's status bar: Hive is capturing the watched source's events."
@@ -62,6 +78,42 @@
   "console.fileFull": {
     "defaultMessage": "The recording file took nothing more",
     "description": "Why a developer console recording failed: writing to its file wrote nothing (the disk may be full)."
+  },
+  "console.flight.captured": {
+    "defaultMessage": "Captured {trigger} on {agent}",
+    "description": "A notice: the developer console's flight recorder saved an agent's recent events because something rare happened. {trigger} is what (\"a safeguard stop\"), {agent} the agent."
+  },
+  "console.flight.capturedDetail": {
+    "defaultMessage": "{events, plural, one {# event} other {# events}} saved, redacted: {what}",
+    "description": "The notice that the flight recorder saved a capture: how many developer console events it holds, and what it saw, in Hive's recorded words (English)."
+  },
+  "console.flight.failed": {
+    "defaultMessage": "Couldn't save the capture of {agent}",
+    "description": "A warning: the developer console's flight recorder couldn't write its capture. The reason follows."
+  },
+  "console.flight.show": {
+    "defaultMessage": "Show in Folder",
+    "description": "A button on the flight recorder's notice: shows the capture's file in File Explorer."
+  },
+  "console.flight.trigger.pattern": {
+    "defaultMessage": "an event matching your pattern",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": an event the pattern in Settings → Advanced found."
+  },
+  "console.flight.trigger.safeguard": {
+    "defaultMessage": "a safeguard stop",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": a model's safeguards stopped a response or switched the model."
+  },
+  "console.flight.trigger.stalled": {
+    "defaultMessage": "a silence past its limit",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the agent went silent in a turn for longer than its limit."
+  },
+  "console.flight.trigger.unknown": {
+    "defaultMessage": "something unknown from its CLI",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the CLI sent a field Hive doesn't know."
+  },
+  "console.flight.trigger.version": {
+    "defaultMessage": "a CLI version change",
+    "description": "What the flight recorder caught, in \"Captured {trigger} on {agent}\": the agent started on a new version of its CLI."
   },
   "console.includeText": {
     "defaultMessage": "Include prompt and reply text in this recording (tokens and sign-ins stay masked)",
@@ -162,6 +214,10 @@
   "console.searchLabel": {
     "defaultMessage": "Search events",
     "description": "The developer console's search box (accessible name)."
+  },
+  "console.showCapture": {
+    "defaultMessage": "Show in folder",
+    "description": "A link beside a capture in the developer console's list: shows its file in File Explorer."
   },
   "console.showInFolder": {
     "defaultMessage": "Show in folder",

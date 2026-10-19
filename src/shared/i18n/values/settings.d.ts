@@ -1,6 +1,10 @@
 // Generated from locales/en/settings.json: do not edit. Each message's placeholders and their types, for tr(): a
 // global script, so its interface merges with every other area's (shared/i18n/msg.ts).
 interface HiveMessageValues {
+  'settings.advanced.claude-code.hooks.knownEvents.desc': undefined
+  'settings.advanced.claude-code.hooks.knownEvents.title': undefined
+  'settings.advanced.claude-code.hooks.knownFields.desc': undefined
+  'settings.advanced.claude-code.hooks.knownFields.title': undefined
   'settings.advanced.claude-code.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.claude-code.hooks.preToolUseTimeoutSeconds.title': undefined
   'settings.advanced.claude-code.hooks.timeoutSeconds.desc': undefined
@@ -13,6 +17,8 @@ interface HiveMessageValues {
   'settings.advanced.claude-code.signIn.stopError.title': undefined
   'settings.advanced.claude-code.statusLine.fiveHour.desc': undefined
   'settings.advanced.claude-code.statusLine.fiveHour.title': undefined
+  'settings.advanced.claude-code.statusLine.knownFields.desc': undefined
+  'settings.advanced.claude-code.statusLine.knownFields.title': undefined
   'settings.advanced.claude-code.statusLine.rateLimits.desc': undefined
   'settings.advanced.claude-code.statusLine.rateLimits.title': undefined
   'settings.advanced.claude-code.statusLine.usedPercent.desc': undefined
@@ -31,6 +37,10 @@ interface HiveMessageValues {
   'settings.advanced.codex.fullAccess.warning.title': undefined
   'settings.advanced.codex.fullAccess.warningAfterSeconds.desc': undefined
   'settings.advanced.codex.fullAccess.warningAfterSeconds.title': undefined
+  'settings.advanced.codex.hooks.knownEvents.desc': undefined
+  'settings.advanced.codex.hooks.knownEvents.title': undefined
+  'settings.advanced.codex.hooks.knownFields.desc': undefined
+  'settings.advanced.codex.hooks.knownFields.title': undefined
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.codex.hooks.preToolUseTimeoutSeconds.title': undefined
   'settings.advanced.codex.hooks.timeoutSeconds.desc': { most: number }
@@ -59,6 +69,10 @@ interface HiveMessageValues {
   'settings.advanced.codexPermissions.title': { label: string | number }
   'settings.advanced.copilot.exit.graceSeconds.desc': { took: number }
   'settings.advanced.copilot.exit.graceSeconds.title': undefined
+  'settings.advanced.copilot.hooks.knownEvents.desc': undefined
+  'settings.advanced.copilot.hooks.knownEvents.title': undefined
+  'settings.advanced.copilot.hooks.knownFields.desc': undefined
+  'settings.advanced.copilot.hooks.knownFields.title': undefined
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.desc': undefined
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.title': undefined
   'settings.advanced.copilot.hooks.timeoutSeconds.desc': undefined
@@ -101,6 +115,22 @@ interface HiveMessageValues {
   'settings.advanced.hive.mcp.replySeconds.title': undefined
   'settings.advanced.hive.progress.lanesShown.desc': undefined
   'settings.advanced.hive.progress.lanesShown.title': undefined
+  'settings.advanced.hive.recorder.afterSeconds.desc': undefined
+  'settings.advanced.hive.recorder.afterSeconds.title': undefined
+  'settings.advanced.hive.recorder.keep.desc': undefined
+  'settings.advanced.hive.recorder.keep.title': undefined
+  'settings.advanced.hive.recorder.minutes.desc': undefined
+  'settings.advanced.hive.recorder.minutes.title': undefined
+  'settings.advanced.hive.recorder.pattern.desc': undefined
+  'settings.advanced.hive.recorder.pattern.title': undefined
+  'settings.advanced.hive.recorder.safeguard.desc': undefined
+  'settings.advanced.hive.recorder.safeguard.title': undefined
+  'settings.advanced.hive.recorder.stalled.desc': undefined
+  'settings.advanced.hive.recorder.stalled.title': undefined
+  'settings.advanced.hive.recorder.unknown.desc': undefined
+  'settings.advanced.hive.recorder.unknown.title': undefined
+  'settings.advanced.hive.recorder.version.desc': undefined
+  'settings.advanced.hive.recorder.version.title': undefined
   'settings.advanced.hive.showDeveloperFeatures.desc': undefined
   'settings.advanced.hive.showDeveloperFeatures.title': undefined
   'settings.advanced.hive.wait.agentsMaxSeconds.desc': undefined
@@ -111,6 +141,7 @@ interface HiveMessageValues {
   'settings.advanced.logs.tip': undefined
   'settings.advanced.logs.title': undefined
   'settings.advanced.miss.field': { cli: string | number; version: string | number; field: string | number; fields: string | number }
+  'settings.advanced.miss.list': { cli: string | number; version: string | number; missing: string | number; fields: string | number }
   'settings.advanced.miss.text': { cli: string | number; version: string | number; shown: string | number }
   'settings.advanced.off': undefined
   'settings.advanced.on': undefined
@@ -127,7 +158,9 @@ interface HiveMessageValues {
   'settings.advanced.takes.patternFlags': { flags: string | number }
   'settings.advanced.takes.text': undefined
   'settings.advanced.unit.agents': { n: number }
+  'settings.advanced.unit.captures': { n: number }
   'settings.advanced.unit.lanes': { n: number }
+  'settings.advanced.unit.minutes': { n: number }
   'settings.advanced.unit.seconds': { n: number }
   'settings.advanced.values.desc': undefined
   'settings.advanced.values.tip': undefined

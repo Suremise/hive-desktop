@@ -17,9 +17,10 @@ export type ConsoleSourceKind = 'session' | 'assistant' | 'hive'
 
 /**
  * What an event is: a CLI's hook, status line, transcript records or terminal markers; a line Hive typed into it; its
- * launch and exit; or Hive's own work (Agent API calls, the hook server, watches, the merge slot, Progress).
+ * launch and exit; Hive's own work (Agent API calls, the hook server, watches, the merge slot, Progress); or a trigger
+ * of the flight recorder firing (#698).
  */
-export const CONSOLE_KINDS = ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress'] as const
+export const CONSOLE_KINDS = ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress', 'trigger'] as const
 export type ConsoleKind = (typeof CONSOLE_KINDS)[number]
 
 export interface ConsoleSource {
@@ -78,7 +79,9 @@ export interface ConsoleRecordingInfo {
   dropped: number
   /** Still being written. */
   recording: boolean
-  reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed'
+  reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed' | 'captured'
+  /** A flight recorder capture (#698): the trigger that fired and what it saw, in English. */
+  capture?: { trigger: string; what: string }
   /** Why a failed recording failed (its file is kept as it was written). */
   error?: string
 }

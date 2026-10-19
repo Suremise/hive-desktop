@@ -38,6 +38,20 @@ module.exports = {
       }
     },
     {
+      // The flight recorder's captures (#698): the list, empty in a new profile, says how to turn a trigger on.
+      name: 'captures',
+      open: async (ctx) => {
+        const win = await consoleWindow(ctx)
+        await win.locator('.dc-captures').click()
+        if (!(await ctx.lib.until(async () => (await win.locator('.dc-captures-menu').count()) > 0, ctx.hungMs))) throw new Error("the console's list of captures did not show")
+        return win.locator('.dc')
+      },
+      close: async (ctx) => {
+        const win = await consoleWindow(ctx)
+        await win.locator('.dc-captures').click()
+      }
+    },
+    {
       name: 'source',
       open: async (ctx) => {
         const win = await consoleWindow(ctx)

@@ -1,8 +1,8 @@
-import { mkdir, open, readdir, stat, type FileHandle } from 'original-fs/promises'
+import { mkdir, open, readdir, stat, unlink, type FileHandle } from 'original-fs/promises'
 import { join } from 'path'
 import { app, type WebContents } from 'electron'
 import type { ConsoleEvent, ConsoleRecordingInfo, ConsoleSource } from '../shared/devConsole'
-import { RECORDING_FORMAT, newestRecordingsFirst, parseRecording, recordingName, type RecordingEnd, type RecordingHeader } from '../shared/consoleFixtures.mts'
+import { RECORDING_FORMAT, isRecordingName, newestRecordingsFirst, parseRecording, recordingName, type RecordingEnd, type RecordingHeader } from '../shared/consoleFixtures.mts'
 import type { ProviderId } from '../shared/types'
 import { devConsole } from './devConsole'
 import { providerService } from './providerService'
@@ -110,6 +110,12 @@ function report(r: Recording, now = false): void {
       if (r.closed) r.timer = null
       else send()
     }, Math.max(0, PROGRESS_MS - (Date.now() - r.sentAt)))
+}
+
+/** Each coding agent's CLI as installed now, and the version this release was tested with: a recording's header says them. */
+function clisNow(): RecordingHeader['clis'] {
+  const installs = providerService.all()
+  return (Object.keys(installs) as ProviderId[]).map((id) => ({ provider: id, version: installs[id]?.version ?? null, tested: installs[id]?.tested?.version ?? null }))
 }
 
 /** Writes all of a text, however many writes it takes (a write may take only part of it). */
@@ -241,7 +247,6 @@ export function startRecording(wc: WebContents, source: ConsoleSource, workspace
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || n >= 100) throw e
       }
     }
-    const installs = providerService.all()
     const header: RecordingHeader = {
       type: 'recording',
       format: RECORDING_FORMAT,
@@ -249,7 +254,7 @@ export function startRecording(wc: WebContents, source: ConsoleSource, workspace
       startedAt: at.toISOString(),
       source: { kind: source.kind, label: source.label, ...(source.provider ? { provider: source.provider } : {}) },
       text: includeText,
-      clis: (Object.keys(installs) as ProviderId[]).map((id) => ({ provider: id, version: installs[id]?.version ?? null, tested: installs[id]?.tested?.version ?? null }))
+      clis: clisNow()
     }
     const head = `${JSON.stringify(header)}\n`
     try {
@@ -303,6 +308,72 @@ export function stopRecordingsWhere(leaving: (wc: WebContents, workspace: string
   }
 }
 
+// --- The flight recorder's captures (#698)
+
+/** The kind in a capture's file name: a recording like the user's, named …-capture.jsonl. */
+const CAPTURE_KIND = 'capture'
+const isCaptureName = (name: string): boolean => isRecordingName(name) && name.endsWith(`-${CAPTURE_KIND}.jsonl`)
+
+/** Reserves a new recording file by an exclusive open: two at the same millisecond never share one. */
+async function reserve(dir: string, at: Date, kind: string): Promise<{ fh: FileHandle; name: string }> {
+  for (let n = 1; ; n++) {
+    const name = recordingName(at, n, kind)
+    try {
+      return { fh: await open(join(dir, name), 'wx'), name }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || n >= 100) throw e
+    }
+  }
+}
+
+/**
+ * Saves a flight recorder capture: a recording of a source's events as the recorder kept them (redacted, never text),
+ * with the trigger in its header, in the recordings folder; then only the newest `keep` captures stay (the user's own
+ * recordings are never removed). Returns what it wrote.
+ */
+export async function saveCapture(c: { source: Pick<ConsoleSource, 'kind' | 'label' | 'provider'>; events: ConsoleEvent[]; trigger: string; what: string; keep: number }): Promise<ConsoleRecordingInfo> {
+  const dir = recordingsDir()
+  await mkdir(dir, { recursive: true })
+  const at = new Date()
+  const { fh, name } = await reserve(dir, at, CAPTURE_KIND)
+  const header: RecordingHeader = { type: 'recording', format: RECORDING_FORMAT, hive: app.getVersion(), startedAt: at.toISOString(), source: { kind: c.source.kind, label: c.source.label, ...(c.source.provider ? { provider: c.source.provider } : {}) }, text: false, clis: clisNow(), capture: { trigger: c.trigger, what: c.what } }
+  // i18n-ignore: a recording's end reason, a field value in its file
+  const end: RecordingEnd = { type: 'end', at: new Date().toISOString(), events: c.events.length, dropped: 0, reason: 'captured' }
+  const text = [header, ...c.events.map((e) => ({ type: 'event', ...e })), end].map((l) => `${JSON.stringify(l)}\n`).join('')
+  let bytes = 0
+  try {
+    bytes = await writeAll(fh, text)
+  } finally {
+    await fh.close().catch(() => undefined)
+  }
+  await pruneCaptures(dir, c.keep)
+  // i18n-ignore: the end reason is a field value (as the file's), not text
+  return { name, file: join(dir, name), label: c.source.label, kind: c.source.kind, ...(c.source.provider ? { provider: c.source.provider } : {}), includeText: false, startedAt: header.startedAt, endedAt: end.at, events: c.events.length, bytes, dropped: 0, recording: false, reason: 'captured', capture: header.capture }
+}
+
+/** Keeps the newest `keep` captures; older ones go (a file that can't be removed is left for the next time). */
+async function pruneCaptures(dir: string, keep: number): Promise<void> {
+  const old = newestRecordingsFirst(await readdir(dir).catch(() => [] as string[])).filter(isCaptureName).slice(Math.max(1, keep))
+  for (const name of old) await unlink(join(dir, name)).catch((e) => log.warn(`developer console: couldn't remove the old capture ${name}`, e))
+}
+
+/** The flight recorder's captures, newest first, at most `limit`: each one's trigger, source and when. */
+export async function listCaptures(limit = 50): Promise<ConsoleRecordingInfo[]> {
+  const dir = recordingsDir()
+  const out: ConsoleRecordingInfo[] = []
+  for (const name of newestRecordingsFirst(await readdir(dir).catch(() => [] as string[])).filter(isCaptureName).slice(0, limit)) {
+    const file = join(dir, name)
+    try {
+      const r = parseRecording(await readRecordingText(file, 64 * 1024))
+      if (!r.header?.capture) continue
+      out.push({ name, file, label: r.header.source.label, kind: r.header.source.kind, ...(r.header.source.provider ? { provider: r.header.source.provider } : {}), includeText: false, startedAt: r.header.startedAt, ...(r.end ? { endedAt: r.end.at, reason: r.end.reason } : {}), events: r.end?.events ?? r.events.length, bytes: (await stat(file)).size, dropped: 0, recording: false, capture: { trigger: String(r.header.capture.trigger), what: String(r.header.capture.what) } })
+    } catch {
+      // Unreadable: left out.
+    }
+  }
+  return out
+}
+
 /** Reads a recording's header and its newest lines: all of a small one; the head and the last part of a large one. */
 export async function readRecordingText(file: string, tailBytes = 512 * 1024): Promise<string> {
   const size = (await stat(file)).size
@@ -347,7 +418,8 @@ export async function latestRecording(): Promise<ConsoleRecordingInfo | null> {
         events: r.end?.events ?? r.events.length,
         bytes: size,
         dropped: r.end?.dropped ?? 0,
-        recording: false
+        recording: false,
+        ...(r.header.capture ? { capture: { trigger: String(r.header.capture.trigger), what: String(r.header.capture.what) } } : {})
       }
     } catch {
       // Unreadable: the next newest.

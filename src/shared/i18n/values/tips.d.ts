@@ -120,6 +120,8 @@ interface HiveMessageValues {
   'tips.fileLinks.title': undefined
   'tips.filesTab.text': undefined
   'tips.filesTab.title': undefined
+  'tips.flightRecorder.text': undefined
+  'tips.flightRecorder.title': undefined
   'tips.gitCheck.text': undefined
   'tips.gitCheck.title': undefined
   'tips.gitInit.text': undefined

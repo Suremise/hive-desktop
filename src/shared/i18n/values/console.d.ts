@@ -6,6 +6,10 @@ interface HiveMessageValues {
   'console.bytes': { n: number }
   'console.cancel': undefined
   'console.cancelled': undefined
+  'console.captureEvents': { events: number }
+  'console.captureRow': { trigger: string | number; agent: string | number; when: string | number }
+  'console.captures': undefined
+  'console.capturesNone': undefined
   'console.capturing': undefined
   'console.clear': undefined
   'console.close': undefined
@@ -17,6 +21,15 @@ interface HiveMessageValues {
   'console.eventsOf': { shown: number; n: number; cleared: string }
   'console.failed': { n: number; name: string | number; error: string | number }
   'console.fileFull': undefined
+  'console.flight.captured': { trigger: string | number; agent: string | number }
+  'console.flight.capturedDetail': { events: number; what: string | number }
+  'console.flight.failed': { agent: string | number }
+  'console.flight.show': undefined
+  'console.flight.trigger.pattern': undefined
+  'console.flight.trigger.safeguard': undefined
+  'console.flight.trigger.stalled': undefined
+  'console.flight.trigger.unknown': undefined
+  'console.flight.trigger.version': undefined
   'console.includeText': undefined
   'console.live': undefined
   'console.made': undefined
@@ -42,6 +55,7 @@ interface HiveMessageValues {
   'console.saved': { n: number; name: string | number; limit: string }
   'console.search': undefined
   'console.searchLabel': undefined
+  'console.showCapture': undefined
   'console.showInFolder': undefined
   'console.source': undefined
   'console.sourceCount': { name: string | number; n: number }
