@@ -6,6 +6,7 @@
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs'), path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 const scratch = lib.WORK, userData = path.join(scratch, 'agents-profile')
 // Outside the repository, so its CLAUDE.md (which imports AGENTS.md) doesn't apply to the test sessions (#174).
 const ws = path.join(scratch, 'agents-ws')
@@ -177,7 +178,7 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `agents-${n
   await sleep(800)
   const moved = (await inv('session:live')).find((l) => l.agentId === a1.id)
   check('follows a new conversation started in the CLI', moved.sessionId === newId && before !== newId, `${before} → ${moved.sessionId}`)
-  const recs = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8')).sessions
+  const recs = sessionsOf(proj).sessions
   check('the new conversation is recorded for the agent', recs.some((s) => s.id === newId && s.agentId === a1.id), JSON.stringify(recs.map((s) => [s.id.slice(0, 8), s.agentId])))
   check('the old one stays in the list', recs.some((s) => s.id === before))
 

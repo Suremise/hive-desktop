@@ -8,6 +8,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 20000
 
@@ -59,8 +60,8 @@ const check = (name, ok, extra = '') => {
     await inv('pty:write', lib.ptyKey(alpha, id), '\r')
     return !!(await until(async () => (await live(id))?.status === 'finished', HUNG_MS))
   }
-  const sessionsFile = path.join(alpha, '.hive', 'sessions.json')
-  const records = () => JSON.parse(fs.readFileSync(sessionsFile, 'utf8')).sessions
+  // The records are in the workspace's database (#1061).
+  const records = () => sessionsOf(alpha).sessions
 
   await page.getByText('alpha', { exact: true }).first().click()
 
@@ -85,7 +86,7 @@ const check = (name, ok, extra = '') => {
   const id = (n) => `0f5c2a8e-1111-4222-8333-94445555${String(n).padStart(4, '0')}`
   const at = '2026-10-01T10:00:00.000Z'
   const base = { agent: 'claude-code', createdAt: at, lastActiveAt: at, archived: false }
-  const file = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'))
+  const file = sessionsOf(alpha)
   file.sessions.push(
     { ...base, id: id(1), name: 'Before names', agentId: 'a-0ldname' },
     { ...base, id: id(2), name: 'Earlier spike', agentId: 'a-5p1ke00', agentName: 'Spike', cwd: reviewer.worktree.path, branch: 'hive/spike' },
@@ -93,7 +94,7 @@ const check = (name, ok, extra = '') => {
     { ...base, id: id(4), name: 'Reviewer work', agentId: reviewer.id, agentName: 'Reviewer', cwd: reviewer.worktree.path, branch: reviewer.worktree.branch },
     { ...base, id: id(5), name: 'Put away', agentId: 'a-0ldname', archived: true }
   )
-  fs.writeFileSync(sessionsFile, JSON.stringify(file, null, 2))
+  putSessions(alpha, file)
   // A name to find the old Coder's session by (it is named by its start time).
   await inv('session:rename', alpha, coderSession, 'Old Coder work')
 

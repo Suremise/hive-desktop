@@ -12,6 +12,7 @@ const { _electron } = require('playwright-core')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf, putSessions } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
 
@@ -84,7 +85,6 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
   const live = async (agentId) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === agentId)
-  const sessionsFile = path.join(alpha, '.hive', 'sessions.json')
   await page.getByText('alpha', { exact: true }).first().click()
 
   // --- Agents: Claude runs a session now (the live one); Codexette's session is a fixture.
@@ -106,7 +106,8 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   const C = { tray: id(1), notes: id(2), gone: id(3), coder: id(4), codex: id(5), g1: id(6), g2: id(7), g3: id(8), lost: id(9), terminal: id(10), adopted: id(11), wt: id(12), wtReview: id(13) }
   // A worktree Codexette worked in (its folder needn't exist for the list).
   const wtDir = path.join(ws, '.worktrees', 'alpha-spike')
-  const file = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'))
+  // The records are in the workspace's database (#1061).
+  const file = sessionsOf(alpha)
   const rec = (sid, name, h, more = {}) => ({ id: sid, agent: 'claude-code', name, createdAt: at(h), lastActiveAt: at(h), archived: false, ...more })
   file.sessions.push(
     rec(C.tray, 'Tray fixes', 10, { agentId: claude.id, agentName: 'Claude' }),
@@ -119,7 +120,7 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
     // A session in a worktree, with a guardian review there.
     rec(C.wt, 'Worktree work', 1, { agent: 'codex', agentId: codexette.id, agentName: 'Codexette', cwd: wtDir, branch: 'hive/spike', transcriptPath: rolloutFile(C.wt, 1) })
   )
-  fs.writeFileSync(sessionsFile, JSON.stringify(file, null, 2))
+  putSessions(alpha, file)
   write(backup(C.tray), claudeLines(C.tray, 10, 'Fix the tray icon'))
   write(backup(C.notes), claudeLines(C.notes, 6, 'Tidy the zebra notes'))
   write(backup(C.coder), claudeLines(C.coder, 4, 'Refactor the loader'))
@@ -335,7 +336,7 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   const archived = await names()
   check('the archived session and its sub-sessions leave the tree', !archived.includes('Codex work') && !archived.includes('Review rm'), JSON.stringify(archived))
   check('the guardian review whose session isn’t listed stays', archived.includes('Lost review'))
-  check('it is archived in Hive', JSON.parse(fs.readFileSync(sessionsFile, 'utf8')).sessions.find((s) => s.id === C.codex)?.archived === true)
+  check('it is archived in Hive', sessionsOf(alpha).sessions.find((s) => s.id === C.codex)?.archived === true)
   await page.getByText('Archived', { exact: true }).click()
   await lib.until(async () => (await names()).includes('Codex work'), 5000)
   check('Archived shows it again, with its sub-sessions', (await names()).includes('Codex work') && (await names()).includes('Review rm'))

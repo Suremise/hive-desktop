@@ -109,6 +109,36 @@ describe('the state view as text', () => {
     expect((v.match(/blocked: r+/g) ?? []).length).toBe(10)
   })
 
+  it('keeps every section within its budget with CJK and emoji text, cut between whole characters (#1069)', () => {
+    const many = <T,>(n: number, f: (i: number) => T): T[] => Array.from({ length: n }, (_, i) => f(i))
+    // n characters (code points), so the input itself has no half pairs.
+    const chars = (s: string, n: number): string => Array.from(s.repeat(n)).slice(0, n).join('')
+    const cjk = (n: number, i: number): string => chars(`${i}漢字かな한글`, n)
+    const emoji = (n: number, i: number): string => chars(`${i}🐝👩‍💻🎉`, n)
+    for (const text of [cjk, emoji]) {
+      const v = startView(
+        empty({
+          counts: many(20, (i) => ({ project: text(80, i), columns: { doing: 3, review: 2, passed: 1, todo: 30 } })),
+          active: many(20, (i) => card(1000 + i, { project: text(80, i), title: text(90, i), agent: text(30, i), reviewer: text(30, i) })),
+          blocked: many(20, (i) => card(2000 + i, { project: text(80, i), agent: text(30, i), blocked: text(120, i) })),
+          lanes: many(20, (i) => ({ project: text(80, i), builder: text(30, i), reviewer: text(30, i), current: i, state: 'active', pausedOn: null })),
+          agents: many(20, (i) => ({ project: text(80, i % 4), name: text(30, i), status: 'working' })),
+          journal: { decisions: many(20, (i) => entry(i, { project: text(80, i), summary: text(160, i) })), incidents: many(20, (i) => entry(100 + i, { kind: 'incident', project: text(80, i), summary: text(160, i) })), onCards: many(20, (i) => entry(200 + i, { project: text(80, i), summary: text(160, i) })), digestDue: '2026-W41' }
+        })
+      )
+      expect(utf8Bytes(v)).toBeLessThanOrEqual(START_VIEW_MAX_BYTES)
+      for (const title of ['Waiting on the user:', 'Cards in Doing and Review:', 'Lanes running:', 'Agents running:', 'Board:', 'Journal: recent decisions and plans:', 'Journal: on the cards in hand:', 'Journal: recent incidents:', 'Weekly digest:']) {
+        expect(v, title).toContain(`\n${title}\n`)
+        // Each section's floor: its first two lines, whatever is crowded elsewhere.
+        const section = v.split(`\n${title}\n`)[1].split('\n')
+        expect(section.slice(0, title === 'Weekly digest:' ? 1 : 2).every((l) => l.startsWith('- ') && !l.startsWith('- (')), title).toBe(true)
+      }
+      for (const line of v.split('\n')) expect(utf8Bytes(line)).toBeLessThanOrEqual(400)
+      // No half of a surrogate pair where a line or a title was cut.
+      expect(v).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/)
+    }
+  })
+
   it('caps what waits on the user at 10 lines, decisions first, then a count of the rest On Hold (#1078)', () => {
     const at = (day: number): string => `2026-10-${String(day).padStart(2, '0')}T09:00:00Z`
     const after = Array.from({ length: 55 }, (_, i) => card(100 + i, { column: 'hold', agent: null, blocked: 'After 0.9.0: needs the new board first', updatedAt: at(1 + (i % 17)) }))

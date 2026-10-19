@@ -210,6 +210,11 @@ export interface LiveDetails {
    */
   interruptedAt?: string
   /**
+   * When a compaction last completed, as recorded (ISO), on a CLI that sends no hook at its end (Copilot's
+   * session.compaction_complete, #454): handled as a compaction's end hook. One from before this launch is history.
+   */
+  compactedAt?: string
+  /**
    * The CLI's own record says its latest turn is over, with nothing started since (Codex's task_complete, #648): `turn`
    * its id as the hooks name turns, `at` when (ISO). Null: a turn began after the last one ended; absent: the lines read
    * say neither.
@@ -226,7 +231,8 @@ export interface LiveDetails {
  * A background task an agent started (a command left running, a Monitor) or that ended, from its transcript.
  * `at` is when the line was written (ms); a task with `expiresAt` ends then if nothing says so sooner.
  */
-export type BackgroundTaskEvent = { kind: 'start'; id: string; at: number; expiresAt?: number } | { kind: 'end'; id: string; at: number }
+/** `stopped`: an end the agent made itself (Claude Code's TaskStop, #640): its CLI isn't told, so no turn follows. */
+export type BackgroundTaskEvent = { kind: 'start'; id: string; at: number; expiresAt?: number } | { kind: 'end'; id: string; at: number; stopped?: true }
 
 /** Where an image's data sits in a transcript: the line's byte range and the path to it inside the entry. */
 export interface ImageLocation {
@@ -329,6 +335,12 @@ export interface ProviderAdapter {
    * start, a resume and after a compaction). Absent where it isn't verified: such a CLI's sessions get no view.
    */
   startContextReply?(text: string): Record<string, unknown>
+  /**
+   * Where the start context goes after a compaction, on a CLI that starts no session then (#1065): 'prompt' puts it in
+   * the reply to the next prompt hook (startContextReply's form), once. Absent: its SessionStart after a compaction
+   * carries it, as for a start.
+   */
+  readonly startContextAfterCompaction?: 'prompt'
   /**
    * Whether the turn a drain carries on comes back to Hive as a new prompt hook, with the notice as its prompt (Copilot):
    * the turn ledger then takes it as Hive's own in the running turn, not a new one.

@@ -14,8 +14,14 @@ export const START_VIEW_MAX_BYTES = 9000
 const TITLE = 90
 const SUMMARY = 160
 const REASON = 120
-/** The longest a line may be, so every section's floor fits the budget together. */
+/**
+ * The longest a line may be, in characters and in UTF-8 bytes, so every section's floor fits the budget together
+ * (#1069: 300 characters of CJK text are 900 bytes, and dropped a whole section). Nine sections of a title (≤ 40 bytes),
+ * FLOOR_LINES lines and a "more" line (≤ 60) are under 9 × (100 + 2 × 401) = 8,118 bytes, with the head and foot
+ * (≤ 300) well within the budget.
+ */
 const LINE = 300
+const LINE_BYTES = 400
 /** The lines each section is sure of before any gets more (#1032 round 2). */
 const FLOOR_LINES = 2
 /**
@@ -90,9 +96,20 @@ export interface StartViewInput {
   }
 }
 
-const clip = (s: string, n: number): string => {
+/** At most n UTF-16 units and maxBytes UTF-8 bytes, cut between whole characters (never half a surrogate pair). */
+const clip = (s: string, n: number, maxBytes = Infinity): string => {
   const t = s.replace(/\s+/g, ' ').trim()
-  return t.length > n ? `${t.slice(0, n - 1)}…` : t
+  if (t.length <= n && bytes(t) <= maxBytes) return t
+  let out = ''
+  let used = 0
+  for (const ch of t) {
+    const b = bytes(ch)
+    // Room for the ellipsis: one unit, three bytes.
+    if (out.length + ch.length > n - 1 || used + b > maxBytes - 3) break
+    out += ch
+    used += b
+  }
+  return `${out}…`
 }
 
 
@@ -120,7 +137,7 @@ const urgency = (c: ViewCard): number => (c.column !== 'hold' ? 0 : DECIDE.test(
 
 /**
  * The view as text, never over START_VIEW_MAX_BYTES. Every section first gets its first lines (FLOOR_LINES; a line is at
- * most LINE characters, so the floors fit together), then the rest is given in order of how much they matter (what
+ * most LINE characters and LINE_BYTES bytes, so the floors fit together), then the rest is given in order of how much they matter (what
  * waits on the user, decisions and plans, the work in hand…), each line whole or not at all, with a count of what was
  * left out; they are shown in reading order.
  */
@@ -171,7 +188,7 @@ export function startView(v: StartViewInput): string {
 
   const room = START_VIEW_MAX_BYTES - bytes(head) - bytes(foot) - 2
   type Key = keyof typeof S
-  const lines = new Map<Key, string[]>(priority.map((k) => [k, S[k].lines.map((l) => clip(l, LINE))]))
+  const lines = new Map<Key, string[]>(priority.map((k) => [k, S[k].lines.map((l) => clip(l, LINE, LINE_BYTES))]))
   const moreLine = (k: Key, left: number): string => {
     const more: Section['more'] = S[k].more
     return typeof more === 'function' ? `- (${more(lines.get(k)!.length - left)})` : `- (${left} more: ${more})`

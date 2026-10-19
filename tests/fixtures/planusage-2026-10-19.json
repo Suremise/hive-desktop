@@ -1,0 +1,198 @@
+{
+  "recorded": "2026-10-19 (#383): a test Hive (dev build) with the developer console subscribed to two real Claude Code agents in the signed-in test home, A (Haiku) answering a prompt every ~45 s, B (Sonnet) answering once, then idle through resizes and pane clicks, then stopped and resumed; and a Codex token_count record from the Codex test home. Each status line as the console captured it (rate_limits only), in the order they came.",
+  "claude": {
+    "version": "2.1.303",
+    "statusLines": [
+      {
+        "at": "2026-10-19T20:11:48.169Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": null
+      },
+      {
+        "at": "2026-10-19T20:11:52.942Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:11:50.290Z",
+        "agent": "B",
+        "model": "claude-sonnet-5-5",
+        "rate_limits": null
+      },
+      {
+        "at": "2026-10-19T20:12:43.568Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:11:55.770Z",
+        "agent": "B",
+        "model": "claude-sonnet-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:13:31.043Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:14:18.402Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:15:05.981Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:15:52.965Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:16:40.391Z",
+        "agent": "A",
+        "model": "claude-haiku-5-5",
+        "rate_limits": {
+          "five_hour": {
+            "used_percentage": 0,
+            "resets_at": 1792454400
+          },
+          "seven_day": {
+            "used_percentage": 99,
+            "resets_at": 1792573200
+          }
+        }
+      },
+      {
+        "at": "2026-10-19T20:16:42.315Z",
+        "agent": "B",
+        "model": "claude-sonnet-5-5",
+        "rate_limits": null
+      }
+    ],
+    "notes": [
+      "B sent no status line while idle (5 min), and its resumed session's first status line had rate_limits null."
+    ]
+  },
+  "codex": {
+    "version": "0.163.0",
+    "tokenCount": {
+      "timestamp": "2026-10-19T19:43:15.744Z",
+      "ordinal": 34,
+      "type": "event_msg",
+      "payload": {
+        "type": "token_count",
+        "info": {
+          "total_token_usage": {
+            "input_tokens": 34041,
+            "cached_input_tokens": 23552,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 27,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 34068
+          },
+          "last_token_usage": {
+            "input_tokens": 18133,
+            "cached_input_tokens": 11776,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 16,
+            "reasoning_output_tokens": 0,
+            "total_tokens": 18149
+          },
+          "model_context_window": 258400
+        },
+        "rate_limits": {
+          "limit_id": "codex",
+          "limit_name": null,
+          "primary": {
+            "used_percent": 17,
+            "window_minutes": 10080,
+            "resets_at": 1792874444
+          },
+          "secondary": null,
+          "credits": {
+            "has_credits": false,
+            "unlimited": false,
+            "balance": "0"
+          },
+          "individual_limit": null,
+          "spend_control_reached": null,
+          "plan_type": "prolite",
+          "rate_limit_reached_type": null
+        }
+      }
+    }
+  }
+}

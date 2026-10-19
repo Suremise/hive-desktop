@@ -25,6 +25,7 @@ import type {
   LiveSessionState,
   RuntimeFacts,
   McpServerDef,
+  McpServerInfo,
   PermissionMode,
   ProjectConfig,
   ProviderId,
@@ -38,6 +39,7 @@ import type {
   SessionSkipReason,
   SubSession,
   SessionStatus,
+  SkillInfo,
   SessionUsage,
   TaskWatchInfo,
   ToastAction
@@ -253,6 +255,8 @@ interface LiveSession {
   detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
+  /** The last compaction end read from the transcript (LiveDetails.compactedAt, #454), so each counts once. */
+  compactedAt?: string
   /**
    * The launch's hooks that have arrived, counted as each comes (before its turn in the queue): an interrupt read from
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
@@ -542,6 +546,40 @@ function autoName(projectPath: string, agent: Pick<AgentDef, 'name'>, count: num
 const taskMinutes = (): number => Math.min(480, Math.max(10, Number(config.settings.agents.backgroundTaskMinutes) || 60))
 
 const liveId = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
+
+/**
+ * The workspace's skills (their list and each one's revision) and MCP servers, read once for the agents whose launch
+ * settings are worked out together (#1002): a refresh worked out every running agent's, reading them all again for each
+ * one. The first read is made in the caller's workspace; one set of reads is never used for another workspace.
+ */
+export class LaunchReads {
+  private skillList: Promise<SkillInfo[]> | null = null
+  private serverList: Promise<McpServerInfo[]> | null = null
+  private revisions = new Map<string, Promise<string>>()
+
+  skills(): Promise<SkillInfo[]> {
+    return (this.skillList ??= hiveSkills())
+  }
+
+  servers(): Promise<McpServerInfo[]> {
+    return (this.serverList ??= listMcp())
+  }
+
+  revision(path: string): Promise<string> {
+    let r = this.revisions.get(path)
+    if (!r) this.revisions.set(path, (r = revisionOf(path).catch(() => '')))
+    return r
+  }
+}
+
+/** Each refresh's reads, by the scope it passes (#1002): gone with the refresh. */
+const refreshReads = new WeakMap<object, LaunchReads>()
+
+function launchReadsOf(scope: object): LaunchReads {
+  let r = refreshReads.get(scope)
+  if (!r) refreshReads.set(scope, (r = new LaunchReads()))
+  return r
+}
 
 /** The provider a session record belongs to (records from before providers are Claude Code's). */
 /** A CLI transcript changed this recently is still being written (a Codex guardian review, say): not archived or deleted yet. */
@@ -903,14 +941,18 @@ class SessionManager {
     return { agent, cfg, count: agents.length }
   }
 
-  /** Resolves global + project settings (and the agent's own overrides) into what a session launches with. */
-  async effective(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
-    return inWorkspace(workspaceOf(projectPath), () => this.effectiveHere(projectPath, agent))
+  /**
+   * Resolves global + project settings (and the agent's own overrides) into what a session launches with. `reads`: the
+   * workspace's skills and servers as read once for several agents (#1002), and `pc` the project's config as read for
+   * them; without, they are read now.
+   */
+  async effective(projectPath: string, agent?: AgentDef, reads?: LaunchReads, pc?: ProjectConfig): Promise<EffectiveSettings> {
+    return inWorkspace(workspaceOf(projectPath), () => this.effectiveHere(projectPath, agent, reads ?? new LaunchReads(), pc))
   }
 
-  private async effectiveHere(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
+  private async effectiveHere(projectPath: string, agent: AgentDef | undefined, reads: LaunchReads, readPc?: ProjectConfig): Promise<EffectiveSettings> {
     const s = config.settings
-    const pc = await workspace.projectConfig(projectPath)
+    const pc = readPc ?? (await workspace.projectConfig(projectPath))
     const assistant = workspace.isAssistantHome(projectPath)
     // Every Hive skill for its audience (SKILL.md's metadata.audience) reaches the session: project agents get those for
     // agents, the Assistant those for it. There are no skill switches.
@@ -918,20 +960,20 @@ class SessionManager {
     const skills: LaunchSkill[] = []
     const skillHashes: Record<string, string> = {}
     const skillProblems: Record<string, string> = {}
-    for (const sk of await hiveSkills()) {
+    for (const sk of await reads.skills()) {
       if (sk.problem) {
         skillProblems[sk.name] = sk.problem
         skillHashes[sk.name] = ''
       } else if (skillFor(sk.audience, assistant ? 'assistant' : 'agent')) {
         skills.push({ name: sk.name, sourcePath: sk.path })
-        skillHashes[sk.name] = await revisionOf(sk.path).catch(() => '')
+        skillHashes[sk.name] = await reads.revision(sk.path)
       }
     }
     // The workspace's servers on in the project (#713); the agent's own choice narrows them (#537): all of them unless
     // it names some.
     const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
-    for (const m of await listMcp()) {
+    for (const m of await reads.servers()) {
       if (serverOnIn(m, pc.mcp) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
@@ -951,8 +993,12 @@ class SessionManager {
     return hashText(JSON.stringify(rest))
   }
 
-  /** Every agent of a project with its running session, for ProjectInfo. */
-  async liveInfo(projectPath: string, cfg: ProjectConfig): Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }> {
+  /**
+   * Every agent of a project with its running session, for ProjectInfo. `scope`: the refresh it is for (#1002), whose
+   * projects' running agents share one read of the workspace's skills and servers; without, this call's agents do.
+   */
+  async liveInfo(projectPath: string, cfg: ProjectConfig, scope?: object): Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }> {
+    const reads = scope ? launchReadsOf(scope) : new LaunchReads()
     const agents: AgentInfo[] = []
     const records = (await workspace.sessionsFile(projectPath)).sessions
     this.checkSubsOnce(projectPath, records)
@@ -963,7 +1009,7 @@ class SessionManager {
       let restartNeeded = false
       if (l && !l.state.settingUp) {
         try {
-          const eff = await this.effective(projectPath, pinProvider(a, l.state.provider))
+          const eff = await this.effective(projectPath, pinProvider(a, l.state.provider), reads, cfg)
           restartNeeded = this.signature(eff) !== l.state.launchSignature
           this.noticeModeSetting(l, eff.permissionMode)
         } catch {
@@ -2864,7 +2910,8 @@ class SessionManager {
 
   /**
    * Background tasks started or ended in what the transcript gained since the last look (providers that report
-   * them). Only this launch's count: tasks from before it ended with the CLI. True if one ended.
+   * them). Only this launch's count: tasks from before it ended with the CLI. True if one ended that wakes the CLI (not
+   * one it stopped itself).
    */
   private async readBackground(l: LiveSession, path: string, size: number): Promise<boolean> {
     if (!l.adapter.backgroundTasks) return false
@@ -2892,7 +2939,8 @@ class SessionManager {
         if (!ended.has(ev.id)) tasks.set(ev.id, { at: ev.at, expiresAt: ev.expiresAt })
         continue
       }
-      if (tasks.delete(ev.id)) woke = true
+      // A task the agent stopped itself wakes nothing (#640: read after its Stop, it showed HB3 working with no turn).
+      if (tasks.delete(ev.id) && !ev.stopped) woke = true
       ended.add(ev.id)
       if (ended.size > 500) ended.delete(ended.values().next().value!)
     }
@@ -3390,6 +3438,20 @@ class SessionManager {
         this.noteTurn(l)
       })
     }
+    // A compaction's end the CLI sends no hook for (Copilot, #454): as the end hook would, once per recorded end of this
+    // launch, and only while Hive thinks it compacting (a /compact's end read later, with nothing under way, is history).
+    // Not after a hook that came once the read began (a newer PreCompact, a prompt), nor for a compaction that began after
+    // it ended (Copilot's clock is this machine's): this end is then an older compaction's.
+    const compacted = d.compactedAt && Date.parse(d.compactedAt) >= Date.parse(l.state.startedAt) && (!l.compactedAt || d.compactedAt > l.compactedAt) ? d.compactedAt : null
+    if (compacted) {
+      l.compactedAt = compacted
+      const id = liveId(l.state.projectPath, l.state.agentId)
+      void this.inHookOrder(l.state.runId, () => {
+        if (this.live.get(id) !== l || (hooks !== undefined && (l.hooksSeen ?? 0) !== hooks) || !(l.compacting || isCompacting(l.state))) return
+        if (l.state.statusSince && Date.parse(compacted) < Date.parse(l.state.statusSince)) return
+        this.carryOut(id, l, hookStep({ kind: 'compactEnd' }, this.statusInput(l)), 'transcript', { kind: 'compactEnd' })
+      })
+    }
     // The CLI's own record that its latest turn is over (#648): kept, and acted on if Hive missed that turn's Stop. And,
     // for a CLI whose records don't name turns, when its Stops were answered (this launch's only, the latest kept).
     if (d.turnEnded !== undefined) l.turnRecord = d.turnEnded
@@ -3397,7 +3459,7 @@ class SessionManager {
     const answered = (d.stopsAnswered ?? []).map(Date.parse).filter((t) => t >= started)
     if (answered.length) l.stopsAnswered = [...(l.stopsAnswered ?? []), ...answered].slice(-STOPS_KEPT)
     if (d.turnEnded || answered.length) this.reconcileTurn(l)
-    if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
+    if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage, l.state.agentName ?? l.state.agentId)
     const learn = l.defaultEffort
     const learnModel = d.modelId ?? learn?.model
     if (learn && d.effort && learnModel) {
@@ -3616,6 +3678,8 @@ class SessionManager {
    */
   hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
     if (body.hook_event_name === 'SessionStart') return this.startReply(runId, body)
+    const afterCompaction = this.compactionContextReply(runId, body)
+    if (afterCompaction) return afterCompaction
     const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
     if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
@@ -3641,8 +3705,33 @@ class SessionManager {
     if (!l || !this.startContext || !l.adapter.startContextReply) return null
     const hook = l.adapter.normalizeHook(body)
     if (hook.ids.sub || hook.event.kind !== 'start') return null
+    return this.startContextFor(l, hook.event.source)
+  }
+
+  /** Launches whose start context is due with their next prompt: compacted, on a CLI that starts no session then. */
+  private contextDue = new WeakSet<LiveSession>()
+
+  /**
+   * On a CLI that starts no session after a compaction (startContextAfterCompaction 'prompt': Copilot, #1065), its
+   * compaction makes the start context due, and the next prompt hook's reply carries it, once (source compact). Null
+   * for any other hook, which hookReply then answers as usual.
+   */
+  private compactionContextReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> | null {
+    if (!this.startContext) return null
+    const l = this.findLaunch(runId, body.session_id)?.[1]
+    if (!l || l.adapter.startContextAfterCompaction !== 'prompt') return null
+    const hook = l.adapter.normalizeHook(body)
+    if (hook.ids.sub) return null
+    if (hook.event.kind === 'compactStart') this.contextDue.add(l)
+    else if (hook.event.kind === 'prompt' && this.contextDue.delete(l)) return this.startContextFor(l, 'compact')
+    return null
+  }
+
+  /** The start context for a launch, in its CLI's reply form, or null (none, or it couldn't be made). */
+  private async startContextFor(l: LiveSession, source: string | null): Promise<Record<string, unknown> | null> {
+    if (!this.startContext || !l.adapter.startContextReply) return null
     try {
-      const text = await this.startContext(l.state, hook.event.source)
+      const text = await this.startContext(l.state, source)
       return text ? l.adapter.startContextReply(text) : null
     } catch (e) {
       log.warn('start context', e)

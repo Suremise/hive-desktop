@@ -1,5 +1,4 @@
 import { BrowserWindow, ClipboardItem, app, clipboard, dialog, ipcMain, nativeImage, shell } from 'electron'
-import { spawn } from 'child_process'
 import { freemem, totalmem } from 'os'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { WebContents } from 'electron'
@@ -28,6 +27,7 @@ import { initCheck, initRepo } from './gitInit'
 import { addRemote, createBranch, createTag, fetchAll, pull, push, repoHistory, repoInfo, repoSummary, setIdentity, setRemoteUrl, switchBranch } from './gitRepo'
 import { checkGit, gitTool } from './gitTool'
 import { refreshPath, refreshPathBeforeStart } from './freshPath'
+import { openExternalTerminal } from './externalTerminal'
 import { mergeUnused, removalPreview, removeUnusedWorktree, unusedBranchStatus, unusedWorktrees } from './unusedWorktrees'
 import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
@@ -192,17 +192,6 @@ async function projectInstructions(project: string, ids: ProviderId[]): Promise<
 }
 
 type Impl = { [C in HiveChannel]: (...args: Parameters<HiveRequests[C]>) => ReturnType<HiveRequests[C]> | Promise<ReturnType<HiveRequests[C]>> }
-
-function spawnDetached(file: string, args: string[], cwd?: string): boolean {
-  try {
-    const child = spawn(file, args, { cwd, detached: true, stdio: 'ignore', shell: process.platform === 'win32', windowsHide: false })
-    child.on('error', () => undefined)
-    child.unref()
-    return true
-  } catch {
-    return false
-  }
-}
 
 /** A provider id this version knows; anything else is refused (it would become a settings key). */
 function knownProvider(id: unknown): ProviderId {
@@ -678,9 +667,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const dir = workspace.assertProject(p)
       // A new terminal gets what was installed since Hive started (#821).
       await refreshPathBeforeStart()
-      if (process.platform === 'win32') {
-        if (!spawnDetached('wt.exe', ['-d', `"${dir}"`])) spawnDetached('cmd.exe', ['/c', 'start', 'cmd.exe'], dir)
-      } else spawnDetached('x-terminal-emulator', [], dir)
+      openExternalTerminal(dir)
     },
 
     'session:list': (p) => sessions.list(p),

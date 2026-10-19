@@ -378,6 +378,18 @@ export class CopilotAdapter implements ProviderAdapter {
     return null
   }
 
+  /**
+   * Start context (1.0.98 offline, #1065's probe: tests/fixtures/copilot/sessionstart-1.0.98.json): top-level
+   * additionalContext reaches the model from SessionStart (source new or resume) and from a prompt hook (as a
+   * system_reminder in the prompt); the hookSpecificOutput form doesn't. No SessionStart follows a compaction, only
+   * PreCompact, so the view goes with the next prompt then.
+   */
+  startContextReply(text: string): Record<string, unknown> {
+    return { additionalContext: text }
+  }
+
+  readonly startContextAfterCompaction = 'prompt' as const
+
   /** A Stop's continuation comes back as a new prompt hook, with the reason as its prompt (1.0.95, #650). */
   readonly drainIsPrompt = true
 

@@ -316,6 +316,7 @@
   "workspace.statusBar.openWorkspace": "打开工作区",
   "workspace.statusBar.planLine": "{provider}{hasPlan, select, yes {（{plan} 套餐）} other {}}",
   "workspace.statusBar.providerTip": "{provider} {version}（{source}）{hasWarning, select, yes { —— {warning}} other {}}{hasUpdate, select, yes { —— 有新版本 {latest}} other {}}",
+  "workspace.statusBar.reportedBy": "由 {agent} 报告，{when}",
   "workspace.statusBar.running": "{count, plural, other {# 个运行中的会话}}：{working} 个工作中，{background, plural, =0 {} other {# 个等待后台任务，}}{waiting} 个等待你处理",
   "workspace.statusBar.shortLimit": "{window, select, fiveHour {5 小时} weekly {每周} other {{label}}}",
   "workspace.statusBar.workspace": "工作区：{path}",

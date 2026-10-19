@@ -142,6 +142,7 @@ export const SUITES = [
   { name: 'perftable' },
   { name: 'pin' },
   { name: 'plan', needs: ['claude'], claudeHome: 'own' },
+  { name: 'planusage' },
   { name: 'progress', serial: 'window focus' },
   { name: 'progresslanes' },
   { name: 'progressreport' },

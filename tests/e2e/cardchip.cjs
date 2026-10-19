@@ -2,12 +2,13 @@
 // list, its line in the project's sidebar tooltip; clicking opens the card; leaving Doing removes it. In the pane header
 // the chip is its icon and number (+n), the titles on hover; in the Assistant's workspace section the agent's state mark
 // has its cards and what it is doing (its progress) in its tooltip (#311, #979). The session
-// records the card (sessions.json) and the Sessions tab shows "Worked on #n", unlinked once the card is deleted.
+// records the card (its record in the workspace's database, #1061) and the Sessions tab shows "Worked on #n", unlinked once the card is deleted.
 // The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 20000
 
@@ -107,7 +108,7 @@ const check = (name, ok, extra = '') => {
   await until(async () => (await dialog.count()) === 0, HUNG_MS)
 
   // The session records both cards.
-  const recorded = async () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'sessions.json'), 'utf8')).sessions.find((s) => s.id === sessionId)?.cards ?? []
+  const recorded = async () => sessionsOf(alpha).sessions.find((s) => s.id === sessionId)?.cards ?? []
   check('the session records its cards', !!(await until(async () => (await recorded()).length === 2, 8000)), JSON.stringify(await recorded()))
 
   // The sidebar's tooltip for the project: its agents as a table (#529), the agent's row with its card. Shown (hoverTip:

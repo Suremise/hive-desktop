@@ -805,6 +805,48 @@ const SOURCES: readonly AdvancedSource[] = [
     applies: 'now',
     samples: [{ from: `${FIX}/advanced/signin-error-copilot-1.0.95.jsonl`, version: '1.0.95', text: 'Authentication failed with provider at http://127.0.0.1:50713/v1 (HTTP 401).' }] // i18n-ignore: a CLI's recorded text (#367)
   },
+  // A compaction's context before and after (#454): the three parts Copilot counts it in, in its compaction_start and
+  // compaction_complete events, added up.
+  {
+    id: 'copilot.compaction.systemTokens',
+    group: 'copilot',
+    title: msg({ id: 'settings.advanced.copilot.compaction.systemTokens.title', defaultMessage: 'Compaction: system prompt tokens field', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.copilot.compaction.systemTokens.desc', defaultMessage: "The field of a compaction's start and end, in Copilot's session file, with the system prompt's tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.", description: 'What the advanced setting "Compaction: system prompt tokens field" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
+    kind: 'field',
+    default: 'systemTokens',
+    applies: 'now',
+    samples: [{ from: `${FIX}/copilot/compaction-1.0.98.jsonl`, version: '1.0.98', fields: ['systemTokens', 'conversationTokens', 'toolDefinitionsTokens', 'currentTokens', 'tokenLimit', 'trigger'] }]
+  },
+  {
+    id: 'copilot.compaction.conversationTokens',
+    group: 'copilot',
+    title: msg({ id: 'settings.advanced.copilot.compaction.conversationTokens.title', defaultMessage: 'Compaction: conversation tokens field', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.copilot.compaction.conversationTokens.desc', defaultMessage: "The field of a compaction's start and end, in Copilot's session file, with the conversation's tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.", description: 'What the advanced setting "Compaction: conversation tokens field" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
+    kind: 'field',
+    default: 'conversationTokens',
+    applies: 'now',
+    samples: [{ from: `${FIX}/copilot/compaction-1.0.98.jsonl`, version: '1.0.98', fields: ['systemTokens', 'conversationTokens', 'toolDefinitionsTokens', 'currentTokens', 'tokenLimit', 'trigger'] }]
+  },
+  {
+    id: 'copilot.compaction.toolTokens',
+    group: 'copilot',
+    title: msg({ id: 'settings.advanced.copilot.compaction.toolTokens.title', defaultMessage: 'Compaction: tool definition tokens field', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.copilot.compaction.toolTokens.desc', defaultMessage: "The field of a compaction's start and end, in Copilot's session file, with the tool definitions' tokens: one of the three parts of the context before and after it, in usage and the Sessions tab.", description: 'What the advanced setting "Compaction: tool definition tokens field" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
+    kind: 'field',
+    default: 'toolDefinitionsTokens',
+    applies: 'now',
+    samples: [{ from: `${FIX}/copilot/compaction-1.0.98.jsonl`, version: '1.0.98', fields: ['systemTokens', 'conversationTokens', 'toolDefinitionsTokens', 'currentTokens', 'tokenLimit', 'trigger'] }]
+  },
+  {
+    id: 'copilot.compaction.summary',
+    group: 'copilot',
+    title: msg({ id: 'settings.advanced.copilot.compaction.summary.title', defaultMessage: 'Compaction: summary field', description: "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive." }),
+    desc: msg({ id: 'settings.advanced.copilot.compaction.summary.desc', defaultMessage: "The field of a compaction's end, in Copilot's session file, with the summary it carries on from: the Sessions tab shows it with the compaction.", description: 'What the advanced setting "Compaction: summary field" is for, and what goes wrong when it is wrong (Settings → Advanced).' }),
+    kind: 'field',
+    default: 'summaryContent',
+    applies: 'now',
+    samples: [{ from: `${FIX}/copilot/compaction-1.0.98.jsonl`, version: '1.0.98', fields: ['success', 'preCompactionTokens', 'postCompactionTokens', 'preCompactionMessagesLength', 'messagesRemoved', 'tokensRemoved', 'summaryContent', 'behaviorModelId', 'compactionTokensUsed', 'systemTokens', 'conversationTokens', 'toolDefinitionsTokens', 'tokenLimit', 'trigger', 'checkpointNumber', 'checkpointPath'] }]
+  },
   {
     id: 'copilot.hooks.timeoutSeconds',
     group: 'copilot',

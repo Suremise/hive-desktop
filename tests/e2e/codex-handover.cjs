@@ -4,6 +4,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const { sessionsOf } = require('./storeDocs.cjs')
 const scratch = lib.WORK
 const userData = path.join(scratch, 'cxcont-profile')
 const ws = path.join(scratch, 'cxcont-ws')
@@ -80,7 +81,7 @@ const check = (name, ok, extra = '') => {
     check('codex finished its turn', !!(await lib.until(() => turnRan(cx.id), 120000, 1000)))
   })
   const l1 = (await agents()).find((a) => a.id === cx.id).live
-  const sessions = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
+  const sessions = sessionsOf(proj)
   const rec = (sessions.sessions ?? sessions).find?.((s) => s.id === l1.sessionId)
   check('codex session recorded', !!rec, l1.sessionId)
   check('no handedOverFrom without a source session', !rec?.handedOverFrom || true)
@@ -106,7 +107,7 @@ const check = (name, ok, extra = '') => {
     check('codex 2 finished its turn', !!(await lib.until(() => turnRan(cx2.id), 120000, 1000)))
   })
   const l2 = (await agents()).find((a) => a.id === cx2.id).live
-  const s2 = JSON.parse(fs.readFileSync(path.join(proj, '.hive', 'sessions.json'), 'utf8'))
+  const s2 = sessionsOf(proj)
   const rec2 = (s2.sessions ?? s2).find?.((s) => s.id === l2?.sessionId)
   check('second session linked to the first', rec2?.handedOverFrom === l1.sessionId, JSON.stringify(rec2?.handedOverFrom))
   await page.screenshot({ path: path.join(scratch, 'cont-3-codex2.png') })
