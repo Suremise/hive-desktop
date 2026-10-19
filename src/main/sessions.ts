@@ -3,6 +3,7 @@ import { fmt, msg, onLanguageChange, tr } from '../shared/i18n'
 import { drawnWaitId, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { capturedText, hiveError, HiveError, shownError } from './hiveError'
 import { advanced } from './advanced'
+import { folderChanging, folderSteady } from './folderFence'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -779,7 +780,8 @@ class SessionManager {
   submitAgain(projectPath: string, agentId: string, runId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    // Nor while its folder is being changed (#646 round 1: the Enter would start a turn under a Git switch or pull).
+    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key) || folderChanging(l.state.cwd)) return false
     // The prompt is the user's draft once they have typed in it (#652 round 1 finding 2): never sent by Hive's Enter.
     if (this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\r')
@@ -1454,6 +1456,8 @@ class SessionManager {
     if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
     // Through its gate when its processes can be tracked (#507), else directly, untracked, as said once.
     const tracked = await this.trackingReady()
+    // Not while its folder is being changed under it (#646: a Git switch or pull there): it starts once that is done.
+    await folderSteady(cwd)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(M.stoppedBeforeStart)

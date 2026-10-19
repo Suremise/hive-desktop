@@ -35,6 +35,7 @@ import { gitProblemData } from '../shared/gitTool'
 import { englishText, linesOf, shownText, withValues, type Text, type TextPart, type TextValues } from '../shared/advanced'
 import { fmt, msg, tr, type Msg } from '../shared/i18n'
 import { HiveError } from './hiveError'
+import { changingFolder } from './folderFence'
 import { createLogger, userText } from './logger'
 import { mergeSlots } from './mergeSlotHost'
 import { sessions } from './sessions'
@@ -314,12 +315,20 @@ function scrubText(t: TextPart, secrets: string[]): TextPart {
   return { m: t.m, values: Object.fromEntries(Object.entries(t.values).map(([k, v]) => [k, scrubText(v, secrets)])) }
 }
 
-/** The project's agents working in its folder (not a worktree), with their sessions' status. */
+/**
+ * The project's agents working in its folder (not a worktree), with their sessions' status. One with input of Hive's
+ * still on its way (#646 round 1: a prompt or launch task given and not taken yet, or a line typed and not taken) counts
+ * as working: its CLI may start that turn any moment, and the folder's fence can't take back what is in its input.
+ */
 async function folderAgents(projectPath: string): Promise<{ name: string; status: string | null }[]> {
   const cfg = await workspace.projectConfig(projectPath)
   return projectAgents(cfg)
     .filter((a) => !a.worktree)
-    .map((a) => ({ name: a.name, status: sessions.liveFor(projectPath, a.id)?.status ?? null }))
+    .map((a) => {
+      const status = sessions.liveFor(projectPath, a.id)?.status ?? null
+      const pending = !!status && (!!sessions.agentNow(projectPath, a.id)?.pending || sessions.lineWaiting(projectPath, a.id))
+      return { name: a.name, status: pending ? 'working' : status }
+    })
 }
 
 function folderSlots(projectPath: string): FolderSlot[] {
@@ -340,13 +349,17 @@ async function changeFolder<T>(projectPath: string, action: GitFolderAction, bra
   const why = folderBusyData(await folderAgents(projectPath), folderSlots(projectPath), action)
   if (why) throw new HiveError(why)
   const locked = (): Promise<T> =>
-    withFileLock(join(projectPath, '.git', 'hive-merge'), async () => {
-      // The slot is this action's own now (asUser refuses when anyone else holds or waits for it); without a branch to
-      // hold it for (a detached HEAD), the slots are checked again too.
-      const now = folderBusyData(await folderAgents(projectPath), branch ? [] : folderSlots(projectPath), action)
-      if (now) throw new HiveError(now)
-      return fn()
-    })
+    withFileLock(join(projectPath, '.git', 'hive-merge'), () =>
+      // The folder is fenced from here to git's end (#646): no line of Hive's is typed into its agents and none starts
+      // there meanwhile, so no turn of Hive's begins between this last check and git changing the files.
+      changingFolder(projectPath, `a Git ${action}`, async () => {
+        // The slot is this action's own now (asUser refuses when anyone else holds or waits for it); without a branch to
+        // hold it for (a detached HEAD), the slots are checked again too.
+        const now = folderBusyData(await folderAgents(projectPath), branch ? [] : folderSlots(projectPath), action)
+        if (now) throw new HiveError(now)
+        return fn()
+      })
+    )
   return branch ? mergeSlots.asUser(projectPath, branch, locked) : locked()
 }
 
