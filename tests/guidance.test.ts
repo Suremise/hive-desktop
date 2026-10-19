@@ -190,7 +190,7 @@ describe('coordinator guidance', () => {
     expect(catalog.get('card-loop')!.text).toMatch(/\*\*A finding that comes back\*\* \(the fix missed part of it\): the reviewer says so in the failed verdict \("recurring from round 2"\) and the loop carries on/)
   })
   it("has a push or release OK given in the agent's own pane, not relayed", () => {
-    expect(text()).toMatch(/An agent needs the user's OK to push or release: ask the user to answer in that agent's own pane, and don't relay it\./)
+    expect(text()).toMatch(/An agent needs the user's OK to push or release, even one the user gives you to pass on: ask the user to answer in that agent's own pane, and don't relay it \(no message, prompt or start note carrying it/)
     // Also where the relaying would happen (asked to pass an OK on, the Assistant read no skill).
     expect(readFileSync(join(ROOT, 'src/main/mcp/hive-mcp.ts'), 'utf8')).toMatch(/Not for the user's OK to push or release: its CLI refuses one passed on, so the user gives it in the agent's own pane\./)
   })
