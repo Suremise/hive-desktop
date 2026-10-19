@@ -2906,7 +2906,8 @@ class SessionManager {
 
   /**
    * Background tasks started or ended in what the transcript gained since the last look (providers that report
-   * them). Only this launch's count: tasks from before it ended with the CLI. True if one ended.
+   * them). Only this launch's count: tasks from before it ended with the CLI. True if one ended that wakes the CLI (not
+   * one it stopped itself).
    */
   private async readBackground(l: LiveSession, path: string, size: number): Promise<boolean> {
     if (!l.adapter.backgroundTasks) return false
@@ -2934,7 +2935,8 @@ class SessionManager {
         if (!ended.has(ev.id)) tasks.set(ev.id, { at: ev.at, expiresAt: ev.expiresAt })
         continue
       }
-      if (tasks.delete(ev.id)) woke = true
+      // A task the agent stopped itself wakes nothing (#640: read after its Stop, it showed HB3 working with no turn).
+      if (tasks.delete(ev.id) && !ev.stopped) woke = true
       ended.add(ev.id)
       if (ended.size > 500) ended.delete(ended.values().next().value!)
     }

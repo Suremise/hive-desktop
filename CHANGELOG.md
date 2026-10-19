@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **An agent that stops its own background task no longer shows Working afterwards.** When a Claude Code agent stopped a background command itself (`TaskStop`) just before its turn ended, Hive took the task's end for one that wakes the agent and showed it working with no turn running, refusing tasks given to it, until Claude Code's idle notice a minute later. It is now finished at once (#640).
+
 - **Session records join the board in its database.** Each project's `.hive/sessions.json`, rewritten whole at every change of a session (746 KB on a busy project, about 7 ms a time), is now rows of the workspace's `.hive/hive.db`: a change writes only the record it changes, in well under a millisecond, with no temp file or rename for Windows to refuse. The file moves in the first time Hive reads a project's sessions and is kept as `sessions.json.imported-<date>`. **Remove from Hive** writes a project's sessions back into its folder, so restoring it, or opening it in another workspace, brings them back; a folder copied or moved by hand starts with an empty list, as its cards do (#1061).
 
 ## 0.9.2 — 2026-10-19
