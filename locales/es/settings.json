@@ -35,6 +35,8 @@
   "settings.advanced.codex.hooks.timeoutSeconds.title": "Hooks: tiempo de espera",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.desc": "Cuánto deja Codex que se ejecute una de las herramientas de Hive (su tool_timeout_sec para el servidor hive). Las esperas de Hive se quedan un minuto por debajo.",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.title": "Herramientas hive: tiempo de espera en Codex",
+  "settings.advanced.codex.prompt.drawnSeconds.desc": "Cuánto espera Hive a que Codex muestre en su entrada una línea que Hive escribió (el aviso de un mensaje, un despertar) antes de pulsar Intro. Codex descarta un Intro que lee junto con la línea mientras está ocupado, así que Hive pulsa Intro cuando la línea aparece; si no aparece a tiempo, Hive pulsa Intro de todos modos y lo vuelve a pulsar 10 segundos después si la línea no se envió.",
+  "settings.advanced.codex.prompt.drawnSeconds.title": "Línea escrita: esperar a que se muestre",
   "settings.advanced.codex.queue.hint.desc": "La indicación de Codex en la última línea que dibuja mientras está ocupado y pone en cola lo que se escribe. Hive espera a que desaparezca antes de escribir en Codex (un mensaje, su menú /permissions durante la preparación); si es incorrecta, lo que escribe Hive puede quedar en cola en lugar de ejecutarse.",
   "settings.advanced.codex.queue.hint.title": "Pantalla: retiene lo escrito",
   "settings.advanced.codex.rateLimits.field.desc": "El campo de los recuentos de tokens de Codex con los límites de una suscripción. Si es incorrecto, Hive no muestra límites del plan para Codex.",

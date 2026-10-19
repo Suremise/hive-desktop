@@ -37,6 +37,8 @@ interface HiveMessageValues {
   'settings.advanced.codex.hooks.timeoutSeconds.title': undefined
   'settings.advanced.codex.mcp.toolTimeoutSeconds.desc': undefined
   'settings.advanced.codex.mcp.toolTimeoutSeconds.title': undefined
+  'settings.advanced.codex.prompt.drawnSeconds.desc': undefined
+  'settings.advanced.codex.prompt.drawnSeconds.title': undefined
   'settings.advanced.codex.queue.hint.desc': undefined
   'settings.advanced.codex.queue.hint.title': undefined
   'settings.advanced.codex.rateLimits.field.desc': undefined

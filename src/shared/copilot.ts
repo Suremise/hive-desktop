@@ -235,7 +235,10 @@ export const COPILOT_DESCRIPTOR: ProviderDescriptor = {
     backgroundWakes: false,
     // Its interface fills the screen: drawn while its terminal changed size, it can stay at the old width (#486).
     startupSizeRefresh: true,
-    bracketedPaste: false
+    // A line typed in pieces that a busy Copilot reads with its Enter in one go isn't sent by that Enter; pasted, it is,
+    // as text (#600, checked with 1.0.98).
+    bracketedPaste: true,
+    enterOnceDrawn: false
   },
   reservedKeys: [],
   instructionsFile: 'AGENTS.md',

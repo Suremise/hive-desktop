@@ -255,7 +255,8 @@ export const CLAUDE_DESCRIPTOR: ProviderDescriptor = {
     backgroundSessions: true,
     backgroundWakes: true,
     startupSizeRefresh: false,
-    bracketedPaste: true
+    bracketedPaste: true,
+    enterOnceDrawn: false
   },
   reservedKeys: ['MOD+B', 'MOD+K', 'MOD+O', 'MOD+R', 'MOD+T', 'MOD+G'],
   instructionsFile: 'CLAUDE.md',

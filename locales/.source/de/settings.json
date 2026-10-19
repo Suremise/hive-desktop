@@ -35,6 +35,8 @@
   "settings.advanced.codex.hooks.timeoutSeconds.title": "Hooks: timeout",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.desc": "How long Codex lets one of Hive's tools run (its tool_timeout_sec for the hive server). Hive's waits stay a minute under it.",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.title": "hive tools: timeout in Codex",
+  "settings.advanced.codex.prompt.drawnSeconds.desc": "How long Hive waits for Codex to show a line Hive typed (a message's notice, a wake) in its prompt before pressing Enter. Codex drops an Enter that it reads together with the line while it is busy, so Hive presses Enter once the line shows; if it doesn't show in time, Hive presses Enter anyway, and presses it again 10 seconds later if the line wasn't sent.",
+  "settings.advanced.codex.prompt.drawnSeconds.title": "Typed line: wait to be drawn",
   "settings.advanced.codex.queue.hint.desc": "Codex's hint on the last line it draws while it is busy and queues what is typed. Hive waits for it to go before typing into Codex (a message, its /permissions menu at setup); wrong, what Hive types can be queued rather than run.",
   "settings.advanced.codex.queue.hint.title": "Screen: holding what was typed",
   "settings.advanced.codex.rateLimits.field.desc": "The field of Codex's token counts with a subscription's limits. Wrong, Hive shows no plan limits for Codex.",

@@ -208,6 +208,8 @@ export const SUITES = [
   { name: 'update' },
   { name: 'viewer' },
   { name: 'wakepaste' },
+  { name: 'wakepaste-codex', needs: ['codex'] },
+  { name: 'wakepaste-copilot', needs: ['copilot'] },
   { name: 'wakeuntaken' },
   { name: 'watchrelease' },
   { name: 'welcomefit' },

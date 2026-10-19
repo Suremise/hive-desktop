@@ -1,7 +1,8 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { fmt, msg, onLanguageChange, tr } from '../shared/i18n'
-import { englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { drawnWaitId, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { capturedText, hiveError, HiveError, shownError } from './hiveError'
+import { advanced } from './advanced'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -525,6 +526,17 @@ async function typeInto(key: string, text: string, still: () => boolean = () => 
     writePty(key, text.slice(i, i + CHUNK))
     if (i + CHUNK < text.length) await new Promise((r) => setTimeout(r, 10))
   }
+}
+
+/**
+ * Whether a line Hive is typing has been drawn on an agent's screen (#600): its end (spaces left out, as a CLI wraps
+ * it) shows more often than when this was called, before it was typed (a doorbell's end is in its earlier ones too).
+ */
+export function drawnLine(screen: Pick<TerminalScreen, 'text'>, line: string): () => boolean {
+  const end = line.replace(/\s+/g, '').slice(-40)
+  const count = (): number => (end ? screen.text().replace(/\s+/g, '').split(end).length - 1 : 0)
+  const before = count()
+  return () => count() > before
 }
 
 /** Runs a worktree's setup command in the agent's terminal (Windows: cmd.exe, elsewhere: sh). */
@@ -1491,7 +1503,8 @@ class SessionManager {
     // menu, whose entries Hive picks by what they say (#396).
     const key = this.key(projectPath, agent.id)
     const size = startSize(key)
-    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen ? new TerminalScreen(size.cols, size.rows) : null
+    const caps = l.adapter.descriptor.capabilities
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen || caps.bracketedPaste || caps.enterOnceDrawn ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
     // The developer console (#636): how it was started (launchEvent: never its arguments).
     devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
@@ -2237,10 +2250,25 @@ class SessionManager {
       // A CLI busy for a moment reads what Hive typed in one go, Ctrl+U and Enter included: Claude Code takes such a
       // read as a paste with those keys in it as text, and then Enter again doesn't send it either (#597). A bracketed
       // paste is text however it arrives. A slash command is still typed: pasted, it is sent as a message.
+      // Enter once the CLI has drawn the line (#600: a busy Codex drops an Enter it reads with the line): its end shows
+      // on the screen once more than before it was typed.
+      const drawn = l?.screen && l.adapter.descriptor.capabilities.enterOnceDrawn ? drawnLine(l.screen, line) : null
       if (l?.screen?.bracketedPaste() && l.adapter.descriptor.capabilities.bracketedPaste && !line.startsWith('/')) writePty(key, `\x1b[200~${line.replace(/[\x00-\x1f\x7f-\x9f]/g, '')}\x1b[201~`)
       else await typeInto(key, line, () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
       check()
+      if (drawn && !drawn()) {
+        // How long, at most: Settings → Advanced (a slower CLI may need longer).
+        const most = advanced.number(drawnWaitId(l!.adapter.id)) * 1000
+        // Typed, and not drawn yet (a busy CLI): e2e suites wait for this line (wakepaste-codex).
+        log.info(`${userText(this.label(l!.state))}: the line Hive typed is in; Enter once it shows`)
+        const t = Date.now()
+        while (!drawn() && Date.now() - t < most) {
+          await new Promise((r) => setTimeout(r, 50))
+          check()
+        }
+        if (!drawn()) log.info(`${userText(this.label(l!.state))}: the line Hive typed wasn't drawn within ${most} ms: Enter anyway`)
+      }
       const before = l?.prompts ?? 0
       writePty(key, '\r')
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its

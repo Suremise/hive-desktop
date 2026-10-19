@@ -122,6 +122,12 @@ export interface ProviderCapabilities {
    * with Hive's Ctrl+U or Enter is taken as a paste with those keys in it, and isn't sent by Enter or by Enter again.
    */
   bracketedPaste: boolean
+  /**
+   * Hive presses Enter after a line it typed only once the CLI has drawn that line (#600), at most a few seconds. A
+   * Codex busy for a moment reads the line and its Enter in one go, takes them as a paste burst and drops the Enter
+   * (typed or bracketed alike: 0.163); Enter again sends it. Drawn, the line is in its prompt, and the Enter sends it.
+   */
+  enterOnceDrawn: boolean
 }
 
 /** What the CLI said about a model, for modeCaveat. */

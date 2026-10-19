@@ -35,6 +35,8 @@
   "settings.advanced.codex.hooks.timeoutSeconds.title": "Hooks : délai",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.desc": "Combien de temps Codex laisse tourner un outil de Hive (son tool_timeout_sec pour le serveur hive). Les attentes de Hive restent une minute en dessous.",
   "settings.advanced.codex.mcp.toolTimeoutSeconds.title": "Outils hive : délai dans Codex",
+  "settings.advanced.codex.prompt.drawnSeconds.desc": "Combien de temps Hive attend que Codex affiche dans sa saisie une ligne tapée par Hive (l'avis d'un message, un réveil) avant d'appuyer sur Entrée. Codex ignore une Entrée qu'il lit avec la ligne pendant qu'il est occupé ; Hive appuie donc sur Entrée dès que la ligne s'affiche. Si elle ne s'affiche pas à temps, Hive appuie quand même sur Entrée, puis à nouveau 10 secondes plus tard si la ligne n'a pas été envoyée.",
+  "settings.advanced.codex.prompt.drawnSeconds.title": "Ligne tapée : attendre qu'elle s'affiche",
   "settings.advanced.codex.queue.hint.desc": "L’indication que Codex affiche sur sa dernière ligne quand il est occupé et met en attente ce qui est saisi. Hive attend qu’elle disparaisse avant d’écrire dans Codex (un message, son menu /permissions à la mise en place) ; si elle est fausse, ce que Hive écrit peut être mis en attente au lieu d’être exécuté.",
   "settings.advanced.codex.queue.hint.title": "Écran : saisie mise en attente",
   "settings.advanced.codex.rateLimits.field.desc": "Le champ des décomptes de jetons de Codex qui contient les limites d’un abonnement. S’il est faux, Hive n’affiche aucune limite de forfait pour Codex.",
