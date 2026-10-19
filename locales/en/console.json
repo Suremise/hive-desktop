@@ -1,0 +1,206 @@
+{
+  "console.allProviders": {
+    "defaultMessage": "All providers",
+    "description": "The developer console's provider filter: no filter, every coding agent CLI's events."
+  },
+  "console.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The developer console's source picker: the Hive Assistant's session as a source. Hive's name stays as it is."
+  },
+  "console.bytes": {
+    "defaultMessage": "{n, plural, one {# byte} other {# bytes}}",
+    "description": "The developer console's event detail: the payload's size."
+  },
+  "console.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The developer console's recording box: closes it without recording."
+  },
+  "console.cancelled": {
+    "defaultMessage": "The recording was cancelled: the console stopped watching that source",
+    "description": "Why a developer console recording didn't start: meanwhile the window closed, picked another source or started another recording."
+  },
+  "console.capturing": {
+    "defaultMessage": "Capturing",
+    "description": "The developer console's status bar: Hive is capturing the watched source's events."
+  },
+  "console.clear": {
+    "defaultMessage": "Clear",
+    "description": "The developer console's button: hides the events so far; only later ones show."
+  },
+  "console.close": {
+    "defaultMessage": "Close (Esc)",
+    "description": "The developer console's event detail: closes it. Esc is its key: keep it."
+  },
+  "console.dropped": {
+    "defaultMessage": "{n, number} not delivered (too many at once)",
+    "description": "The developer console's status bar: events that came too fast for the window, so it never got them."
+  },
+  "console.emptyRedacted": {
+    "defaultMessage": "Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no prompt or reply text, commands, tokens or sign-in details.",
+    "description": "The developer console while no source is picked."
+  },
+  "console.emptyText": {
+    "defaultMessage": "Pick a source to watch. Hive captures a source only while this window watches it, and what it captures is redacted: no tokens or sign-in details (this window shows prompt, reply and command text while the setting is on).",
+    "description": "The developer console while no source is picked, with the setting that shows text on (Settings → Advanced)."
+  },
+  "console.eventTypes": {
+    "defaultMessage": "Event types",
+    "description": "The developer console's row of buttons that show or hide each kind of event (accessible name)."
+  },
+  "console.events": {
+    "defaultMessage": "{n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}",
+    "description": "The developer console's status bar: how many events it lists; (cleared) when Clear hid the earlier ones."
+  },
+  "console.eventsOf": {
+    "defaultMessage": "{shown, number} of {n, plural, one {# event} other {# events}}{cleared, select, yes { (cleared)} other {}}",
+    "description": "The developer console's status bar: how many events the search and filters show, of how many; (cleared) when Clear hid the earlier ones."
+  },
+  "console.failed": {
+    "defaultMessage": "Recording failed after {n, plural, one {# event} other {# events}} in {name}: {error}",
+    "description": "The developer console's status bar: a recording to the file {name} stopped as it couldn't be written; {error} says why."
+  },
+  "console.fileFull": {
+    "defaultMessage": "The recording file took nothing more",
+    "description": "Why a developer console recording failed: writing to its file wrote nothing (the disk may be full)."
+  },
+  "console.includeText": {
+    "defaultMessage": "Include prompt and reply text in this recording (tokens and sign-ins stay masked)",
+    "description": "A check box in the developer console's recording box: the recording keeps the prompts', replies' and commands' text; secrets stay hidden."
+  },
+  "console.live": {
+    "defaultMessage": "Live",
+    "description": "The developer console's indicator: events show as they come."
+  },
+  "console.made": {
+    "defaultMessage": "What Hive made of it",
+    "description": "The developer console's event detail: the heading of what Hive read from what came in."
+  },
+  "console.noMatch": {
+    "defaultMessage": "No events match.",
+    "description": "The developer console's list: the search and filters hide every event."
+  },
+  "console.notCapturing": {
+    "defaultMessage": "Not capturing",
+    "description": "The developer console's status bar: Hive isn't capturing the watched source's events."
+  },
+  "console.notWatching": {
+    "defaultMessage": "Not watching",
+    "description": "The developer console's indicator: no source is picked, so nothing is captured."
+  },
+  "console.notWritten": {
+    "defaultMessage": "it could not be written",
+    "description": "The developer console: why a recording failed, when there's no other reason: 'Recording failed after 3 events in <file>: it could not be written'."
+  },
+  "console.nothing": {
+    "defaultMessage": "Nothing",
+    "description": "The developer console's event detail: an empty side (nothing came in, or Hive made nothing of it)."
+  },
+  "console.outline": {
+    "defaultMessage": "cut down to its outline",
+    "description": "The developer console's event detail: the payload was too large to keep, so only its shape (fields, sizes) was kept."
+  },
+  "console.outlineTip": {
+    "defaultMessage": "Cut down to its outline (too large)",
+    "description": "The developer console: an event's payload was too large to keep, so only its shape (fields, sizes) was kept."
+  },
+  "console.pause": {
+    "defaultMessage": "Pause",
+    "description": "The developer console's button: the list stops moving (capture goes on)."
+  },
+  "console.paused": {
+    "defaultMessage": "{waiting, plural, =0 {Paused} other {Paused ({waiting, number} new)}}",
+    "description": "The developer console's indicator while paused: the list holds still; {waiting} events came meanwhile (shown on resume)."
+  },
+  "console.pickSource": {
+    "defaultMessage": "Pick a source…",
+    "description": "The developer console's source picker, while it watches none."
+  },
+  "console.provider": {
+    "defaultMessage": "Provider",
+    "description": "The developer console's filter by coding agent CLI (Claude Code, Codex, Copilot), accessible name."
+  },
+  "console.raw": {
+    "defaultMessage": "Raw",
+    "description": "The developer console's event detail: the heading of what came in, as it came (from the CLI)."
+  },
+  "console.record": {
+    "defaultMessage": "Record",
+    "description": "The developer console's recording box (accessible name)."
+  },
+  "console.recordToFile": {
+    "defaultMessage": "Record to a file",
+    "description": "The developer console's button that opens the recording box: the source's events from now on go to a file."
+  },
+  "console.recordWhat": {
+    "defaultMessage": "Record {source} to a file, from now until you stop. Redacted unless you tick text: no prompt or reply text, commands, tokens or sign-ins.",
+    "description": "The developer console's recording box. {source} is the watched agent's name, the Assistant, Hive, or the words 'this source'. 'Tick text' refers to the box below it (include prompt and reply text)."
+  },
+  "console.recording": {
+    "defaultMessage": "Recording {n, plural, one {# event} other {# events}} to {name}{withText, select, yes { (with text)} other {}}",
+    "description": "The developer console's status bar while it records: how many events so far, to the file {name}; (with text) when prompt and reply text are kept."
+  },
+  "console.redactedStatus": {
+    "defaultMessage": "Redacted: no prompt or reply text, commands, tokens or sign-ins",
+    "description": "The developer console's status bar: what it hides."
+  },
+  "console.refresh": {
+    "defaultMessage": "Refresh the sources",
+    "description": "The developer console's button that lists the sources (agents, the Assistant, Hive) again."
+  },
+  "console.resume": {
+    "defaultMessage": "Resume",
+    "description": "The developer console's button: the list moves again, filled in with what came while paused."
+  },
+  "console.saved": {
+    "defaultMessage": "Saved {n, plural, one {# event} other {# events}} to {name}{limit, select, yes { (it reached its size limit)} other {}}",
+    "description": "The developer console's status bar: a recording ended, with how many events, in the file {name}; the note when it stopped at its largest size."
+  },
+  "console.search": {
+    "defaultMessage": "Search events (Ctrl+F)",
+    "description": "The developer console's search box (placeholder). Ctrl+F is its shortcut: keep it."
+  },
+  "console.searchLabel": {
+    "defaultMessage": "Search events",
+    "description": "The developer console's search box (accessible name)."
+  },
+  "console.showInFolder": {
+    "defaultMessage": "Show in folder",
+    "description": "The developer console's status bar: shows the recording's file in File Explorer."
+  },
+  "console.source": {
+    "defaultMessage": "Source",
+    "description": "The developer console's source picker (accessible name): which agent's session, the Assistant or Hive itself it watches."
+  },
+  "console.sourceCount": {
+    "defaultMessage": "{name} ({n, number})",
+    "description": "The developer console's source picker: a source ({name}: an agent, the Assistant or Hive) with how many events it has captured."
+  },
+  "console.startRecording": {
+    "defaultMessage": "Start recording",
+    "description": "The developer console's recording box: starts recording the source's events to a file."
+  },
+  "console.stopRecording": {
+    "defaultMessage": "Stop recording",
+    "description": "The developer console's button while it records the source's events to a file."
+  },
+  "console.thisSource": {
+    "defaultMessage": "this source",
+    "description": "The developer console's recording box, where the watched source's name goes when it isn't known: 'Record this source to a file…'."
+  },
+  "console.tooMany": {
+    "defaultMessage": "Too many developer consoles open at once",
+    "description": "An error opening a developer console window or starting a recording: Hive already watches for as many as it allows. Closing one helps."
+  },
+  "console.unredacted": {
+    "defaultMessage": "<b>Unredacted:</b> this console shows prompt, reply and command text (Settings → Advanced → Developer console: show prompt, reply and command text). Tokens, API keys and sign-in details stay masked.",
+    "description": "A warning banner in the developer console while the setting that shows text is on. Settings → Advanced → Developer console: show prompt, reply and command text is where it is: use those translated names. <b> is bold: keep the tags."
+  },
+  "console.unredactedStatus": {
+    "defaultMessage": "Unredacted: text shown; tokens and sign-ins masked",
+    "description": "The developer console's status bar while the setting that shows text is on."
+  },
+  "console.waiting": {
+    "defaultMessage": "Waiting for events…",
+    "description": "The developer console's list: the source is watched, and nothing has come yet."
+  }
+}

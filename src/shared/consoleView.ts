@@ -3,6 +3,12 @@
  * groups and when a payload starts collapsed. Pure, so it is unit tested; the window (ConsoleApp.tsx) draws it.
  */
 import { jsonBytes, type ConsoleEvent, type ConsoleSource } from './devConsole'
+import { msg, tr } from './i18n'
+
+const M = {
+  assistant: msg({ id: 'console.assistant', defaultMessage: 'Hive Assistant', description: "The developer console's source picker: the Hive Assistant's session as a source. Hive's name stays as it is." }),
+  withCount: msg({ id: 'console.sourceCount', defaultMessage: '{name} ({n, number})', description: "The developer console's source picker: a source ({name}: an agent, the Assistant or Hive) with how many events it has captured." })
+}
 
 /** The most events the window keeps for its source (the ring holds 500; a long watch keeps more, still bounded). */
 export const VIEW_MAX_EVENTS = 2000
@@ -97,15 +103,15 @@ export function sourceGroups(sources: readonly ConsoleSource[]): SourceGroup[] {
     projects.set(name, [...(projects.get(name) ?? []), s])
   }
   return [
-    ...(own.length ? [{ label: 'Hive', sources: own }] : []),
+    ...(own.length ? [{ label: 'Hive', sources: own }] : []), // i18n-ignore: the app's name, as the picker's group of Hive's own sources
     ...[...projects.entries()].sort(([a], [b]) => byName(a, b)).map(([label, list]) => ({ label, sources: list.sort((a, b) => byName(a.agent ?? a.label, b.agent ?? b.label)) }))
   ]
 }
 
 /** A source's name in the picker, within its group. */
 export function sourceOption(s: ConsoleSource): string {
-  const name = s.kind === 'session' ? (s.agent ?? s.label) : s.kind === 'assistant' ? 'Hive Assistant' : s.label
-  return s.events ? `${name} (${s.events})` : name
+  const name = s.kind === 'session' ? (s.agent ?? s.label) : s.kind === 'assistant' ? tr(M.assistant) : s.label
+  return s.events ? tr(M.withCount, { name, n: s.events }) : name
 }
 
 /** Whether a payload node starts open: the top level always, below it only when it is small. */

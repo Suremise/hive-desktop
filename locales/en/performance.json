@@ -1,0 +1,1654 @@
+{
+  "performance.appWide": {
+    "defaultMessage": "Hive-wide, not this workspace’s: {inFlight, plural, one {# request} other {# requests}} in flight · {refused, number} refused before Hive knew whose · event streams: {connections, plural, one {# connection} other {# connections}}, {events, number} events, {size}.",
+    "description": "A line at the end of the Performance view: Agent API requests under way, requests refused before Hive knew whose they were, and the event streams (connections, events and their size, such as \"1.5 MB\")."
+  },
+  "performance.card.data": {
+    "defaultMessage": "Data",
+    "description": "Title of a Performance card: how much the Agent API sent (its number) and received."
+  },
+  "performance.card.dataSub": {
+    "defaultMessage": "{size} received",
+    "description": "Under the Data card's number (what was sent). {size} is a size such as \"1.5 MB\"."
+  },
+  "performance.card.dataTip": {
+    "defaultMessage": "Bodies only, in UTF-8 bytes: what Hive's API sent and received. Not provider traffic: Hive isn't between the CLIs and their providers.",
+    "description": "Tooltip of the Data card. Keep UTF-8."
+  },
+  "performance.card.guidance": {
+    "defaultMessage": "Guidance per launch",
+    "description": "Title of a Performance card: the size of what Hive gave each session at launch, on average."
+  },
+  "performance.card.guidanceSub": {
+    "defaultMessage": "{launches, plural, one {# launch} other {# launches}} · core {core} · catalog {catalog}",
+    "description": "Under the Guidance per launch card's size. {core} and {catalog} are sizes such as \"4 KB\": Hive's session contract and its skills' catalog."
+  },
+  "performance.card.guidanceTip": {
+    "defaultMessage": "What Hive gave each session at launch, on average: its session contract (core), what it adds for the project, the Assistant's role and mode, and its skills' catalog (names and descriptions). Skill bodies are separate: a model reads one only when it uses it.",
+    "description": "Tooltip of the Guidance per launch card. core and catalog are words of the card: keep them as there."
+  },
+  "performance.card.latency": {
+    "defaultMessage": "Latency",
+    "description": "Title of a Performance card: how long Agent API requests took."
+  },
+  "performance.card.latencyTip": {
+    "defaultMessage": "Request time in Hive, from the request to its reply, on a monotonic clock. Percentiles are the bounds of the histogram's buckets.",
+    "description": "Tooltip of the Latency card."
+  },
+  "performance.card.p50": {
+    "defaultMessage": "p50 {latency}",
+    "description": "The median request time, on the Latency card. {latency} is a time such as \"≤ 25 ms\". Keep p50."
+  },
+  "performance.card.p95": {
+    "defaultMessage": "p95 {latency}",
+    "description": "The 95th percentile of request time, on the Latency card. {latency} is a time such as \"≤ 250 ms\". Keep p95."
+  },
+  "performance.card.requests": {
+    "defaultMessage": "API requests",
+    "description": "Title of a Performance card: how many Agent API requests Hive answered."
+  },
+  "performance.card.requestsSub": {
+    "defaultMessage": "{failed} failed · {cancelled} cancelled",
+    "description": "Under the API requests card's number. {failed} and {cancelled} are percentages (\"2%\") or — when there were none."
+  },
+  "performance.card.requestsSubRate": {
+    "defaultMessage": "{rate, number} an hour recorded · {failed} failed · {cancelled} cancelled",
+    "description": "Under the API requests card's number. {rate} is requests per hour while Hive was recording; {failed} and {cancelled} are percentages (\"2%\")."
+  },
+  "performance.card.requestsTip": {
+    "defaultMessage": "Agent API requests (agents’ tools, the Assistant, scripts). An hour: over the time Hive was recording, not the whole range. Failed: refused, client or server errors. Cancelled: the client went away before the reply.",
+    "description": "Tooltip of the API requests card. An hour, Failed and Cancelled are words of the card: keep them as there."
+  },
+  "performance.card.toolReplies": {
+    "defaultMessage": "Tool replies",
+    "description": "Title of a Performance card: how many characters Hive's tools replied with (its number)."
+  },
+  "performance.card.toolRepliesSub": {
+    "defaultMessage": "{calls, plural, one {characters in # call} other {characters in # calls}} · {size}",
+    "description": "Under the Tool replies card's number (characters). {size} is the same in bytes, such as \"12 KB\"."
+  },
+  "performance.card.toolRepliesTip": {
+    "defaultMessage": "The text Hive's tools gave the models (what goes into their context), exactly: characters (UTF-16 code units) and UTF-8 bytes. Not tokens.",
+    "description": "Tooltip of the Tool replies card. Keep UTF-16 and UTF-8."
+  },
+  "performance.cards.builder": {
+    "defaultMessage": "Builder",
+    "description": "In the Performance page's Cards table: the column of what a card's builder used, and the builder's line of a cost's hover."
+  },
+  "performance.cards.card": {
+    "defaultMessage": "Card",
+    "description": "Column header of the Performance page's Cards table: the card's number and title."
+  },
+  "performance.cards.column": {
+    "defaultMessage": "Column",
+    "description": "Column header of the Performance page's Cards table: the board column the card is in (Doing, Review…)."
+  },
+  "performance.cards.cost": {
+    "defaultMessage": "Cost",
+    "description": "Column header of the Performance page's Cards table: the card's whole cost."
+  },
+  "performance.cards.empty": {
+    "defaultMessage": "No card was held in the last {range, select, 24h {24 hours} 7d {7 days} other {30 days}}.",
+    "description": "The Performance page's Cards table when it has no rows. {range} (24h, 7d or 30d) is a key: don't translate the keys, only the texts."
+  },
+  "performance.cards.heading": {
+    "defaultMessage": "Cards",
+    "description": "Heading of the Performance page's table of what each card cost."
+  },
+  "performance.cards.lastHeld": {
+    "defaultMessage": "Last held",
+    "description": "Column header of the Performance page's Cards table: when an agent last held the card (a date and time)."
+  },
+  "performance.cards.loadTarget": {
+    "defaultMessage": "the cost of cards",
+    "description": "What could not be read on the Performance page: shown in \"Could not load {what}: {error}\"."
+  },
+  "performance.cards.open": {
+    "defaultMessage": "Open #{number}",
+    "description": "Name, for screen readers, of a row of the Performance page's Cards table: opens that card. {number} is the card's number (keep the #)."
+  },
+  "performance.cards.project": {
+    "defaultMessage": "Project",
+    "description": "Column header of the Performance page's Cards table: the card's project."
+  },
+  "performance.cards.reviewer": {
+    "defaultMessage": "Reviewer",
+    "description": "In the Performance page's Cards table: the column of what a card's reviewer used, and the reviewer's line of a cost's hover."
+  },
+  "performance.cards.rounds": {
+    "defaultMessage": "Rounds",
+    "description": "Column header of the Performance page's Cards table: how many review rounds the card had."
+  },
+  "performance.cards.roundsTip": {
+    "defaultMessage": "Review rounds: each failed review is one, and the one under way or passed the next. None before it first went to Review.",
+    "description": "Info tip of the Rounds column of the Performance page's Cards table. Review is the name of a board column."
+  },
+  "performance.cards.tip": {
+    "defaultMessage": "Each card its agents held in the last {range, select, 24h {24 hours} 7d {7 days} other {30 days}}: what its builder used while it was in Doing and its reviewer from the review's start to its verdict, as the providers reported it (each card's whole cost, as Provider usage counts whole sessions). ≈ is Hive's estimate; Unknown is what isn't known, never {zero}. Tokens on hover. What a lane's agents used holding no card is its overhead, on the lane's hover in the Progress panel.",
+    "description": "Info tip beside the Cards heading of the Performance page. Doing is a board column, Provider usage a section of the page and Progress a panel: keep them as Hive names them. Keep ≈, and use the same word for Unknown as the costs do. {zero} is no cost, as costs show it (\"$0.00\"). {range} (24h, 7d or 30d) is a key: don't translate the keys, only the texts."
+  },
+  "performance.cards.unknown": {
+    "defaultMessage": "+ {n, number} unknown",
+    "description": "Under a card's cost in the Performance page's Cards table: how many of its sessions' cost is unknown. Lower case."
+  },
+  "performance.col.p50": {
+    "defaultMessage": "p50",
+    "description": "Column header of a Performance table: the median time. Keep it short."
+  },
+  "performance.col.p95": {
+    "defaultMessage": "p95",
+    "description": "Column header of a Performance table: the 95th percentile of time. Keep it short."
+  },
+  "performance.col.requests": {
+    "defaultMessage": "Requests",
+    "description": "Column header of a Performance table: how many requests."
+  },
+  "performance.compare.about.export": {
+    "defaultMessage": "{from} to {to}: {filters}",
+    "description": "What a kept Performance export is, in a line under its name in Performance → Compare: its range ({from} and {to} are dates and times) and its filters (such as \"project agents, all providers\")."
+  },
+  "performance.compare.about.exportPart": {
+    "defaultMessage": "{from} to {to}: {filters} ({part})",
+    "description": "What a kept Performance export is, in a line under its name in Performance → Compare, when it is one project's part of a workspace export: its range ({from} and {to} are dates and times), its filters, and {part}, which says it is that part."
+  },
+  "performance.compare.about.scenarios": {
+    "defaultMessage": "{real, select, yes {Model trial {provider} {model} ({effort}, {mode})} other {Fake {provider}}}, fixtures v{fixtures}, {scenarios, plural, one {# scenario} other {# scenarios}} × {repeats, number}, source {head}{real, select, yes {, spent {spent}{unpriced, plural, =0 {} other { + {unpriced, number} unpriced (total unknown)}}} other {}}",
+    "description": "What a kept scenario benchmark is, in a line under its name in Performance → Compare. A model trial ran a real model ({provider} the CLI, {model}, its {effort} and permission {mode}); Fake ran Hive's fake CLI. fixtures v{fixtures} is the version of the test fixtures (keep v); {head} is the git commit the run was made from; {spent} what the trial cost; unpriced trials are ones with no known cost."
+  },
+  "performance.compare.baseline": {
+    "defaultMessage": "Baseline",
+    "description": "Performance → Compare: what a run is compared with (a list to choose it, a column, a row)."
+  },
+  "performance.compare.cantCompare": {
+    "defaultMessage": "Can’t compare that file",
+    "description": "Title of an error importing a file to Performance → Compare; the reason follows."
+  },
+  "performance.compare.col.calls": {
+    "defaultMessage": "Calls (repeated)",
+    "description": "Column header in Performance → Compare: calls of Hive's tools, and how many repeated an earlier one."
+  },
+  "performance.compare.col.change": {
+    "defaultMessage": "Change",
+    "description": "Column header in Performance → Compare: from the baseline to the run."
+  },
+  "performance.compare.col.checks": {
+    "defaultMessage": "Checks",
+    "description": "Column header in Performance → Compare."
+  },
+  "performance.compare.col.checksTip": {
+    "defaultMessage": "On average a sample: checks passed ✓, failed ✗ and skipped – (a check only a model’s own work can meet is skipped for a fake), baseline → run.",
+    "description": "Tooltip of the Checks column in Performance → Compare. Keep ✓, ✗ and – (they mark the counts)."
+  },
+  "performance.compare.col.context": {
+    "defaultMessage": "Hive context",
+    "description": "Column header in Performance → Compare: the size of what Hive put in a session's context."
+  },
+  "performance.compare.col.kept": {
+    "defaultMessage": "Kept",
+    "description": "Column header of the kept comparisons list in Performance → Compare."
+  },
+  "performance.compare.col.kind": {
+    "defaultMessage": "Kind",
+    "description": "Column header of the kept comparisons list in Performance → Compare."
+  },
+  "performance.compare.col.measure": {
+    "defaultMessage": "Measure",
+    "description": "Column header in Performance → Compare."
+  },
+  "performance.compare.col.result": {
+    "defaultMessage": "Result",
+    "description": "Column header in Performance → Compare."
+  },
+  "performance.compare.col.scenario": {
+    "defaultMessage": "Scenario",
+    "description": "Column header in Performance → Compare."
+  },
+  "performance.compare.col.toolReplies": {
+    "defaultMessage": "Tool replies",
+    "description": "Column header in Performance → Compare: the size of the replies of Hive's tools."
+  },
+  "performance.compare.col.when": {
+    "defaultMessage": "When",
+    "description": "Column header of the kept comparisons list in Performance → Compare: when it was kept."
+  },
+  "performance.compare.comparable": {
+    "defaultMessage": "Comparable: {kind, select, scenarios {the same scenarios, provider and setup.} other {the same scope and filters, per hour recorded.}}",
+    "description": "A banner in Performance → Compare: the baseline and the run can be compared."
+  },
+  "performance.compare.comparisonLoadTarget": {
+    "defaultMessage": "the comparison",
+    "description": "Fills \"Could not load {what}: {error}\" in Performance → Compare."
+  },
+  "performance.compare.couldNotChange": {
+    "defaultMessage": "Could not change the kept comparisons",
+    "description": "Title of an error pinning or removing a kept comparison; the reason follows."
+  },
+  "performance.compare.couldNotImport": {
+    "defaultMessage": "Could not import the file",
+    "description": "Title of an error importing a file to Performance → Compare; the reason follows."
+  },
+  "performance.compare.couldNotKeep": {
+    "defaultMessage": "Could not keep the current view",
+    "description": "Title of an error keeping what the Performance page shows; the reason follows."
+  },
+  "performance.compare.emptyHint": {
+    "defaultMessage": "Import a scenario benchmark ({scope, select, workspace {`npm run scenarios` writes benchmark.json} other {with the whole workspace selected: a benchmark is its whole test workspace’s}}) or a Performance export, or keep the current view before a change and again after it.",
+    "description": "Performance → Compare with fewer than two kept files: how to get some. Keep `npm run scenarios` (a command) and benchmark.json (a file)."
+  },
+  "performance.compare.error.benchmarkOnOwn": {
+    "defaultMessage": "A scenario benchmark is its whole test workspace’s, not the workspace’s own work: compare it with the whole workspace selected.",
+    "description": "Why a scenario benchmark is not imported to Performance → Compare with \"Workspace's own work\" selected."
+  },
+  "performance.compare.error.benchmarkOnProject": {
+    "defaultMessage": "A scenario benchmark is its own test workspace’s, not one of your projects: compare it in the Performance view (activity bar), with the whole workspace selected.",
+    "description": "Why a scenario benchmark (a test run's measurements) is not imported on a project's Performance page."
+  },
+  "performance.compare.error.exportIsOwn": {
+    "defaultMessage": "It is the workspace’s own work: compare it with “Workspace’s own work” selected.",
+    "description": "Why a Performance export is not imported to Performance → Compare. “Workspace’s own work” is a choice on the Performance page: name it as it is there."
+  },
+  "performance.compare.error.exportIsWhole": {
+    "defaultMessage": "It is the whole workspace’s: compare it with the whole workspace selected.",
+    "description": "Why a Performance export is not imported to Performance → Compare."
+  },
+  "performance.compare.error.holdsOther": {
+    "defaultMessage": "It says it is {project}’s, but it also holds {other, select, projects {other projects’} other {the workspace’s own}} data: not imported.",
+    "description": "Why a project's Performance export is not imported: it also holds other projects' data, or the workspace's own work's. {project} is the project's name."
+  },
+  "performance.compare.error.invalidBenchmark": {
+    "defaultMessage": "It isn’t a valid scenario benchmark (no run, fixtures version or scenarios).",
+    "description": "Why a file is not imported to Performance → Compare."
+  },
+  "performance.compare.error.invalidExport": {
+    "defaultMessage": "It isn’t a valid Performance export (no report, scope or projects).",
+    "description": "Why a file is not imported to Performance → Compare."
+  },
+  "performance.compare.error.noPart": {
+    "defaultMessage": "It is a workspace export with no part for {project}.",
+    "description": "Why a workspace's Performance export is not imported on a project's Performance page. {project} is the project's name."
+  },
+  "performance.compare.error.noScenarios": {
+    "defaultMessage": "It has no valid scenarios.",
+    "description": "Why a scenario benchmark is not imported to Performance → Compare."
+  },
+  "performance.compare.error.notHive": {
+    "defaultMessage": "It isn’t a Hive benchmark or Performance export.",
+    "description": "Why a file is not imported to Performance → Compare."
+  },
+  "performance.compare.error.notJson": {
+    "defaultMessage": "It isn’t JSON.",
+    "description": "Why a file is not imported to Performance → Compare."
+  },
+  "performance.compare.error.otherProject": {
+    "defaultMessage": "It is project {project}’s export, not {here}’s.",
+    "description": "Why a Performance export is not imported on a project's Performance page. {project} and {here} are projects' names."
+  },
+  "performance.compare.error.ownHoldsProjects": {
+    "defaultMessage": "It says it is the workspace’s own work, but it holds projects’ data: not imported.",
+    "description": "Why a Performance export is not imported to Performance → Compare: its contents disagree with what it says it is."
+  },
+  "performance.compare.error.ownNoPart": {
+    "defaultMessage": "It is the workspace’s own work: it has no project’s part.",
+    "description": "Why a Performance export is not imported on a project's Performance page."
+  },
+  "performance.compare.error.projectsExport": {
+    "defaultMessage": "It is project {project}’s export: compare it on that project’s page.",
+    "description": "Why a project's Performance export is not imported on the workspace's Performance page. {project} is the project's name."
+  },
+  "performance.compare.error.sanitized": {
+    "defaultMessage": "It is sanitized (project names replaced), so it can’t be matched to this project.",
+    "description": "Why a Performance export is not imported on a project's Performance page."
+  },
+  "performance.compare.error.sanitizedPart": {
+    "defaultMessage": "It is sanitized (project names replaced), so this project’s part can’t be found.",
+    "description": "Why a workspace's Performance export is not imported on a project's Performance page."
+  },
+  "performance.compare.error.tooLarge": {
+    "defaultMessage": "It is over {mb, number} MB.",
+    "description": "Why a file is not imported to Performance → Compare: it is larger than {mb} MB."
+  },
+  "performance.compare.error.unknownSchema": {
+    "defaultMessage": "It isn’t a Hive benchmark (hive-benchmark/1) or Performance export (hive-metrics/1).",
+    "description": "Why a file is not imported to Performance → Compare. Keep hive-benchmark/1 and hive-metrics/1 (file formats)."
+  },
+  "performance.compare.failedInRun": {
+    "defaultMessage": "Failed in the run: <warn>{checks}</warn>",
+    "description": "A scenario's details in Performance → Compare: the checks that failed in the run (their names, in English)."
+  },
+  "performance.compare.filters": {
+    "defaultMessage": "{role}, {provider}{own, select, yes {, own work} other {}}",
+    "description": "A Performance export's filters, inside \"Different filters ({base} and {run}).\": {role} is a role name or \"everyone\", {provider} a provider's id or \"all providers\"; \"own work\" when it is the workspace's own work."
+  },
+  "performance.compare.filters.allProviders": {
+    "defaultMessage": "all providers",
+    "description": "A Performance export's provider filter when it has none. Lower case, in a list of filters."
+  },
+  "performance.compare.filters.everyone": {
+    "defaultMessage": "everyone",
+    "description": "A Performance export's role filter when it has none: everyone's work. Lower case, in a list of filters."
+  },
+  "performance.compare.filters.role.agent": {
+    "defaultMessage": "project agents",
+    "description": "A Performance export's Who filter (as Performance's Who menu names it: Project agents), in a list of filters. Lower case."
+  },
+  "performance.compare.filters.role.api": {
+    "defaultMessage": "scripts",
+    "description": "A Performance export's Who filter (as Performance's Who menu names it: Scripts), in a list of filters. Lower case."
+  },
+  "performance.compare.filters.role.assistant": {
+    "defaultMessage": "the Assistant",
+    "description": "A Performance export's Who filter (as Performance's Who menu names it: The Assistant), in a list of filters."
+  },
+  "performance.compare.filters.role.viewer": {
+    "defaultMessage": "viewer apps",
+    "description": "A Performance export's Who filter (as Performance's Who menu names it: Viewer apps), in a list of filters. Lower case."
+  },
+  "performance.compare.hint": {
+    "defaultMessage": "Compare puts two kept files side by side: each keeps the range and filters it was made with (shown below). The range and Who of Now only shape what <b>Keep current view</b> saves (every provider’s).",
+    "description": "Under the Performance page's controls in its Compare view. Compare, Who, Now and Keep current view are names of its buttons and filter: keep them as named there. <b> is shown in bold."
+  },
+  "performance.compare.import": {
+    "defaultMessage": "Import…",
+    "description": "Button in Performance → Compare: picks a file to compare."
+  },
+  "performance.compare.importTip": {
+    "defaultMessage": "Import a scenario benchmark (tests/scenarios: benchmark.json) or a Performance export (JSON).",
+    "description": "Tooltip of the Import button in Performance → Compare. Keep tests/scenarios and benchmark.json (a folder and a file)."
+  },
+  "performance.compare.keep.confirm": {
+    "defaultMessage": "Keep",
+    "description": "Button of the Keep the current view dialog."
+  },
+  "performance.compare.keep.message": {
+    "defaultMessage": "It is kept with its scope, range and filters, to compare with later.",
+    "description": "The dialog that keeps what the Performance page shows, to compare with later."
+  },
+  "performance.compare.keep.placeholder": {
+    "defaultMessage": "Before the guidance change",
+    "description": "An example name for what is kept, in the Keep the current view dialog's name field."
+  },
+  "performance.compare.keep.title": {
+    "defaultMessage": "Keep the current view",
+    "description": "Title of the dialog that keeps what the Performance page shows, to compare with later. It asks for a name."
+  },
+  "performance.compare.keepCurrent": {
+    "defaultMessage": "Keep current view",
+    "description": "Button in Performance → Compare: keeps what the Performance page shows, to compare with later."
+  },
+  "performance.compare.keepTip": {
+    "defaultMessage": "Keep what the Now view shows to compare with later: {what}.",
+    "description": "Tooltip of the Keep current view button in Performance → Compare. {what} says what is kept (the scope and filters). \"Now\" is a view of the Performance page: name it as it is there."
+  },
+  "performance.compare.keeps": {
+    "defaultMessage": "{range, select, 24h {24 hours} 7d {7 days} other {30 days}}, {role, select, all {everyone} agent {project agents} assistant {the Assistant} api {scripts} viewer {viewer apps} other {{role}}}, every provider",
+    "description": "What Compare's Keep current view saves, shown in its tooltip after \"Keep what the Now view shows to compare with later:\". {range} (24h, 7d or 30d) and {role} (all, agent, assistant, api, viewer) are keys: don't translate the keys, only the texts. Lower case: it follows a colon."
+  },
+  "performance.compare.keptList": {
+    "defaultMessage": "Kept for comparison ({n, number})",
+    "description": "Heading of the kept comparisons list in Performance → Compare, with how many there are."
+  },
+  "performance.compare.keptListTip": {
+    "defaultMessage": "Kept in the workspace’s .hive/metrics/benchmarks (this machine’s), at most {max, number}: when full, the oldest unpinned one goes. Pin one to keep it.",
+    "description": "Tooltip of the kept comparisons list in Performance → Compare. Keep .hive/metrics/benchmarks (a folder)."
+  },
+  "performance.compare.keptLoadTarget": {
+    "defaultMessage": "the kept comparisons",
+    "description": "Fills \"Could not load {what}: {error}\" in Performance → Compare."
+  },
+  "performance.compare.keptNotice": {
+    "defaultMessage": "Kept for comparison",
+    "description": "Title of a notice: a file or the current view was kept in Performance → Compare; its name follows."
+  },
+  "performance.compare.kind.export": {
+    "defaultMessage": "Performance view",
+    "description": "The kind of a kept comparison: what the Performance page showed, or an export of it."
+  },
+  "performance.compare.kind.scenarios": {
+    "defaultMessage": "Scenario benchmark",
+    "description": "The kind of a kept comparison: a test run of scenarios."
+  },
+  "performance.compare.label.benchmark": {
+    "defaultMessage": "{provider} benchmark",
+    "description": "The name Hive gives a kept scenario benchmark that came without one, in Performance → Compare. {provider} is the CLI's name (Claude Code, Codex…)."
+  },
+  "performance.compare.label.export": {
+    "defaultMessage": "Export {from} to {to}{own, select, yes {, own work} other {}}",
+    "description": "The name Hive gives a kept Performance export, in Performance → Compare: the dates it covers; own work when it is the workspace's own work (no project's)."
+  },
+  "performance.compare.label.exportPart": {
+    "defaultMessage": "Export {from} to {to}, {project}’s part",
+    "description": "The name Hive gives one project's part of a workspace's Performance export, kept in Performance → Compare: the dates it covers, and the project's name."
+  },
+  "performance.compare.label.kept": {
+    "defaultMessage": "Kept {from} to {to}",
+    "description": "The name Hive gives a Performance view kept for comparison when you give it none (Keep current view), in Performance → Compare: the dates it covers."
+  },
+  "performance.compare.measure.apiCancelled": {
+    "defaultMessage": "API cancelled",
+    "description": "A measure in Performance → Compare: requests to Hive's Agent API that the caller cancelled."
+  },
+  "performance.compare.measure.apiFailed": {
+    "defaultMessage": "API failures",
+    "description": "A measure in Performance → Compare: requests to Hive's Agent API that failed."
+  },
+  "performance.compare.measure.apiMs": {
+    "defaultMessage": "API time",
+    "description": "A measure in Performance → Compare: the time Hive's Agent API spent on requests."
+  },
+  "performance.compare.measure.apiRequestBytes": {
+    "defaultMessage": "API received",
+    "description": "A measure in Performance → Compare: the size of the requests the Agent API received."
+  },
+  "performance.compare.measure.apiRequests": {
+    "defaultMessage": "API requests",
+    "description": "A measure in Performance → Compare: requests to Hive's Agent API."
+  },
+  "performance.compare.measure.apiResponseBytes": {
+    "defaultMessage": "API sent",
+    "description": "A measure in Performance → Compare: the size of the Agent API's replies."
+  },
+  "performance.compare.measure.cacheReadTokens": {
+    "defaultMessage": "Cache read",
+    "description": "A measure in Performance → Compare: tokens read from the provider's prompt cache."
+  },
+  "performance.compare.measure.cacheWriteTokens": {
+    "defaultMessage": "Cache write",
+    "description": "A measure in Performance → Compare: tokens written to the provider's prompt cache."
+  },
+  "performance.compare.measure.contextBytes": {
+    "defaultMessage": "Hive context",
+    "description": "A measure in Performance → Compare: the size of what Hive put in an agent session's context."
+  },
+  "performance.compare.measure.costUsd": {
+    "defaultMessage": "Cost",
+    "description": "A measure in Performance → Compare: what a session cost, in dollars."
+  },
+  "performance.compare.measure.exportDetailCalls": {
+    "defaultMessage": "Detail calls",
+    "description": "A measure in Performance → Compare of exports: calls of Hive's tools that asked for the full reply."
+  },
+  "performance.compare.measure.exportFailed": {
+    "defaultMessage": "Failed or cancelled",
+    "description": "A measure in Performance → Compare of exports: Agent API requests that failed or were cancelled."
+  },
+  "performance.compare.measure.exportGuidancePerLaunch": {
+    "defaultMessage": "Guidance a launch",
+    "description": "A measure in Performance → Compare of exports: the size of Hive's guidance for each session started."
+  },
+  "performance.compare.measure.exportLaunches": {
+    "defaultMessage": "Launches",
+    "description": "A measure in Performance → Compare of exports: agent sessions started."
+  },
+  "performance.compare.measure.exportRequests": {
+    "defaultMessage": "API requests",
+    "description": "A measure in Performance → Compare of exports: requests to Hive's Agent API."
+  },
+  "performance.compare.measure.exportResponseBytes": {
+    "defaultMessage": "API sent",
+    "description": "A measure in Performance → Compare of exports: the size of the Agent API's replies."
+  },
+  "performance.compare.measure.exportToolCalls": {
+    "defaultMessage": "Tool calls",
+    "description": "A measure in Performance → Compare of exports: calls of Hive's tools."
+  },
+  "performance.compare.measure.exportToolChars": {
+    "defaultMessage": "Tool replies",
+    "description": "A measure in Performance → Compare of exports: the size of the replies of Hive's tools."
+  },
+  "performance.compare.measure.guidanceBytes": {
+    "defaultMessage": "Launch guidance",
+    "description": "A measure in Performance → Compare: the size of the guidance Hive gave a session at launch."
+  },
+  "performance.compare.measure.guidanceChars": {
+    "defaultMessage": "Launch guidance (characters)",
+    "description": "A measure in Performance → Compare: the launch guidance counted in characters."
+  },
+  "performance.compare.measure.hiveCallErrors": {
+    "defaultMessage": "Failed calls",
+    "description": "A measure in Performance → Compare: calls of Hive's tools that failed."
+  },
+  "performance.compare.measure.hiveCalls": {
+    "defaultMessage": "Calls run",
+    "description": "A measure in Performance → Compare: calls of Hive's tools that Hive ran."
+  },
+  "performance.compare.measure.inputTokens": {
+    "defaultMessage": "Input tokens",
+    "description": "A measure in Performance → Compare: tokens a model read, as its provider reported them."
+  },
+  "performance.compare.measure.outputTokens": {
+    "defaultMessage": "Output tokens",
+    "description": "A measure in Performance → Compare: tokens a model wrote."
+  },
+  "performance.compare.measure.providerRequests": {
+    "defaultMessage": "Provider requests",
+    "description": "A measure in Performance → Compare: requests a session made to its model's provider."
+  },
+  "performance.compare.measure.reasoningTokens": {
+    "defaultMessage": "of it reasoning",
+    "description": "A measure in Performance → Compare, under Output tokens: the part of them that was reasoning. Lower case: it reads on from the row above."
+  },
+  "performance.compare.measure.repeatedCalls": {
+    "defaultMessage": "Repeated calls",
+    "description": "A measure in Performance → Compare: tool calls identical to an earlier one."
+  },
+  "performance.compare.measure.seconds": {
+    "defaultMessage": "Duration",
+    "description": "A measure in Performance → Compare: how long a scenario's run took."
+  },
+  "performance.compare.measure.skillBytes": {
+    "defaultMessage": "Skills on disk",
+    "description": "A measure in Performance → Compare: the size of the skills delivered to a session."
+  },
+  "performance.compare.measure.skillBytesRead": {
+    "defaultMessage": "Skill bytes read",
+    "description": "A measure in Performance → Compare: how much of the skills Hive read from disk."
+  },
+  "performance.compare.measure.skillHits": {
+    "defaultMessage": "Skill cache hits",
+    "description": "A measure in Performance → Compare: skills Hive found unchanged in its cache."
+  },
+  "performance.compare.measure.skillInvalidations": {
+    "defaultMessage": "Skill changes seen",
+    "description": "A measure in Performance → Compare: skills Hive found changed."
+  },
+  "performance.compare.measure.skillMisses": {
+    "defaultMessage": "Skill cache misses",
+    "description": "A measure in Performance → Compare: skills Hive had to read again."
+  },
+  "performance.compare.measure.skillScans": {
+    "defaultMessage": "Skill scans",
+    "description": "A measure in Performance → Compare: how often Hive looked through the skills."
+  },
+  "performance.compare.measure.skillsNotDelivered": {
+    "defaultMessage": "Skills not given",
+    "description": "A measure in Performance → Compare: skills a session should have had but didn't get."
+  },
+  "performance.compare.measure.toolBytes": {
+    "defaultMessage": "Tool replies (bytes)",
+    "description": "A measure in Performance → Compare: the size of the replies of Hive's tools, in bytes."
+  },
+  "performance.compare.measure.toolCalls": {
+    "defaultMessage": "Tool calls",
+    "description": "A measure in Performance → Compare: how many times agents called Hive's tools."
+  },
+  "performance.compare.measure.toolChars": {
+    "defaultMessage": "Tool replies",
+    "description": "A measure in Performance → Compare: the size of the replies of Hive's tools."
+  },
+  "performance.compare.measure.toolDetailCalls": {
+    "defaultMessage": "Detail calls",
+    "description": "A measure in Performance → Compare: calls of Hive's tools that asked for the full reply."
+  },
+  "performance.compare.measure.toolErrors": {
+    "defaultMessage": "Tool errors",
+    "description": "A measure in Performance → Compare: tool replies that were errors."
+  },
+  "performance.compare.measure.toolListBytes": {
+    "defaultMessage": "Tool list",
+    "description": "A measure in Performance → Compare: the size of the list of Hive's tools a session was given."
+  },
+  "performance.compare.measureTip.apiCancelled": {
+    "defaultMessage": "Requests the client gave up on.",
+    "description": "Tooltip of the API cancelled measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.apiFailed": {
+    "defaultMessage": "Refused, failed or cancelled requests.",
+    "description": "Tooltip of the API failures measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.apiMs": {
+    "defaultMessage": "Time Hive spent on the requests, in all.",
+    "description": "Tooltip of the API time measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.apiRequestBytes": {
+    "defaultMessage": "Request bodies Hive’s API received.",
+    "description": "Tooltip of the API received measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.apiRequests": {
+    "defaultMessage": "Agent API requests by the session (and agents it started), not the harness’s own.",
+    "description": "Tooltip of the API requests measure in Performance → Compare. The harness is the test program that runs the scenarios."
+  },
+  "performance.compare.measureTip.apiResponseBytes": {
+    "defaultMessage": "Response bodies Hive’s API sent.",
+    "description": "Tooltip of the API sent measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.asReported": {
+    "defaultMessage": "As the provider reported them.",
+    "description": "Tooltip of a token measure in Performance → Compare: the provider's own count."
+  },
+  "performance.compare.measureTip.contextBytes": {
+    "defaultMessage": "What Hive put in the session’s context: launch guidance (core, project, the Assistant’s role and mode, skills’ catalog), the hive tools’ list and every tool reply. Exact UTF-8 bytes, not tokens. Unknown if any part wasn’t measured.",
+    "description": "Tooltip of the Hive context measure in Performance → Compare. \"hive tools\" are Hive's tools for agents (keep hive)."
+  },
+  "performance.compare.measureTip.costUsd": {
+    "defaultMessage": "API-equivalent; only when every sample on both sides has a cost (≈ when Hive estimated one).",
+    "description": "Tooltip of the Cost measure in Performance → Compare. Keep ≈ (it marks an estimate)."
+  },
+  "performance.compare.measureTip.exportGuidancePerLaunch": {
+    "defaultMessage": "Core, project, the Assistant’s role and mode, and catalog, on average (not per hour).",
+    "description": "Tooltip of the Guidance a launch measure in Performance → Compare of exports: its parts."
+  },
+  "performance.compare.measureTip.exportRequests": {
+    "defaultMessage": "Agent API requests, per hour recorded.",
+    "description": "Tooltip of the API requests measure in Performance → Compare of exports."
+  },
+  "performance.compare.measureTip.exportToolChars": {
+    "defaultMessage": "Characters, per hour recorded.",
+    "description": "Tooltip of the Tool replies measure in Performance → Compare of exports."
+  },
+  "performance.compare.measureTip.guidanceBytes": {
+    "defaultMessage": "Core contract, project additions, the Assistant’s role and mode, and the skills’ catalog, at launch.",
+    "description": "Tooltip of the Launch guidance measure in Performance → Compare: its parts."
+  },
+  "performance.compare.measureTip.guidanceChars": {
+    "defaultMessage": "The same parts in characters (UTF-16 code units); the catalog has bytes only.",
+    "description": "Tooltip of the Launch guidance (characters) measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.hiveCallErrors": {
+    "defaultMessage": "hive tool calls that failed.",
+    "description": "Tooltip of the Failed calls measure in Performance → Compare. Keep hive (the tools' name)."
+  },
+  "performance.compare.measureTip.hiveCalls": {
+    "defaultMessage": "hive tool calls the server ran (its own log).",
+    "description": "Tooltip of the Calls run measure in Performance → Compare. Keep hive (the tools' name)."
+  },
+  "performance.compare.measureTip.outputTokens": {
+    "defaultMessage": "Reasoning included, as the provider reported them.",
+    "description": "Tooltip of the Output tokens measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.perHour": {
+    "defaultMessage": "Per hour recorded.",
+    "description": "Tooltip of a measure in Performance → Compare of exports: shown per hour Hive was recording."
+  },
+  "performance.compare.measureTip.providerRequests": {
+    "defaultMessage": "Model requests the session made.",
+    "description": "Tooltip of the Provider requests measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.reasoningTokens": {
+    "defaultMessage": "Part of output, not added to it.",
+    "description": "Tooltip of the \"of it reasoning\" measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.repeatedCalls": {
+    "defaultMessage": "Calls identical to one already made: work done twice.",
+    "description": "Tooltip of the Repeated calls measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.seconds": {
+    "defaultMessage": "The scenario’s run, start to end (a model trial’s varies most).",
+    "description": "Tooltip of the Duration measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillBytes": {
+    "defaultMessage": "Delivered skills’ bytes: what was available, not what a model read.",
+    "description": "Tooltip of the Skills on disk measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillBytesRead": {
+    "defaultMessage": "Bytes the skill service read from disk.",
+    "description": "Tooltip of the Skill bytes read measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillHits": {
+    "defaultMessage": "Skills found unchanged (more is fine: shown for the cache scenarios).",
+    "description": "Tooltip of the Skill cache hits measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillInvalidations": {
+    "defaultMessage": "Kept revisions found changed.",
+    "description": "Tooltip of the Skill changes seen measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillMisses": {
+    "defaultMessage": "Skills read again (changed, or not cached).",
+    "description": "Tooltip of the Skill cache misses measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillScans": {
+    "defaultMessage": "The skill service’s scans during the scenario.",
+    "description": "Tooltip of the Skill scans measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.skillsNotDelivered": {
+    "defaultMessage": "Skills asked for that the session didn’t get.",
+    "description": "Tooltip of the Skills not given measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.toolBytes": {
+    "defaultMessage": "UTF-8 bytes of the same replies.",
+    "description": "Tooltip of the Tool replies (bytes) measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.toolCalls": {
+    "defaultMessage": "hive tool calls measured by the bridge.",
+    "description": "Tooltip of the Tool calls measure in Performance → Compare. Keep hive (the tools' name); the bridge is Hive's MCP server between the CLI and Hive."
+  },
+  "performance.compare.measureTip.toolChars": {
+    "defaultMessage": "Characters of the hive tools’ replies, as the model got them.",
+    "description": "Tooltip of the Tool replies measure in Performance → Compare. Keep hive (the tools' name)."
+  },
+  "performance.compare.measureTip.toolDetailCalls": {
+    "defaultMessage": "Calls that asked for the full form.",
+    "description": "Tooltip of the Detail calls measure in Performance → Compare."
+  },
+  "performance.compare.measureTip.toolErrors": {
+    "defaultMessage": "Tool replies that were errors (the bridge’s count).",
+    "description": "Tooltip of the Tool errors measure in Performance → Compare. The bridge is Hive's MCP server between the CLI and Hive."
+  },
+  "performance.compare.measureTip.toolListBytes": {
+    "defaultMessage": "The hive tools’ names, descriptions and schemas as the CLI got them.",
+    "description": "Tooltip of the Tool list measure in Performance → Compare. Keep hive (the tools' name)."
+  },
+  "performance.compare.noScenarios": {
+    "defaultMessage": "No scenarios.",
+    "description": "Performance → Compare's scenarios table when it has none."
+  },
+  "performance.compare.notComparable": {
+    "defaultMessage": "Not comparable: {reasons} The numbers are shown, but a difference doesn’t mean a change.",
+    "description": "A banner in Performance → Compare. {reasons} is one or more sentences saying why."
+  },
+  "performance.compare.note.cliVersions": {
+    "defaultMessage": "CLI versions differ ({base} and {run}).",
+    "description": "Performance → Compare, a note on two model trials: the coding agent CLIs' versions differ. {base} and {run} are lists of versions, or ? when unknown."
+  },
+  "performance.compare.note.estimates": {
+    "defaultMessage": "Some costs are Hive’s estimates (≈), not the provider’s.",
+    "description": "Performance → Compare, a note on a scenario of model trials. Keep ≈ (it marks an estimate)."
+  },
+  "performance.compare.note.fakeUsage": {
+    "defaultMessage": "Provider usage isn’t compared: a fake’s tokens are simulated, not a provider’s.",
+    "description": "Performance → Compare, a note: a fake provider's token counts aren't real, so they aren't compared."
+  },
+  "performance.compare.note.leftOut": {
+    "defaultMessage": "{n, plural, one {# sample} other {# samples}} left out: {why}.",
+    "description": "Performance → Compare, a note on a scenario: samples left out because they didn't complete or couldn't be read. {why} lists why (\"no check ran\", or the test harness's own words, in English)."
+  },
+  "performance.compare.note.measuredPartly": {
+    "defaultMessage": "{n, plural, one {# sample} other {# samples}} measured partly (recording off, measurements dropped or missing): sizes aren’t judged.",
+    "description": "Performance → Compare, a note on a scenario."
+  },
+  "performance.compare.note.notJudged": {
+    "defaultMessage": "Not judged: some of what it’s judged by wasn’t measured.",
+    "description": "Performance → Compare, a note on a scenario that got no verdict."
+  },
+  "performance.compare.note.oneSample": {
+    "defaultMessage": "One sample on a side: no spread to judge a change by.",
+    "description": "Performance → Compare, a note on a scenario run only once on a side."
+  },
+  "performance.compare.note.partial": {
+    "defaultMessage": "{side, select, baseline {The baseline} other {The run}} is partial: {what}.",
+    "description": "Performance → Compare, a note on Performance exports: what makes one partial. {what} is a list of reasons (\"3 measurements dropped (a limit was full)\")."
+  },
+  "performance.compare.note.rangesDiffer": {
+    "defaultMessage": "The ranges differ in length: compared per hour recorded.",
+    "description": "Performance → Compare, a note on two Performance exports of time ranges of different lengths."
+  },
+  "performance.compare.note.realUse": {
+    "defaultMessage": "Real use isn’t a controlled workload: a change here can be the work that was done, not Hive.",
+    "description": "Performance → Compare, a note on two Performance exports (measurements of real use, not of a fixed test)."
+  },
+  "performance.compare.note.resumed": {
+    "defaultMessage": "A resumed session’s provider usage is its whole conversation’s: left out.",
+    "description": "Performance → Compare, a note on a scenario of model trials."
+  },
+  "performance.compare.note.sameGuidance": {
+    "defaultMessage": "Both ran the same guidance revision: differences are in the tools, the API, the skills or the run itself.",
+    "description": "Performance → Compare, a note: both scenario benchmarks ran with the same revision of Hive's guidance for agents."
+  },
+  "performance.compare.note.skillRevisions": {
+    "defaultMessage": "The sessions were given different skill revisions.",
+    "description": "Performance → Compare, a note on a scenario: the baseline and the run were given different versions of skills."
+  },
+  "performance.compare.note.skillRevisionsOf": {
+    "defaultMessage": "The sessions were given different skill revisions ({names}).",
+    "description": "Performance → Compare, a note on a scenario: the baseline and the run were given different versions of these skills. {names} lists skills' names."
+  },
+  "performance.compare.note.stale": {
+    "defaultMessage": "{n, plural, one {# sample} other {# samples}} left out: the session was given other guidance than the run started with (stale).",
+    "description": "Performance → Compare, a note on a scenario: samples left out because their session was given another revision of Hive's guidance."
+  },
+  "performance.compare.note.usageNotEvery": {
+    "defaultMessage": "Provider usage isn’t compared: not every sample reported it.",
+    "description": "Performance → Compare, a note on a scenario of model trials."
+  },
+  "performance.compare.note.withinSpread": {
+    "defaultMessage": "Smaller on average, but within the samples’ spread.",
+    "description": "Performance → Compare, a note on a scenario judged smaller: the change is within the range of the samples' values."
+  },
+  "performance.compare.nothingKept": {
+    "defaultMessage": "Nothing kept.",
+    "description": "The kept comparisons list in Performance → Compare when empty."
+  },
+  "performance.compare.nothingMeasured": {
+    "defaultMessage": "Nothing measured.",
+    "description": "Performance → Compare's measures table when it has none."
+  },
+  "performance.compare.nothingYet": {
+    "defaultMessage": "Nothing to compare yet.",
+    "description": "Performance → Compare with nothing kept."
+  },
+  "performance.compare.oneMore": {
+    "defaultMessage": "Keep or import one more to compare.",
+    "description": "Performance → Compare with only one kept file."
+  },
+  "performance.compare.partial.dropped": {
+    "defaultMessage": "{n, plural, one {# measurement dropped} other {# measurements dropped}} (a limit was full)",
+    "description": "What makes a Performance export partial, in \"The baseline is partial: {what}.\". Lower case."
+  },
+  "performance.compare.partial.evicted": {
+    "defaultMessage": "history removed for space in the range",
+    "description": "What makes a Performance export partial, in \"The baseline is partial: {what}.\": recorded history in its time range was removed to make room. Lower case."
+  },
+  "performance.compare.partial.invalid": {
+    "defaultMessage": "some of its measurements weren’t valid, so {keys} {n, plural, one {is} other {are}} unknown",
+    "description": "What makes a Performance export partial, in \"The baseline is partial: {what}.\". {keys} lists measures' field names (requests, responseBytes: keep them); {n} is how many. Lower case."
+  },
+  "performance.compare.partial.projectPart": {
+    "defaultMessage": "one project’s part of a workspace export",
+    "description": "What makes a Performance export partial, in \"The baseline is partial: {what}.\": only one project's part of an export of the whole workspace is compared. Lower case."
+  },
+  "performance.compare.partial.unattributed": {
+    "defaultMessage": "some losses couldn’t be attributed to a project",
+    "description": "What makes a Performance export partial, in \"The baseline is partial: {what}.\": measurements lost that Hive couldn't say were which project's. Lower case."
+  },
+  "performance.compare.pin": {
+    "defaultMessage": "Pin (never removed to make room)",
+    "description": "Button tooltip on a kept comparison in Performance → Compare."
+  },
+  "performance.compare.reason.differentFilters": {
+    "defaultMessage": "Different filters ({base} and {run}).",
+    "description": "Performance → Compare: why two Performance exports cannot be compared. {base} and {run} are their filters (\"everyone, all providers\")."
+  },
+  "performance.compare.reason.differentFixtures": {
+    "defaultMessage": "Different scenario versions (fixtures v{base} and v{run}): the scenarios themselves changed.",
+    "description": "Performance → Compare: why two scenario benchmarks cannot be compared. {base} and {run} are the scenarios' version numbers (v3: keep the v)."
+  },
+  "performance.compare.reason.differentKinds": {
+    "defaultMessage": "One is a scenario benchmark and the other a Performance export: they measure different things.",
+    "description": "Performance → Compare: why a baseline and a run cannot be compared."
+  },
+  "performance.compare.reason.differentProviders": {
+    "defaultMessage": "Different providers ({base} and {run}).",
+    "description": "Performance → Compare: why two scenario benchmarks cannot be compared. {base} and {run} are providers' ids (claude-code, fake-codex)."
+  },
+  "performance.compare.reason.differentScopes": {
+    "defaultMessage": "Different scopes: {base} and {run}.",
+    "description": "Performance → Compare: why a baseline and a run cannot be compared. {base} and {run} are scopes (\"the whole workspace\", \"project alpha\")."
+  },
+  "performance.compare.reason.differentSetups": {
+    "defaultMessage": "Different model setups ({base} and {run}).",
+    "description": "Performance → Compare: why two model trials cannot be compared. {base} and {run} are each a model, an effort and a mode, as the CLI names them (\"opus, high, full-access\")."
+  },
+  "performance.compare.reason.fakeVsModel": {
+    "defaultMessage": "A fake provider against a model trial: a fake proves routing and sizes, not a model’s behaviour.",
+    "description": "Performance → Compare: why two scenario benchmarks cannot be compared. A fake provider is a stand-in for a coding agent CLI that runs no model; a model trial runs the real one."
+  },
+  "performance.compare.reason.notRecording": {
+    "defaultMessage": "Hive wasn’t recording in one of the ranges: there is nothing to compare.",
+    "description": "Performance → Compare: why two Performance exports cannot be compared."
+  },
+  "performance.compare.reason.oneIncomplete": {
+    "defaultMessage": "One of them is incomplete.",
+    "description": "Performance → Compare: why a baseline and a run cannot be compared."
+  },
+  "performance.compare.reason.sourceChanged": {
+    "defaultMessage": "{side, select, baseline {The baseline’s} other {The run’s}} source changed while it ran: its samples may mix two versions.",
+    "description": "Performance → Compare: why two scenario benchmarks cannot be compared: Hive's source code changed while one of them ran."
+  },
+  "performance.compare.regressions": {
+    "defaultMessage": "Checks that passed or ran less often",
+    "description": "A heading in a scenario's details in Performance → Compare."
+  },
+  "performance.compare.remove": {
+    "defaultMessage": "Remove",
+    "description": "Button tooltip on a kept comparison in Performance → Compare."
+  },
+  "performance.compare.rowLabel": {
+    "defaultMessage": "{id}: {status}. {open, select, yes {Close} other {Open}} its measures",
+    "description": "Accessible name of a scenario's row in Performance → Compare: its id, its result, and what clicking does."
+  },
+  "performance.compare.run": {
+    "defaultMessage": "Run",
+    "description": "Performance → Compare: what is compared with the baseline (a list to choose it, a column, a row). A noun."
+  },
+  "performance.compare.sameFile": {
+    "defaultMessage": "The baseline and the run are the same file.",
+    "description": "Performance → Compare with the same file chosen twice."
+  },
+  "performance.compare.sample.checkTwice": {
+    "defaultMessage": "a check is listed twice",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.checksNotList": {
+    "defaultMessage": "its checks aren’t a list",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.countsDiffer": {
+    "defaultMessage": "its check counts don’t match its checks",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.didntComplete": {
+    "defaultMessage": "didn’t complete",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.failedNoCheck": {
+    "defaultMessage": "it says it failed, but no check did",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.invalidCheck": {
+    "defaultMessage": "a check in it isn’t valid",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.noCheckRan": {
+    "defaultMessage": "no check ran",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.sample.tooManyChecks": {
+    "defaultMessage": "too many checks to read",
+    "description": "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case."
+  },
+  "performance.compare.samples": {
+    "defaultMessage": "<b>{title}</b> · samples {base, number} → {run, number}",
+    "description": "The head of a scenario's details in Performance → Compare: its title, and how many samples the baseline and the run have."
+  },
+  "performance.compare.scopeName": {
+    "defaultMessage": "{kind, select, project {project {project}} own {the workspace’s own work} other {the whole workspace}}",
+    "description": "A scope of Performance → Compare, inside \"Different scopes: {base} and {run}.\": a project (its name), the workspace’s own work (no project’s: the Assistant, scripts), or the whole workspace."
+  },
+  "performance.compare.sizesHint": {
+    "defaultMessage": "Sizes are exact bytes and characters of what Hive gave the sessions; tokens are only what a provider reported. Skills on disk are what was available, not what a model read. A ~ marks a change within the samples’ spread.",
+    "description": "A note under Performance → Compare's scenarios. Keep ~ (it marks a change)."
+  },
+  "performance.compare.status.better": {
+    "defaultMessage": "Smaller, still correct",
+    "description": "A scenario's result in Performance → Compare: Hive gave it less context and it still passes every check."
+  },
+  "performance.compare.status.betterTip": {
+    "defaultMessage": "Less Hive context; every check that passed still passes and still runs; no more calls, failures or retries.",
+    "description": "Tooltip of the \"Smaller, still correct\" result in Performance → Compare."
+  },
+  "performance.compare.status.failing": {
+    "defaultMessage": "Failing",
+    "description": "A scenario's result in Performance → Compare."
+  },
+  "performance.compare.status.failingTip": {
+    "defaultMessage": "Checks fail in the run (as often as in the baseline).",
+    "description": "Tooltip of the \"Failing\" result in Performance → Compare."
+  },
+  "performance.compare.status.incomplete": {
+    "defaultMessage": "Incomplete",
+    "description": "A scenario's result in Performance → Compare: not judged."
+  },
+  "performance.compare.status.incompleteTip": {
+    "defaultMessage": "Not judged: no completed sample on a side, or what it’s judged by wasn’t fully measured.",
+    "description": "Tooltip of the \"Incomplete\" result in Performance → Compare."
+  },
+  "performance.compare.status.onlyInBase": {
+    "defaultMessage": "Only in baseline",
+    "description": "A scenario's result in Performance → Compare: only the baseline ran it."
+  },
+  "performance.compare.status.onlyInBaseTip": {
+    "defaultMessage": "The run didn’t run this scenario.",
+    "description": "Tooltip of the \"Only in baseline\" result in Performance → Compare."
+  },
+  "performance.compare.status.onlyInRun": {
+    "defaultMessage": "Only in run",
+    "description": "A scenario's result in Performance → Compare: only the run ran it."
+  },
+  "performance.compare.status.onlyInRunTip": {
+    "defaultMessage": "New in the run: no baseline for it.",
+    "description": "Tooltip of the \"Only in run\" result in Performance → Compare."
+  },
+  "performance.compare.status.same": {
+    "defaultMessage": "No change",
+    "description": "A scenario's result in Performance → Compare."
+  },
+  "performance.compare.status.sameTip": {
+    "defaultMessage": "Within 1% of the baseline, with the same correctness.",
+    "description": "Tooltip of the \"No change\" result in Performance → Compare."
+  },
+  "performance.compare.status.smallerFailing": {
+    "defaultMessage": "Smaller but failing",
+    "description": "A scenario's result in Performance → Compare: less context, but correctness got worse."
+  },
+  "performance.compare.status.smallerFailingTip": {
+    "defaultMessage": "Less context, but a check passed (or ran) less often: not an improvement.",
+    "description": "Tooltip of the \"Smaller but failing\" result in Performance → Compare."
+  },
+  "performance.compare.status.worse": {
+    "defaultMessage": "Larger or worse",
+    "description": "A scenario's result in Performance → Compare."
+  },
+  "performance.compare.status.worseTip": {
+    "defaultMessage": "More Hive context, more calls, failures or retries, or a check that passed (or ran) less often.",
+    "description": "Tooltip of the \"Larger or worse\" result in Performance → Compare."
+  },
+  "performance.compare.summary": {
+    "defaultMessage": "{n, number} {status, select, better {smaller, still correct} same {no change} worse {larger or worse} smallerFailing {smaller but failing} failing {failing} incomplete {incomplete} onlyInBase {only in baseline} other {only in run}}",
+    "description": "A badge above the scenarios in Performance → Compare: how many scenarios got each result (\"3 smaller, still correct\"). Lower case, as the results read in a list."
+  },
+  "performance.compare.swap": {
+    "defaultMessage": "Swap baseline and run",
+    "description": "Button tooltip in Performance → Compare."
+  },
+  "performance.compare.unit.ms": {
+    "defaultMessage": "{n} ms",
+    "description": "A time in milliseconds in Performance → Compare. {n} is the number, already formatted."
+  },
+  "performance.compare.unit.seconds": {
+    "defaultMessage": "{n} s",
+    "description": "A time in seconds in Performance → Compare. {n} is the number, already formatted."
+  },
+  "performance.compare.unknown": {
+    "defaultMessage": "unknown",
+    "description": "A measure's change in Performance → Compare when some samples didn't measure it."
+  },
+  "performance.compare.unknownTip": {
+    "defaultMessage": "Some samples didn’t measure it: unknown, not compared.",
+    "description": "Tooltip of \"unknown\" in Performance → Compare."
+  },
+  "performance.compare.unpin": {
+    "defaultMessage": "Unpin",
+    "description": "Button tooltip on a kept comparison in Performance → Compare."
+  },
+  "performance.compare.usageNotCompared": {
+    "defaultMessage": "Provider tokens and cost: not compared (a fake’s are simulated; a model trial’s only when every sample on both sides reported them).",
+    "description": "A note in a scenario's details in Performance → Compare."
+  },
+  "performance.compare.usePart.confirm": {
+    "defaultMessage": "Use {project}’s part",
+    "description": "Button: imports only this project's part of a workspace's Performance export. {project} is the project's name."
+  },
+  "performance.compare.usePart.detail": {
+    "defaultMessage": "Work of no project (the Assistant, scripts) and other projects’ work are left out. Losses Hive couldn’t attribute to a project are noted.",
+    "description": "A question when a workspace's Performance export is imported on a project's page: what using the project's part leaves out."
+  },
+  "performance.compare.usePart.message": {
+    "defaultMessage": "This is a workspace export. Only {project}’s part of it can be compared on this project’s page.",
+    "description": "A question when a workspace's Performance export is imported on a project's page. {project} is the project's name."
+  },
+  "performance.compare.usePart.title": {
+    "defaultMessage": "Use {project}’s part?",
+    "description": "Title of a question when a workspace's Performance export is imported on a project's page. {project} is the project's name."
+  },
+  "performance.coverage.dropped": {
+    "defaultMessage": "{n, plural, one {# measurement} other {# measurements}} not kept (a limit was full), so totals may be low.",
+    "description": "At the top of the Performance page, when measurements were lost."
+  },
+  "performance.coverage.evicted": {
+    "defaultMessage": "History up to {when} was removed to keep the metrics file under its size limit: nothing before then is available.",
+    "description": "At the top of the Performance page. {when} is a date and time."
+  },
+  "performance.coverage.full": {
+    "defaultMessage": "Recorded throughout.",
+    "description": "At the top of the Performance page, when Hive recorded the whole range."
+  },
+  "performance.coverage.none": {
+    "defaultMessage": "Hive wasn’t recording this workspace in this range, so there is nothing to show (no data, not zero).",
+    "description": "At the top of the Performance page, when Hive recorded nothing in the range."
+  },
+  "performance.coverage.partial": {
+    "defaultMessage": "Recorded for {duration} of it ({percent}){sinceShown, select, yes {, since {since}} other {}}{stretches, plural, =0 {} =1 {} other {, in # stretches}}: before that and in the gaps (Hive closed, recording off, a reset) nothing was seen.",
+    "description": "At the top of the Performance page, when Hive recorded only part of the range. {duration} is how long, such as \"3 h 10 min\"; {percent} its share (\"45%\"); {since} a date and time, shown when {sinceShown} is yes; {stretches} how many separate stretches (said from 2)."
+  },
+  "performance.coverage.range": {
+    "defaultMessage": "{from} to {to} · kept 30 days, hourly for the last 7.",
+    "description": "At the top of the Performance page: the range shown. {from} and {to} are dates and times. Metrics are kept 30 days, by the hour for the last 7."
+  },
+  "performance.coverage.unattributed": {
+    "defaultMessage": "Some measurements couldn’t be attributed to a project: this project’s may be more than shown.",
+    "description": "At the top of a project's Performance page."
+  },
+  "performance.duration.days": {
+    "defaultMessage": "{d, plural, one {# day} other {# days}}",
+    "description": "A length of time in whole days (\"2 days\"), on the Performance page."
+  },
+  "performance.duration.daysHours": {
+    "defaultMessage": "{d, plural, one {# day} other {# days}} {h, number} h",
+    "description": "A length of time in days and hours (\"2 days 4 h\"), on the Performance page."
+  },
+  "performance.duration.hours": {
+    "defaultMessage": "{h, number} h",
+    "description": "A length of time in whole hours (\"3 h\"), on the Performance page."
+  },
+  "performance.duration.hoursMinutes": {
+    "defaultMessage": "{h, number} h {m, number} min",
+    "description": "A length of time in hours and minutes (\"3 h 10 min\"), on the Performance page."
+  },
+  "performance.duration.minutes": {
+    "defaultMessage": "{m, number} min",
+    "description": "A length of time in minutes (\"40 min\"), on the Performance page."
+  },
+  "performance.empty": {
+    "defaultMessage": "Nothing recorded {filtered, select, yes {for this filter } other {}}in the last {range, select, 24h {24 hours} 7d {7 days} other {30 days}}.",
+    "description": "The Performance page when nothing was recorded. {filtered} is yes when its Who filter is set; {range} (24h, 7d or 30d) is a key: don't translate the keys, only the texts."
+  },
+  "performance.export.button": {
+    "defaultMessage": "Export",
+    "description": "Button of the Performance page: saves its metrics as a JSON file."
+  },
+  "performance.export.done": {
+    "defaultMessage": "Performance metrics exported",
+    "description": "Title of a notification after the Performance page's Export; its message is the file's path."
+  },
+  "performance.export.failed": {
+    "defaultMessage": "Could not export the performance metrics",
+    "description": "Title of an error notification; its message is the error."
+  },
+  "performance.export.tip": {
+    "defaultMessage": "Save what this page shows (its scope, range and Who; every provider’s, each named in its rows) as a JSON file, with units, coverage and Hive's version. Shift+click: with project names replaced (project-1, project-2…) and no workspace path.",
+    "description": "Tooltip of the Performance page's Export button. Who is the name of the page's filter of who did the work: keep it as named there. Keep JSON, Shift+click and project-1, project-2… as they are."
+  },
+  "performance.guidance.catalog": {
+    "defaultMessage": "Catalog",
+    "description": "Column header of the Guidance at launch table: the size of the skills' names and descriptions, per launch."
+  },
+  "performance.guidance.core": {
+    "defaultMessage": "Core",
+    "description": "Column header of the Guidance at launch table: Hive's session contract's size per launch."
+  },
+  "performance.guidance.empty": {
+    "defaultMessage": "No launches.",
+    "description": "The Guidance at launch table when it has no rows."
+  },
+  "performance.guidance.heading": {
+    "defaultMessage": "Guidance at launch",
+    "description": "Heading of the Performance page's table of what Hive gave sessions when they started."
+  },
+  "performance.guidance.launches": {
+    "defaultMessage": "Launches",
+    "description": "Column header of the Guidance at launch table: how many sessions were launched."
+  },
+  "performance.guidance.mode": {
+    "defaultMessage": "Mode",
+    "description": "Column header of the Guidance at launch table: the size of the Assistant's mode (persona), per launch."
+  },
+  "performance.guidance.notGiven": {
+    "defaultMessage": "Not given",
+    "description": "Column header of the Guidance at launch table: skills that weren't delivered or couldn't be measured."
+  },
+  "performance.guidance.notGivenTip": {
+    "defaultMessage": "{notDelivered, number} asked for but not delivered; {unmeasured, number} delivered but couldn't be measured (left out of the sizes, not counted as zero).",
+    "description": "Tooltip of a cell of the Not given column: how many skills were asked for and not delivered, and how many were delivered but not measured."
+  },
+  "performance.guidance.onDisk": {
+    "defaultMessage": "On disk",
+    "description": "Column header of the Guidance at launch table: the size of the skills' delivered copies, per launch."
+  },
+  "performance.guidance.project": {
+    "defaultMessage": "Project",
+    "description": "Column header of the Guidance at launch table: the size of what Hive adds for the project, per launch."
+  },
+  "performance.guidance.role": {
+    "defaultMessage": "Role",
+    "description": "Column header of the Guidance at launch table: the size of the Assistant's role, per launch."
+  },
+  "performance.guidance.skills": {
+    "defaultMessage": "Skills",
+    "description": "Column header of the Guidance at launch table: how many skills each launch got, on average."
+  },
+  "performance.guidance.tip": {
+    "defaultMessage": "What Hive gave sessions when they started, per launch on average, exactly. Core: Hive's session contract, the same for every session of a role. Project: what Hive adds for the project (the latest handover's pointer). Role and mode: the Assistant's. Catalog: the skills' names and descriptions (what a CLI lists); on disk: the delivered copies' bytes. A model reads a skill's body only when it uses it, which isn't observable.",
+    "description": "Info tip beside the Guidance at launch heading. Core, Project, Role, Mode, Catalog and On disk are its columns: keep them as named there."
+  },
+  "performance.guidance.unmeasured": {
+    "defaultMessage": "Skills marked ? couldn’t be measured.",
+    "description": "Under the Guidance at launch table. Keep the ?: it is how those skills are marked in it."
+  },
+  "performance.heading": {
+    "defaultMessage": "Performance",
+    "description": "Heading of the Performance view (what Hive's own parts cost) and of its sidebar."
+  },
+  "performance.intro.project": {
+    "defaultMessage": "What Hive’s Agent API, its tools, the guidance it gives sessions cost, next to what the providers reported. Only this project’s work: the Assistant’s, scripts’ and other projects’ aren’t in it.",
+    "description": "Under the heading of a project's Performance tab. Agent API is the name of Hive's local HTTP API; the providers are Claude Code, Codex and Copilot."
+  },
+  "performance.intro.workspace": {
+    "defaultMessage": "What Hive’s Agent API, its tools, the guidance it gives sessions and its skill service cost, next to what the providers reported.",
+    "description": "Under the Performance view's heading. Agent API is the name of Hive's local HTTP API; the providers are Claude Code, Codex and Copilot."
+  },
+  "performance.latency.ms": {
+    "defaultMessage": "≤ {ms, number} ms",
+    "description": "A request time, at most this many milliseconds (\"≤ 250 ms\"), on the Performance page."
+  },
+  "performance.latency.over": {
+    "defaultMessage": "> {s, number} s",
+    "description": "A request time above the largest measured bound (\"> 30 s\"), on the Performance page. s is seconds."
+  },
+  "performance.latency.seconds": {
+    "defaultMessage": "≤ {s, number} s",
+    "description": "A request time, at most this many seconds (\"≤ 2.5 s\"), on the Performance page."
+  },
+  "performance.limits.heading": {
+    "defaultMessage": "What isn’t measured",
+    "description": "A folded section at the end of the Performance page: what its numbers leave out."
+  },
+  "performance.limits.window": {
+    "defaultMessage": "This page reads through Hive’s window, not the Agent API: refreshing it adds nothing to these numbers.",
+    "description": "The last line of What isn’t measured on the Performance page."
+  },
+  "performance.loadTarget": {
+    "defaultMessage": "the performance metrics",
+    "description": "What could not be read on the Performance page: shown in \"Could not load {what}: {error}\" and \"Could not refresh {what}; last updated …\"."
+  },
+  "performance.loading": {
+    "defaultMessage": "Loading…",
+    "description": "The Performance page while its metrics load."
+  },
+  "performance.noWorkspace": {
+    "defaultMessage": "Open a workspace to see its performance.",
+    "description": "The Performance view (and its sidebar) when no workspace is open."
+  },
+  "performance.notRecording": {
+    "defaultMessage": "Hive isn’t recording performance metrics, so nothing new is added (what was recorded is still shown).",
+    "description": "Banner on the Performance page when recording is turned off in Settings → Sessions. A link to the setting follows it."
+  },
+  "performance.notRecording.settings": {
+    "defaultMessage": "Settings → Sessions",
+    "description": "Link after the Performance page's \"isn't recording\" banner: opens that settings section. Use the names Settings shows."
+  },
+  "performance.pageLabel": {
+    "defaultMessage": "Performance, {scope}",
+    "description": "Name of the Performance page for screen readers. {scope} is what it shows, such as \"Whole workspace\" or \"Project: hive\"."
+  },
+  "performance.panel.projects": {
+    "defaultMessage": "Projects",
+    "description": "Section heading in the Performance sidebar, above the workspace's projects."
+  },
+  "performance.panel.tip": {
+    "defaultMessage": "What Hive's Agent API, its tools, the guidance it gives sessions and its skill service cost. Pick what to look at.",
+    "description": "Info tip beside the Performance sidebar's heading. Agent API is the name of Hive's local HTTP API."
+  },
+  "performance.provider.all": {
+    "defaultMessage": "All providers",
+    "description": "The Performance page's provider filter's choice of no filter."
+  },
+  "performance.provider.groupLabel": {
+    "defaultMessage": "Filtered by provider",
+    "description": "Name, for screen readers, of the box of the Performance page that its Provider filter changes."
+  },
+  "performance.provider.label": {
+    "defaultMessage": "Provider",
+    "description": "Label of the Performance page's provider filter, and a column header: the CLI (Claude Code, Codex, Copilot)."
+  },
+  "performance.provider.note": {
+    "defaultMessage": "Launches and the providers’ usage: the only parts recorded per provider.",
+    "description": "Beside the Performance page's Provider filter: what it changes."
+  },
+  "performance.provider.nothing": {
+    "defaultMessage": "Nothing from {provider} in the last {range, select, 24h {24 hours} 7d {7 days} other {30 days}}{filtered, select, yes { for this filter} other {}}.",
+    "description": "The Performance page's provider box when the provider chosen has nothing. {provider} is its name (Claude Code, Codex, Copilot); {filtered} is yes when the Who filter is set; {range} (24h, 7d or 30d) is a key: don't translate the keys, only the texts."
+  },
+  "performance.providersNote.assistant": {
+    "defaultMessage": "The Assistant’s sessions are the workspace’s, not a project’s.",
+    "description": "Performance, under Provider usage for a project with the Hive Assistant chosen as whose work: why the table is empty (the Assistant isn't any project's)."
+  },
+  "performance.providersNote.scripts": {
+    "defaultMessage": "Scripts start no sessions, so they have no provider usage.",
+    "description": "Performance, under Provider usage with Scripts chosen as whose work: why the table is empty (scripts call Hive's API and run no coding agents)."
+  },
+  "performance.range.label": {
+    "defaultMessage": "Time range",
+    "description": "Name, for screen readers, of the Performance page's time range buttons."
+  },
+  "performance.range.name": {
+    "defaultMessage": "{range, select, 24h {24 hours} 7d {7 days} other {30 days}}",
+    "description": "A time range button of the Performance page. {range} is a key (24h, 7d or 30d): don't translate the keys, only the texts."
+  },
+  "performance.refresh": {
+    "defaultMessage": "Refresh",
+    "description": "The Performance page's refresh button."
+  },
+  "performance.role.agent": {
+    "defaultMessage": "Project agents",
+    "description": "A choice of the Performance page's Who filter: project agents' work."
+  },
+  "performance.role.all": {
+    "defaultMessage": "Everyone",
+    "description": "A choice of the Performance page's Who filter: everyone's work."
+  },
+  "performance.role.api": {
+    "defaultMessage": "Scripts",
+    "description": "A choice of the Performance page's Who filter: scripts calling the Agent API with a token."
+  },
+  "performance.role.assistant": {
+    "defaultMessage": "The Assistant",
+    "description": "A choice of the Performance page's Who filter: the Hive Assistant's work."
+  },
+  "performance.role.viewer": {
+    "defaultMessage": "Viewer apps",
+    "description": "A choice of the Performance page's Who filter: viewer apps' work."
+  },
+  "performance.routes.cancelled": {
+    "defaultMessage": "Cancelled",
+    "description": "Column header of the Agent API table: requests the client gave up on."
+  },
+  "performance.routes.empty": {
+    "defaultMessage": "No requests.",
+    "description": "The Agent API table when it has no rows."
+  },
+  "performance.routes.failed": {
+    "defaultMessage": "Failed",
+    "description": "Column header of the Agent API table: requests that failed."
+  },
+  "performance.routes.heading": {
+    "defaultMessage": "Agent API",
+    "description": "Heading of the Performance page's table of Agent API requests. Agent API is the name of Hive's local HTTP API."
+  },
+  "performance.routes.received": {
+    "defaultMessage": "Received",
+    "description": "Column header of the Agent API table: the size of the requests Hive received."
+  },
+  "performance.routes.route": {
+    "defaultMessage": "Route",
+    "description": "Column header of the Agent API table: the request's method and route (such as GET /api/tasks)."
+  },
+  "performance.routes.sent": {
+    "defaultMessage": "Sent",
+    "description": "Column header of the Agent API table: the size of the replies Hive sent."
+  },
+  "performance.routes.tip": {
+    "defaultMessage": "Requests by route (its template, never the path asked for). The hive tools call these too; a tool call and its request are the same work, so don't add them up.",
+    "description": "Info tip beside the Agent API heading."
+  },
+  "performance.safeguards.agent": {
+    "defaultMessage": "Agent",
+    "description": "Column header of the Safeguard stops table: the agent (and its project)."
+  },
+  "performance.safeguards.empty": {
+    "defaultMessage": "No safeguard stops.",
+    "description": "The Safeguard stops table when it has no rows."
+  },
+  "performance.safeguards.heading": {
+    "defaultMessage": "Safeguard stops",
+    "description": "Heading of the Performance page's table of responses a CLI's safety classifier stopped, and a column header of the Provider usage table."
+  },
+  "performance.safeguards.model": {
+    "defaultMessage": "Model",
+    "description": "Column header of the Safeguard stops table: the model the agent was on."
+  },
+  "performance.safeguards.stops": {
+    "defaultMessage": "Stops",
+    "description": "Column header of the Safeguard stops table: how many responses were stopped."
+  },
+  "performance.safeguards.tip": {
+    "defaultMessage": "Responses a CLI's safety classifier stopped, in the sessions active in the range (each session's whole count), per agent and the model each was on. Copilot's sessions don't record them, so they aren't counted.",
+    "description": "Info tip beside the Safeguard stops heading. Copilot is a product name."
+  },
+  "performance.scope.badgeTitle": {
+    "defaultMessage": "What these numbers are about",
+    "description": "Tooltip of the Performance page's badge naming what it shows."
+  },
+  "performance.scope.label": {
+    "defaultMessage": "Scope",
+    "description": "Label of the Performance view's list choosing what it shows (the whole workspace, its own work or a project)."
+  },
+  "performance.scope.own": {
+    "defaultMessage": "Workspace’s own work",
+    "description": "What the Performance view shows: the work of no project (the Hive Assistant's, scripts'). A row in its sidebar, a choice of its Scope list and its badge."
+  },
+  "performance.scope.ownTip": {
+    "defaultMessage": "Work of no project: the Hive Assistant, scripts with the workspace token, and Hive’s shared work.",
+    "description": "Tooltip of the Workspace's own work row in the Performance sidebar."
+  },
+  "performance.scope.project": {
+    "defaultMessage": "Project: {project}",
+    "description": "The Performance page's badge when it shows one project. {project} is its name."
+  },
+  "performance.scope.projectTip": {
+    "defaultMessage": "Only {project}'s work. Its own Performance tab shows the same.",
+    "description": "Tooltip of a project's row in the Performance sidebar. {project} is the project's name."
+  },
+  "performance.scope.whole": {
+    "defaultMessage": "Whole workspace",
+    "description": "What the Performance view shows: everything in the workspace. A row in its sidebar, a choice of its Scope list and its badge."
+  },
+  "performance.scope.wholeTip": {
+    "defaultMessage": "Every project and the workspace’s own work, each counted once.",
+    "description": "Tooltip of the Whole workspace row in the Performance sidebar."
+  },
+  "performance.skills.cache": {
+    "defaultMessage": "Cache",
+    "description": "Title of a Skill service card: the share of skill lookups the cache answered."
+  },
+  "performance.skills.cacheSub": {
+    "defaultMessage": "{hits, number} hits · {misses, number} misses · {changed, number} changed",
+    "description": "Under the Cache card's percentage: cache hits, misses, and skills read again because they changed."
+  },
+  "performance.skills.cacheTip": {
+    "defaultMessage": "Hits: a skill unchanged since it was last read. Changed: read again because its files changed.",
+    "description": "Tooltip of the Cache card. Hits and Changed are words of the card: keep them as there."
+  },
+  "performance.skills.heading": {
+    "defaultMessage": "Skill service",
+    "description": "Heading of the Performance view's cards about Hive's own work to know its skills."
+  },
+  "performance.skills.read": {
+    "defaultMessage": "Read",
+    "description": "Title of a Skill service card: how much Hive read from skills on disk (a size). Read is a past participle."
+  },
+  "performance.skills.readSub": {
+    "defaultMessage": "{files, plural, one {# file} other {# files}} · {headers} headers · {entries, plural, one {# entry} other {# entries}}",
+    "description": "Under the Read card's size. {headers} is a size such as \"12 KB\": the skills' headers read."
+  },
+  "performance.skills.scans": {
+    "defaultMessage": "Scans",
+    "description": "Title of a Skill service card: how many times Hive scanned the skills' folders."
+  },
+  "performance.skills.scansSub": {
+    "defaultMessage": "p95 {latency} · {shared, number} shared",
+    "description": "Under the Scans card's number. {latency} is a time such as \"≤ 250 ms\" (p95: the 95th percentile, keep it); shared: scans that served several callers at once."
+  },
+  "performance.skills.tip": {
+    "defaultMessage": "Hive's own disk and cache work to know its skills (the status, launches, the Skills view). Shared by the whole workspace, so it is in no project's numbers. A saving in guidance isn't the same as a saving here.",
+    "description": "Info tip beside the Skill service heading. Skills is the name of a view of Hive."
+  },
+  "performance.skills.tooBig": {
+    "defaultMessage": "Too big",
+    "description": "Title of a Skill service card: skills over the size limits, not read."
+  },
+  "performance.skills.tooBigSub": {
+    "defaultMessage": "over the limits (64 MB, 2000 files, 12 deep)",
+    "description": "Under the Too big card's number: the limits (a skill's size, files and folder depth)."
+  },
+  "performance.skills.unfiltered": {
+    "defaultMessage": "all of it: not per role or provider",
+    "description": "After the Skill service heading when the page's filters are set: they don't apply to it. Lower case."
+  },
+  "performance.toolList": {
+    "defaultMessage": "The hive tools’ list, as each session got it: {list}.",
+    "description": "A line on the Performance page. {list} is one or two items such as \"agents 23 tools, 4 KB a start\", separated by semicolons."
+  },
+  "performance.toolList.item": {
+    "defaultMessage": "{role, select, assistant {Assistant} other {agents}} {tools, plural, one {# tool} other {# tools}}, {size} a start",
+    "description": "An item of \"The hive tools' list, as each session got it: …\": whose sessions, how many tools they got, and its size per start (\"4 KB\"). {role} is a key (assistant or agent): don't translate the keys, only the texts."
+  },
+  "performance.tools.calls": {
+    "defaultMessage": "Calls",
+    "description": "Column header of the Hive tools table: how many times it was called."
+  },
+  "performance.tools.chars": {
+    "defaultMessage": "Characters",
+    "description": "Column header of the Hive tools table: its replies' characters."
+  },
+  "performance.tools.detail": {
+    "defaultMessage": "Detail",
+    "description": "Column header of the Hive tools table: calls that asked for the full form of the reply."
+  },
+  "performance.tools.empty": {
+    "defaultMessage": "No tool calls.",
+    "description": "The Hive tools table when it has no rows."
+  },
+  "performance.tools.errors": {
+    "defaultMessage": "Errors",
+    "description": "Column header of the Hive tools table: calls that failed."
+  },
+  "performance.tools.heading": {
+    "defaultMessage": "Hive tools",
+    "description": "Heading of the Performance page's table of the hive tools agents called."
+  },
+  "performance.tools.perCall": {
+    "defaultMessage": "Per call",
+    "description": "Column header of the Hive tools table: its replies' characters per call, on average."
+  },
+  "performance.tools.tip": {
+    "defaultMessage": "Each hive tool's replies as the models got them: characters and UTF-8 bytes, exactly. Detail: calls that asked for the full form. Sorted by characters, what costs a context most.",
+    "description": "Info tip beside the Hive tools heading. Detail is a column of the table: keep it as named there."
+  },
+  "performance.tools.tool": {
+    "defaultMessage": "Tool",
+    "description": "Column header of the Hive tools table: the tool's name (such as hive_read_task)."
+  },
+  "performance.trend.detail": {
+    "defaultMessage": "{requests, plural, one {# request} other {# requests}}{failed, plural, =0 {} other {, # failed{cancelled, plural, =0 {} other { ({cancelled, number} cancelled)}}}} · {toolCalls, plural, one {# tool call} other {# tool calls}} ({chars, number} characters) · {launches, plural, one {# launch} other {# launches}}{partial, select, yes { · recorded for {duration} of it} other {}}",
+    "description": "Tooltip of a bar of the requests chart, after its hour or day and a colon: what happened then. {duration} is how long Hive recorded in it (\"40 min\"), shown when {partial} is yes. Lower case."
+  },
+  "performance.trend.failed": {
+    "defaultMessage": "Failed",
+    "description": "Legend of the requests chart: the bars' colour for requests that failed."
+  },
+  "performance.trend.heading": {
+    "defaultMessage": "{step, select, hour {API requests by hour} other {API requests by day}}",
+    "description": "Heading of the Performance page's chart of requests. {step} is a key (hour or day): don't translate the keys, only the texts."
+  },
+  "performance.trend.label": {
+    "defaultMessage": "{step, select, hour {API requests by hour, failures in a second colour} other {API requests by day, failures in a second colour}}",
+    "description": "Name, for screen readers, of the Performance page's chart of requests. {step} is a key (hour or day): don't translate the keys, only the texts."
+  },
+  "performance.trend.notRecorded": {
+    "defaultMessage": "not recorded (Hive closed, recording off, or before a reset)",
+    "description": "Tooltip of a bar of the requests chart, after its hour or day and a colon: Hive recorded nothing then. Lower case."
+  },
+  "performance.trend.notRecordedLegend": {
+    "defaultMessage": "Not recorded",
+    "description": "Legend of the requests chart: the hatched bars, when Hive recorded nothing."
+  },
+  "performance.trend.slot": {
+    "defaultMessage": "<b>{when}</b>: {detail}",
+    "description": "Tooltip of a bar of the requests chart. {when} is its hour or day (in bold); {detail} what happened then."
+  },
+  "performance.trend.succeeded": {
+    "defaultMessage": "Succeeded",
+    "description": "Legend of the requests chart: the bars' colour for requests that succeeded."
+  },
+  "performance.unknown": {
+    "defaultMessage": "unknown",
+    "description": "A cell of a Performance table whose value no session reported (a token count, a model). Lower case."
+  },
+  "performance.updated": {
+    "defaultMessage": "Updated {when}; every minute while shown.",
+    "description": "Tooltip of the Performance page's refresh button. {when} is how long ago, such as \"4 minutes ago\"."
+  },
+  "performance.usage.allUnreadable": {
+    "defaultMessage": "Provider usage is unknown: the session history couldn’t be read.",
+    "description": "Under the Provider usage heading when no session history could be read."
+  },
+  "performance.usage.cacheRead": {
+    "defaultMessage": "Cache read",
+    "description": "Column header of the Provider usage table: tokens read from the cache."
+  },
+  "performance.usage.cacheWrite": {
+    "defaultMessage": "Cache write",
+    "description": "Column header of the Provider usage table: tokens written to the cache."
+  },
+  "performance.usage.compactions": {
+    "defaultMessage": "Compactions",
+    "description": "Column header of the Provider usage table: how many times sessions' context was compacted."
+  },
+  "performance.usage.context": {
+    "defaultMessage": "Context",
+    "description": "Column header of the Provider usage table: the size of sessions' last request (their context)."
+  },
+  "performance.usage.contextAvg": {
+    "defaultMessage": "{avg} avg",
+    "description": "A cell of the Context column: the average context, a token count such as \"45k\". Keep it short."
+  },
+  "performance.usage.contextMax": {
+    "defaultMessage": "{max} max{hasWindow, select, yes { of {window}} other {}}",
+    "description": "Under a cell of the Context column: the largest context and, when {hasWindow} is yes, the context window, token counts such as \"120k\". Keep it short."
+  },
+  "performance.usage.contextTip": {
+    "defaultMessage": "Last request's context, over {sessions, plural, one {# session} other {# sessions}}: average {avg}, largest {max}{hasWindow, select, yes { of a {window} window} other {}}.",
+    "description": "Tooltip of a cell of the Context column. {avg}, {max} and {window} are token counts such as \"45k\"; the window is shown when {hasWindow} is yes."
+  },
+  "performance.usage.cost": {
+    "defaultMessage": "Cost",
+    "description": "Column header of the Provider usage table: what the usage cost."
+  },
+  "performance.usage.costUnknown": {
+    "defaultMessage": "+ {n, number} unknown",
+    "description": "Under a cost: how many sessions' cost is unknown. Lower case."
+  },
+  "performance.usage.empty": {
+    "defaultMessage": "No provider usage.",
+    "description": "The Provider usage table when it has no rows."
+  },
+  "performance.usage.heading": {
+    "defaultMessage": "Provider usage",
+    "description": "Heading of the Performance page's table of what the providers (Claude Code, Codex, Copilot) reported."
+  },
+  "performance.usage.input": {
+    "defaultMessage": "Input",
+    "description": "Column header of the Provider usage table: input tokens."
+  },
+  "performance.usage.notDetected": {
+    "defaultMessage": "not detected",
+    "description": "A cell of the Safeguard stops column for a provider whose transcripts don't record them. Lower case."
+  },
+  "performance.usage.output": {
+    "defaultMessage": "Output",
+    "description": "Column header of the Provider usage table: output tokens."
+  },
+  "performance.usage.partial": {
+    "defaultMessage": "The session history of {unreadable, number} of {hosts, plural, one {# place} other {# places}} (projects, the Assistant) couldn’t be read, so these totals are partial.",
+    "description": "Under the Provider usage table when some session history could not be read. {unreadable} of {hosts} places (projects and the Assistant)."
+  },
+  "performance.usage.reasoning": {
+    "defaultMessage": "of it reasoning",
+    "description": "Column header of the Provider usage table, after Output: how many of the output tokens were reasoning. Lower case: it reads on from Output."
+  },
+  "performance.usage.running": {
+    "defaultMessage": "{n, number} running",
+    "description": "Under the session count in the Provider usage table: how many of them are running."
+  },
+  "performance.usage.sessions": {
+    "defaultMessage": "Sessions",
+    "description": "Column header of the Provider usage table: how many sessions."
+  },
+  "performance.usage.tip": {
+    "defaultMessage": "What the providers reported for the sessions active in the range, by whose sessions they were: each session's whole usage (so a long session counts in full). Reasoning is part of output, shown separately, not added. Context is a snapshot of each session's last request (average and largest), not a sum. Cost is API-equivalent (≈ estimated by Hive where the provider didn't report it); a subscription isn't billed per this. Sessions that reported nothing are unknown, left out of the totals.",
+    "description": "Info tip beside the Provider usage heading. Keep ≈: it is how estimates show."
+  },
+  "performance.usage.unknownCount": {
+    "defaultMessage": "{n, number} unknown",
+    "description": "Under the session count in the Provider usage table: how many of them reported no usage. Lower case."
+  },
+  "performance.view.compare": {
+    "defaultMessage": "Compare",
+    "description": "Button of the Performance page: compares two kept metrics files. Keep it short."
+  },
+  "performance.view.label": {
+    "defaultMessage": "Now or compare",
+    "description": "Name, for screen readers, of the switch between the Now and Compare views of the Performance page."
+  },
+  "performance.view.now": {
+    "defaultMessage": "Now",
+    "description": "Button of the Performance page: shows the live metrics. Keep it short."
+  },
+  "performance.who.agents": {
+    "defaultMessage": "Agents",
+    "description": "In a Performance table's Who column: project agents' sessions."
+  },
+  "performance.who.assistant": {
+    "defaultMessage": "Assistant",
+    "description": "In a Performance table's Who column: the Hive Assistant's sessions."
+  },
+  "performance.who.followsAll": {
+    "defaultMessage": "Everything below follows it.",
+    "description": "Beside the Performance page's Who filter, on a project's tab: everything under it is filtered."
+  },
+  "performance.who.followsBox": {
+    "defaultMessage": "Everything in this box follows it; the skill service below it is the whole workspace’s.",
+    "description": "Beside the Performance view's Who filter."
+  },
+  "performance.who.groupLabel": {
+    "defaultMessage": "Filtered by who did the work",
+    "description": "Name, for screen readers, of the box of the Performance page that its Who filter changes."
+  },
+  "performance.who.label": {
+    "defaultMessage": "Who",
+    "description": "Label of the Performance page's filter of who did the work (everyone, project agents, the Assistant…), and a column header: whose sessions a row is. Keep it short."
+  },
+  "performance.who.select": {
+    "defaultMessage": "Who did the work",
+    "description": "Name, for screen readers, of the Performance page's Who filter."
+  }
+}

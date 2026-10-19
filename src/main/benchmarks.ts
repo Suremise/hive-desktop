@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { mkdir, open, readdir, rename, rm, stat, unlink } from 'original-fs/promises'
 import { join } from 'path'
-import { BENCHMARK_LIMITS, aboutOf, compareScopeKey, parseArtifact, readEntry, readKept, summaryOf, type Artifact, type CompareScope, type ImportResult, type KeptEntry, type ParseResult } from '../shared/benchmark'
+import { BENCHMARK_LIMITS, aboutOf, compareScopeKey, factsOf, parseArtifact, readEntry, readKept, summaryOf, type Artifact, type CompareScope, type ImportResult, type KeptEntry, type ParseResult } from '../shared/benchmark'
 import type { MetricsReport } from '../shared/metrics'
 import { renameRetrying, writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
@@ -373,7 +373,7 @@ async function recover(ctx: BenchContext, why: 'missing' | 'damaged' | 'entry' |
     }
     const was = known.get(id)
     const keptAt = was?.keptAt || (await stat(join(ctx.dir, f)).catch(() => null))?.mtime.toISOString() || new Date().toISOString()
-    adopted.push({ id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt, pinned: was?.pinned === true, about: aboutOf(a) })
+    adopted.push({ id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt, pinned: was?.pinned === true, about: aboutOf(a), ...shownFrom(a) })
   }
   // The newest (pinned first) are listed, up to the limit; the rest go to quarantine with the invalid ones.
   adopted.sort((x, y) => Number(y.pinned) - Number(x.pinned) || y.keptAt.localeCompare(x.keptAt))
@@ -415,7 +415,7 @@ function keep(ctx: BenchContext, a: Artifact): Promise<KeptEntry> {
     const id = randomBytes(6).toString('hex')
     // A project's is its id's (#514).
     const owner = a.scope.kind === 'project' ? ctx.idOf?.(a.scope.project) : null
-    const entry: KeptEntry = { id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt: new Date().toISOString(), pinned: false, about: aboutOf(a), ...(owner ? { owner } : {}) }
+    const entry: KeptEntry = { id, label: a.label, kind: a.kind, scope: a.scope, createdAt: a.createdAt, keptAt: new Date().toISOString(), pinned: false, about: aboutOf(a), ...shownFrom(a), ...(owner ? { owner } : {}) }
     const others = index.entries.filter((e) => !evicted.includes(e))
     // (1) Recorded: nothing is touched yet.
     await writeIndex(ctx, { ...index, entries: [...others, ...evicted.map((e) => ({ ...e, state: 'removing' as const, txn })), { ...entry, state: 'adding', txn }] })
@@ -474,6 +474,12 @@ export async function importBenchmark(ctx: BenchContext, scope: CompareScope, fr
   return { entry: await keep(ctx, parsed.artifact) }
 }
 
+/** An entry's facts and its name's kind, so the window says its description (and a name Hive gave it) in its language (#1104). */
+const shownFrom = (a: Artifact): Pick<KeptEntry, 'facts' | 'labelKind'> => {
+  const facts = factsOf(a)
+  return facts ? { facts, ...(a.labelKind ? { labelKind: a.labelKind } : {}) } : {}
+}
+
 /**
  * Keeps a report (the page's current query: scope, range, filters) as a comparison. The report must be of the context's
  * workspace (taken before it was read).
@@ -483,7 +489,7 @@ export async function keepReport(ctx: BenchContext, report: MetricsReport, appVe
   if (report.workspacePath.toLowerCase() !== ctx.workspacePath.toLowerCase()) throw hiveError(msg({ id: 'service.benchmarks.switched', defaultMessage: 'The workspace was switched: nothing was kept.', description: "An error keeping the Performance page's report as a comparison: the window opened another workspace meanwhile." }), undefined, { kind: 'conflict' })
   const s = summaryOf(report, report.scope.kind === 'project' ? report.scope.project : undefined)
   const scope: CompareScope = report.scope.kind === 'project' ? { kind: 'project', project: report.scope.project } : report.filters?.own ? { kind: 'workspace', own: true } : { kind: 'workspace' }
-  const a: Artifact = { schema: 'hive-metrics/1', kind: 'export', label: (label?.trim() || `Kept ${s.from.slice(0, 10)} to ${s.to.slice(0, 10)}`).slice(0, 80), createdAt: new Date().toISOString(), appVersion, scope, summary: s }
+  const a: Artifact = { schema: 'hive-metrics/1', kind: 'export', label: (label?.trim() || `Kept ${s.from.slice(0, 10)} to ${s.to.slice(0, 10)}`).slice(0, 80), ...(label?.trim() ? {} : { labelKind: 'kept' as const }), createdAt: new Date().toISOString(), appVersion, scope, summary: s }
   return keep(ctx, a)
 }
 
@@ -538,9 +544,33 @@ export function adoptBenchmarkOwners(ctx: BenchContext): Promise<void> {
   })
 }
 
+/**
+ * The index, with the facts the window describes a scope's comparisons from (#1104) added to those kept before Hive
+ * stored them: read from each one's kept file (bounded, through the normalisers, of the scope its entry says) and
+ * written to the index once, in its turn and in the workspace it began in. A file that can't be read leaves its entry
+ * as it was (its English shown). Names stay as they are: whether Hive gave one can't be known now.
+ */
+async function withFacts(ctx: BenchContext, scope: CompareScope): Promise<Index> {
+  const index = await readIndex(ctx)
+  const missing = keptOf(index, scope, ctx).filter((e) => !e.facts)
+  if (!missing.length) return index
+  let changed = false
+  for (const kept of missing) {
+    const a = await readArtifactFile(ctx, kept.id)
+    live(ctx)
+    const facts = a && compareScopeKey(a.scope) === compareScopeKey(kept.scope) ? factsOf(a) : undefined
+    const e = index.entries.find((x) => x.id === kept.id)
+    if (!facts || !e) continue
+    e.facts = facts
+    changed = true
+  }
+  if (changed) await writeIndex(ctx, index)
+  return index
+}
+
 /** A scope's kept artifacts (only its own), newest first, its chosen baseline and run, and what a recovery or clean-up did. */
 export async function listBenchmarks(ctx: BenchContext, scope: CompareScope): Promise<{ entries: KeptEntry[]; base: string | null; run: string | null; notice?: string }> {
-  const index = await serial(ctx, () => readIndex(ctx))
+  const index = await serial(ctx, () => withFacts(ctx, scope))
   const said = notices.get(ctx.dir)
   notices.delete(ctx.dir)
   const entries = keptOf(index, scope, ctx)

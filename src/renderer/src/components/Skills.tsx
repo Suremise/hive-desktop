@@ -11,6 +11,7 @@ import { confirm, notify, prompt, set, showView, useStore } from '../store'
 import { cx } from '../util'
 import { msg, tr, tRich, type Msg } from '@shared/i18n'
 import { shownText } from '@shared/advanced'
+import { shippedSkillDescription } from '@shared/skillDescriptions'
 
 /**
  * Skills in Hive: the workspace's Hive skills (given to project agents, the Assistant or both, as each one's
@@ -253,6 +254,12 @@ export function editInWorkspace(s: SkillInfo): void {
   showView('skills')
 }
 
+/** A skill's description as the window shows it: one Hive ships in the window's language while its copy has Hive's words (#1104). */
+export function skillDescription(s: SkillInfo): string {
+  const shipped = shippedSkillDescription(s)
+  return shipped ? tr(shipped) : s.description
+}
+
 /** One skill in a list: icon, name, description and its actions. */
 export function SkillRow({ skill, selected, onSelect, actionsFor }: { skill: SkillInfo; selected: boolean; onSelect: () => void; actionsFor?: React.ReactNode }) {
   const missing = skill.bundled === 'missing'
@@ -270,7 +277,7 @@ export function SkillRow({ skill, selected, onSelect, actionsFor }: { skill: Ski
         </div>
         {skill.description && (
           <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {skill.description}
+            {skillDescription(skill)}
           </div>
         )}
       </div>

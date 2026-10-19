@@ -1,3 +1,5 @@
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { ConsoleRing, hiveSourceId, makeEvent, sessionSourceId, type CapturedEvent, type ConsoleEvent } from '../shared/devConsole'
 
 /**
@@ -91,7 +93,7 @@ export class DevConsole {
   subscribe(id: string, sources: string[], opts: ConsoleSubscription = {}): Map<string, ConsoleEvent[]> {
     const wanted = new Set(sources.slice(0, MAX_SOURCES))
     const old = this.subs.get(id)
-    if (!old && this.subs.size >= MAX_SUBSCRIBERS) throw new Error('Too many developer consoles open at once')
+    if (!old && this.subs.size >= MAX_SUBSCRIBERS) throw hiveError(msg({ id: 'console.tooMany', defaultMessage: 'Too many developer consoles open at once', description: 'An error opening a developer console window or starting a recording: Hive already watches for as many as it allows. Closing one helps.' }))
     if (old?.includeText) for (const s of old.sources) this.untext(s)
     // A new subscription starts with nothing waiting: what was queued for the old one (its sources, its opt-in to text) is
     // never sent to this one. It gets the rings' redacted events below instead.

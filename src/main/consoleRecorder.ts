@@ -7,6 +7,8 @@ import type { ProviderId } from '../shared/types'
 import { devConsole } from './devConsole'
 import { providerService } from './providerService'
 import { createLogger, userText } from './logger'
+import { englishError, hiveError, shownError } from './hiveError'
+import { msg } from '../shared/i18n'
 
 /**
  * Recording a developer console source to a file (#366 decision 4, #638): JSON Lines in Hive's own folder
@@ -41,8 +43,10 @@ interface Recording {
   closed: boolean
   /** A write failed: it is being stopped, as failed. */
   failed: boolean
-  /** Why, for the user. */
+  /** Why, in English: the recording's end line keeps it. */
   error?: string
+  /** Why, for the user: in Hive's language as it failed. */
+  shown?: string
   /** Bytes delivered and not yet written. */
   pending: number
   sentAt: number
@@ -114,17 +118,24 @@ export async function writeAll(fh: FileHandle, text: string): Promise<number> {
   let at = 0
   while (at < buf.length) {
     const { bytesWritten } = await fh.write(buf, at, buf.length - at, null)
-    if (bytesWritten <= 0) throw new Error('The recording file took nothing more')
+    if (bytesWritten <= 0) throw hiveError(msg({ id: 'console.fileFull', defaultMessage: 'The recording file took nothing more', description: "Why a developer console recording failed: writing to its file wrote nothing (the disk may be full)." }))
     at += bytesWritten
   }
   return buf.length
+}
+
+/** Why a recording failed, the first time: in English for its file, and as the window shows it. */
+function failure(r: Recording, e: unknown): void {
+  if (r.error !== undefined) return
+  r.error = englishError(e)
+  r.shown = shownError(e)
 }
 
 /** A recording that couldn't be written: stopped as failed, with the reason the user sees; its file is kept as it is. */
 function writeFailed(slot: Slot, r: Recording, e: unknown): void {
   if (r.failed) return
   r.failed = true
-  r.error = e instanceof Error ? e.message : String(e)
+  failure(r, e)
   log.warn(`developer console recording ${userText(r.info.name)} failed`, e)
   void stopThis(slot, r, 'failed')
 }
@@ -182,15 +193,16 @@ async function finish(slot: Slot, reason: RecordingEnd['reason']): Promise<Conso
     r.info.bytes += await writeAll(r.fh, `${JSON.stringify(end)}\n`)
   } catch (e) {
     ended = 'failed'
-    r.error ??= e instanceof Error ? e.message : String(e)
+    failure(r, e)
   }
   try {
     await r.fh.close()
   } catch (e) {
     ended = 'failed'
-    r.error ??= e instanceof Error ? e.message : String(e)
+    failure(r, e)
   }
-  Object.assign(r.info, { recording: false, endedAt, reason: ended, ...(r.error ? { error: r.error } : {}) })
+  // The window is told why in its language; the file's end line (above) says it in English.
+  Object.assign(r.info, { recording: false, endedAt, reason: ended, ...(r.error ? { error: r.shown ?? r.error } : {}) })
   if (ended === 'failed') log.warn(`developer console: recording ${userText(r.info.name)} failed after ${r.info.events} events: ${userText(r.error)}`)
   else log.info(`developer console: recording ${r.info.name} ended (${ended}, ${r.info.events} events)`)
   report(r, true)
@@ -205,7 +217,7 @@ async function finish(slot: Slot, reason: RecordingEnd['reason']): Promise<Conso
 export function startRecording(wc: WebContents, source: ConsoleSource, workspace: string, includeText: boolean, stillWanted: () => boolean): Promise<ConsoleRecordingInfo> {
   const cancelled = (): Error => {
     log.info('developer console: recording not started (cancelled: the window closed, stopped watching that source or started another)')
-    return new Error('The recording was cancelled: the console stopped watching that source')
+    return hiveError(msg({ id: 'console.cancelled', defaultMessage: 'The recording was cancelled: the console stopped watching that source', description: "Why a developer console recording didn't start: meanwhile the window closed, picked another source or started another recording." }))
   }
   if (wc.isDestroyed()) return Promise.reject(cancelled())
   const slot = slotOf(wc)
@@ -249,7 +261,7 @@ export function startRecording(wc: WebContents, source: ConsoleSource, workspace
     }
     if (!wanted()) {
       // Overtaken while its file was made: it ends at once, empty, and records nothing.
-      const end: RecordingEnd = { type: 'end', at: new Date().toISOString(), events: 0, dropped: 0, reason: 'closed' }
+      const end: RecordingEnd = { type: 'end', at: new Date().toISOString(), events: 0, dropped: 0, reason: 'closed' } // i18n-ignore: a recording's end reason, a field value in its file
       await writeAll(fh, `${JSON.stringify(end)}\n`).catch(() => undefined)
       await fh.close().catch(() => undefined)
       throw cancelled()
