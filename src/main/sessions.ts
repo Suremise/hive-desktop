@@ -1776,15 +1776,7 @@ class SessionManager {
     check(l)
     // Reserved while Hive types the command (a long focus takes a while), so nothing else is typed or compacted
     // meanwhile; Compaction's limits run from its submission.
-    const release = (): void => {
-      if (l.compacting !== c) return
-      l.compacting = undefined
-      // A session that has exited stays stopped.
-      if (this.live.get(id) !== l) return
-      const ended = this.fact(l.state, { maintenance: null })
-      if (applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready'))) || ended) this.emitState(l.state)
-    }
-    const c: Compaction = new Compaction(before, l.adapter.compactFailure, release)
+    const c: Compaction = new Compaction(before, l.adapter.compactFailure, () => this.compactionDone(id, l, c))
     l.compacting = c
     this.fact(l.state, { maintenance: 'compacting' })
     l.state.status = 'working'
@@ -1813,12 +1805,39 @@ class SessionManager {
       c.submitted()
     } catch (e) {
       c.end()
-      release()
+      this.compactionDone(id, l, c)
       throw e
     } finally {
       this.delivering.delete(key)
       this.noteComposer(this.live.get(id), key)
     }
+  }
+
+  /** A compaction Hive watches is over with no hook saying so (Compaction's `over`): an agent still showing it is idle again. */
+  private compactionDone(id: string, l: LiveSession, c: Compaction): void {
+    if (l.compacting !== c) return
+    l.compacting = undefined
+    // A session that has exited stays stopped.
+    if (this.live.get(id) !== l) return
+    const ended = this.fact(l.state, { maintenance: null })
+    if (applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready'))) || ended) this.emitState(l.state)
+  }
+
+  /**
+   * A compaction the CLI began by itself while the agent was idle (#1115): Claude Code precomputes one in the background,
+   * idle too, sending PreCompact at once and PostCompact only once it uses it, so it may never say this one is over.
+   * Watched as Hive's own from now (begun): over at PostCompact or a prompt, a compaction more in the transcript than
+   * when it began, or LIMIT_MS.
+   */
+  private watchAutoCompaction(id: string, l: LiveSession): void {
+    const c: Compaction = new Compaction(Infinity, null, () => this.compactionDone(id, l, c))
+    l.compacting = c
+    c.begin()
+    void (async () => {
+      const src = await this.liveTranscript(l)
+      const u = src ? await this.usageFor(src, l.state.sessionId, l.state.provider) : null
+      if (l.compacting === c) c.counted(u?.compactions.length ?? 0)
+    })().catch((e) => log.warn(`${userText(this.label(l.state))}: could not count its compactions: ${userText(String(e))}`))
   }
 
   /**
@@ -4165,6 +4184,9 @@ class SessionManager {
             undefined,
             st.projectPath
           )
+          break
+        case 'autoCompactIdle':
+          this.watchAutoCompaction(id, l)
           break
         case 'notifyWaiting':
           this.notify(st.projectPath, withValues(M.needsInput, { agent: label }), step.messageText ?? (step.message || msg({ id: 'session.notice.waitingForInput', defaultMessage: 'Waiting for your input', description: "The notification that an agent waits for the user, when its CLI didn't say what for." })), 'waiting', undefined, st.agentId)

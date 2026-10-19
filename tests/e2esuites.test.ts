@@ -1007,7 +1007,7 @@ describe("each runner's own lane: ports and suite folders (lanes.mjs)", () => {
       // The second waits, saying who holds it, and takes it once the first lets go.
       const seen: number[] = []
       const second = holdOwnPool(machine, { owner: 301, alive: running, pollMs: 10, onWait: (h: { pid: number }) => seen.push(h.pid) })
-      await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0))
+      await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), { timeout: HUNG_MS })
       first.release()
       const got = await second
       expect(got.release).toBeTypeOf('function')

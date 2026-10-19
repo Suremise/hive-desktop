@@ -63,6 +63,8 @@ export type HookAction =
   | 'compactEnded'
   /** The CLI compacts by itself: say so. */
   | 'autoCompact'
+  /** It began while the agent was idle, where nothing may say it is over (#1115): watch for its end as for Hive's. */
+  | 'autoCompactIdle'
   | 'notifyWaiting'
   /** A question the agent doesn't stop for: tell the user, though it keeps working. */
   | 'notifyQuestion'
@@ -282,7 +284,9 @@ export function hookStep(ev: HookEvent, s: HookStatusInput): HookStep {
       if (s.status !== 'working' || s.compacting) return { next: null, actions: [] }
       return { next: idleAfter(s, 'ready'), message: null, review: null, ...RESOLVED, actions: ['releaseLocks', 'idleAgain'] }
     case 'compactStart': {
-      const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : ['autoCompact']
+      // One the CLI began by itself while idle may never be said to end: Claude Code precomputes a compaction in the
+      // background, idle too, sending PreCompact at once and PostCompact only once it uses it (#1115).
+      const actions: HookAction[] = s.compacting === 'requested' ? ['compactBegan'] : s.compacting ? [] : s.status === 'working' ? ['autoCompact'] : ['autoCompact', 'autoCompactIdle']
       return s.status === 'working' ? { next: null, actions } : { next: 'working', message: COMPACTING_MESSAGE, messageText: COMPACTING_TEXT, actions }
     }
     case 'compactEnd':

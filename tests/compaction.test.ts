@@ -64,6 +64,24 @@ describe('a compaction Hive asked for', () => {
     expect(over).toHaveBeenCalledTimes(1)
   })
 
+  it('one the CLI began by itself (#1115): no transcript count ends it until its own is counted, then one more does; else its limit', () => {
+    const st: { status: SessionStatus; statusMessage?: string } = { status: 'working', statusMessage: COMPACTING_MESSAGE }
+    const over = vi.fn(() => applyStep(st, compactionOver(st)))
+    const c = new Compaction(Infinity, null, over)
+    c.begin()
+    c.transcript(5)
+    c.counted(2)
+    c.transcript(2)
+    expect(over).not.toHaveBeenCalled()
+    c.transcript(3)
+    expect([over.mock.calls.length, st.status]).toEqual([1, 'ready'])
+    const unsaid = compacting(Infinity, null, false)
+    unsaid.c.begin()
+    unsaid.c.counted(2)
+    vi.advanceTimersByTime(LIMIT_MS)
+    expect([unsaid.over.mock.calls.length, unsaid.st.status]).toEqual([1, 'ready'])
+  })
+
   it('the transcript shows one more compaction than before: over, once; the same count is not', () => {
     const { c, over, st } = compacting(2)
     c.begin()

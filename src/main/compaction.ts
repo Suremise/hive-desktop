@@ -9,7 +9,8 @@ export const LIMIT_MS = 10 * 60_000
  * PostCompact; when it doesn't, Hive learns it from the transcript (a compaction more than before), the terminal
  * (the CLI refused or failed it, which sends no hook), or the time limits. `over` is called once, whichever comes
  * first; a hook that ends it (PostCompact, or a prompt that starts a new turn) calls end() and takes care of the
- * status itself.
+ * status itself. One the CLI began by itself while the agent was idle is watched the same way from its PreCompact
+ * (#1115: nothing else may say it is over).
  */
 export class Compaction {
   started = false
@@ -18,8 +19,8 @@ export class Compaction {
   private done = false
 
   constructor(
-    /** Compactions in the transcript before this one. */
-    readonly before: number,
+    /** Compactions in the transcript before this one (Infinity until counted, for one the CLI began by itself). */
+    private before: number,
     /** What the CLI prints when it refuses or fails a compaction (ProviderAdapter.compactFailure). */
     private readonly failure: RegExp | null,
     private readonly over: () => void
@@ -38,6 +39,11 @@ export class Compaction {
     this.started = true
     clearTimeout(this.timer)
     this.timer = setTimeout(() => this.finish(), LIMIT_MS)
+  }
+
+  /** The compactions in the transcript before this one, counted once it had begun (one the CLI began by itself, #1115). */
+  counted(before: number): void {
+    this.before = before
   }
 
   /** The transcript has `count` compactions: one more than before means it is done. */
