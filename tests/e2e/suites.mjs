@@ -84,6 +84,7 @@ export const SUITES = [
   { name: 'deliveries' },
   { name: 'devconsole' },
   { name: 'dialogs' },
+  { name: 'docsections' },
   { name: 'doingmove' },
   { name: 'donemove' },
   { name: 'drafts' },

@@ -24,6 +24,8 @@ import * as assistant from './assistantControl'
 import { SettingRefused, applySetting, checkedValue, entryOf, projectOf, restartText, settingDetail, settingRows } from './settingsTools'
 import { settingChangeTexts, settingPath, type SettingEntry, type SettingScope } from '../shared/settingsCatalog'
 import { addAgent, updateAgent } from './projectAgents'
+import { DOC_MAX, SHARED_PREFIX, readDoc } from './docSections'
+import { docOutline, findHeading, sectionText, type DocHeading } from '../shared/docSections'
 import { providerService } from './providerService'
 import { config } from './config'
 import { deleteEntry, JournalBusy, JournalError, readEntry, recall, updateEntry, writeEntry } from './journal'
@@ -1584,6 +1586,80 @@ route('PUT', '/v1/shared/file', async ({ query, body }) => {
   })
   emit({ type: 'notes-changed' })
   return { ok: true, path: rel, revision }
+})
+
+// ---------------------------------------------------------------------------
+// Documents by section (#817): a long plan's or note's outline, and one section of it, so an agent reads what it needs.
+// A project's Markdown (its own project only, for a project agent: in the folder it works in, its worktree if it has
+// one) or a shared note (shared:<path>).
+// ---------------------------------------------------------------------------
+
+/** A section longer than this comes as its own text and its subsections' outline, unless asked for in full. */
+const SECTION_MAX = 30_000
+
+/** The document a docs call names, read: its text and the reference it goes by. */
+async function docOf(query: URLSearchParams): Promise<{ ref: string; text: string }> {
+  const path = query.get('path')?.trim()
+  if (!path) throw new HttpError(400, 'path is required: a project file ("docs/PLAN.md") or a shared note ("shared:plans/plan.md")')
+  let root: string
+  let rel: string
+  if (path.startsWith(SHARED_PREFIX)) {
+    // The request's workspace's notes, as /v1/shared/file reads them: an agent's and the Assistant's are their own,
+    // whatever project or workspace the request names.
+    root = requireWorkspace().sharedDir
+    rel = path.slice(SHARED_PREFIX.length)
+  } else {
+    const name = query.get('project')
+    const own = agentCaller()
+    if (!name && !own) throw new HttpError(400, 'project is required for a project file (or a shared note: shared:<path>)')
+    const p = name ? projectByName(name) : own!.projectPath
+    // An agent: its own project only. The Assistant: its own workspace's (projectByName).
+    ownProjectOnly(p, "Reading a project's documents")
+    // A project agent reads its own copy: its worktree, if it works in one.
+    const def = own && resolvePath(own.projectPath).toLowerCase() === resolvePath(p).toLowerCase() ? projectAgents(await workspace.projectConfig(p)).find((a) => a.id === own.agentId) : undefined
+    root = def?.worktree?.path ?? p
+    rel = path
+  }
+  const r = await readDoc(root, rel)
+  if (r.ok) return { ref: path, text: r.text }
+  const why = {
+    outside: `${path} isn't inside ${path.startsWith(SHARED_PREFIX) ? 'the shared notes' : 'the project'}: give a path relative to it`,
+    hidden: `${path} is in Hive's or git's own folder: read shared notes as shared:<path>`,
+    notMarkdown: `${path} isn't a Markdown file (.md)`,
+    notFound: `Not found: ${path}`,
+    tooBig: `${path} is over ${Math.round(DOC_MAX / 1048576)} MB`
+  }[r.code]
+  throw new HttpError(r.code === 'notFound' ? 404 : 400, why)
+}
+
+/** A heading as the docs calls give it. */
+const headingRow = (h: DocHeading) => ({ level: h.level, text: h.text, slug: h.slug, line: h.line, size: h.size })
+
+route('GET', '/v1/docs/outline', async ({ query }) => {
+  const { ref, text } = await docOf(query)
+  return { path: ref, size: text.length, headings: docOutline(text).map(headingRow) }
+})
+
+route('GET', '/v1/docs/section', async ({ query }) => {
+  const asked = query.get('heading')?.trim()
+  if (!asked) throw new HttpError(400, `heading is required: a slug from the outline ("core-contracts") or the heading's text`)
+  const { ref, text } = await docOf(query)
+  const outline = docOutline(text)
+  const found = findHeading(outline, asked)
+  const list = (hs: DocHeading[]): string => hs.map((h) => `#${h.slug} (${h.text}, line ${h.line})`).join(', ')
+  if ('ambiguous' in found) throw new HttpError(409, `Several sections of ${ref} are called "${asked}": ${list(found.ambiguous)}. Ask for one as #<slug>.`, { matches: found.ambiguous.map(headingRow) })
+  if ('closest' in found) throw new HttpError(404, found.closest.length ? `No section "${asked}" in ${ref}. Closest: ${list(found.closest)}.` : `${ref} has no headings.`, { closest: found.closest.map(headingRow) })
+  const h = found.heading
+  const content = sectionText(text, h)
+  // A long section with subsections: its own text and their outline, unless asked for in full.
+  const lines = content.split('\n')
+  const inside = outline.filter((x) => x.line > h.line && x.line < h.line + lines.length)
+  const subs = inside.filter((x) => x.level === Math.min(...inside.map((y) => y.level)))
+  if (content.length > SECTION_MAX && subs.length && query.get('full') !== 'true') {
+    const intro = lines.slice(0, subs[0].line - h.line).join('\n').replace(/\n+$/, '')
+    return { path: ref, heading: headingRow(h), content: intro, subsections: subs.map(headingRow), partial: true }
+  }
+  return { path: ref, heading: headingRow(h), content }
 })
 
 /**

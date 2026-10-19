@@ -873,6 +873,8 @@ The **Shared Notes** view edits the markdown files in `.hive/shared`. Use it for
 
 Several agents can update the same note without losing each other's changes. An agent rewriting a note says which version it read, and if someone changed the note meanwhile, its write is refused, so it reads the note again and merges its change in. Notes that many agents add to, such as status logs, get one appended entry each, dated and signed. Saving a note in the Shared Notes view that an agent changed since you opened it asks before overwriting it.
 
+**Long documents by section.** An agent that needs one part of a long plan, design note or spec doesn't have to read all of it: its **hive_doc_outline** tool lists a Markdown file's headings with each section's size, and **hive_read_section** reads just one section (with its subsections), by the heading's text or its slug, the heading in lower case with hyphens (`#core-contracts`; two headings called Setup are `#setup` and `#setup-1`). They work on the project's files (in the agent's worktree when it has one) and on shared notes (`shared:plans/design.md`), for Claude Code, Codex and Copilot agents and the Hive Assistant alike. A heading that isn't there gets the closest ones in reply, never an empty section. An agent reads its own project's documents only.
+
 ## Memory
 
 A project's **Memory** tab shows what each provider its agents use reads about it, grouped by provider:

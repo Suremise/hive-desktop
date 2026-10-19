@@ -36,6 +36,21 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Long documents by section: fakes, Claude Code (haiku), Codex (its default model), fixtures v59, 19 October 2026
+
+#817: two hive tools read Markdown by section (hive_doc_outline, hive_read_section), and both session contracts say to
+use them on documents over about 20 KB. One new scenario, **long-doc-section**: a question answered by one section
+(Retry policy) of a 58,000-character DESIGN.md in the project.
+- **Fakes**: the whole set passes before and after the guidance change (baseline `hb3-817-before`, fixtures v58, against
+  `hb3-817-after`: 355 checks pass, none fails; measures the same but for the guidance, +119 characters, and the tool
+  list, +1,624 bytes for the two tools). The new scenario passes with the fake Claude Code.
+- **Codex**: 3 of 3 (`2026-10-19T20-47-42-codex`): each called hive_doc_outline and then hive_read_section, never read
+  the whole file, and answered right ($0.04–0.05 a sample).
+- **Claude Code (haiku)**: 3 of 3 (`2026-10-19T20-53-36-claude-code`): it searched the file (Grep) and read a line range
+  around the answer, not the hive tools, and never the whole file: as good for a document in its own folder, which Claude
+  Code can read by range (Codex and Copilot can't, the card's reason for the tools). An earlier run
+  (`2026-10-19T20-44-11-claude-code`) did the same, failed by checks that took a ranged Read for a whole one; fixed.
+
 ## Starting fresh at a natural break: fakes, Claude Code (its default model, and haiku), Codex (its default model), fixtures v58, 18 October 2026
 
 #1082 (#1080's gaps 1 and 3, guidance only): run-lanes and coordinate-agents have the Assistant suggest once, in a line,

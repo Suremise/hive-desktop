@@ -247,6 +247,43 @@ export function noteWrittenText(path: string, characters: number, append: boolea
   return append ? `Appended ${n} characters to ${path}${revision ? ` (revision ${revision})` : ''}.` : `Wrote ${path} (${n} characters${revision ? `, revision ${revision}` : ''}).`
 }
 
+/** A heading of a document read by section (#817, GET /v1/docs/outline). */
+export interface DocHeadingRow {
+  level: number
+  text: string
+  slug: string
+  size: number
+}
+
+/** A size in characters, short: "840", "3.2k", "56k". */
+const charsShort = (n: number): string => (n < 1000 ? String(n) : n < 10_000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`)
+
+/** A heading's line: indented by its level, its marks, its text, its slug and its section's size. */
+const headingLine = (h: DocHeadingRow): string => `${'  '.repeat(h.level - 1)}${'#'.repeat(h.level)} ${h.text} [${h.slug}] ${charsShort(h.size)}`
+
+/**
+ * A document's outline: its headings down to `depth` (all by default), at most MAX_ROWS, each with its slug (what
+ * hive_read_section takes) and its section's size in characters, subsections included.
+ */
+export function docOutlineText(o: { path: string; size: number; headings: DocHeadingRow[] }, depth?: number): string {
+  if (!o.headings.length) return `${o.path} (${charsShort(o.size)} characters) has no headings: read it whole.`
+  const within = depth ? o.headings.filter((h) => h.level <= depth) : o.headings
+  const shown = within.slice(0, MAX_ROWS)
+  const lines = [`${o.path}: ${o.headings.length} headings, ${charsShort(o.size)} characters. [slug] and size per section (subsections included):`, ...shown.map(headingLine)]
+  if (within.length > shown.length) lines.push(`… ${within.length - shown.length} more: depth=${Math.max(1, Math.max(...within.map((h) => h.level)) - 1)} lists fewer.`)
+  return `${lines.join('\n')}\n\nhive_read_section reads one as #<slug>.`
+}
+
+/**
+ * A section of a document: where it is, then its text as it is. A long one (`partial`) is its own text and its
+ * subsections' outline, to read one of them, or all of it with full=true.
+ */
+export function docSectionText(s: { path: string; heading: DocHeadingRow; content: string; subsections?: DocHeadingRow[]; partial?: boolean }): string {
+  const head = `${s.path}#${s.heading.slug} (${s.heading.size.toLocaleString('en')} characters)`
+  if (!s.partial) return `${head}\n\n${s.content}`
+  return `${head}: long, so here is its text before its subsections, then their outline.\n\n${s.content}\n\n${(s.subsections ?? []).map(headingLine).join('\n')}\n\nhive_read_section reads one of them as #<slug>, or this whole section with full=true.`
+}
+
 /** A skill in a listing (GET /v1/skills?view=short): where it comes from and what it is for, without its folder. */
 export interface SkillRow {
   name: string

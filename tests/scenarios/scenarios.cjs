@@ -7,7 +7,18 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 58
+const FIXTURES_VERSION = 59
+
+/**
+ * long-doc-section's design document (#817): about 40,000 characters in 36 sections, one of which (Retry policy) holds
+ * the answer; the rest is filler the agent has no need to read.
+ */
+const LONG_DESIGN = (() => {
+  const filler = (n) => Array.from({ length: 14 }, (_, i) => `Part ${n}.${i + 1} of the design keeps the service's behaviour predictable for operators and tests alike, and records why.`).join(' ')
+  const topics = ['Overview', 'Goals', 'Non-goals', 'Architecture', 'Storage', 'Indexes', 'Caching', 'Uploads', 'Retry policy', 'Downloads', 'Authentication', 'Authorisation', 'Quotas', 'Billing', 'Logging', 'Metrics', 'Alerts', 'Backups', 'Restores', 'Migrations', 'Versioning', 'Deprecations', 'Rate limits', 'Timeouts', 'Errors', 'Localisation', 'Accessibility', 'Privacy', 'Security', 'Testing', 'Rollout', 'Rollback', 'Support', 'Costs', 'Risks', 'Open questions']
+  const sections = topics.map((t, i) => `## ${t}\n\n${t === 'Retry policy' ? 'A failed upload is retried 7 times, waiting 90 seconds between tries; after the last try it is marked failed and the user is told. ' : ''}${filler(i + 1)}\n`)
+  return `# Storage service design\n\n${sections.join('\n')}`
+})()
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -1468,6 +1479,26 @@ module.exports.SCENARIOS = [
       ['the card is unchanged', o.cards.q?.column === 'todo' && !ran(o, 'hive_update_task').length, o.cards.q?.column]
     ],
     fakeSkips: ['quoted it']
+  },
+  {
+    id: 'long-doc-section',
+    title: 'A question about one part of a long document (#817): only that part is read (its outline and section, or a range), not the whole file',
+    files: { 'DESIGN.md': LONG_DESIGN },
+    prompt: () => 'According to DESIGN.md, how many times is a failed upload retried, and how long is the wait between tries? Answer in one sentence.',
+    fake: 'hive hive_doc_outline {"path":"DESIGN.md"} then hive hive_read_section {"path":"DESIGN.md","heading":"#retry-policy"}',
+    expect: (o) => {
+      const onDoc = o.tools.filter((t) => !t.isError && !/hive_/.test(t.name) && t.input.includes('DESIGN.md'))
+      // A read of the whole file: the Read tool without a range, or a shell command that prints it all.
+      const whole = onDoc.filter((t) => (/^Read$/i.test(t.name) ? !/\b(limit|offset)\b/.test(t.input) : /bash|shell|powershell|exec|command/i.test(t.name) && /\b(cat|type|Get-Content|gc|more|less)\b/i.test(t.input) && !/-(TotalCount|Tail|First|Head)\b|\| *(head|Select-Object|Select-String|findstr|grep)/i.test(t.input)))
+      // Only part of it: the hive tools by section (any CLI), or a range or search (Claude Code reads lines, #817's card).
+      const hive = ran(o, 'hive_doc_outline').length + ran(o, 'hive_read_section').length
+      return [
+        ['read only part of it: its outline and section, or a range', hive > 0 || (onDoc.length > 0 && whole.length === 0), `${o.hiveCalls.map((x) => x.tool).join(',')} | ${onDoc.map((t) => t.name).join(',')}`],
+        ["didn't read the whole file", whole.length === 0, whole.map((t) => `${t.name} ${t.input.slice(0, 120)}`).join(' | ')],
+        ['answered from the section (7 tries, 90 seconds)', /\b7\b|seven/i.test(o.finalReply) && /\b90\b|ninety/i.test(o.finalReply), o.finalReply.slice(0, 200)]
+      ]
+    },
+    fakeSkips: ['answered from the section (7 tries, 90 seconds)']
   },
   {
     id: 'oversize-skill',

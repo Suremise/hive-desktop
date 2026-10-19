@@ -18,7 +18,7 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { REPLY_MS, agentApiCall } from './agentApiCall'
-import { MAX_ROWS, agentWatchText, journalEntryText, journalRecallText, type JournalEntryDetail, type JournalRow, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, journalEntryText, journalRecallText, type JournalEntryDetail, type JournalRow, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, docOutlineText, docSectionText, type DocHeadingRow, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 import { OVERDUE_MINUTES, ackText, inboxText, type InboxItem } from '../../shared/deliveries'
@@ -131,6 +131,11 @@ const proj = (a: Record<string, any>): string => {
   if (!p) throw new Error('project is required')
   return enc(p)
 }
+/** A document read by section (#817): its path, and the project (this one unless named). */
+const docQuery = (a: Record<string, any>): string => {
+  const p = a.project || PROJECT
+  return `path=${enc(String(a.path ?? ''))}${p ? `&project=${enc(p)}` : ''}`
+}
 
 const tools: Tool[] = [
   {
@@ -165,6 +170,20 @@ const tools: Tool[] = [
     description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md"), with its revision.',
     inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
     run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string; revision?: string })
+  },
+  {
+    name: 'hive_doc_outline',
+    description:
+      'The headings of a Markdown document, each with its slug and its section\'s size in characters (subsections included), to read only the sections you need with hive_read_section. path: a file of your project, relative to the folder you work in ("docs/PLAN.md"), or a shared note as "shared:<path>" ("shared:plans/i18n.md"). depth: only headings down to that level (2: # and ##).',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, depth: { type: 'number' }, project: projectArg }, required: ['path'] },
+    run: async (a) => docOutlineText((await api('GET', `/v1/docs/outline?${docQuery(a)}`)) as { path: string; size: number; headings: DocHeadingRow[] }, Number(a.depth) || undefined)
+  },
+  {
+    name: 'hive_read_section',
+    description:
+      'One section of a Markdown document, with its subsections. path: as for hive_doc_outline. heading: "#" and a slug from the outline ("#core-contracts"; two "Setup" headings are "#setup" and "#setup-1"), or the heading\'s text (several sections with that text: it lists their slugs). An unknown heading replies with the closest ones. A section over 30,000 characters comes as its text before its subsections and their outline; full=true gives all of it.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, heading: { type: 'string' }, full: { type: 'boolean' }, project: projectArg }, required: ['path', 'heading'] },
+    run: async (a) => docSectionText((await api('GET', `/v1/docs/section?${docQuery(a)}&heading=${enc(a.heading)}${a.full ? '&full=true' : ''}`)) as Parameters<typeof docSectionText>[0])
   },
   {
     name: 'hive_write_shared_note',
