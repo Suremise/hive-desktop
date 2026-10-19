@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 61
+const FIXTURES_VERSION = 62
 
 /** The subject's hive tool calls that the server ran, by tool (each has ok, error and args). */
 const called = (o, tool) => o.hiveCalls.filter((c) => c.tool === tool)
@@ -3015,5 +3015,48 @@ module.exports.SCENARIOS.push(
     fakeSkips: ['told the user the card in Passed already covers it']
   }
 )
+
+// Board hygiene (#409, built small): duplicates linked for the user to archive, an answer of the user's recorded as a
+// decision, a blocked reason gone stale raised (not cleared); On Hold left alone, nothing archived.
+module.exports.SCENARIOS.push({
+  id: 'board-hygiene',
+  title: "The Assistant asked to tidy a messy board (#409): links the duplicates, records the user's answer as a decision, raises the stale block, touches nothing else",
+  role: 'assistant',
+  control: 'agents',
+  persona: 'coordinator',
+  async setup(c) {
+    await c.card('d1', { title: 'Flaky: sync.test.js "retries three times" fails under load', description: 'sync.test.js "retries three times" failed 2 of 10 runs under load (runs 41, 44): the retry delay is real time.', labels: ['flaky'] })
+    await c.card('d2', { title: 'sync test fails sometimes', description: 'The sync retry test failed once in CI.' })
+    await c.card('q', { title: 'Export the board', description: 'Export the board to a file: CSV or JSON? Ask the user.', agent: 'coder', comments: ['I asked the user which format; they answered in my pane: "CSV, not JSON." Carrying on with CSV.'] })
+    await c.card('r', { title: 'Export API', description: 'GET /v1/export returns the board.', column: 'done' })
+    await c.card('s', { title: 'Export button', description: 'A button in the board header that calls the export API.' })
+    await c.api('PATCH', `/v1/tasks/${c.cards.s}`, { blocked: `Waits for #${c.cards.r} (the export API).` })
+    await c.card('h', { title: 'Parked: board themes', description: 'Colour themes for the board, someday.', column: 'hold' })
+  },
+  prompt: 'Tidy the board, please.',
+  fake: (c) =>
+    [
+      `skill board-hygiene`,
+      `hive hive_update_task {"number":${c.cards.d1},"links":[${c.cards.d2}]}`,
+      `hive hive_update_task {"number":${c.cards.d2},"links":[${c.cards.d1}],"comment":"Duplicate of #${c.cards.d1}: the user can archive it."}`,
+      `hive hive_update_task {"number":${c.cards.q},"decision":"CSV, not JSON."}`,
+      `hive hive_update_task {"number":${c.cards.s},"blocked":"#${c.cards.r} is Done: ready to unblock?"}`
+    ].join(' then '),
+  expect: (o, c) => {
+    const card = (k) => o.allCards.find((x) => x.number === c.cards[k])
+    const linked = (a, b) => (card(a)?.links ?? []).includes(c.cards[b]) || (card(b)?.links ?? []).includes(c.cards[a])
+    const dupNote = ['d1', 'd2'].some((k) => (card(k)?.comments ?? []).some((x) => new RegExp(`duplicate of #?${c.cards[k === 'd1' ? 'd2' : 'd1']}`, 'i').test(x.text)))
+    const decisions = (card('q')?.decisions ?? []).map((d) => d.text)
+    const s = card('s')
+    const raised = (s?.blocked && s.blocked !== `Waits for #${c.cards.r} (the export API).`) || new RegExp(`#?${c.cards.s}\\b`).test(o.finalReply ?? '')
+    return [
+      ['read the board-hygiene skill', read(o, 'board-hygiene'), o.skillsRead.join(',')],
+      ['linked the two duplicates, one marked a duplicate of the other', linked('d1', 'd2') && dupNote, JSON.stringify([card('d1')?.links, card('d2')?.links])],
+      ["recorded the user's answer on its card as a decision", decisions.some((t) => /CSV/i.test(t)), JSON.stringify(decisions)],
+      ['raised the stale block (rewritten, or told the user) without clearing it', !!s?.blocked && raised, `${s?.blocked ?? 'not blocked'} | ${(o.finalReply ?? '').slice(0, 200)}`],
+      ['archived nothing, and left the On Hold card alone', !called(o, 'hive_update_task').some((x) => /"archived"/.test(String(x.args))) && card('h')?.column === 'hold' && (card('h')?.comments ?? []).length === 0, JSON.stringify(card('h') && { column: card('h').column, comments: card('h').comments?.length })]
+    ]
+  }
+})
 
 module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }

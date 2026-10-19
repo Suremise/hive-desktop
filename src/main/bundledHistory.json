@@ -1,5 +1,8 @@
 {
   "skills": {
+    "board-hygiene": [
+      "0572c5dcda525e1c"
+    ],
     "card-loop": [
       "7fca2f34d9b1d72a",
       "fef50c9d90ab9153",
@@ -53,7 +56,8 @@
       "5789a9d8b15a5745",
       "c741e781e828f497",
       "f22778f750b9dc74",
-      "57d289c5244ba353"
+      "57d289c5244ba353",
+      "919aaea51b50d4cb"
     ],
     "handover": [
       "60ac1268a067e829",
@@ -101,14 +105,16 @@
       "4a5f633ce0dadd86",
       "498f2c8e26bbcdec",
       "7c7f5a64ca420f0e",
-      "be5d6f7a441bed4a"
+      "be5d6f7a441bed4a",
+      "0d9e752a3c871dd5"
     ],
     "split-work": [
       "9f3b17bc4a73bdd1",
       "125641bf5c31d814"
     ],
     "triage-report": [
-      "d854ef7b080ac6e2"
+      "d854ef7b080ac6e2",
+      "7ca7cd68a3f66813"
     ],
     "tune-settings": [
       "734ef492088145a7"

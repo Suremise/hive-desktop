@@ -69,6 +69,8 @@
   "tips.boardExport.title": "Ton tableau en simples fichiers",
   "tips.boardFold.text": "Réduis une colonne à une bande étroite avec le double chevron de son en-tête, et replie les cartes sur une ligne avec leur ▾ ; le ⋯ d’une colonne réduit ou développe toutes ses cartes. Hive s’en souvient pour l’espace de travail.",
   "tips.boardFold.title": "Replier le tableau sur l’essentiel",
+  "tips.boardHygiene.text": "Demande à l’Assistant de ranger le tableau : il relie les cartes en double pour que tu les archives, enregistre tes réponses comme décisions sur leurs cartes et signale les motifs de blocage périmés.",
+  "tips.boardHygiene.title": "Demander à l’Assistant de ranger le tableau",
   "tips.boardOrder.text": "Fais glisser les cartes les plus importantes en haut, ou demande à l’Assistant ou à un agent de les prioriser : ils réordonnent le tableau lui-même.",
   "tips.boardOrder.title": "L’ordre d’une colonne est sa priorité",
   "tips.boardReview.text": "Dis « relis la #87 » à un autre agent : la carte reste en Relecture avec l’agent qui a fait le travail, montre qui la relit et reçoit le verdict en commentaire. Quand elle réussit, le relecteur la passe en Validé.",

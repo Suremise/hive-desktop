@@ -1,6 +1,6 @@
 ---
 name: triage-report
-description: "Turn the user's problem report into a card with evidence, as the Hive Assistant: find the cause in the code first, check for a duplicate, place the card. Use when the user reports a problem (a screenshot, an error, \"X happened when I did Y\")."
+description: "Turn a reported problem into a card with evidence as the Hive Assistant: cause first, then duplicates. Use when the user reports a problem."
 metadata:
   audience: assistant
 ---

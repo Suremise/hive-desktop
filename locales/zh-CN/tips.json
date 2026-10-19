@@ -69,6 +69,8 @@
   "tips.boardExport.title": "把看板导出为普通文件",
   "tips.boardFold.text": "用列标题中的 « 把列折叠成窄条，用卡片的 ▾ 把卡片折叠成一行；列的 ⋯ 菜单可以折叠或展开该列的所有卡片。Hive 会为工作区记住这些状态。",
   "tips.boardFold.title": "把看板折叠到只剩重点",
+  "tips.boardHygiene.text": "让助手整理看板：它会把重复的卡片关联起来供你归档，把你的回答记录为对应卡片上的决定，并指出已过时的受阻原因。",
+  "tips.boardHygiene.title": "让助手整理看板",
   "tips.boardOrder.text": "把最重要的卡片拖到顶部，或者让助手或某个智能体排定优先级：它们会直接调整看板上的顺序。",
   "tips.boardOrder.title": "列中的顺序就是优先级",
   "tips.boardReview.text": "对另一个智能体说“评审 #87”：卡片会留在“评审”列中、仍归完成工作的智能体，显示谁在评审，并以评论的形式得到结论。通过后，评审者会把它移到“已通过”。",

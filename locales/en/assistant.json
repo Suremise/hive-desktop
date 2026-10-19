@@ -1503,6 +1503,10 @@
     "defaultMessage": "Reverted \"{name}\" to default",
     "description": "A notice: an edited skill is back as Hive ships it."
   },
+  "assistant.skills.shipped.boardHygiene": {
+    "defaultMessage": "Tidy the board as the Hive Assistant: duplicates, unrecorded answers, stale blocked reasons. Use when asked to tidy the board.",
+    "description": "What a skill that ships with Hive (board-hygiene) is for: under its name in the Skills view and a project's Skills tab. Keep Hive Assistant as Hive names it. Decisions are what the user decided about a card, as the card shows them."
+  },
   "assistant.skills.shipped.cardLoop": {
     "defaultMessage": "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review cards (one or several) as a builder or reviewer, or given rounds.",
     "description": "What a skill that ships with Hive (card-loop) is for: under its name in the Skills view and a project's Skills tab. Builder and reviewer are the two sides of a card loop."
@@ -1540,8 +1544,8 @@
     "description": "What a skill that ships with Hive (split-work) is for: under its name in the Skills view and a project's Skills tab."
   },
   "assistant.skills.shipped.triageReport": {
-    "defaultMessage": "Turn the user's problem report into a card with evidence, as the Hive Assistant: find the cause in the code first, check for a duplicate, place the card. Use when the user reports a problem (a screenshot, an error, \"X happened when I did Y\").",
-    "description": "What a skill that ships with Hive (triage-report) is for: under its name in the Skills view and a project's Skills tab. Keep Hive Assistant as Hive names it. \"X happened when I did Y\" is how a user might report a problem: translate it."
+    "defaultMessage": "Turn a reported problem into a card with evidence as the Hive Assistant: cause first, then duplicates. Use when the user reports a problem.",
+    "description": "What a skill that ships with Hive (triage-report) is for: under its name in the Skills view and a project's Skills tab. Keep Hive Assistant as Hive names it."
   },
   "assistant.skills.shipped.tuneSettings": {
     "defaultMessage": "Explain and suggest Hive's settings as the Hive Assistant; change one only when the user agrees. Use when asked what a setting does or how to make Hive behave differently, or when one would fix what you see.",

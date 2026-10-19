@@ -69,6 +69,8 @@
   "tips.boardExport.title": "Twoja tablica jako zwykłe pliki",
   "tips.boardFold.text": "Zwiń kolumnę do wąskiego paska przyciskiem « w jej nagłówku, a karty do jednego wiersza ich ▾; menu ⋯ kolumny zwija lub rozwija wszystkie jej karty. Hive zapamiętuje to dla obszaru roboczego.",
   "tips.boardFold.title": "Zwiń tablicę do tego, co ważne",
+  "tips.boardHygiene.text": "Poproś Asystenta o uporządkowanie tablicy: połączy zduplikowane karty, żebyś mógł je zarchiwizować, zapisze Twoje odpowiedzi jako decyzje na ich kartach i zgłosi nieaktualne powody blokady.",
+  "tips.boardHygiene.title": "Poproś Asystenta o uporządkowanie tablicy",
   "tips.boardOrder.text": "Przeciągnij najważniejsze karty na górę albo poproś Asystenta lub agenta o ustalenie priorytetów: zmieniają kolejność na samej tablicy.",
   "tips.boardOrder.title": "Kolejność w kolumnie to priorytet",
   "tips.boardReview.text": "Napisz innemu agentowi „zrecenzuj #87”: karta zostaje w Recenzji z agentem, który wykonał pracę, pokazuje, kto ją recenzuje, i dostaje werdykt jako komentarz. Gdy przejdzie, recenzent przenosi ją do Zatwierdzone.",

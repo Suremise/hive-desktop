@@ -193,6 +193,21 @@ describe('triage-report', () => {
   })
 })
 
+// #409, built small (the Assistant's brief, 19 Oct): duplicates, unrecorded answers, out-of-date blocked reasons; the
+// column, stalled and lane sweeps are Hive's own (#1120). Never archives or deletes; On Hold and Done are the user's.
+describe('board-hygiene', () => {
+  it("sweeps for three things only, and leaves archiving, On Hold and Done to the user", () => {
+    const skill = catalog.get('board-hygiene')!
+    expect(skill.audience).toBe('assistant')
+    expect(skill.text.match(/^## .*/gm)).toEqual(['## Duplicates', '## Decisions', '## Blocked reasons', '## Leave alone', '## After the sweep'])
+    expect(skill.text).toMatch(/Archiving and deleting are the user's: never do either\./)
+    expect(skill.text).toMatch(/Don't clear a block yourself unless the user asked you to/)
+    expect(skill.text).toMatch(/On Hold and Done are the user's: change nothing there unless they ask\./)
+    expect(catalog.get('coordinate-agents')!.text).toMatch(/the board-hygiene skill\./)
+    expect(catalog.get('run-lanes')!.text).toMatch(/an out-of-date blocked reason \(board-hygiene\)/)
+  })
+})
+
 // #1075: two coordinator lessons from 0.9.0 that lived only in the Assistant's memory.
 describe('coordinator guidance', () => {
   const text = (): string => catalog.get('coordinate-agents')!.text

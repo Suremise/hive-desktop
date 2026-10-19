@@ -279,6 +279,14 @@
     "defaultMessage": "Fold the board to what matters",
     "description": "A tip's title."
   },
+  "tips.boardHygiene.text": {
+    "defaultMessage": "Ask the Assistant to tidy the board: it links duplicate cards for you to archive, records your answers as decisions on their cards, and raises blocked reasons that are out of date.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. Decisions are what the user decided about a card, as the card shows them."
+  },
+  "tips.boardHygiene.title": {
+    "defaultMessage": "Ask the Assistant to tidy the board",
+    "description": "A tip's title."
+  },
   "tips.boardOrder.text": {
     "defaultMessage": "Drag the most important cards to the top, or ask the Assistant or an agent to prioritise: they reorder the board itself.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

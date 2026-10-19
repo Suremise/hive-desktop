@@ -377,6 +377,7 @@ interface HiveMessageValues {
   'assistant.skills.revertTip': undefined
   'assistant.skills.revertTitle': undefined
   'assistant.skills.reverted': { name: string | number }
+  'assistant.skills.shipped.boardHygiene': undefined
   'assistant.skills.shipped.cardLoop': undefined
   'assistant.skills.shipped.coordinateAgents': undefined
   'assistant.skills.shipped.handover': undefined

@@ -69,6 +69,8 @@
   "tips.boardExport.title": "Your board as plain files",
   "tips.boardFold.text": "Collapse a column to a narrow strip with the « in its header, and fold cards to one line with their ▾; a column's ⋯ collapses or expands all its cards. Hive remembers them for the workspace.",
   "tips.boardFold.title": "Fold the board to what matters",
+  "tips.boardHygiene.text": "Ask the Assistant to tidy the board: it links duplicate cards for you to archive, records your answers as decisions on their cards, and raises blocked reasons that are out of date.",
+  "tips.boardHygiene.title": "Ask the Assistant to tidy the board",
   "tips.boardOrder.text": "Drag the most important cards to the top, or ask the Assistant or an agent to prioritise: they reorder the board itself.",
   "tips.boardOrder.title": "A column's order is its priority",
   "tips.boardReview.text": "Say \"review #87\" to another agent: the card stays in Review with the agent that did the work, shows who is reviewing it, and gets the verdict as a comment. When it passes, the reviewer moves it to Passed.",

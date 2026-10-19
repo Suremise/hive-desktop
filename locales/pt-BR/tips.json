@@ -69,6 +69,8 @@
   "tips.boardExport.title": "Seu quadro em arquivos simples",
   "tips.boardFold.text": "Recolha uma coluna a uma faixa estreita com o « no cabeçalho dela, e reduza cartões a uma linha com o ▾ deles; o ⋯ de uma coluna recolhe ou expande todos os cartões dela. O Hive lembra disso para o espaço de trabalho.",
   "tips.boardFold.title": "Reduza o quadro ao que importa",
+  "tips.boardHygiene.text": "Peça ao Assistente para organizar o quadro: ele vincula cartões duplicados para você arquivar, registra suas respostas como decisões nos cartões e aponta motivos de bloqueio desatualizados.",
+  "tips.boardHygiene.title": "Peça ao Assistente para organizar o quadro",
   "tips.boardOrder.text": "Arraste os cartões mais importantes para o topo, ou peça ao Assistente ou a um agente para priorizar: eles reordenam o próprio quadro.",
   "tips.boardOrder.title": "A ordem de uma coluna é a prioridade dela",
   "tips.boardReview.text": "Diga “revise o #87” a outro agente: o cartão fica em Revisão com o agente que fez o trabalho, mostra quem o está revisando e recebe o veredito como comentário. Quando é aprovado, o revisor o move para Aprovado.",

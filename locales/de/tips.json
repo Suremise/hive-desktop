@@ -69,6 +69,8 @@
   "tips.boardExport.title": "Dein Board als einfache Dateien",
   "tips.boardFold.text": "Klappe eine Spalte mit dem « in ihrem Kopf zu einem schmalen Streifen zusammen und Karten mit ihrem ▾ auf eine Zeile; das ⋯ einer Spalte klappt alle ihre Karten ein oder aus. Hive merkt sich das für den Arbeitsbereich.",
   "tips.boardFold.title": "Das Board auf das Wichtige reduzieren",
+  "tips.boardHygiene.text": "Bitte den Assistenten, das Board aufzuräumen: Er verknüpft doppelte Karten, damit du sie archivieren kannst, hält deine Antworten als Entscheidungen auf ihren Karten fest und meldet veraltete Blockiert-Gründe.",
+  "tips.boardHygiene.title": "Den Assistenten das Board aufräumen lassen",
   "tips.boardOrder.text": "Zieh die wichtigsten Karten nach oben oder bitte den Assistenten oder einen Agenten, Prioritäten zu setzen: Sie sortieren das Board selbst um.",
   "tips.boardOrder.title": "Die Reihenfolge einer Spalte ist ihre Priorität",
   "tips.boardReview.text": "Sag einem anderen Agenten „reviewe #87“: Die Karte bleibt in Review beim Agenten, der die Arbeit gemacht hat, zeigt, wer sie prüft, und bekommt das Ergebnis als Kommentar. Besteht sie, verschiebt der Reviewer sie nach Geprüft.",
