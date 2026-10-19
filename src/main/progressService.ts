@@ -48,6 +48,12 @@ export const progress = new ProgressStore({
 
 /** Each workspace's tellings of its window, numbered: a window that missed one (another workspace shown meanwhile) reads the list again. */
 const seqs = new Map<string, number>()
+
+/** The number of a workspace's last telling, for a window reading its runs (progress:snapshot). */
+export function progressSeq(workspacePath: string): number {
+  return seqs.get(workspacePath.toLowerCase()) ?? 0
+}
+
 function nextSeq(workspacePath: string): number {
   const k = workspacePath.toLowerCase()
   const seq = (seqs.get(k) ?? 0) + 1

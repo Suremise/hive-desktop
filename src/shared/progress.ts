@@ -1,4 +1,4 @@
-import type { MergeSlotInfo, ProgressRun } from './types'
+import type { MergeSlotInfo, ProgressRun, ProgressSnapshot, ProgressTelling } from './types'
 import { formatDateTime } from './dates'
 import { msg } from './i18n/msg'
 import { providerName } from './providers'
@@ -219,6 +219,72 @@ export function applyRunsPatch(runs: readonly ProgressRun[], patch: readonly Pro
     out.splice(at < 0 ? out.length : at, 0, r)
   }
   return out
+}
+
+/**
+ * Keeps a window's runs in step with main's tellings (#1108). A telling of the whole list replaces it; one of some runs
+ * is put in place only when it follows the last applied (its seq one more), else the list is read again. A read
+ * (`reload`: at first, when the window's workspace changes, after a telling was missed) gets the list with the number of
+ * the last telling sent before it; tellings that arrive meanwhile wait, and those after that number are applied on top
+ * of it, in order. A read whose answer is for another workspace, or that a newer read replaced, is dropped. One that
+ * fails leaves no base: the next telling of some runs reads again (a whole one is a base).
+ */
+export class ProgressSync {
+  private seq: number | null = null
+  private reading: { id: number; workspace: string; waiting: ProgressTelling[] } | null = null
+  private reads = 0
+
+  constructor(
+    private d: {
+      workspace: () => string | null
+      runs: () => ProgressRun[]
+      set: (runs: ProgressRun[]) => void
+      load: () => Promise<ProgressSnapshot>
+    }
+  ) {}
+
+  /** Reads the window's workspace's list afresh. */
+  reload(): void {
+    const ws = this.d.workspace()?.toLowerCase()
+    this.seq = null
+    if (!ws) return void (this.reading = null)
+    const id = ++this.reads
+    const reading = { id, workspace: ws, waiting: [] as ProgressTelling[] }
+    this.reading = reading
+    const mine = (): boolean => this.reading?.id === id && this.d.workspace()?.toLowerCase() === ws
+    this.d.load().then(
+      (snap) => {
+        if (!mine()) return
+        this.reading = null
+        if (snap.workspacePath.toLowerCase() !== ws) return
+        this.seq = snap.seq
+        this.d.set(snap.runs)
+        for (const e of reading.waiting) if (e.seq > snap.seq) this.told(e)
+      },
+      () => {
+        if (!mine()) return
+        this.reading = null
+        const whole = reading.waiting.filter((e) => e.whole).at(-1)
+        if (whole) this.told(whole)
+      }
+    )
+  }
+
+  /** A telling from main: for the window's workspace only. */
+  told(e: ProgressTelling): void {
+    const ws = this.d.workspace()?.toLowerCase()
+    if (!ws || e.workspacePath.toLowerCase() !== ws) return
+    // A read of the workspace shown before: this one's starts (and this telling waits for it).
+    if (this.reading && this.reading.workspace !== ws) this.reload()
+    if (this.reading) return void this.reading.waiting.push(e)
+    if (e.whole) {
+      this.seq = e.seq
+      return this.d.set(e.runs)
+    }
+    if (this.seq === null || e.seq !== this.seq + 1) return this.reload()
+    this.seq = e.seq
+    this.d.set(applyRunsPatch(this.d.runs(), e.runs))
+  }
 }
 
 /** An agent's newest open run (running or stale), for what it is doing elsewhere (the Assistant's overview, #311). */

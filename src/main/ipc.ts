@@ -33,7 +33,7 @@ import { createLogger, logsDir, userText } from './logger'
 import { diagnostics } from './diagnostics'
 import { resumeAfterClose, startupStep, stopLeftAfterClose } from './lastRun'
 import { keepAwakeCount } from './power'
-import { progress } from './progressService'
+import { progress, progressSeq } from './progressService'
 import { mergeSlots, recoverMergeSlots, workspaceSlots } from './mergeSlotHost'
 import { followNames } from './projectRename'
 import { slotBranch } from './mergeSlots'
@@ -981,6 +981,13 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       // Recent from before a restart joins the runs the first time the window asks (#352).
       await progress.loadHistory(ws)
       return progress.list(ws)
+    },
+    'progress:snapshot': async () => {
+      const ws = workspace.path
+      if (!ws) return { workspacePath: '', seq: 0, runs: [] }
+      await progress.loadHistory(ws)
+      // The list and the number of the last telling together: every telling sent after has a higher one (#1108).
+      return { workspacePath: ws, seq: progressSeq(ws), runs: progress.list(ws) }
     },
     'progress:dismiss': (id) => {
       if (workspace.path) progress.dismiss(workspace.path, String(id))

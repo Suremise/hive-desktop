@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, applyRunsPatch, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runAgentName, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
+import { ALL_PROJECTS, RECENT_RUNS, SHOW_ALL, activeFilter, agentChoices, ProgressSync, barLook, filterChoices, filterMergeSlots, filterRuns, fractionDone, inStrip, isListed, isOpenRun, isRecent, runDetails, runAgentName, runDetailsText, runStateWord, runStatusLine, stripRuns, stripSummary, unseenTrouble } from '@shared/progress'
 import { durationText } from '@shared/tasks'
-import type { HiveEvent, MergeSlotInfo, ProgressRun } from '@shared/types'
+import type { MergeSlotInfo, ProgressRun, ProgressTelling } from '@shared/types'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import { attempt, selectProject } from '../actions'
 import { call } from '../api'
@@ -70,34 +70,25 @@ const showLabel = (r: ProgressRun): string =>
     ? tr(msg({ id: 'board.progress.showAssistant', defaultMessage: 'Show the Assistant, which ran {run}', description: "Accessible name of the button showing the Hive Assistant, which ran a Progress panel run ({run}: the run's title)." }), { run: r.title })
     : tr(msg({ id: 'board.progress.showAgent', defaultMessage: 'Show {agent}, which ran {run}', description: "Accessible name of the button showing the agent ({agent}) that ran a Progress panel run ({run}: the run's title)." }), { agent: runAgentName(r, tr), run: r.title })
 
-/**
- * A telling of this window's runs (#1108): every run, or the runs that changed, put in place by id (the others stay the
- * same objects). One skipped (the window showed another workspace meanwhile) reads the list again; tellings that come
- * while it is read are applied as they come, and the list, read after them, replaces them.
- */
-export function progressRunsChanged(e: Extract<HiveEvent, { type: 'progress-runs' }>): void {
-  const { progressRuns, progressSeq } = get()
-  if (e.whole) return set({ progressRuns: e.runs, progressSeq: e.seq })
-  if (progressSeq !== null && e.seq !== progressSeq + 1) {
-    set({ progressSeq: null })
-    void call('progress:list').then((runs) => set({ progressRuns: runs }))
-    return
-  }
-  set({ progressRuns: applyRunsPatch(progressRuns, e.runs), progressSeq: e.seq })
+/** This window's runs, kept in step with main's tellings (#1108): the others stay the same objects. */
+const progressSync = new ProgressSync({
+  workspace: () => get().workspace?.path ?? null,
+  runs: () => get().progressRuns,
+  set: (runs) => set({ progressRuns: runs }),
+  load: () => call('progress:snapshot')
+})
+
+/** A telling of this window's runs (`progress-runs`). */
+export function progressRunsChanged(e: ProgressTelling): void {
+  progressSync.told(e)
 }
 
-/** This window's runs, loaded when its workspace changes (events keep them current). */
+/** This window's runs, read when its workspace changes (tellings keep them current). */
 function useProgressRuns(): ProgressRun[] {
   const ws = useStore((s) => s.workspace?.path)
   const on = useStore((s) => s.settings?.general.progressPanel !== false)
   useEffect(() => {
-    if (!ws || !on) return
-    let current = true
-    set({ progressSeq: null })
-    void call('progress:list').then((runs) => current && set({ progressRuns: runs }))
-    return () => {
-      current = false
-    }
+    if (ws && on) progressSync.reload()
   }, [ws, on])
   return useStore((s) => s.progressRuns ?? NO_RUNS)
 }
@@ -242,6 +233,8 @@ function stepLine(r: ProgressRun): string | null {
  * opens its details (and closes them); its agent's name shows the agent.
  */
 const RunRow = memo(function RunRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: (id: string) => void }) {
+  // Its own: a memo'd row isn't drawn with its parent, so it follows the language itself.
+  useLanguage()
   const project = useStore((s) => (r.projectPath ? (findProject(s, r.projectPath)?.name ?? null) : null))
   const showable = useStore((s) => whyNotShown(s, r) === null)
   const fraction = fractionDone(r)
@@ -353,6 +346,7 @@ function RunWho({ run: r, project }: { run: ProgressRun; project: string | null 
  */
 // A closed one's `now` is 0: nothing in it shows the time, so a second passing doesn't draw it again.
 const RecentRow = memo(function RecentRow({ run: r, now, open, onToggle }: { run: ProgressRun; now: number; open: boolean; onToggle: (id: string) => void }) {
+  useLanguage()
   const item = useRef<HTMLDivElement>(null)
   // Opened in the scrolling box of all of them, its details scroll into view.
   useEffect(() => {
