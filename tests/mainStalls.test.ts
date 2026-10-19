@@ -1,11 +1,20 @@
 // "The main process was busy" (#1109): a gap spanning the PC's sleep isn't a stall, and a real one names the work that
 // overlapped it (IPC calls, Agent API requests, hooks) and the main thread's CPU time.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { beginWork, stallClock, stallWatcher, workDuring, workEnded, STALL_TIMING } from '../src/main/mainStalls'
+import { apiLabel, beginWork, hookLabel, stallClock, stallWatcher, workDuring, STALL_TIMING } from '../src/main/mainStalls'
 
 let now = 0
 let base = 0
 const realMono = stallClock.mono
+
+/** Work that has just ended after `ms`. */
+function ran(label: string, ms: number): void {
+  const end = now
+  now = end - ms
+  const done = beginWork(label)
+  now = end
+  done()
+}
 
 /** A watcher on a fake clock and loop delay: its deferred decisions run when settle() is called. */
 function watcher() {
@@ -93,15 +102,49 @@ describe('main process stalls (#1109)', () => {
     const s = watcher()
     s.tick()
     const long = beginWork('ipc git:status')
-    workEnded('api GET /v1/tasks', 0)
+    ran('api GET /v1/tasks', 0)
     s.stall(2000)
-    workEnded('api POST /v1/tasks/:n', 1900)
-    workEnded('hook PreToolUse', 60)
-    workEnded('hook Stop', 20)
+    ran('api POST /v1/tasks/:n', 1900)
+    ran('hook PreToolUse', 60)
+    ran('hook Stop', 20)
     now += 1000
     s.settle()
     long()
     expect(s.warnings[0]).toBe('The main process was busy for 2000 ms (main thread CPU 2000 ms); during it: ipc git:status (3.0 s, still running), api POST /v1/tasks/:n (1.9 s), hook PreToolUse (0.1 s) and 1 more')
+  })
+
+  it('keeps the work a stall overlapped, however much ends before the warning is decided', () => {
+    const s = watcher()
+    s.tick()
+    const done = beginWork('ipc culprit:block')
+    s.stall(1500)
+    done()
+    for (let i = 0; i < 201; i++) ran('api GET /v1/tasks', 1)
+    s.settle()
+    expect(s.warnings[0]).toContain('during it: ipc culprit:block (1.5 s)')
+  })
+
+  it('names an API request still running when the warning is decided, by its route once known', () => {
+    const s = watcher()
+    s.tick()
+    let route = '(no route)'
+    const done = beginWork(() => apiLabel('POST', route))
+    route = '/v1/tasks/:n'
+    s.stall(1500)
+    now += 2000
+    s.settle()
+    done()
+    expect(s.warnings[0]).toContain('during it: api POST /v1/tasks/:n (3.5 s, still running)')
+  })
+
+  it("names hooks and requests only by names Hive knows, never by what a client sent", () => {
+    expect(hookLabel(false, { hook_event_name: 'PreToolUse' })).toBe('hook PreToolUse')
+    expect(hookLabel(false, { hook_event_name: 'PrivateCustomerName' })).toBe('hook (other event)')
+    expect(hookLabel(false, null)).toBe('hook (other event)')
+    expect(hookLabel(true, { hook_event_name: 'Stop' })).toBe('hook status line')
+    expect(apiLabel('GET', '/v1/tasks')).toBe('api GET /v1/tasks')
+    expect(apiLabel('PrivateCustomerName', '(no route)')).toBe('api other (no route)')
+    expect(apiLabel(undefined, '(no route)')).toBe('api other (no route)')
   })
 
   it('says when nothing tracked was running, and leaves CPU out where it is unknown', () => {
@@ -142,7 +185,7 @@ describe('main process stalls (#1109)', () => {
   })
 
   it('lists the work overlapping a span only', () => {
-    workEnded('ipc before', 100)
+    ran('ipc before', 100)
     now += 1000
     const done = beginWork('ipc inside')
     now += 100
