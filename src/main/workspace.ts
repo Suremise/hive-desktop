@@ -29,6 +29,8 @@ import { NO_PROJECT_IDS, isProjectId, settleProjectIds, type ProjectIdEntry, typ
 const log = createLogger('workspace')
 /** What the board keeps in .hive (#1017): its database and the files beside it, the cards' old folders, backups and the deleted cards' staging. */
 const BOARD_FILES = /^(hive\.db(-wal|-shm|-journal)?|tasks|tasks\..+|backups|deleted-cards)$/
+/** How often a workspace root whose folder went is tried again (#964). */
+const ROOT_WATCH_RETRY_MS = 3000
 /** The workspace's refusals and its notice, in the window's language (#850); agents (the Agent API) read their English. */
 const M = {
   noWorkspace: msg({ id: 'service.workspace.none', defaultMessage: 'No workspace is open', description: 'An error: the action needs a workspace, and none is open in this window.' }),
@@ -284,6 +286,8 @@ export class WorkspaceService {
     this.refreshTimer = null
     if (this.idsTimer) clearTimeout(this.idsTimer)
     this.idsTimer = null
+    if (this.rootRetry) clearTimeout(this.rootRetry)
+    this.rootRetry = null
     this.rootWatcher?.close()
     this.rootWatcher = null
     if (closing) closeBoard(closing)
@@ -370,18 +374,7 @@ export class WorkspaceService {
     // listing or stat-ing what is in it: chokidar stats every entry it lists through Electron's fs, which opens and holds
     // an .asar file (#246). A folder appearing, going or renamed there reads the project list again (a project's own
     // folder changing reports 'change').
-    try {
-      this.rootWatcher = watch(this.path, (evt) => {
-        if (evt !== 'rename') return
-        // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
-        if (this.ids) this.ids.at = 0
-        this.scheduleRefresh()
-        this.scheduleIdsCheck()
-      })
-      this.rootWatcher.on('error', (e) => log.warn('workspace root watcher error', e))
-    } catch (e) {
-      log.warn('watching the workspace root', e)
-    }
+    this.watchRoot()
     const assistantHome = this.assistantHome.toLowerCase()
     const mcpDir = this.mcpDir.toLowerCase() + sep
     const hiveDir = this.hiveDir.toLowerCase() + sep
@@ -406,6 +399,59 @@ export class WorkspaceService {
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))
+  }
+
+  private rootRetry: NodeJS.Timeout | null = null
+
+  /**
+   * The workspace root's watch (#964). The folder deleted while it is open, Windows names it by its full path in a stream
+   * of events that doesn't stop (about 100,000 in half a second), even once a folder of that name is made again, and
+   * raises no error: each event reset the refresh's timers, keeping the main process busy until the workspace closed. That
+   * watch ends, and is tried again every few seconds until the folder is back (a rename sends no such events).
+   */
+  private watchRoot(retried = false): void {
+    if (!this.path || this.rootWatcher) return
+    const generation = this.generation
+    const retry = (): void => {
+      if (this.rootRetry || generation !== this.generation) return
+      this.rootRetry = setTimeout(() => {
+        this.rootRetry = null
+        if (generation === this.generation) this.watchRoot(true)
+      }, ROOT_WATCH_RETRY_MS)
+    }
+    const changed = (): void => {
+      // A folder renamed, added or gone: the projects' ids are read again, and a project renamed tells the board (#508).
+      if (this.ids) this.ids.at = 0
+      this.scheduleRefresh()
+      this.scheduleIdsCheck()
+    }
+    let watcher: RootWatcher
+    const end = (): void => {
+      if (this.rootWatcher === watcher) this.rootWatcher = null
+      watcher.close()
+      retry()
+    }
+    try {
+      watcher = watch(this.path, (evt, name) => {
+        if (this.rootWatcher !== watcher) return
+        if (name && /[\\/]/.test(name)) {
+          log.warn('the workspace folder is gone: its watch ends until it is back')
+          return end()
+        }
+        if (evt === 'rename') changed()
+      })
+    } catch (e) {
+      if (!retried) log.warn('watching the workspace root', e)
+      retry()
+      return
+    }
+    watcher.on('error', (e) => {
+      log.warn('workspace root watcher error', e)
+      end()
+    })
+    this.rootWatcher = watcher
+    // Watched again after the folder was gone: what is in it now may have changed meanwhile.
+    if (retried) changed()
   }
 
   /** The cards' folder before 0.9 (#1017): now the stub an older Hive looks at, and the import's source. */
