@@ -2982,6 +2982,8 @@ module.exports.SCENARIOS.push(
         ['filed one card for it', made.length === 1, String(made.length)],
         ['the card names the cause in the code (banner.js, the plural)', /banner\.js/.test(text) && /plural|n > 1|> ?1|!== ?1/i.test(text), text.slice(0, 400)],
         ['and quotes what the user saw', /Saved 0 card/.test(text), text.slice(0, 200)],
+        // What the skill adds (#408): without it, cards gave a cause and a fix but neither evidence nor a done-when.
+        ['with its evidence and how to tell it is done', /evidence/i.test(text) && /done when/i.test(text), text.slice(0, 400)],
         ['the card is in Todo', card?.column === 'todo', card?.column],
         ["didn't fix it itself", o.gitStatus.trim() === '', o.gitStatus]
       ]

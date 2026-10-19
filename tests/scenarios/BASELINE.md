@@ -36,6 +36,22 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## The QA triager's procedure: fakes, Claude Code (its default model), Codex (its default model), fixtures v61, 19 October 2026
+
+#408: a new Assistant skill, **triage-report** (the cause found in the code before the card, a duplicate check including
+Passed and unmerged work, then the card with what the user saw, the likely cause, evidence, fix direction and done
+when), which the QA triager mode now names. Two new scenarios: **qa-triage-report** (a banner reads "Saved 0 card": the
+cause is a plural in banner.js) and **qa-triage-duplicate** (the same report while a card with its fix is in Passed).
+- **Fakes**: mode-qa-triager-plans and -coordinates pass before (`hb5-408-before`, main at 1cd25924) and after
+  (`hb5-408-after`); the mode is +126 bytes, the skills' catalog +255, delivered skills +2,521 (one more skill).
+- **Claude Code, before** (main's skills, the new scenarios copied in; `2026-10-19T20-48-31-claude-code`): 2 of 2 each
+  already found the cause, filed one card in Todo and, with the fix in Passed, commented on it instead of filing a twin.
+  Its cards gave the cause, a fix and a test, but no evidence and no done-when.
+- **Claude Code, after**: both pass 2 of 2, reading triage-report each time (`2026-10-19T20-41-33-claude-code`), and the
+  cards carry what the user saw, evidence and a done-when. qa-triage-report now checks evidence and done-when: 2 of 2
+  (`2026-10-19T20-54-40-claude-code`).
+- **Codex**: both pass (`2026-10-19T20-44-15-codex`), reading triage-report; its card has evidence and a done-when.
+
 ## Coordinator lessons from 0.9.0: fakes, Claude Code (its default model), Codex (its default model), fixtures v60, 19 October 2026
 
 #1075: run-lanes has the coordinator bring the user a simpler option, with a recommendation, when a card fails review a
