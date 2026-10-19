@@ -227,7 +227,8 @@ export function applyRunsPatch(runs: readonly ProgressRun[], patch: readonly Pro
  * (`reload`: at first, when the window's workspace changes, after a telling was missed) gets the list with the number of
  * the last telling sent before it; tellings that arrive meanwhile wait, and those after that number are applied on top
  * of it, in order. A read whose answer is for another workspace, or that a newer read replaced, is dropped. One that
- * fails leaves no base: the next telling of some runs reads again (a whole one is a base).
+ * fails takes the newest whole telling that waited as its base and applies the rest on it the same way; with none, and
+ * tellings waiting, it reads again.
  */
 export class ProgressSync {
   private seq: number | null = null
@@ -259,15 +260,23 @@ export class ProgressSync {
         if (snap.workspacePath.toLowerCase() !== ws) return
         this.seq = snap.seq
         this.d.set(snap.runs)
-        for (const e of reading.waiting) if (e.seq > snap.seq) this.told(e)
+        this.replay(reading.waiting.filter((e) => e.seq > snap.seq))
       },
       () => {
         if (!mine()) return
         this.reading = null
-        const whole = reading.waiting.filter((e) => e.whole).at(-1)
-        if (whole) this.told(whole)
+        // The newest whole telling that waited is a base, and what came after it is applied on it as after a read. With
+        // none, what waited can't be placed: read again, once per failed read that had tellings waiting (it never spins).
+        const base = reading.waiting.findLastIndex((e) => e.whole)
+        if (base >= 0) this.replay(reading.waiting.slice(base))
+        else if (reading.waiting.length) this.reload()
       }
     )
+  }
+
+  /** Tellings that waited for a read, applied in order as if just told (one missed reads again, as ever). */
+  private replay(tellings: ProgressTelling[]): void {
+    for (const e of tellings) this.told(e)
   }
 
   /** A telling from main: for the window's workspace only. */

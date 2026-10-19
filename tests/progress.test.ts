@@ -185,6 +185,42 @@ describe("the window's tellings (#1108)", () => {
       w.tell(5, [run('x', 5)])
       expect(w.steps()).toEqual([5])
     })
+
+    it('a failed read applies what waited after its newest whole telling, with no telling after (HR2, round 2)', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(3, [run('x', 3)])
+      w.tell(4, [run('x', 4)], true)
+      w.tell(5, [run('x', 5)])
+      await w.fail(0)
+      expect(w.steps()).toEqual([5])
+      expect(w.reads).toHaveLength(1)
+      w.tell(6, [run('x', 6)])
+      expect(w.steps()).toEqual([6])
+    })
+
+    it('a failed read whose waiting tellings skip one after the whole reads again, and the next read puts it right', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(4, [run('x', 4)], true)
+      w.tell(6, [run('x', 6)])
+      await w.fail(0)
+      expect(w.steps()).toEqual([4])
+      expect(w.reads).toHaveLength(2)
+      w.tell(7, [run('x', 7)])
+      await w.answer(1, 6, [run('x', 6)])
+      expect(w.steps()).toEqual([7])
+    })
+
+    it('a failed read with only some runs waiting reads again once, not on and on', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(2, [run('x', 2)])
+      await w.fail(0)
+      expect(w.reads).toHaveLength(2)
+      await w.fail(1)
+      expect(w.reads).toHaveLength(2)
+    })
   })
 
   it('a patch puts runs in place by id, keeps the others the same objects, and a new run by when it started', () => {
