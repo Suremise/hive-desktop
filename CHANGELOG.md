@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+
+- **The code editor's right-click menu is readable again.** In the Files tab, the editor's menu (Go to Symbol, Format Document, Cut, Copy, Paste…) showed dark text with no background or border. It now looks like Hive's other menus in both themes: a surface with a border, readable entries and shortcuts, and the hovered entry filled with the accent colour (#1102).
+
 ## 0.9.2 — 2026-10-19
 
 - **Retry a Copilot update that WinGet refuses.** If WinGet cannot remove the old portable package, Agent Setup explains that its files may have changed (for example, through Copilot's own updater) and offers **Update anyway** to retry with `--force`. Hive only forces the update when you click it, and still asks you to stop running Copilot agents first (#1101).
