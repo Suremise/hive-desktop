@@ -57,6 +57,14 @@ interface HiveMessageValues {
   'settings.advanced.codex.turnScreen.working.title': undefined
   'settings.advanced.codexPermissions.desc': { label: string | number; mode: string | number }
   'settings.advanced.codexPermissions.title': { label: string | number }
+  'settings.advanced.copilot.compaction.conversationTokens.desc': undefined
+  'settings.advanced.copilot.compaction.conversationTokens.title': undefined
+  'settings.advanced.copilot.compaction.summary.desc': undefined
+  'settings.advanced.copilot.compaction.summary.title': undefined
+  'settings.advanced.copilot.compaction.systemTokens.desc': undefined
+  'settings.advanced.copilot.compaction.systemTokens.title': undefined
+  'settings.advanced.copilot.compaction.toolTokens.desc': undefined
+  'settings.advanced.copilot.compaction.toolTokens.title': undefined
   'settings.advanced.copilot.exit.graceSeconds.desc': { took: number }
   'settings.advanced.copilot.exit.graceSeconds.title': undefined
   'settings.advanced.copilot.hooks.preToolUseTimeoutSeconds.desc': undefined

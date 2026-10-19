@@ -318,6 +318,7 @@ interface HiveMessageValues {
   'workspace.statusBar.openWorkspace': undefined
   'workspace.statusBar.planLine': { provider: string | number; hasPlan: string; plan: string | number }
   'workspace.statusBar.providerTip': { provider: string | number; version: string | number; source: string | number; hasWarning: string; warning: string | number; hasUpdate: string; latest: string | number }
+  'workspace.statusBar.reportedBy': { agent: string | number; when: string | number }
   'workspace.statusBar.running': { count: number; working: string | number; background: number; waiting: string | number }
   'workspace.statusBar.shortLimit': { window: string; label: string | number }
   'workspace.statusBar.workspace': { path: string | number }

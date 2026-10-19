@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tempRoot } from './tempDir'
 
@@ -20,17 +22,22 @@ vi.mock('electron', () => ({
 }))
 
 const { config } = await import('../src/main/config')
-const { reportPlanUsage } = await import('../src/main/planUsage')
+const { mergePlanUsage, nextWarning, reportPlanUsage } = await import('../src/main/planUsage')
+const { parseClaudePlanUsage } = await import('../src/main/providers/claude/adapter')
+const { rolloutPlanUsage } = await import('../src/main/providers/codex/rollout')
 const { onHiveEvent } = await import('../src/main/events')
 const { setFocusedHive } = await import('../src/main/notices')
 const { DEFAULT_SETTINGS } = await import('../src/shared/defaults')
 
+// Resets ahead of now, as a current reading's are (one past its reset is an old period's: #383).
+const FIVE_RESETS = new Date(Date.now() + 3 * 3600e3).toISOString()
+const WEEK_RESETS = new Date(Date.now() + 4 * 86400e3).toISOString()
 const usage = (five: number, week = 10) => ({
   provider: 'claude-code',
   plan: null,
   limits: [
-    { id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: five, resetsAt: '2026-09-30T00:00:00.000Z' },
-    { id: 'seven_day', label: 'weekly', windowMinutes: 10080, usedPercent: week, resetsAt: '2026-10-05T00:00:00.000Z' }
+    { id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: five, resetsAt: FIVE_RESETS },
+    { id: 'seven_day', label: 'weekly', windowMinutes: 10080, usedPercent: week, resetsAt: WEEK_RESETS }
   ],
   updatedAt: new Date().toISOString()
 })
@@ -113,5 +120,122 @@ describe('a plan usage warning', () => {
   it('notifications off: only kept in the panel, focused or not', () => {
     config.settings.notifications.desktopNotifications = false
     expect(warn()).toEqual({ kept: true, visibleToasts: 0, banners: 0, windows: 0, told: 0 })
+  })
+})
+
+// #383: what the CLIs really send (tests/fixtures/planusage-2026-10-19.json, recorded through the developer console):
+// each session relays the reading of its own latest API call, so reports come out of order, and a resumed Codex
+// session reports the last reading in its rollout, however old. Hive keeps the truth: usage never goes down within a
+// reset period.
+describe('the plan usage Hive keeps from its sessions (#383)', () => {
+  const recorded = JSON.parse(readFileSync(join(__dirname, 'fixtures', 'planusage-2026-10-19.json'), 'utf8'))
+  const statusLines: { at: string; agent: string; rate_limits: Record<string, { used_percentage: number; resets_at: number }> | null }[] = recorded.claude.statusLines
+  const reading = statusLines.find((s) => s.rate_limits)!
+  const at = Date.parse(reading.at)
+  /** A Claude Code status line as recorded, with the weekly figure changed, parsed as Hive does. */
+  const claude = (weekly: number, when = at, resets = reading.rate_limits!.seven_day.resets_at) =>
+    parseClaudePlanUsage({ rate_limits: { ...reading.rate_limits, seven_day: { used_percentage: weekly, resets_at: resets } } }, new Date(when))!
+  const weekly = (u: { limits: { id: string; usedPercent: number }[] }) => u.limits.find((l) => l.id === 'seven_day')?.usedPercent
+
+  it("reads the recorded status lines: one session's or another's, the same limits", () => {
+    const parsed = statusLines.filter((s) => s.rate_limits).map((s) => parseClaudePlanUsage(s as never, new Date(s.at))!)
+    expect(new Set(parsed.map((p) => JSON.stringify(p.limits)))).toEqual(new Set([JSON.stringify(parsed[0].limits)]))
+    expect(parsed[0].limits.map((l) => l.id)).toEqual(['five_hour', 'seven_day'])
+    // A session's first status line, fresh or resumed, has no limits until it calls the API: nothing to report.
+    expect(statusLines.some((s) => s.rate_limits === null)).toBe(true)
+    expect(parseClaudePlanUsage({ rate_limits: null }, new Date(at))).toBeNull()
+  })
+
+  it('two sessions reporting 98% and 96% for the same week, alternating, keep showing 98%', () => {
+    let kept = mergePlanUsage(undefined, claude(98), at, 'A')
+    for (let i = 1; i <= 6; i++) kept = mergePlanUsage(kept, claude(i % 2 ? 96 : 98, at + i * 1000), at + i * 1000, i % 2 ? 'B' : 'A')
+    expect(weekly(kept)).toBe(98)
+    // Who reported the figure kept, and when.
+    expect(kept.limits.find((l) => l.id === 'seven_day')).toMatchObject({ reportedBy: 'A', reportedAt: new Date(at + 6000).toISOString() })
+    // A higher reading still takes over at once.
+    expect(weekly(mergePlanUsage(kept, claude(98.5, at + 7000), at + 7000, 'B'))).toBe(98.5)
+  })
+
+  it('takes the new period at once when the reset passes, and never a reading of a period already over', () => {
+    const resets = reading.rate_limits!.seven_day.resets_at
+    const kept = mergePlanUsage(undefined, claude(99), at)
+    const after = resets * 1000 + 60_000
+    // The week reset: the first reading of the new week is taken, though lower.
+    const next = mergePlanUsage(kept, claude(2, after, resets + 7 * 86400), after, 'A')
+    expect(weekly(next)).toBe(2)
+    // A session still relaying last week's reading (its reset passed) is ignored.
+    expect(weekly(mergePlanUsage(next, claude(99, after + 1000), after + 1000, 'B'))).toBe(2)
+    // An earlier period's reading, its reset not yet passed but before the kept one's, is ignored too.
+    expect(weekly(mergePlanUsage(next, claude(50, after, resets + 3600), after, 'B'))).toBe(2)
+    // With nothing kept, an over period's reading isn't shown at all.
+    expect(mergePlanUsage(undefined, claude(99, after), after).limits.find((l) => l.id === 'seven_day')).toBeUndefined()
+  })
+
+  it("a resumed Codex session's old rollout reading doesn't replace the current one", () => {
+    const record = recorded.codex.tokenCount
+    const old = rolloutPlanUsage(record.payload.rate_limits, record.timestamp)!
+    expect(old.limits.map((l) => [l.id, l.usedPercent])).toEqual([['w10080', 17]])
+    const week = Date.parse(old.limits[0].resetsAt!)
+    // Now: a week later, the next period, 5% used; then the resumed session reads its rollout's last record.
+    const now = week + 3600e3
+    const current = { ...old, limits: [{ ...old.limits[0], usedPercent: 5, resetsAt: new Date(week + 7 * 86400e3).toISOString() }], updatedAt: new Date(now).toISOString() }
+    const kept = mergePlanUsage(undefined, current, now, 'C1')
+    expect(mergePlanUsage(kept, old, now, 'C2').limits).toEqual(kept.limits)
+  })
+
+  it('keeps a reading through a reset time that wobbles either way (round 3, finding 1)', () => {
+    const t = Date.parse('2026-10-19T12:00:00Z')
+    const limit = (used: number, resetsAt: string, updatedAt: string) => ({ provider: 'claude-code' as const, plan: null, limits: [{ id: 'five_hour', label: '5-hour', windowMinutes: 300, usedPercent: used, resetsAt }], updatedAt })
+    let kept = mergePlanUsage(undefined, limit(97, '2026-10-19T12:10:20.000Z', '2026-10-19T12:00:00Z'), t)
+    for (const used of [97, 98]) {
+      const k = mergePlanUsage(kept, limit(used, '2026-10-19T12:10:00.000Z', '2026-10-19T12:05:00Z'), t + 5 * 60e3)
+      // The later reset time is kept, so the reading stays until its own reset.
+      expect(k.limits[0]).toMatchObject({ usedPercent: used, resetsAt: '2026-10-19T12:10:20.000Z' })
+      expect(mergePlanUsage(k, limit(0, '2026-10-19T17:10:00Z', '2026-10-19T12:10:05Z'), t + 605e3).limits[0].usedPercent).toBe(0)
+      kept = k
+    }
+  })
+
+  it('a lower reading, however close, never clears a warning or the figure (round 3, finding 2)', () => {
+    for (const [high, low] of [[95.1, 94.9], [80.2, 79.8]]) {
+      const kept = mergePlanUsage(undefined, claude(high), at)
+      const next = mergePlanUsage(kept, claude(low, at + 1000), at + 1000)
+      expect(weekly(next)).toBe(high)
+      // Warned once at the level crossed; the lower reading doesn't make it warn again or drop it.
+      const warned = { resetsAt: next.limits[1].resetsAt, level: nextWarning(kept.limits[1], undefined)! }
+      expect(warned.level).toBe(high >= 95 ? 95 : 80)
+      expect(nextWarning(next.limits[1], warned)).toBeNull()
+    }
+  })
+
+  it('tells the windows of a raw change across a warning threshold, though it rounds the same (round 4, finding 1)', () => {
+    const told: number[] = []
+    const off = onHiveEvent((e) => {
+      if (e.type === 'plan-usage') told.push((e as { usage: { limits: { id: string; usedPercent: number }[] } }).usage.limits.find((l) => l.id === 'seven_day')!.usedPercent)
+    })
+    const update = vi.spyOn(config, 'update').mockImplementation((fn: (c: ReturnType<typeof config.get>) => void) => fn(config.get()))
+    try {
+      for (const [low, high] of [[94.9, 95.1], [79.8, 80.2]]) {
+        // A period of its own each, so what was kept before doesn't count.
+        const resets = new Date(Date.now() + (low > 90 ? 5 : 6) * 86400e3).toISOString()
+        const report = (used: number) => ({ ...claude(used), limits: claude(used).limits.map((l) => ({ ...l, resetsAt: resets })) })
+        delete config.get().planUsage['claude-code']
+        reportPlanUsage('claude-code', report(low), 'A')
+        reportPlanUsage('claude-code', report(high), 'A')
+        expect(told.slice(-2)).toEqual([low, high])
+      }
+    } finally {
+      off()
+      update.mockRestore()
+    }
+  })
+
+  it('with no reset time to tell periods apart, the latest report, as before; a limit not reported stays until its reset', () => {
+    const plain = (used: number) => ({ provider: 'codex' as const, plan: null, limits: [{ id: 'primary', label: 'primary', windowMinutes: null, usedPercent: used, resetsAt: null }], updatedAt: new Date(at).toISOString() })
+    expect(mergePlanUsage(mergePlanUsage(undefined, plain(40), at), plain(30), at).limits[0].usedPercent).toBe(30)
+    const both = mergePlanUsage(undefined, claude(60), at)
+    const onlyWeekly = { ...claude(61), limits: claude(61).limits.filter((l) => l.id === 'seven_day') }
+    const next = mergePlanUsage(both, onlyWeekly, at)
+    expect(next.limits.map((l) => [l.id, l.usedPercent])).toEqual([['seven_day', 61], ['five_hour', 0]])
   })
 })

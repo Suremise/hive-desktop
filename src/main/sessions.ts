@@ -252,6 +252,8 @@ interface LiveSession {
   detailsMemo?: Record<string, unknown>
   /** The last interrupt read from the transcript and acted on (LiveDetails.interruptedAt), so each counts once. */
   interruptedAt?: string
+  /** The last compaction end read from the transcript (LiveDetails.compactedAt, #454), so each counts once. */
+  compactedAt?: string
   /**
    * The launch's hooks that have arrived, counted as each comes (before its turn in the queue): an interrupt read from
    * the transcript is dropped if one came after the read began, as that hook says something newer (#475).
@@ -3380,6 +3382,20 @@ class SessionManager {
         this.noteTurn(l)
       })
     }
+    // A compaction's end the CLI sends no hook for (Copilot, #454): as the end hook would, once per recorded end of this
+    // launch, and only while Hive thinks it compacting (a /compact's end read later, with nothing under way, is history).
+    // Not after a hook that came once the read began (a newer PreCompact, a prompt), nor for a compaction that began after
+    // it ended (Copilot's clock is this machine's): this end is then an older compaction's.
+    const compacted = d.compactedAt && Date.parse(d.compactedAt) >= Date.parse(l.state.startedAt) && (!l.compactedAt || d.compactedAt > l.compactedAt) ? d.compactedAt : null
+    if (compacted) {
+      l.compactedAt = compacted
+      const id = liveId(l.state.projectPath, l.state.agentId)
+      void this.inHookOrder(l.state.runId, () => {
+        if (this.live.get(id) !== l || (hooks !== undefined && (l.hooksSeen ?? 0) !== hooks) || !(l.compacting || isCompacting(l.state))) return
+        if (l.state.statusSince && Date.parse(compacted) < Date.parse(l.state.statusSince)) return
+        this.carryOut(id, l, hookStep({ kind: 'compactEnd' }, this.statusInput(l)), 'transcript', { kind: 'compactEnd' })
+      })
+    }
     // The CLI's own record that its latest turn is over (#648): kept, and acted on if Hive missed that turn's Stop. And,
     // for a CLI whose records don't name turns, when its Stops were answered (this launch's only, the latest kept).
     if (d.turnEnded !== undefined) l.turnRecord = d.turnEnded
@@ -3387,7 +3403,7 @@ class SessionManager {
     const answered = (d.stopsAnswered ?? []).map(Date.parse).filter((t) => t >= started)
     if (answered.length) l.stopsAnswered = [...(l.stopsAnswered ?? []), ...answered].slice(-STOPS_KEPT)
     if (d.turnEnded || answered.length) this.reconcileTurn(l)
-    if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage)
+    if (d.planUsage) reportPlanUsage(l.state.provider, d.planUsage, l.state.agentName ?? l.state.agentId)
     const learn = l.defaultEffort
     const learnModel = d.modelId ?? learn?.model
     if (learn && d.effort && learnModel) {
@@ -3606,6 +3622,8 @@ class SessionManager {
    */
   hookReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> {
     if (body.hook_event_name === 'SessionStart') return this.startReply(runId, body)
+    const afterCompaction = this.compactionContextReply(runId, body)
+    if (afterCompaction) return afterCompaction
     const lock = body.hook_event_name === 'PreToolUse' ? this.preToolUse(runId, body) : null
     if (lock || !this.inboxNotice) return Promise.resolve(lock)
     const l = this.findLaunch(runId, body.session_id)?.[1]
@@ -3631,8 +3649,33 @@ class SessionManager {
     if (!l || !this.startContext || !l.adapter.startContextReply) return null
     const hook = l.adapter.normalizeHook(body)
     if (hook.ids.sub || hook.event.kind !== 'start') return null
+    return this.startContextFor(l, hook.event.source)
+  }
+
+  /** Launches whose start context is due with their next prompt: compacted, on a CLI that starts no session then. */
+  private contextDue = new WeakSet<LiveSession>()
+
+  /**
+   * On a CLI that starts no session after a compaction (startContextAfterCompaction 'prompt': Copilot, #1065), its
+   * compaction makes the start context due, and the next prompt hook's reply carries it, once (source compact). Null
+   * for any other hook, which hookReply then answers as usual.
+   */
+  private compactionContextReply(runId: string | null, body: Record<string, any>): Promise<Record<string, unknown> | null> | null {
+    if (!this.startContext) return null
+    const l = this.findLaunch(runId, body.session_id)?.[1]
+    if (!l || l.adapter.startContextAfterCompaction !== 'prompt') return null
+    const hook = l.adapter.normalizeHook(body)
+    if (hook.ids.sub) return null
+    if (hook.event.kind === 'compactStart') this.contextDue.add(l)
+    else if (hook.event.kind === 'prompt' && this.contextDue.delete(l)) return this.startContextFor(l, 'compact')
+    return null
+  }
+
+  /** The start context for a launch, in its CLI's reply form, or null (none, or it couldn't be made). */
+  private async startContextFor(l: LiveSession, source: string | null): Promise<Record<string, unknown> | null> {
+    if (!this.startContext || !l.adapter.startContextReply) return null
     try {
-      const text = await this.startContext(l.state, hook.event.source)
+      const text = await this.startContext(l.state, source)
       return text ? l.adapter.startContextReply(text) : null
     } catch (e) {
       log.warn('start context', e)

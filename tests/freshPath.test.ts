@@ -2,7 +2,7 @@
 // CLIs, so the install is found without a restart. The registry is stubbed (HIVE_TEST_REGISTRY_PATH): this test
 // never reads the machine's.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { expandVars, mergePath, parseRegQuery, pathFolders, refreshPath, refreshPathBeforeStart, testRegistryPath } from '../src/main/freshPath'
+import { expandVars, noteCliFolder, withCliFolders, mergePath, parseRegQuery, pathFolders, refreshPath, refreshPathBeforeStart, testRegistryPath } from '../src/main/freshPath'
 
 // The longest a wait here waits: a bound for a hung run, never how long it should take.
 const HUNG_MS = 10_000
@@ -124,5 +124,37 @@ describe.runIf(process.platform === 'win32')('refreshPathBeforeStart', () => {
     // PowerShell answers late: its folders are on Hive's PATH for the next start.
     held[0](null, 'M=C:\\Windows\r\nU=C:\\Late\r\n')
     await vi.waitFor(() => expect(process.env[key]).toBe('C:\\Windows;C:\\Late'), { timeout: HUNG_MS })
+  })
+})
+
+// #1103: Claude Code's native installer can leave ~\.local\bin off every PATH (the registry's too), so Agent Setup
+// found the CLI where it installs it while the sessions and terminals Hive starts couldn't run it by name.
+describe("a found CLI's folder on the PATH of what Hive starts (#1103)", () => {
+  const sep = process.platform === 'win32' ? ';' : ':'
+  const exe = process.platform === 'win32' ? String.raw`C:\Users\someone\.local\bin\claude.exe` : '/home/someone/.local/bin/claude'
+  const folder = process.platform === 'win32' ? String.raw`C:\Users\someone\.local\bin` : '/home/someone/.local/bin'
+  afterEach(() => noteCliFolder('test-cli', null))
+
+  it("adds its folder at the end of a child's PATH, once, keeping the rest in its order; Hive's own PATH stays as it is", () => {
+    const own = process.env.PATH
+    noteCliFolder('test-cli', exe)
+    expect(withCliFolders(['A', 'B'].join(sep))).toBe(['A', 'B', folder].join(sep))
+    expect(withCliFolders(withCliFolders(['A', 'B'].join(sep)))).toBe(['A', 'B', folder].join(sep))
+    expect(process.env.PATH).toBe(own)
+  })
+
+  it('leaves PATH as it is when it has the folder already, however it is written', () => {
+    noteCliFolder('test-cli', exe)
+    const written = process.platform === 'win32' ? `"${folder.toUpperCase()}\\"` : `${folder}/`
+    expect(withCliFolders([written, 'A'].join(sep))).toBe([written, 'A'].join(sep))
+  })
+
+  it('follows the provider: a CLI found elsewhere replaces its folder, one no longer found drops it', () => {
+    noteCliFolder('test-cli', exe)
+    const other = process.platform === 'win32' ? String.raw`D:\Tools\claude.exe` : '/opt/tools/claude'
+    noteCliFolder('test-cli', other)
+    expect(withCliFolders('A')).toBe(['A', process.platform === 'win32' ? String.raw`D:\Tools` : '/opt/tools'].join(sep))
+    noteCliFolder('test-cli', null)
+    expect(withCliFolders('A')).toBe('A')
   })
 })
