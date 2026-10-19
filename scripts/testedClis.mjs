@@ -19,30 +19,63 @@ export const MANIFEST = 'resources/tested-clis.json'
  * isn't asked which. `updated` lists the provider ids replaced; `problems` says why each other one wasn't.
  */
 export function manifestFromRecord(record, suites, current = {}) {
+  return manifestFromRecords([record], suites, current)
+}
+
+/**
+ * What one record shows of one CLI (`need`, a key of CLI_PROVIDERS): its version when every real suite of it ran and
+ * passed, each naming the same version (noHive suites only passing), or why not, and whether any of them ran at all.
+ */
+function cliInRecord(record, suites, need) {
+  const { id, name } = CLI_PROVIDERS[need]
+  const real = suites.filter((s) => (s.needs ?? []).includes(need)).map((s) => s.name)
+  const noHive = new Set(suites.filter((s) => s.noHive).map((s) => s.name))
+  const result = (n) => record.results.find((r) => r.name === n)
+  const missing = real.filter((n) => !result(n))
+  const notPassed = real.filter((n) => result(n) && (!result(n).ok || result(n).skipped))
+  // What each suite's Hive selected of this CLI.
+  const versionsOf = (n) => [...new Set((result(n)?.clis ?? []).filter((c) => c?.provider === id && typeof c.version === 'string').map((c) => c.version))]
+  const unsaid = real.filter((n) => !noHive.has(n) && result(n) && !versionsOf(n).length)
+  const versions = [...new Set(real.flatMap(versionsOf))].sort()
+  const ran = missing.length < real.length
+  if (!ran) return { ran, problem: `${name}: none of its real suites ran` }
+  if (missing.length) return { ran, problem: `${name}: not all of its real suites ran (${missing.join(', ')} didn't)` }
+  if (notPassed.length) return { ran, problem: `${name}: not all of its real suites passed (${notPassed.join(', ')})` }
+  if (unsaid.length) return { ran, problem: `${name}: the record doesn't say which version Hive used in ${unsaid.join(', ')}` }
+  if (!versions.length) return { ran, problem: `${name}: none of its real suites says which version Hive used` }
+  if (versions.length > 1) return { ran, problem: `${name}: its real suites ran different versions (${versions.join(', ')})` }
+  return { ran, version: versions[0] }
+}
+
+/**
+ * manifestFromRecord over several run records of the same commit (#1105: the real tier rerun per CLI, as for 0.9.2,
+ * when Codex's suites can't share the machine with Claude Code's): every record must be a valid run record, all of one
+ * commit. Each CLI's entry comes from the records in which all its real suites ran and passed; two such records naming
+ * different versions are refused. A CLI no record vouches for keeps its earlier entry, with the reason from a record
+ * where its suites ran (or "none of its real suites ran").
+ */
+export function manifestFromRecords(records, suites, current = {}) {
   const manifest = { ...current }
   const updated = []
   const problems = []
-  if (!record || typeof record !== 'object' || !Array.isArray(record.results)) return { manifest, updated, problems: ["it isn't a run record (run-record.json)"] }
-  if (!record.valid) return { manifest, updated, problems: [`the record isn't valid: ${(record.problems ?? []).join('; ') || 'it says so'}`] }
+  const many = records.length > 1
+  const which = (i) => (many ? `record ${i + 1}: ` : '')
+  if (!records.length) return { manifest, updated, problems: ['no run record given'] }
+  for (const [i, record] of records.entries()) {
+    if (!record || typeof record !== 'object' || !Array.isArray(record.results)) return { manifest, updated, problems: [`${which(i)}it isn't a run record (run-record.json)`] }
+    if (!record.valid) return { manifest, updated, problems: [`${which(i)}the record isn't valid: ${(record.problems ?? []).join('; ') || 'it says so'}`] }
+  }
+  const codes = [...new Set(records.map((r) => r.code))]
+  if (codes.length > 1) return { manifest, updated, problems: [`the records are of different code (${codes.join(', ')}): give records of one commit`] }
   for (const [need, { id, name }] of Object.entries(CLI_PROVIDERS)) {
-    const real = suites.filter((s) => (s.needs ?? []).includes(need)).map((s) => s.name)
-    const noHive = new Set(suites.filter((s) => s.noHive).map((s) => s.name))
-    const result = (n) => record.results.find((r) => r.name === n)
-    const missing = real.filter((n) => !result(n))
-    const notPassed = real.filter((n) => result(n) && (!result(n).ok || result(n).skipped))
-    // What each suite's Hive selected of this CLI.
-    const versionsOf = (n) => [...new Set((result(n)?.clis ?? []).filter((c) => c?.provider === id && typeof c.version === 'string').map((c) => c.version))]
-    const unsaid = real.filter((n) => !noHive.has(n) && result(n) && !versionsOf(n).length)
-    const versions = [...new Set(real.flatMap(versionsOf))].sort()
-    const version = versions[0]
-    if (missing.length === real.length) problems.push(`${name}: none of its real suites ran`)
-    else if (missing.length) problems.push(`${name}: not all of its real suites ran (${missing.join(', ')} didn't)`)
-    else if (notPassed.length) problems.push(`${name}: not all of its real suites passed (${notPassed.join(', ')})`)
-    else if (unsaid.length) problems.push(`${name}: the record doesn't say which version Hive used in ${unsaid.join(', ')}`)
-    else if (!versions.length) problems.push(`${name}: none of its real suites says which version Hive used`)
-    else if (versions.length > 1) problems.push(`${name}: its real suites ran different versions (${versions.join(', ')})`)
+    const seen = records.map((record) => ({ record, ...cliInRecord(record, suites, need) }))
+    const vouched = seen.filter((s) => s.version)
+    const versions = [...new Set(vouched.map((s) => s.version))].sort()
+    if (!vouched.length) problems.push((seen.find((s) => s.ran) ?? seen[0]).problem)
+    else if (versions.length > 1) problems.push(`${name}: the records ran different versions (${versions.join(', ')})`)
     else {
-      manifest[id] = { version, testedAt: String(record.when ?? '').slice(0, 10), record: record.code }
+      const when = vouched.map((s) => String(s.record.when ?? '')).sort().at(-1)
+      manifest[id] = { version: versions[0], testedAt: when.slice(0, 10), record: codes[0] }
       updated.push(id)
     }
   }
