@@ -25,6 +25,7 @@ import type {
   LiveSessionState,
   RuntimeFacts,
   McpServerDef,
+  McpServerInfo,
   PermissionMode,
   ProjectConfig,
   ProviderId,
@@ -38,6 +39,7 @@ import type {
   SessionSkipReason,
   SubSession,
   SessionStatus,
+  SkillInfo,
   SessionUsage,
   TaskWatchInfo,
   ToastAction
@@ -542,6 +544,40 @@ const taskMinutes = (): number => Math.min(480, Math.max(10, Number(config.setti
 
 const liveId = (projectPath: string, agentId: string): string => `${projectPath.toLowerCase()}#${agentId}`
 
+/**
+ * The workspace's skills (their list and each one's revision) and MCP servers, read once for the agents whose launch
+ * settings are worked out together (#1002): a refresh worked out every running agent's, reading them all again for each
+ * one. The first read is made in the caller's workspace; one set of reads is never used for another workspace.
+ */
+export class LaunchReads {
+  private skillList: Promise<SkillInfo[]> | null = null
+  private serverList: Promise<McpServerInfo[]> | null = null
+  private revisions = new Map<string, Promise<string>>()
+
+  skills(): Promise<SkillInfo[]> {
+    return (this.skillList ??= hiveSkills())
+  }
+
+  servers(): Promise<McpServerInfo[]> {
+    return (this.serverList ??= listMcp())
+  }
+
+  revision(path: string): Promise<string> {
+    let r = this.revisions.get(path)
+    if (!r) this.revisions.set(path, (r = revisionOf(path).catch(() => '')))
+    return r
+  }
+}
+
+/** Each refresh's reads, by the scope it passes (#1002): gone with the refresh. */
+const refreshReads = new WeakMap<object, LaunchReads>()
+
+function launchReadsOf(scope: object): LaunchReads {
+  let r = refreshReads.get(scope)
+  if (!r) refreshReads.set(scope, (r = new LaunchReads()))
+  return r
+}
+
 /** The provider a session record belongs to (records from before providers are Claude Code's). */
 /** A CLI transcript changed this recently is still being written (a Codex guardian review, say): not archived or deleted yet. */
 const SESSION_WRITING_MS = 5000
@@ -902,14 +938,18 @@ class SessionManager {
     return { agent, cfg, count: agents.length }
   }
 
-  /** Resolves global + project settings (and the agent's own overrides) into what a session launches with. */
-  async effective(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
-    return inWorkspace(workspaceOf(projectPath), () => this.effectiveHere(projectPath, agent))
+  /**
+   * Resolves global + project settings (and the agent's own overrides) into what a session launches with. `reads`: the
+   * workspace's skills and servers as read once for several agents (#1002), and `pc` the project's config as read for
+   * them; without, they are read now.
+   */
+  async effective(projectPath: string, agent?: AgentDef, reads?: LaunchReads, pc?: ProjectConfig): Promise<EffectiveSettings> {
+    return inWorkspace(workspaceOf(projectPath), () => this.effectiveHere(projectPath, agent, reads ?? new LaunchReads(), pc))
   }
 
-  private async effectiveHere(projectPath: string, agent?: AgentDef): Promise<EffectiveSettings> {
+  private async effectiveHere(projectPath: string, agent: AgentDef | undefined, reads: LaunchReads, readPc?: ProjectConfig): Promise<EffectiveSettings> {
     const s = config.settings
-    const pc = await workspace.projectConfig(projectPath)
+    const pc = readPc ?? (await workspace.projectConfig(projectPath))
     const assistant = workspace.isAssistantHome(projectPath)
     // Every Hive skill for its audience (SKILL.md's metadata.audience) reaches the session: project agents get those for
     // agents, the Assistant those for it. There are no skill switches.
@@ -917,20 +957,20 @@ class SessionManager {
     const skills: LaunchSkill[] = []
     const skillHashes: Record<string, string> = {}
     const skillProblems: Record<string, string> = {}
-    for (const sk of await hiveSkills()) {
+    for (const sk of await reads.skills()) {
       if (sk.problem) {
         skillProblems[sk.name] = sk.problem
         skillHashes[sk.name] = ''
       } else if (skillFor(sk.audience, assistant ? 'assistant' : 'agent')) {
         skills.push({ name: sk.name, sourcePath: sk.path })
-        skillHashes[sk.name] = await revisionOf(sk.path).catch(() => '')
+        skillHashes[sk.name] = await reads.revision(sk.path)
       }
     }
     // The workspace's servers on in the project (#713); the agent's own choice narrows them (#537): all of them unless
     // it names some.
     const forAgent = agent ?? projectAgents(pc)[0]
     const mcpServers: Record<string, McpServerDef> = {}
-    for (const m of await listMcp()) {
+    for (const m of await reads.servers()) {
       if (serverOnIn(m, pc.mcp) && m.def && agentGetsMcp(forAgent, m.name)) mcpServers[m.name] = toLaunchDef(m.def, workspace.mcpDir)
     }
     const hive = this.hiveMcp(projectPath, agent?.id)
@@ -950,8 +990,12 @@ class SessionManager {
     return hashText(JSON.stringify(rest))
   }
 
-  /** Every agent of a project with its running session, for ProjectInfo. */
-  async liveInfo(projectPath: string, cfg: ProjectConfig): Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }> {
+  /**
+   * Every agent of a project with its running session, for ProjectInfo. `scope`: the refresh it is for (#1002), whose
+   * projects' running agents share one read of the workspace's skills and servers; without, this call's agents do.
+   */
+  async liveInfo(projectPath: string, cfg: ProjectConfig, scope?: object): Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }> {
+    const reads = scope ? launchReadsOf(scope) : new LaunchReads()
     const agents: AgentInfo[] = []
     const records = (await workspace.sessionsFile(projectPath)).sessions
     this.checkSubsOnce(projectPath, records)
@@ -962,7 +1006,7 @@ class SessionManager {
       let restartNeeded = false
       if (l && !l.state.settingUp) {
         try {
-          const eff = await this.effective(projectPath, pinProvider(a, l.state.provider))
+          const eff = await this.effective(projectPath, pinProvider(a, l.state.provider), reads, cfg)
           restartNeeded = this.signature(eff) !== l.state.launchSignature
           this.noticeModeSetting(l, eff.permissionMode)
         } catch {

@@ -77,7 +77,8 @@ export interface SessionsFile {
   deletedUsage?: KeptUsage[]
 }
 
-type LiveProvider = (projectPath: string, cfg: ProjectConfig) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
+/** `scope`: the refresh the project is read for (#1002), whose projects' running agents share one read of the workspace's skills and servers. */
+type LiveProvider = (projectPath: string, cfg: ProjectConfig, scope?: object) => Promise<{ live: LiveSessionState | null; restartNeeded: boolean; agents: AgentInfo[] }>
 
 /**
  * What a read of the projects' ids saw of each one (#514): its folder, its id, where it was last opened (project.json's
@@ -897,13 +898,16 @@ export class WorkspaceService {
     return [...names].filter((n) => !deployed.has(n))
   }
 
-  /** `gen`: the workspace's lifetime the read is for (a refresh's own, #784): none of its worktrees are recorded after it. */
-  async projectInfo(projectPath: string, gen = this.generation): Promise<ProjectInfo> {
+  /**
+   * `gen`: the workspace's lifetime the read is for (a refresh's own, #784): none of its worktrees are recorded after it.
+   * `scope`: the refresh it is part of (#1002), whose projects share one read of what their running agents' settings need.
+   */
+  async projectInfo(projectPath: string, gen = this.generation, scope?: object): Promise<ProjectInfo> {
     const active = new Set(this.activeNames())
     const ticket = ++this.rootTickets
     const cfg = await this.projectConfig(projectPath)
     this.registerRoots(projectPath, cfg, gen, ticket)
-    const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg)
+    const { live, restartNeeded, agents } = await WorkspaceService.liveProvider(projectPath, cfg, scope)
     const info: ProjectInfo = {
       name: basename(projectPath),
       path: projectPath,
@@ -942,12 +946,14 @@ export class WorkspaceService {
     // Closed or switched meanwhile: the new workspace's own refresh reports it. Each read is the refresh's lifetime's
     // (#784): one begun after a switch would otherwise record the old workspace's worktrees in the new one.
     const closed = (): boolean => gen !== this.generation || !this.path
+    // What the projects' running agents' settings need of the workspace (its skills and servers), read once (#1002).
+    const scope = {}
     for (const p of await this.listProjectPaths()) {
       if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
-      projects.push(await this.projectInfo(p, gen))
+      projects.push(await this.projectInfo(p, gen, scope))
     }
     if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
-    const assistant = await this.projectInfo(this.assistantHome, gen).catch((e) => (log.warn('the Assistant', e), null))
+    const assistant = await this.projectInfo(this.assistantHome, gen, scope).catch((e) => (log.warn('the Assistant', e), null))
     if (closed()) throw hiveError(M.closed, undefined, { kind: 'conflict' })
     // A refresh begun after this one has reported already (#731): this one read the projects earlier, so what it found
     // is older and changes nothing (it put back an agent list from before a change, and said a shared name twice).
