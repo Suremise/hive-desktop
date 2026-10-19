@@ -2005,6 +2005,8 @@ export interface AgentInstallInfo {
   source: string | null
   latestVersion: string | null
   updateAvailable: boolean
+  /** An explicit retry offered after a known update failure; never run automatically. */
+  updateRetry?: ProviderUpdateRetry
   loggedIn: boolean | null
   /** How it is signed in (Claude Code's "claude.ai", Copilot's "GitHub CLI"…), when the CLI says. */
   authMethod: string | null
@@ -2032,6 +2034,11 @@ export interface AgentInstallInfo {
   observedEfforts?: Record<string, EffortLevel>
   /** The version this Hive release was tested with and how the installed one compares (#365); null when the release names none. */
   tested?: TestedCli | null
+}
+
+export interface ProviderUpdateRetry {
+  message: string
+  label: string
 }
 
 /** A coding agent CLI's version this Hive release was tested with (resources/tested-clis.json, #365). */

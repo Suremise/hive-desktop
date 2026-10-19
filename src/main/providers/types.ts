@@ -1,4 +1,4 @@
-import type { AgentInstallInfo, AutoCompactSetting, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
+import type { AgentInstallInfo, AutoCompactSetting, CatalogModel, EffortLevel, McpServerDef, MemorySource, PathDataCopy, PermissionMode, PlanUsage, ProviderId, ProviderUpdateRetry, ReadinessIssue, SessionUsage, SubSession, TranscriptImageRef, TranscriptItem } from '../../shared/types'
 import type { ProviderDescriptor } from '../../shared/providers'
 import type { StartHint } from '../../shared/startFailure'
 import type { SafeguardEvent } from '../../shared/safeguards'
@@ -69,6 +69,11 @@ export interface LaunchContext {
   allowBackgroundSessions: boolean
   /** A 200K context window instead of the model's 1M one (capabilities.contextLimit). */
   use200kContext: boolean
+}
+
+export interface UpdateRetry {
+  command: CommandSpec
+  notice: ProviderUpdateRetry
 }
 
 export interface CommandSpec {
@@ -276,6 +281,8 @@ export interface ProviderAdapter {
   isNewer(latest: string, current: string): boolean
   installCommand(): CommandSpec
   updateCommand(executable: string): CommandSpec
+  /** A known update failure's explanation and explicit retry, if this installer supports one. */
+  updateRetry?(executable: string, exitCode: number): UpdateRetry | null
   loginCommand(executable: string): CommandSpec
   /** A one-time setup task (Codex's Windows sandbox), when the provider has one. */
   setupCommand?(executable: string): CommandSpec

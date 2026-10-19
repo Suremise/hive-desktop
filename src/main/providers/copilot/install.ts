@@ -10,7 +10,7 @@ import { config } from '../../config'
 import { createLogger, userText } from '../../logger'
 import { listOf } from '../../../shared/advanced'
 import { EDITOR_EXTENSION_PATH, installText, notInstalledIssue, run, signedOutIssue, toSpawnable, updateIssue } from '../common'
-import type { CommandSpec } from '../types'
+import type { CommandSpec, UpdateRetry } from '../types'
 import { COPILOT_ENV_STRIP, copilotEnv, copilotHome } from './home'
 
 // The GitHub Copilot CLI's installation and sign-in, for Agent Setup (#452, from the #403 spike on CLI 1.0.93). The
@@ -197,9 +197,9 @@ export function copilotReadiness(info: AgentInstallInfo, hiveEnv: NodeJS.Process
     )
   }
   if (info.updateAvailable) {
-    // `copilot update` alone downloads into its home, which agents don't run: only WinGet and npm installs update here.
+    // Use the installer that owns this executable, keeping its package record consistent.
     const updatable = !!info.path && installKind(info.path) !== 'other'
-    out.push(updateIssue(NAME, info.latestVersion, updatable ? undefined : [{ m: msg({ id: 'providers.copilot.updateManual', defaultMessage: 'Update {provider} the way you installed it: Hive’s Copilot agents run the installed version, not one `copilot update` downloads.', description: "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. `…` marks a command: keep it." }), values: { provider: NAME } }]))
+    out.push(updateIssue(NAME, info.latestVersion, updatable ? undefined : [{ m: msg({ id: 'providers.copilot.updateManual', defaultMessage: 'Update {provider} the way you installed it, then choose Check again.', description: "Agent Setup, under a newer GitHub Copilot that Hive can't update itself. {provider} is its name. Check again is the button in Agent Setup." }), values: { provider: NAME } }]))
   }
   return out
 }
@@ -224,13 +224,26 @@ export function copilotInstallCommand(): CommandSpec {
 }
 
 /**
- * Through its installer: `copilot update` downloads into its home, which agents don't run (Hive starts them with
- * auto-update off, so they run the installed version). Readiness offers no Update for other installs.
+ * Through its installer, so its package record stays consistent. Copilot's self-update can replace a WinGet
+ * executable without updating WinGet's record (#1101). Readiness offers no Update for other installs.
  */
 export function copilotUpdateCommand(executable: string): CommandSpec {
   if (installKind(executable) === 'winget') return { file: 'winget.exe', args: ['upgrade', '--id', WINGET_ID, '--exact', '--source', 'winget'] }
   if (process.platform === 'win32') return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', 'npm', 'install', '-g', `${NPM_PACKAGE}@latest`] }
   return { file: '/bin/bash', args: ['-lc', `npm install -g ${NPM_PACKAGE}@latest`] } // i18n-ignore: a command run in a terminal
+}
+
+/** WinGet's portable uninstall failure (signed or unsigned HRESULT), before replacing the old package (#1101). */
+export function copilotUpdateRetry(executable: string, exitCode: number): UpdateRetry | null {
+  if (installKind(executable) !== 'winget' || (exitCode >>> 0) !== 0x8a150057) return null
+  const command = copilotUpdateCommand(executable)
+  return {
+    command: { ...command, args: [...command.args, '--force'] },
+    notice: {
+      message: installText(msg({ id: 'providers.copilot.updateModified', defaultMessage: 'WinGet could not remove the old Copilot package. Its installed files may have changed since WinGet installed them, often because Copilot updated itself. Update anyway asks WinGet to replace them with --force. Stop Copilot agents first.', description: 'Agent Setup after WinGet portable removal failed. The exit code can also mean other removal failures, so the cause is tentative. Update anyway is the adjacent button; keep WinGet, Copilot and --force unchanged.' })),
+      label: installText(msg({ id: 'providers.copilot.updateAnyway', defaultMessage: 'Update anyway', description: 'Agent Setup button: explicitly retry a failed WinGet Copilot update with --force, replacing the old package despite changed files.' }))
+    }
+  }
 }
 
 /** `copilot login` in a terminal the user signs in with (Hive types nothing into it). */

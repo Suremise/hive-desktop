@@ -479,6 +479,10 @@
     "defaultMessage": "{task}: Hive couldn't find {item}. Do it in the terminal, or update Hive.",
     "description": "A notification: Hive types the keys of a coding agent CLI's task ({task}: \"Codex setup\") into its terminal, and couldn't find the menu item {item} (the CLI's own words) on its screen."
   },
+  "service.providers.retryUnavailable": {
+    "defaultMessage": "This update retry is no longer available. Check again, then try Update.",
+    "description": "Agent Setup error when a user tries to retry an update whose failure is no longer current. Check again and Update are buttons."
+  },
   "service.providers.stillLooking": {
     "defaultMessage": "Hive is still looking for {cli}. Try again in a moment.",
     "description": "An error: Hive hasn't finished finding the coding agent CLI {cli} (\"Codex\"), so it can't use it yet."

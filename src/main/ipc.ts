@@ -1150,6 +1150,10 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       await refreshPathBeforeStart()
       return providerService.runProviderTask(id, task)
     },
+    'provider:retryUpdate': async (id) => {
+      await refreshPathBeforeStart()
+      return providerService.runProviderTask(id, 'update', true)
+    },
     'provider:stopAgents': (id) => sessions.stopProvider(id),
 
     'api:info': () => apiInfo(),

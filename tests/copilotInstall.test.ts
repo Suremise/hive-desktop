@@ -3,7 +3,7 @@ import { dirname, join } from 'path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentInstallInfo } from '../src/shared/types'
 import { redactLog } from '../src/shared/redact'
-import { copilotCheckEnv, copilotReadiness, copilotSignIn, copilotUpdateCommand, ignoredTokens, installKind, parseCopilotConfig, parseCopilotVersion, parseGhStatus, storedLogin } from '../src/main/providers/copilot/install'
+import { copilotCheckEnv, copilotReadiness, copilotSignIn, copilotUpdateCommand, copilotUpdateRetry, ignoredTokens, installKind, parseCopilotConfig, parseCopilotVersion, parseGhStatus, storedLogin } from '../src/main/providers/copilot/install'
 import { tempDir } from './tempDir'
 
 // Agent Setup's Copilot readiness (#452): which sign-in its agents get, from the CLI's config.json (login names only),
@@ -74,6 +74,20 @@ describe('Copilot sign-in detection', () => {
 })
 
 describe('Copilot install', () => {
+  it('offers an explicit forced WinGet retry only for portable uninstall failure, in either HRESULT form', () => {
+    const exe = 'C:/Users/me/AppData/Local/Microsoft/WinGet/Packages/GitHub.Copilot_Microsoft.Winget.Source_8wekyb3d8bbwe/copilot.exe'
+    for (const code of [-1978335145, 0x8a150057]) {
+      const retry = copilotUpdateRetry(exe, code)!
+      expect(retry.command).toEqual({ file: 'winget.exe', args: ['upgrade', '--id', 'GitHub.Copilot', '--exact', '--source', 'winget', '--force'] })
+      expect(retry.notice.label).toBe('Update anyway')
+      expect(retry.notice.message).toContain('--force')
+    }
+    for (const code of [0, 1, -1978335146, 5]) expect(copilotUpdateRetry(exe, code)).toBeNull()
+    expect(copilotUpdateRetry('C:/Users/me/AppData/Roaming/npm/copilot.cmd', -1978335145)).toBeNull()
+    expect(copilotUpdateRetry('D:/tools/copilot.exe', -1978335145)).toBeNull()
+    expect(copilotUpdateCommand(exe).args).not.toContain('--force')
+  })
+
   it('reads its version without the sentence’s full stop', () => {
     expect(parseCopilotVersion('GitHub Copilot CLI 1.0.93.\nRun \'copilot update\' to check for updates.')).toBe('1.0.93')
     expect(parseCopilotVersion('GitHub Copilot CLI 1.1.0-beta.2.')).toBe('1.1.0-beta.2')

@@ -668,6 +668,8 @@ export interface HiveRequests {
   'provider:refresh': (provider?: ProviderId) => Record<ProviderId, AgentInstallInfo>
   /** Runs install, update, sign-in or setup in a terminal; returns the terminal's key. */
   'provider:task': (provider: ProviderId, task: ProviderTask) => string
+  /** Runs the retry offered for the last failed update, only at the user's request. */
+  'provider:retryUpdate': (provider: ProviderId) => string
   /** Stops every running agent of a provider (turning it off). */
   'provider:stopAgents': (provider: ProviderId) => void
 

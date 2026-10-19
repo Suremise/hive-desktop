@@ -759,9 +759,9 @@ export function AgentSetupDialog() {
   const p = providerDescriptor(tab)
   const info = providers[tab]
   const on = isProviderEnabled(settings, tab)
-  const start = async (kind: ProviderTask): Promise<void> => {
+  const start = async (kind: ProviderTask, retryUpdate = false): Promise<void> => {
     try {
-      const key = await call('provider:task', tab, kind)
+      const key = retryUpdate ? await call('provider:retryUpdate', tab) : await call('provider:task', tab, kind)
       setTask({ key, kind, issues: (info?.readiness ?? []).filter((r) => r.action?.task === kind).map((r) => r.id) })
       setFinished(null)
       setRunning(true)
@@ -790,7 +790,7 @@ export function AgentSetupDialog() {
     const kind = task?.kind
     const after = next?.[tab]
     if (!kind || !after || after.checking) return
-    const left = kind === 'update' ? after.updateAvailable : (after.readiness ?? []).some((r) => task.issues.includes(r.id))
+    const left = kind === 'update' ? after.updateAvailable || !!after.updateRetry : (after.readiness ?? []).some((r) => task.issues.includes(r.id))
     // An install that ended without Hive finding the CLI: its terminal stays, with what to do next.
     if (left && kind === 'install' && !after.found) setFinished({ ok: false, text: installNotFoundText(p.name) })
     if (left) return
@@ -950,6 +950,12 @@ export function AgentSetupDialog() {
         <div className={cx('banner', finished.ok ? 'success' : 'warn')} data-finished={finished.ok ? 'ok' : 'not-found'} style={{ borderRadius: 6, marginTop: 10 }}>
           <Icon name={finished.ok ? 'pass-filled' : 'warning'} />
           <span>{finished.text}</span>
+        </div>
+      )}
+      {info?.updateRetry && !running && (
+        <div className="setup-detail" data-update-retry>
+          <p className="hint">{info.updateRetry.message}</p>
+          <button className="btn primary" disabled={busy} onClick={() => void start('update', true)}>{info.updateRetry.label}</button>
         </div>
       )}
       {task && (
