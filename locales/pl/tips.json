@@ -85,6 +85,8 @@
   "tips.cardLoop.title": "Dwaj agenci na zmianę: praca i recenzja",
   "tips.cardMove.text": "Przeciągnij dowolne okno dialogowe za nagłówek (kartę, Dodaj agenta, Ustawienia agenta…), żeby zobaczyć, co jest pod nim; Escape w trakcie przeciągania odkłada je z powrotem.",
   "tips.cardMove.title": "Odsuń okno dialogowe",
+  "tips.cardReadFirst.text": "W polu „Przeczytaj najpierw” karty wypisz potrzebne jej sekcje dokumentów, np. docs/PLAN.md#setup: prompt startowy agenta je wymienia, więc czyta te sekcje zamiast całego planu. Kliknij jedną, żeby ją przeczytać w Hive.",
+  "tips.cardReadFirst.title": "Wskaż karcie potrzebne dokumenty",
   "tips.cardSummaries.text": "Agenci zaczynają raport lub werdykt recenzji karty jednym wierszem mówiącym, co jest gotowe lub co znaleziono, a szczegóły dają niżej; oni i Asystent czytają tylko te wiersze, gdy to wystarcza.",
   "tips.cardSummaries.title": "Raporty zaczynają się od sedna",
   "tips.closeWindow.text": "Gdy otwartych jest kilka okien, Plik → Zamknij okno ({key}) zamyka tylko to jedno, tak jak jego X. Zakończ Hive (wszystkie okna) zamyka wszystkie okna i zatrzymuje wszystkich ich agentów.",

@@ -651,6 +651,11 @@ export interface TaskCard {
   blockedBy: number[]
   /** Related cards. */
   links: number[]
+  /**
+   * Doc sections the agent reads first (#818): references by file and heading, never by line (`docs/PLAN.md#setup`,
+   * `shared:plans/notes.md#open-questions`; shared/docRefs.ts). Absent when none.
+   */
+  context?: string[]
   comments: TaskComment[]
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
@@ -802,6 +807,8 @@ export interface TaskPatch {
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
+  /** The doc sections to read first (#818), replacing the list; [] clears it. */
+  context?: string[]
   /** Records a decision the user made (#357), attributed to the user whoever records it. Editing or removing one is the user's (tasks:editDecision). */
   decision?: string
 }

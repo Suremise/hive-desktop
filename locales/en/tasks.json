@@ -67,6 +67,14 @@
     "defaultMessage": "Choose a project before giving the card to an agent.",
     "description": "An error: a card of the whole workspace (no project) can't be given to an agent: agents belong to a project."
   },
+  "tasks.error.contextList": {
+    "defaultMessage": "context must be a list",
+    "description": "An error: the call gave the card's context (the doc sections to read first) as something other than a list. \"context\" is the name of the call's field: keep it as it is."
+  },
+  "tasks.error.contextRef": {
+    "defaultMessage": "\"{ref}\" isn't a doc section: give a Markdown file, optionally with # and a heading's slug (\"docs/PLAN.md#setup\", \"shared:plans/notes.md#open-questions\"), never a line number.",
+    "description": "An error: one of the card's context references isn't a Markdown file with an optional #heading-slug. Keep the examples in quotes as they are."
+  },
   "tasks.error.decisionEmptied": {
     "defaultMessage": "The decision is empty: remove it instead.",
     "description": "An error: the user emptied a decision's text; to take it off the card, remove it."
@@ -215,6 +223,10 @@
     "defaultMessage": "{what, select, title {The title is too long (at most {max, number} characters).} description {The description is too long (at most {max, number} characters).} comment {The comment is too long (at most {max, number} characters).} decision {The decision is too long (at most {max, number} characters).} other {The blocked reason is too long (at most {max, number} characters).}}",
     "description": "An error: a card's field is longer than it may be ({what}, select: its title, description, comment, decision or blocked reason; translate each sentence); {max} is the most characters it takes."
   },
+  "tasks.error.tooManyContext": {
+    "defaultMessage": "A card can have up to {max} doc sections to read first.",
+    "description": "An error: a card was given more context references (doc sections the agent reads first) than it may have ({max}, a number)."
+  },
   "tasks.error.tooManyDecisions": {
     "defaultMessage": "A card can have up to {max} decisions.",
     "description": "An error: a card already has as many decisions as it may have ({max}, a number)."
@@ -278,6 +290,14 @@
   "tasks.history.blocked": {
     "defaultMessage": "Blocked: {reason}",
     "description": "A line in a card's history: the card was marked blocked, with this reason ({reason}, written by whoever blocked it)."
+  },
+  "tasks.history.context": {
+    "defaultMessage": "Read first: {refs}",
+    "description": "A line in a card's history: the doc sections the agent reads first were set to these ({refs}: references such as \"docs/PLAN.md#setup\", separated by commas; keep them as they are)."
+  },
+  "tasks.history.contextRemoved": {
+    "defaultMessage": "Removed the doc sections to read first",
+    "description": "A line in a card's history: the card's list of doc sections the agent reads first was cleared."
   },
   "tasks.history.created": {
     "defaultMessage": "Created in {column, select, hold {On Hold} todo {Todo} doing {Doing} review {Review} passed {Passed} done {Done} other {{column}}}",

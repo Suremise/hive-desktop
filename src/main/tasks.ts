@@ -6,6 +6,7 @@ import { englishText, forAgents, withValues, type Text } from '../shared/advance
 import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
+import { MAX_CONTEXT, MAX_CONTEXT_REF, parseDocRef } from '../shared/docRefs'
 import { providerMessage } from '../shared/providers'
 import type { ArchiveBatch, ArchiveRequest, ArchiveResult, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
@@ -162,6 +163,8 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
     column: isTaskColumn(raw.column) ? raw.column : 'todo',
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : n,
     labels: strs(raw.labels),
+    // Absent when it has none (#818), so a card's JSON doesn't grow for it.
+    ...(strs(raw.context).length ? { context: strs(raw.context).slice(0, MAX_CONTEXT) } : {}),
     blocked: typeof raw.blocked === 'string' && raw.blocked.trim() ? raw.blocked : null,
     blockedBy: nums(raw.blockedBy),
     links: nums(raw.links),
@@ -530,6 +533,16 @@ const text = (v: unknown, max: number, what: TextField): string => {
   return s
 }
 
+/** A card's context references (#818), checked: a list of Markdown files with an optional #slug, never line numbers. */
+function contextOf(v: unknown): string[] {
+  if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.contextList', defaultMessage: 'context must be a list', description: `An error: the call gave the card's context (the doc sections to read first) as something other than a list. "context" is the name of the call's field: keep it as it is.` }), undefined, { kind: 'invalid' })
+  const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))]
+  if (out.length > MAX_CONTEXT) throw hiveError(msg({ id: 'tasks.error.tooManyContext', defaultMessage: 'A card can have up to {max} doc sections to read first.', description: 'An error: a card was given more context references (doc sections the agent reads first) than it may have ({max}, a number).' }), { max: MAX_CONTEXT }, { kind: 'invalid' })
+  const bad = out.find((r) => r.length > MAX_CONTEXT_REF || !parseDocRef(r))
+  if (bad !== undefined) throw hiveError(msg({ id: 'tasks.error.contextRef', defaultMessage: `"{ref}" isn't a doc section: give a Markdown file, optionally with # and a heading's slug ("docs/PLAN.md#setup", "shared:plans/notes.md#open-questions"), never a line number.`, description: `An error: one of the card's context references isn't a Markdown file with an optional #heading-slug. Keep the examples in quotes as they are.` }), { ref: bad.slice(0, 80) }, { kind: 'invalid' })
+  return out
+}
+
 function labelsOf(v: unknown): string[] {
   if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelsList', defaultMessage: 'labels must be a list', description: 'An error: the call gave the card\'s labels as something other than a list. "labels" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
   const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))].map((l) => l.slice(0, 40))
@@ -734,7 +747,7 @@ export function createTask(...args: Parameters<typeof createTaskLocked>): Promis
 }
 
 async function createTaskLocked(
-  input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[] },
+  input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[]; context?: string[] },
   actor: TaskActor
 ): Promise<TaskCard> {
   if (!workspace.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
@@ -756,6 +769,7 @@ async function createTaskLocked(
   const now = new Date().toISOString()
   const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy', scope) : []
   const links = input.links ? await cardRefs(input.links, null, 'links', scope) : []
+  const context = input.context ? contextOf(input.context) : []
   const n = await nextNumber(ws)
   const card: TaskCard = {
     number: n,
@@ -770,6 +784,7 @@ async function createTaskLocked(
     blocked: input.blocked?.trim() ? text(input.blocked.trim(), 1000, 'blockedReason') : null,
     blockedBy,
     links,
+    ...(context.length ? { context } : {}),
     comments: [],
     history: [entryOf(now, by, storedText(HISTORY.created, { column }))],
     archived: false,
@@ -917,6 +932,12 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       if (list.length >= MAX_DECISIONS) throw hiveError(msg({ id: 'tasks.error.tooManyDecisions', defaultMessage: 'A card can have up to {max} decisions.', description: 'An error: a card already has as many decisions as it may have ({max}, a number).' }), { max: MAX_DECISIONS })
       card.decisions = [...list, { id: entryId(), text: t, decidedBy: 'user', recordedBy: by, at: new Date().toISOString() }]
       said.push(storedText(HISTORY.decision, { decision: clip(t) }))
+    }
+    if (patch.context !== undefined) {
+      const refs = contextOf(patch.context)
+      if (refs.join('\n') !== (card.context ?? []).join('\n')) said.push(refs.length ? storedText(HISTORY.context, { refs: refs.join(', ') }) : storedText(HISTORY.contextRemoved))
+      if (refs.length) card.context = refs
+      else delete card.context
     }
     if (patch.labels !== undefined) {
       card.labels = labelsOf(patch.labels)

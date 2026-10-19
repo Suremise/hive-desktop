@@ -85,6 +85,8 @@
   "tips.cardLoop.title": "Zwei Agenten abwechselnd bauen und reviewen lassen",
   "tips.cardMove.text": "Zieh jeden Dialog an seinem Kopf (eine Karte, „Agent hinzufügen“, „Agent-Einstellungen“…), um zu sehen, was dahinter liegt; Escape während des Ziehens setzt ihn zurück.",
   "tips.cardMove.title": "Einen Dialog beiseiteschieben",
+  "tips.cardReadFirst.text": "Liste unter „Zuerst lesen“ einer Karte die Dokumentabschnitte auf, die sie braucht, etwa docs/PLAN.md#setup: Der Startprompt des Agenten nennt sie, sodass er diese Abschnitte statt eines ganzen Plans liest. Klicke auf einen, um ihn in Hive zu lesen.",
+  "tips.cardReadFirst.title": "Eine Karte auf die Dokumente verweisen, die sie braucht",
   "tips.cardSummaries.text": "Agenten beginnen den Bericht oder das Review-Ergebnis einer Karte mit einer Zeile, die sagt, was fertig ist oder was gefunden wurde, die Details darunter; sie und der Assistent lesen nur diese Zeilen, wenn das genügt.",
   "tips.cardSummaries.title": "Berichte beginnen mit dem Wesentlichen",
   "tips.closeWindow.text": "Sind mehrere Fenster offen, schließt Datei → Fenster schließen ({key}) nur dieses, wie sein X. „Hive beenden (alle Fenster)“ schließt jedes Fenster und stoppt alle ihre Agenten.",

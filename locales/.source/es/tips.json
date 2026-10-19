@@ -85,6 +85,8 @@
   "tips.cardLoop.title": "Let two agents build and review in turn",
   "tips.cardMove.text": "Drag any dialog by its header (a card, Add Agent, Agent Settings…) to see what's behind it; Escape while dragging puts it back.",
   "tips.cardMove.title": "Move a dialog out of the way",
+  "tips.cardReadFirst.text": "In a card's Read first, list the doc sections it needs, like docs/PLAN.md#setup: the agent's start prompt lists them, so it reads those sections instead of a whole plan. Click one to read it in Hive.",
+  "tips.cardReadFirst.title": "Point a card at the docs it needs",
   "tips.cardSummaries.text": "Agents start a card's report or review verdict with one line saying what is ready or what was found, the details below; they and the Assistant read just those lines when that's enough.",
   "tips.cardSummaries.title": "Reports start with the gist",
   "tips.closeWindow.text": "With several windows open, File → Close Window ({key}) closes just this one, as its X does. Exit Hive (all windows) closes every window and stops all their agents.",

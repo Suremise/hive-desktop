@@ -13,7 +13,9 @@ import { HiveError, hiveError, errorText } from './hiveError'
 import { forAgents, withValues } from '../shared/advanced'
 import { getTask, UNKNOWN_AGENT, updateTask, type TaskActor } from './tasks'
 import { createLogger, userText } from './logger'
-import { workspace } from './workspace'
+import { workspace, workspaceOf } from './workspace'
+import { resolveDocRef } from './docSections'
+import type { ContextLine } from '../shared/tasks'
 
 const log = createLogger('tasks')
 
@@ -181,7 +183,10 @@ async function giveCard(
     })
   let live = false
   try {
-    const prompt = taskPrompt(card, !!sessions.hiveMcp(p), { from: before.column, note })
+    // Its doc sections to read first (#818), with their sizes: in the project's folder or the shared notes, never the
+    // agent's own folder (the references are the project's; the agent reads them where it works).
+    const context = card.context?.length ? await contextLines(p, card.context) : undefined
+    const prompt = taskPrompt(card, !!sessions.hiveMcp(p), { from: before.column, note, context })
     // Again now: the agent may have started work, or the user typed in it, while the card was taken.
     live = availability(p, agentId, agentName, actor).live
     // A task delivery (#649), given now or not at all: typed into a running agent (and while it is typed, an agent that
@@ -209,4 +214,13 @@ async function giveCard(
   // The view stays where the user has it; the new agent is marked for them.
   if (added && actor.kind !== 'user') emit({ type: 'agent-added', projectPath: p, agentId })
   return { card, agentId, agentName, added, typed: live }
+}
+
+/** A card's context references (#818) with each section's size, where it resolves. */
+async function contextLines(projectPath: string, refs: string[]): Promise<ContextLine[]> {
+  const shared = workspaceOf(projectPath).sharedDir
+  return Promise.all(refs.map(async (ref) => {
+    const r = await resolveDocRef(projectPath, shared, ref).catch(() => null)
+    return r && 'size' in r ? { ref, size: r.size } : { ref }
+  }))
 }

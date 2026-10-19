@@ -1615,8 +1615,10 @@ async function docOf(query: URLSearchParams): Promise<{ ref: string; text: strin
     const p = name ? projectByName(name) : own!.projectPath
     // An agent: its own project only. The Assistant: its own workspace's (projectByName).
     ownProjectOnly(p, "Reading a project's documents")
-    // A project agent reads its own copy: its worktree, if it works in one.
-    const def = own && resolvePath(own.projectPath).toLowerCase() === resolvePath(p).toLowerCase() ? projectAgents(await workspace.projectConfig(p)).find((a) => a.id === own.agentId) : undefined
+    // A project agent reads its own copy: its worktree, if it works in one. from=project: the project folder's, the copy a
+    // card's Read first references (#818) were written against, as its dialog and start prompt read them.
+    const fromProject = query.get('from') === 'project'
+    const def = own && !fromProject && resolvePath(own.projectPath).toLowerCase() === resolvePath(p).toLowerCase() ? projectAgents(await workspace.projectConfig(p)).find((a) => a.id === own.agentId) : undefined
     root = def?.worktree?.path ?? p
     rel = path
   }
@@ -1642,9 +1644,17 @@ route('GET', '/v1/docs/outline', async ({ query }) => {
 
 route('GET', '/v1/docs/section', async ({ query }) => {
   const asked = query.get('heading')?.trim()
-  if (!asked) throw new HttpError(400, `heading is required: a slug from the outline ("core-contracts") or the heading's text`)
   const { ref, text } = await docOf(query)
   const outline = docOutline(text)
+  if (!asked) {
+    // No heading: the whole document (a card's reference to a whole file, #818), long ones as their top headings.
+    const top = outline.filter((x) => x.level === Math.min(...outline.map((y) => y.level)))
+    if (text.length > SECTION_MAX && top.length && query.get('full') !== 'true') {
+      const intro = text.split(/\r?\n/).slice(0, top[0].line - 1).join('\n').replace(/\n+$/, '')
+      return { path: ref, size: text.length, content: intro, subsections: top.map(headingRow), partial: true }
+    }
+    return { path: ref, size: text.length, content: text }
+  }
   const found = findHeading(outline, asked)
   const list = (hs: DocHeading[]): string => hs.map((h) => `#${h.slug} (${h.text}, line ${h.line})`).join(', ')
   if ('ambiguous' in found) throw new HttpError(409, `Several sections of ${ref} are called "${asked}": ${list(found.ambiguous)}. Ask for one as #<slug>.`, { matches: found.ambiguous.map(headingRow) })
@@ -1829,7 +1839,7 @@ function taskPatch(body: any): TaskPatch {
     if (body.position !== 'top' && body.position !== 'bottom') throw new HttpError(400, `Unknown position "${String(body.position)}": top or bottom.`)
     out.position = body.position
   }
-  for (const k of ['labels', 'blockedBy', 'links'] as const) if (body?.[k] !== undefined) out[k] = body[k]
+  for (const k of ['labels', 'blockedBy', 'links', 'context'] as const) if (body?.[k] !== undefined) out[k] = body[k]
   if (body?.decision !== undefined && body.decision !== null) out.decision = String(body.decision)
   if (body?.review !== undefined && body.review !== null && body.review !== '') {
     if (body.review !== 'start' && body.review !== 'passed' && body.review !== 'failed') throw new HttpError(400, `Unknown review "${String(body.review)}": start, passed or failed.`)
@@ -1868,7 +1878,7 @@ route('POST', '/v1/tasks', async ({ body }) => {
   requireWorkspace()
   const title = String(body?.title ?? '').trim()
   if (!title) throw new HttpError(400, 'title is required')
-  const input = { title, description: body?.description, project: body?.project, agent: body?.agent, column: columnParam(body?.column), labels: body?.labels, blocked: body?.blocked, blockedBy: body?.blockedBy, links: body?.links }
+  const input = { title, description: body?.description, project: body?.project, agent: body?.agent, column: columnParam(body?.column), labels: body?.labels, blocked: body?.blocked, blockedBy: body?.blockedBy, links: body?.links, context: body?.context }
   const actor = await taskActor()
   const reply = async (c: TaskCard) => (shortReply(body) ? taskChange(c, []) : taskView(c))
   if (actor.kind !== 'assistant') return reply(await tasks.createTask(input, actor))

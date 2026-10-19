@@ -278,8 +278,9 @@ export function docOutlineText(o: { path: string; size: number; headings: DocHea
  * A section of a document: where it is, then its text as it is. A long one (`partial`) is its own text and its
  * subsections' outline, to read one of them, or all of it with full=true.
  */
-export function docSectionText(s: { path: string; heading: DocHeadingRow; content: string; subsections?: DocHeadingRow[]; partial?: boolean }): string {
-  const head = `${s.path}#${s.heading.slug} (${s.heading.size.toLocaleString('en')} characters)`
+export function docSectionText(s: { path: string; heading?: DocHeadingRow; size?: number; content: string; subsections?: DocHeadingRow[]; partial?: boolean }): string {
+  // No heading: the whole document (#818).
+  const head = s.heading ? `${s.path}#${s.heading.slug} (${s.heading.size.toLocaleString('en')} characters)` : `${s.path} (${(s.size ?? s.content.length).toLocaleString('en')} characters)`
   if (!s.partial) return `${head}\n\n${s.content}`
   return `${head}: long, so here is its text before its subsections, then their outline.\n\n${s.content}\n\n${(s.subsections ?? []).map(headingLine).join('\n')}\n\nhive_read_section reads one of them as #<slug>, or this whole section with full=true.`
 }

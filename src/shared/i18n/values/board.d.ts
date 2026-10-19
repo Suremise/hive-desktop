@@ -109,6 +109,11 @@ interface HiveMessageValues {
   'board.columns.expandCards': undefined
   'board.columns.expandTip': { column: string | number; description: string | number }
   'board.columns.more': { column: string | number }
+  'board.context.close': undefined
+  'board.context.loading': undefined
+  'board.context.open': undefined
+  'board.context.openNote': undefined
+  'board.context.problem': { why: string; closest: string }
   'board.cost.cardLine': { cost: string | number; rounds: number }
   'board.cost.nothingUsed': undefined
   'board.cost.perFinished': { estimated: string; cost: string | number; unpriced: string }
@@ -186,6 +191,8 @@ interface HiveMessageValues {
   'board.dialog.comment': undefined
   'board.dialog.commentPlaceholder': undefined
   'board.dialog.comments': { n: string | number }
+  'board.dialog.context': undefined
+  'board.dialog.contextPlaceholder': undefined
   'board.dialog.creatingWorktree': undefined
   'board.dialog.delete': undefined
   'board.dialog.dependsOn': undefined
@@ -259,6 +266,7 @@ interface HiveMessageValues {
   'board.field.blocked': undefined
   'board.field.blockedBy': undefined
   'board.field.column': undefined
+  'board.field.context': undefined
   'board.field.description': undefined
   'board.field.labels': undefined
   'board.field.links': undefined

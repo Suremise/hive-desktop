@@ -85,6 +85,8 @@
   "tips.cardLoop.title": "Deixe dois agentes executarem e revisarem alternadamente",
   "tips.cardMove.text": "Arraste qualquer diálogo pelo cabeçalho (um cartão, Adicionar agente, Configurações do agente…) para ver o que está atrás dele; Esc durante o arraste o põe de volta.",
   "tips.cardMove.title": "Tire um diálogo do caminho",
+  "tips.cardReadFirst.text": "Em \"Ler primeiro\" de um cartão, liste as seções de documentos de que ele precisa, como docs/PLAN.md#setup: o prompt inicial do agente as lista, então ele lê essas seções em vez de um plano inteiro. Clique em uma para lê-la no Hive.",
+  "tips.cardReadFirst.title": "Aponte para um cartão os documentos de que ele precisa",
   "tips.cardSummaries.text": "Os agentes começam o relatório ou o veredito de revisão de um cartão com uma linha que diz o que está pronto ou o que foi encontrado, com os detalhes abaixo; eles e o Assistente leem só essas linhas quando isso basta.",
   "tips.cardSummaries.title": "Relatórios começam pelo essencial",
   "tips.closeWindow.text": "Com várias janelas abertas, Arquivo → Fechar janela ({key}) fecha só esta, como o X dela. Sair do Hive (todas as janelas) fecha todas as janelas e para todos os agentes delas.",

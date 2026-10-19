@@ -402,6 +402,27 @@ export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, revie
   return null
 }
 
+/** A card's context reference (#818) as its start prompt gives it: the reference, and its section's size when it resolved. */
+export interface ContextLine {
+  ref: string
+  size?: number
+}
+
+/** A size in characters, short: "840", "3.2k", "56k". */
+const charsShort = (n: number): string => (n < 1000 ? String(n) : n < 10_000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`) // i18n-ignore: agent-facing: sizes in the prompt an agent starts a card with
+
+/**
+ * The start prompt's "Read these first" (#818): each reference with its size, not the sections themselves (the agent
+ * fetches what it needs, so launch prompts stay small). References are relative to the project (or the shared notes),
+ * whatever folder the agent works in.
+ */
+function contextText(lines: ContextLine[], withTools: boolean): string {
+  const list = lines.map((l) => `${l.ref}${l.size !== undefined ? ` (${charsShort(l.size)} characters)` : ''}`).join(', ')
+  return withTools
+    ? `Read these first: ${list}. hive_read_section reads each as the card has it (path: the file; heading: # and the slug after it, none for a whole file; from: "project").` // i18n-ignore: agent-facing: the prompt an agent starts a card with
+    : `Read these sections of the project's docs first: ${list}.` // i18n-ignore: agent-facing: the prompt an agent starts a card with
+}
+
 /** How much of a card's latest comment a restarted card's prompt carries (the rest is a hive_read_task away). */
 const PROMPT_COMMENT_MAX = 4000
 
@@ -412,13 +433,15 @@ const PROMPT_COMMENT_MAX = 4000
  * tools the prompt only points there; without them the card is all the agent has. from: the column it was started
  * from; note: what to do now.
  */
-export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string } = {}): string {
+export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string; context?: ContextLine[] } = {}): string {
   const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`] // i18n-ignore: agent-facing: the prompt an agent starts a card with
   const again = opts.from === 'review' || opts.from === 'passed' || opts.from === 'done'
   if (again) parts.push(`It was in ${columnLabel(opts.from!)} and is back in Doing for more work.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   if (opts.note?.trim()) parts.push(opts.note.trim())
   if (card.description.trim()) parts.push(card.description.trim())
   if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  const context = opts.context ?? (card.context ?? []).map((ref) => ({ ref }))
+  if (context.length) parts.push(contextText(context, withTools))
   const latest = card.comments[card.comments.length - 1]
   if (again && latest?.text.trim()) {
     const text = latest.text.trim()

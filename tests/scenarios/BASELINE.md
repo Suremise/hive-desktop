@@ -36,6 +36,24 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## A card's Read first references: fakes, Claude Code (haiku), Codex (its default model), fixtures v62, 19 October 2026
+
+#818: a card's `context` (doc sections to read first) is listed in its start prompt with each section's size, and the
+card-loop skill has the builder read them first and the reviewer check against them. One new scenario,
+**card-read-first**: a card with `DESIGN.md#retry-policy` as its reference, started with the prompt Hive gives (the
+reference and size, not the text); the work (RETRY.md) needs that section.
+- **Fakes**: the whole set passes before and after (baseline `hb3-818-before` against `hb3-818-after`: none fails;
+  measures the same but for the tool list, +0.8 KB for `context` on hive_create_task and hive_update_task, and the
+  card-loop skill, +45 bytes). The new scenario passes with the fake Claude Code.
+- **Codex**: 3 of 3 (`2026-10-19T22-13-57-codex`): it read the section with hive_read_section, never the whole file,
+  wrote RETRY.md from it and moved the card to Review.
+- **Claude Code (haiku)**: 3 of 3 that ran (`2026-10-19T22-19-07-claude-code` sample 1, `2026-10-19T22-24-54-claude-code`
+  both): hive_read_section for the section, then the work. One sample in the first run never took a turn (no tool call,
+  no reported cost: the session, not the guidance) and stopped that run at its budget check.
+- **Round 2** (the prompt names `from: "project"`, the copy the card was briefed from, and a whole file's empty heading):
+  Codex 2 of 2 (`2026-10-19T22-39-02-codex`), Claude Code (haiku) 2 of 2 (`2026-10-19T22-41-09-claude-code`); both
+  passed `from: "project"` to hive_read_section in every sample.
+
 ## Long documents by section: fakes, Claude Code (haiku), Codex (its default model), fixtures v59 (v61 once merged with main), 19 October 2026
 
 #817: two hive tools read Markdown by section (hive_doc_outline, hive_read_section), and both session contracts say to

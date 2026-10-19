@@ -294,7 +294,9 @@ export interface HiveRequests {
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard
   'tasks:discardSetAside': (file: string) => void
-  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
+  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; context?: string[] }) => TaskCard
+  /** A card's context reference (#818): its section's text and heading line, or why it doesn't resolve. projectPath: the card's project's (null: a card about the workspace). */
+  'docs:section': (projectPath: string | null, ref: string) => { ref: string; content: string; line: number } | { ref: string; problem: string; closest?: string[] }
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard
   /** Changes the words of one of a card's decisions, or removes it (text null): the user's (#357). */

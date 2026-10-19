@@ -8128,6 +8128,43 @@ textarea.input.task-blocked-input {
 .task-form {
   margin-bottom: 4px;
 }
+/* The card dialog's Read first (#818): its references, one a line, then each as a link to its section. */
+.task-context {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.task-context textarea {
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.task-context-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.task-context-links .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.task-context-links .link-button:hover,
+.task-context-links .link-button:focus-visible {
+  text-decoration: underline;
+}
+/* The doc section viewer (#818): a section of a long document, scrolled within the dialog. */
+.doc-ref-section {
+  max-height: 60vh;
+  overflow: auto;
+}
 .task-section-h {
   display: flex;
   align-items: center;

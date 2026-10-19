@@ -431,6 +431,26 @@
     "defaultMessage": "{column}: more",
     "description": "Tooltip on a board column's ⋯ button: opens its menu. {column} is its name."
   },
+  "board.context.close": {
+    "defaultMessage": "Close",
+    "description": "Button: closes the doc section viewer."
+  },
+  "board.context.loading": {
+    "defaultMessage": "Reading…",
+    "description": "The doc section viewer while it reads the section."
+  },
+  "board.context.open": {
+    "defaultMessage": "Open in Files",
+    "description": "Button in the doc section viewer (a card's Read first reference, #818): opens the project's file in the Files tab, at the section."
+  },
+  "board.context.openNote": {
+    "defaultMessage": "Open in Shared Notes",
+    "description": "Button in the doc section viewer (a card's Read first reference to a shared note, #818): opens the note in the Shared Notes view."
+  },
+  "board.context.problem": {
+    "defaultMessage": "{why, select, noHeading {That heading isn't in the file} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { Closest headings: {closest}.}}",
+    "description": "The doc section viewer when a card's Read first reference doesn't lead to a section (#818): why ({why}, select: translate each) and, when its heading isn't there, the closest headings' slugs ({closest}; none: leave that branch empty)."
+  },
   "board.cost.cardLine": {
     "defaultMessage": "cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}",
     "description": "A card's cost on the board, under its title: what its agents used ({cost}: \"≈ $1.84\", \"Unknown\"), then how many review rounds it has had (none: leave that branch empty). Lower case: it reads as a note."
@@ -739,6 +759,14 @@
     "defaultMessage": "Comments ({n})",
     "description": "A heading in the card dialog: the card's comments, and how many ({n})."
   },
+  "board.dialog.context": {
+    "defaultMessage": "Read first",
+    "description": "A field label in the card dialog (#818): doc sections the card's agent reads before starting, given in its start prompt."
+  },
+  "board.dialog.contextPlaceholder": {
+    "defaultMessage": "Doc sections, one a line: docs/PLAN.md#setup, shared:plans/notes.md#open-questions",
+    "description": "Placeholder of the card dialog's Read first box (#818): references to doc sections, one a line (keep the examples as they are)."
+  },
   "board.dialog.creatingWorktree": {
     "defaultMessage": "Creating the worktree…",
     "description": "A button while a card is being started on a new agent in its own git worktree (making the worktree takes a moment)."
@@ -1030,6 +1058,10 @@
   "board.field.column": {
     "defaultMessage": "column",
     "description": "A card's field, named in a list (\"Your column replaced the change made meanwhile\"): the board column it is in. Lower case."
+  },
+  "board.field.context": {
+    "defaultMessage": "doc sections to read first",
+    "description": "A card's field, named in a list (\"Your doc sections to read first replaced the change made meanwhile\"): its Read first references. Lower case."
   },
   "board.field.description": {
     "defaultMessage": "description",

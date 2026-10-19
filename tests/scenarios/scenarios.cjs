@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 61
+const FIXTURES_VERSION = 62
 
 /**
  * long-doc-section's design document (#817): about 40,000 characters in 36 sections, one of which (Retry policy) holds
@@ -1479,6 +1479,29 @@ module.exports.SCENARIOS = [
       ['the card is unchanged', o.cards.q?.column === 'todo' && !ran(o, 'hive_update_task').length, o.cards.q?.column]
     ],
     fakeSkips: ['quoted it']
+  },
+  {
+    id: 'card-read-first',
+    title: "A card started with a Read first reference (#818): its agent reads that section (not the whole document) and does the work from it",
+    files: { 'DESIGN.md': LONG_DESIGN },
+    async setup(c) {
+      await c.card('r', { title: 'Write down the retry policy', description: 'Add RETRY.md at the root with one line saying how many times a failed upload is retried and the wait between tries.', context: ['DESIGN.md#retry-policy'] })
+    },
+    // As Hive starts a card (shared/tasks.ts taskPrompt): the reference and its section's size, not its text.
+    prompt: (c) => `Work on task #${c.cards.r} from the Hive task board: Write down the retry policy\n\nAdd RETRY.md at the root with one line saying how many times a failed upload is retried and the wait between tries.\n\nRead these first: DESIGN.md#retry-policy (1.7k characters). hive_read_section reads each as the card has it (path: the file; heading: # and the slug after it, none for a whole file; from: "project").\n\nUse the work-on-card skill.`,
+    fake: (c) => `skill work-on-card boardmove ${c.cards.r} doing then hive hive_read_section {"path":"DESIGN.md","heading":"#retry-policy"} then hive hive_update_task {"number":${c.cards.r},"column":"review","comment":"Ready for review: RETRY.md says 7 retries, 90 seconds apart."}`,
+    expect: (o, c) => {
+      const onDoc = o.tools.filter((t) => !t.isError && !/hive_/.test(t.name) && t.input.includes('DESIGN.md'))
+      const whole = onDoc.filter((t) => (/^Read$/i.test(t.name) ? !/\b(limit|offset)\b/.test(t.input) : /bash|shell|powershell|exec|command/i.test(t.name) && /\b(cat|type|Get-Content|gc|more|less)\b/i.test(t.input) && !/-(TotalCount|Tail|First|Head)\b|\| *(head|Select-Object|Select-String|findstr|grep)/i.test(t.input)))
+      const section = ran(o, 'hive_read_section').some((x) => /retry-policy/i.test(JSON.stringify(x.args)))
+      return [
+        ['read the referenced section (by its heading, or a range)', section || (onDoc.length > 0 && whole.length === 0), `${o.hiveCalls.map((x) => x.tool).join(',')} | ${onDoc.map((t) => t.name).join(',')}`],
+        ["didn't read the whole document", whole.length === 0, whole.map((t) => `${t.name} ${t.input.slice(0, 120)}`).join(' | ')],
+        ['the work follows the section (7 retries, 90 seconds)', /\b7\b|seven/i.test(c.read('RETRY.md') ?? '') && /\b90\b|ninety/i.test(c.read('RETRY.md') ?? ''), c.read('RETRY.md') ?? 'no RETRY.md'],
+        ['it ends in Review', o.cards.r?.column === 'review', o.cards.r?.column]
+      ]
+    },
+    fakeSkips: ['the work follows the section (7 retries, 90 seconds)']
   },
   {
     id: 'long-doc-section',

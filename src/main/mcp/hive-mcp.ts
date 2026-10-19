@@ -134,7 +134,16 @@ const proj = (a: Record<string, any>): string => {
 /** A document read by section (#817): its path, and the project (this one unless named). */
 const docQuery = (a: Record<string, any>): string => {
   const p = a.project || PROJECT
-  return `path=${enc(String(a.path ?? ''))}${p ? `&project=${enc(p)}` : ''}`
+  return `path=${enc(String(a.path ?? ''))}${p ? `&project=${enc(p)}` : ''}${a.from === 'project' ? '&from=project' : ''}`
+}
+/** Which copy of a project file (#818): the agent's own folder's by default, or the project folder's. */
+const fromArg = { type: 'string', enum: ['project'], description: "project: read the project folder's copy, not your worktree's (as a card's Read first references are given)." }
+
+/** A card's context (#818): the doc sections its agent reads first, given in its start prompt. */
+const contextArg = {
+  type: 'array',
+  items: { type: 'string' },
+  description: 'Doc sections to read first, by file and heading slug (as hive_doc_outline lists them), never line numbers: "docs/PLAN.md#setup", "shared:plans/notes.md#open-questions", or a whole file. Replaces the list; [] clears it.'
 }
 
 const tools: Tool[] = [
@@ -174,16 +183,16 @@ const tools: Tool[] = [
   {
     name: 'hive_doc_outline',
     description:
-      'The headings of a Markdown document, each with its slug and its section\'s size in characters (subsections included), to read only the sections you need with hive_read_section. path: a file of your project, relative to the folder you work in ("docs/PLAN.md"), or a shared note as "shared:<path>" ("shared:plans/i18n.md"). depth: only headings down to that level (2: # and ##).',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' }, depth: { type: 'number' }, project: projectArg }, required: ['path'] },
+      'The headings of a Markdown document, each with its slug and its section\'s size in characters (subsections included), to read only the sections you need with hive_read_section. path: a file of your project, relative to the folder you work in ("docs/PLAN.md"), or a shared note as "shared:<path>" ("shared:plans/i18n.md"). from: "project" reads the project folder\'s copy instead of your worktree\'s. depth: only headings down to that level (2: # and ##).',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, depth: { type: 'number' }, from: fromArg, project: projectArg }, required: ['path'] },
     run: async (a) => docOutlineText((await api('GET', `/v1/docs/outline?${docQuery(a)}`)) as { path: string; size: number; headings: DocHeadingRow[] }, Number(a.depth) || undefined)
   },
   {
     name: 'hive_read_section',
     description:
-      'One section of a Markdown document, with its subsections. path: as for hive_doc_outline. heading: "#" and a slug from the outline ("#core-contracts"; two "Setup" headings are "#setup" and "#setup-1"), or the heading\'s text (several sections with that text: it lists their slugs). An unknown heading replies with the closest ones. A section over 30,000 characters comes as its text before its subsections and their outline; full=true gives all of it.',
-    inputSchema: { type: 'object', properties: { path: { type: 'string' }, heading: { type: 'string' }, full: { type: 'boolean' }, project: projectArg }, required: ['path', 'heading'] },
-    run: async (a) => docSectionText((await api('GET', `/v1/docs/section?${docQuery(a)}&heading=${enc(a.heading)}${a.full ? '&full=true' : ''}`)) as Parameters<typeof docSectionText>[0])
+      'One section of a Markdown document, with its subsections. path: as for hive_doc_outline. heading: "#" and a slug from the outline ("#core-contracts"; two "Setup" headings are "#setup" and "#setup-1"), or the heading\'s text (several sections with that text: it lists their slugs). An unknown heading replies with the closest ones; no heading reads the whole document. A section over 30,000 characters comes as its text before its subsections and their outline; full=true gives all of it. from: as for hive_doc_outline.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, heading: { type: 'string' }, full: { type: 'boolean' }, from: fromArg, project: projectArg }, required: ['path'] },
+    run: async (a) => docSectionText((await api('GET', `/v1/docs/section?${docQuery(a)}${a.heading ? `&heading=${enc(a.heading)}` : ''}${a.full ? '&full=true' : ''}`)) as Parameters<typeof docSectionText>[0])
   },
   {
     name: 'hive_write_shared_note',
@@ -524,11 +533,12 @@ const tools: Tool[] = [
         labels: { type: 'array', items: { type: 'string' } },
         blocked: { type: 'string', description: "Why it can't go on yet." },
         blockedBy: cardsArg('Cards that have to be done first.'),
-        links: cardsArg('Related cards.')
+        links: cardsArg('Related cards.'),
+        context: contextArg
       },
       required: ['title']
     },
-    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, reply: 'short' })) as TaskChange)
+    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, context: a.context, reply: 'short' })) as TaskChange)
   },
   {
     name: 'hive_update_task',
@@ -551,6 +561,7 @@ const tools: Tool[] = [
         labels: { type: 'array', items: { type: 'string' } },
         blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
         links: cardsArg('Related cards (replaces the list).'),
+        context: contextArg,
         decision: { type: 'string', description: "Records a decision the user made about the card (scope, wording, a default), in a sentence; it is attributed to the user. Only what the user decided, never your own choice. Only the user changes or removes decisions." },
         ...(ASSISTANT ? {} : { review: { type: 'string', enum: ['start', 'passed', 'failed'] } })
       },
@@ -558,7 +569,7 @@ const tools: Tool[] = [
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'context', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },
