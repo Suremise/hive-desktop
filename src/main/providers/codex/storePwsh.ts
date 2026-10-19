@@ -1,0 +1,41 @@
+import { lstatSync } from 'original-fs'
+import { delimiter, join } from 'path'
+import { msg } from '../../../shared/i18n'
+import type { ReadinessIssue } from '../../../shared/types'
+import { installText } from '../common'
+
+const M = {
+  warning: msg({ id: 'providers.codex.storePwsh.warning', defaultMessage: "Codex agents' commands can fail while a PowerShell 7 from the Microsoft Store is open: Codex's Windows sandbox can't start that PowerShell while another copy of it runs.", description: "Agent Setup and Settings → Providers (#585): a warning that Codex's commands fail (Windows) while the Microsoft Store's PowerShell 7, the one found first, is running anywhere, e.g. in a terminal. Codex is the coding agent's name." }),
+  symptom: msg({ id: 'providers.codex.storePwsh.symptom', defaultMessage: 'The symptom: a Codex command fails at once with `CreateProcessAsUserW failed: 5` (access denied), and works again once every PowerShell 7 window and command is closed.', description: "Agent Setup (#585), under the warning about the Microsoft Store's PowerShell 7: how the problem shows. `…` marks the error as Codex prints it: keep it as it is." }),
+  fix: msg({ id: 'providers.codex.storePwsh.fix', defaultMessage: 'To avoid it, install PowerShell 7 from its installer instead of the Store (`winget install --id Microsoft.PowerShell --source winget`) and uninstall the Store one, then restart Hive and its Codex agents. Hive leaves your shell as it is.', description: "Agent Setup (#585), under the warning about the Microsoft Store's PowerShell 7: what to do. `…` marks a command to type: keep it as it is." })
+}
+
+/** Agent Setup's warning about the Store's PowerShell 7 (#585, Darren's decision: warn and name the symptom, never change the shell). */
+export function storePwshIssue(): ReadinessIssue {
+  return { id: 'store-pwsh', level: 'warning', message: installText(M.warning), detail: [installText(M.symptom), installText(M.fix)] }
+}
+
+/**
+ * Whether the first PowerShell 7 (`pwsh.exe`) on `path` is the Microsoft Store's (#585): its app execution alias in
+ * `%LOCALAPPDATA%\Microsoft\WindowsApps`, or the package's own folder (`…\WindowsApps\Microsoft.PowerShell_…`). Codex's
+ * Windows sandbox can't start that one while any other process of the package runs on the machine (#499: Codex
+ * 0.162.1, "CreateProcessAsUserW failed: 5"), so a Codex agent's commands fail whenever a pwsh is open. Windows only.
+ */
+export function storePwshFirst(path = process.env.PATH ?? '', localAppData = process.env.LOCALAPPDATA ?? '', platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'win32') return false
+  const alias = localAppData ? join(localAppData, 'Microsoft', 'WindowsApps').toLowerCase() : null
+  for (const dir of path.split(delimiter).map((d) => d.trim().replace(/^"(.*)"$/, '$1')).filter(Boolean)) {
+    let found = false
+    try {
+      // lstat: an app execution alias is a reparse point that stat (and existsSync) can't open (EACCES); lstat sees it.
+      const s = lstatSync(join(dir, 'pwsh.exe'))
+      found = s.isFile() || s.isSymbolicLink()
+    } catch {
+      // Not in this folder: the next one.
+    }
+    if (!found) continue
+    const d = dir.replace(/[\\/]+$/, '').toLowerCase()
+    return d === alias || /\\windowsapps\\microsoft\.powershell_/i.test(dir)
+  }
+  return false
+}
