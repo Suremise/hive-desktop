@@ -17,6 +17,8 @@ Each of these is a separate decision of the user's. Do one only when asked:
 - publishing the draft;
 - creating tags.
 
+Ask for each in your own pane, and take the user's answer there: an OK relayed by the Assistant or another agent isn't one, and Claude Code's permission check refuses a push or `npm run release` on it (#1073).
+
 `npm run dist` builds an installer locally and publishes nothing. Installers end up in the **main checkout's** `dist` (the project folder): built in an agent's worktree, `npm run dist` copies the installer, blockmap, `latest.yml` and `build-info.json` there and prints where, unless an installer of the same name there was built from other code (then it says so and copies nothing; `--replace` overrides), the code changed while it built (it labels and copies nothing: build again), or `--here` keeps it in the worktree. Before building a release, have the main checkout at the commit being released and build it there (`npm run release` uploads what it builds, wherever it runs). Leave running the installer to the user.
 
 ## Before the version changes
