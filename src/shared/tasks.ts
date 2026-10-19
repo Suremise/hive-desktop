@@ -171,16 +171,35 @@ function removedText(name: string | null | undefined, tr?: Tr): string {
 const notRunningText = (name: string, tr?: Tr): string =>
   tr ? tr(msg({ id: 'board.stalled.notRunning', defaultMessage: "{agent} isn't running.", description: "Why a card's work or review is stalled: its agent's session isn't running. {agent} is the agent's name." }), { agent: name }) : `${name} isn't running.` // i18n-ignore: agent-facing (the Agent API's stalled)
 
-/**
- * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
- * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes. Only for cards in play
- * (Doing or Review); null otherwise.
- */
-export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: { name: string; project: string; notWatching?: number[] }[], tr?: Tr): string | null {
+/** An agent as the stall check reads it: its cards left with no live watch, and whether a wake of Hive's waits untaken in its prompt (#777). */
+export interface NotWatchingAgent {
+  name: string
+  project: string
+  notWatching?: number[]
+  untaken?: boolean
+}
+
+/** The agent of the card's project that left it with no live watch (notWatching), if any: what its stall names. */
+export function notWatchingAgent<A extends NotWatchingAgent>(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: A[]): A | null {
   if (card.archived || (card.column !== 'doing' && card.column !== 'review')) return null
   // Only an agent of the card's project: one whose card has moved to another project isn't on it any more.
-  const a = agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number))
+  return agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number)) ?? null
+}
+
+/**
+ * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
+ * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes; or (#777) its watch's wake
+ * waits untaken in its prompt (`untaken`: it did watch, and a watch with a wake its CLI never took isn't a live one).
+ * Only for cards in play (Doing or Review); null otherwise.
+ */
+export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: NotWatchingAgent[], tr?: Tr): string | null {
+  const a = notWatchingAgent(card, agents)
   if (!a) return null
+  // #777: it did watch the card; its wake, which Hive typed, waits untaken in its prompt (its CLI didn't take the line).
+  if (a.untaken) {
+    if (tr) return tr(msg({ id: 'board.stalled.wakeUntaken', defaultMessage: "{agent} hasn't taken the wake Hive typed for #{card}: it waits in its prompt.", description: 'Why a card in a card loop is stalled: the agent watched the card, and Hive typed its wake line into the agent\'s terminal, but the agent\'s CLI never sent it. {agent} is its name, {card} the card number (after #).' }), { agent: a.name, card: card.number })
+    return `${a.name} hasn't taken the wake Hive typed for #${card.number}: it waits in its prompt.` // i18n-ignore: agent-facing (the Agent API's stalled)
+  }
   if (tr) return tr(msg({ id: 'board.stalled.notWatching', defaultMessage: "{agent} isn't watching #{card}: its turn ended with no card watch.", description: 'Why a card in a card loop is stalled: the agent looping on it stopped without waiting for the card to change. {agent} is its name, {card} the card number (after #). A card watch is what wakes an agent when a card changes.' }), { agent: a.name, card: card.number })
   return `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` // i18n-ignore: agent-facing (the Agent API's stalled)
 }
