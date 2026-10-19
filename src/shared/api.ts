@@ -589,6 +589,8 @@ export interface HiveRequests {
   'console:recordings': () => { active: ConsoleRecordingInfo | null; latest: ConsoleRecordingInfo | null }
   /** Shows one of Hive's recordings (by its file name) in its folder. */
   'console:showRecording': (name: string) => void
+  /** The flight recorder's captures (#698), newest first: each one's trigger, agent and when. */
+  'console:captures': () => ConsoleRecordingInfo[]
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

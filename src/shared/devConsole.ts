@@ -17,9 +17,10 @@ export type ConsoleSourceKind = 'session' | 'assistant' | 'hive'
 
 /**
  * What an event is: a CLI's hook, status line, transcript records or terminal markers; a line Hive typed into it; its
- * launch and exit; or Hive's own work (Agent API calls, the hook server, watches, the merge slot, Progress).
+ * launch and exit; Hive's own work (Agent API calls, the hook server, watches, the merge slot, Progress); or a trigger
+ * of the flight recorder firing (#698).
  */
-export const CONSOLE_KINDS = ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress'] as const
+export const CONSOLE_KINDS = ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress', 'trigger'] as const
 export type ConsoleKind = (typeof CONSOLE_KINDS)[number]
 
 export interface ConsoleSource {
@@ -78,7 +79,9 @@ export interface ConsoleRecordingInfo {
   dropped: number
   /** Still being written. */
   recording: boolean
-  reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed'
+  reason?: 'stopped' | 'closed' | 'workspace' | 'limit' | 'failed' | 'captured'
+  /** A flight recorder capture (#698): the trigger that fired and what it saw, in English. */
+  capture?: { trigger: string; what: string; whatText?: { id: string; values: Record<string, string | number> } }
   /** Why a failed recording failed (its file is kept as it was written). */
   error?: string
 }
@@ -191,7 +194,7 @@ function wordsOf(key: string): string[] {
 
 /** Words that make a field a secret or a sign-in, alone or (the pairs) side by side, or as the whole name run together. */
 const SECRET_WORDS = new Set(['token', 'secret', 'secrets', 'password', 'passwd', 'passphrase', 'apikey', 'credential', 'credentials', 'cookie', 'cookies', 'authorization', 'auth', 'oauth', 'login', 'signin', 'bearer', 'otp', 'jwt', 'idtoken', 'accesstoken', 'refreshtoken', 'devicecode', 'usercode', 'privatekey', 'sessionkey', 'accesskey'])
-const SECRET_PAIRS = new Set(['api key', 'access key', 'private key', 'session key', 'secret key', 'device code', 'user code', 'verification uri', 'sign in', 'log in', 'client secret', 'code verifier'])
+const SECRET_PAIRS = new Set(['api key', 'access key', 'private key', 'session key', 'secret key', 'device code', 'user code', 'verification uri', 'sign in', 'log in', 'client secret', 'code verifier']) // i18n-ignore: field-name words the redaction matches payload keys against, never shown
 /** Words that make a field text someone wrote (a person, the model, a CLI, a tool's arguments). */
 const TEXT_WORDS = new Set(['prompt', 'prompts', 'message', 'messages', 'text', 'content', 'reason', 'title', 'summary', 'response', 'result', 'results', 'output', 'stdout', 'stderr', 'error', 'errors', 'description', 'question', 'answer', 'body', 'line', 'lines', 'screen', 'command', 'commands', 'query', 'instructions', 'todos', 'value', 'subject', 'string', 'pattern', 'url', 'args', 'arguments', 'ask', 'asks', 'thinking', 'comment', 'note', 'notes'])
 
@@ -264,7 +267,7 @@ function copy(v: unknown, key: string, ctx: Context, safe: SafeFields | true | u
     const c = copy(x, k, ctx, under && (named ? under[k] : under['*']), named, depth + 1, opts)
     if (c !== undefined) out[keyOf(k)] = c
   }
-  if (entries.length > MAX_KEYS) out['<more>'] = `${entries.length - MAX_KEYS} more fields`
+  if (entries.length > MAX_KEYS) out['<more>'] = `${entries.length - MAX_KEYS} more fields` // i18n-ignore: a redaction placeholder in the developer console's event data, recorded like a log, stays English (#1104)
   return out
 }
 

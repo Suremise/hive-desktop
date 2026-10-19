@@ -60,7 +60,7 @@ export const PATCHES = [
   ['src/main/skills.ts', 'function problemOf(m: Msg, values?: TextValues): {', `function problemOf<Id extends string>(m: Msg<Id>, values?: ${V}): {`],
   ['src/main/templates.ts', 'const refusal = (m: Msg, values?: TextValues, kind?:', `const refusal = <Id extends string>(m: Msg<Id>, values?: ${V}, kind?:`],
   ['src/shared/i18n/index.ts', 'export function tRich<T>(m: Msg, values: Record<string, T | string | number | Date | ((chunks: (string | T)[]) => T)>): (string | T)[] {', `export function tRich<Id extends string, T = any>(m: Msg<Id>, values: NoInfer<${RICH_V}>): (string | T)[] {`],
-  ...['src/renderer/src/views/FilesTab.tsx', 'src/renderer/src/views/GitTab.tsx'].map((file) => [
+  ...['src/renderer/src/views/FilesTab.tsx', 'src/renderer/src/views/GitTab.tsx', 'src/renderer/src/views/Performance.tsx'].map((file) => [
     file,
     'const rich = (m: Msg, values: Parameters<typeof tRich<React.ReactNode>>[1]): React.ReactNode[] => Children.toArray(tRich<React.ReactNode>(m, values))',
     `const rich = <Id extends string>(m: Msg<Id>, values: NoInfer<${RICH_V}>): React.ReactNode[] => Children.toArray(tRich(m, values as never))`

@@ -2585,8 +2585,8 @@ export function apiErrorReply(e: unknown): { status: number; body: Record<string
 /** A card's history entry or comment: without its id (replies stay lean) or its text as data. */
 export const entryForAgents = <T extends { id?: string; whatText?: unknown; hiveText?: unknown }>({ id: _id, whatText: _what, hiveText: _hive, ...rest }: T): Omit<T, 'id' | 'whatText' | 'hiveText'> => rest
 /** A metrics report: its lists of what wasn't measured or filtered in English only. */
-export function metricsForAgents<R extends { notMeasuredText?: unknown; filters?: { notFilteredText?: unknown } }>(r: R): Omit<R, 'notMeasuredText'> {
-  const { notMeasuredText: _m, ...rest } = r
+export function metricsForAgents<R extends { notMeasuredText?: unknown; providersNoteText?: unknown; filters?: { notFilteredText?: unknown } }>(r: R): Omit<R, 'notMeasuredText' | 'providersNoteText'> {
+  const { notMeasuredText: _m, providersNoteText: _p, ...rest } = r
   if (!rest.filters) return rest
   const { notFilteredText: _f, ...filters } = rest.filters
   return { ...rest, filters }

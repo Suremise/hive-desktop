@@ -85,7 +85,7 @@ import { cardBusy } from './cardBusy'
 import { devConsole } from './devConsole'
 import { consoleSources } from './devConsoleSources'
 import { CONSOLE_WINDOW_CHANNELS, consoleOwner, openConsoleWindow, sendToConsoles } from './consoleWindow'
-import { isRecordingName, latestRecording, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
+import { isRecordingName, latestRecording, listCaptures, recordingOf, recordingsDir, startRecording, stopRecording, stopRecordingsWhere } from './consoleRecorder'
 import { mayRead, type ConsoleEvent } from '../shared/devConsole'
 import { benchContext, importBenchmark, keepReport, listBenchmarks, pinBenchmark, readBenchmark, removeBenchmark, selectBenchmarks } from './benchmarks'
 import { capturedText, HiveError, hiveError, windowError } from './hiveError'
@@ -1065,6 +1065,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       const wc = senderStore.getStore()
       return { active: wc ? recordingOf(wc.id) : null, latest: await latestRecording() }
     },
+    'console:captures': () => listCaptures(),
     'console:showRecording': (name) => {
       // Only Hive's own recordings, by name, in its folder: never a path the page gives.
       if (typeof name !== 'string' || !isRecordingName(name)) throw hiveError(M.notRecording, undefined, { kind: 'invalid' })

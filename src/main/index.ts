@@ -5,6 +5,7 @@ import { initDeliveries } from './deliveries'
 import { initInboxNotices } from './inboxNotices'
 import { initDecisionWakes } from './decisionWakes'
 import { initDevConsole } from './devConsoleSources'
+import { flightRecorder } from './flightRecorder'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -785,6 +786,8 @@ app.whenReady().then(async () => {
   advanced.load()
   // Show developer features is one of them too, kept under its settings key: the file and the setting stay one value.
   bindAdvancedSettings(config)
+  // The developer console's flight recorder (#698): its triggers are advanced settings, followed as they change.
+  flightRecorder.start((source) => sessions.flightAgent(source))
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', async (req) => {
@@ -1059,6 +1062,7 @@ app.on('will-quit', () => {
   killAll()
   closeProcessTracking()
   unwatchAll()
+  flightRecorder.stop()
   advanced.stop()
   destroyTray()
   // The boards' databases: checkpointed and closed, the stubs older versions read brought up to date (#1017).

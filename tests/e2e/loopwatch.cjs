@@ -129,24 +129,26 @@ const check = (name, ok, extra = '') => {
   await lib.sleep(4500) // on purpose: longer than the grace, to see no flag comes
   check('a reviewer that keeps watching is never flagged', !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, String(await stalledOf(c1)))
 
-  // --- 2. A wake never taken (both Enters dropped): the reviewer sits idle with no watch; after the grace its card is
-  // stalled, with one notice; the line goes through once Enter is pressed (by the user here), and the flag clears.
+  // --- 2. A wake never taken (both Enters dropped): the reviewer did watch, but its wake waits in its prompt, so nothing
+  // will move it on; after the grace its card is stalled, saying so (#777: not "its turn ended with no card watch", which
+  // blamed the reviewer, as Codex reviewers were on 14 Oct), with one notice (the untaken line's, not "isn't watching");
+  // the line goes through once Enter is pressed (by the user here), and the flag clears.
   dropEnters('Reviewer', 2)
   script('Reviewer', [`work 1 then ${wait(c1, { column: 'passed' })}`])
   await inv('tasks:update', c1, { column: 'doing' })
   await inv('tasks:update', c1, { column: 'review' })
-  const reason = `Reviewer isn't watching #${c1}: its turn ended with no card watch.`
+  const reason = `Reviewer hasn't taken the wake Hive typed for #${c1}: it waits in its prompt.`
   check('a wake never taken: after the grace, the card is stalled, saying who and why', !!(await until(async () => (await stalledOf(c1)) === reason, 30000)), String(await stalledOf(c1)))
   check('…the line was never sent, and Hive says so', !!(await until(async () => /still wasn't taken/.test(hiveLog()), 8000)) && wakes('Reviewer').length === 1)
   check('…the reviewer shows idle, with the card it left', ['ready', 'finished'].includes((await live(reviewer.id))?.status) && JSON.stringify((await live(reviewer.id))?.notWatching) === JSON.stringify([c1]), JSON.stringify(await live(reviewer.id)))
   await page.getByRole('button', { name: 'Task Board' }).click()
   const tile = page.locator(`.task-card[data-task="${c1}"]`)
-  check('the board shows the card stalled', !!(await until(async () => /Stalled: Reviewer isn't watching/.test((await tile.innerText().catch(() => '')) ?? ''), 8000)), await tile.innerText().catch(() => ''))
+  check('the board shows the card stalled', !!(await until(async () => /Stalled: Reviewer hasn't taken the wake Hive typed/.test((await tile.innerText().catch(() => '')) ?? ''), 8000)), await tile.innerText().catch(() => ''))
   await page.screenshot({ path: path.join(lib.WORK, 'loopwatch-stalled.png') })
-  const told = () => notices().filter((n) => /Reviewer isn't watching #/.test(n.title ?? ''))
+  const told = () => notices().filter((n) => /hasn't taken a line Hive typed/.test(JSON.stringify(n)))
   check('one notice tells the user', !!(await until(async () => told().length === 1, 5000)), JSON.stringify(notices()))
   await lib.sleep(4000) // on purpose: longer than the grace, to see no second notice comes
-  check('…only once', told().length === 1, JSON.stringify(told()))
+  check('…only once, and none saying it isn\'t watching (#777)', told().length === 1 && !notices().some((n) => /isn't watching/.test(n.title ?? '')), JSON.stringify(notices()))
   await inv('pty:write', lib.ptyKey(alpha, reviewer.id), '\r')
   check('Enter sends the waiting line: the reviewer takes it', !!(await until(async () => wakes('Reviewer').length === 2, 10000)))
   check('…and the flag clears', !!(await until(async () => !(await stalledOf(c1)) && !(await live(reviewer.id))?.notWatching, 10000)), String(await stalledOf(c1)))

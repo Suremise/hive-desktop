@@ -725,7 +725,7 @@ const tools: Tool[] = [
         since: { type: 'number', description: 'Only events after this one (the previous reply\'s "since").' },
         limit: { type: 'number', description: 'At most this many lines (default 30, at most 100).' },
         offset: { type: 'number', description: 'sources: skip this many (the reply says where to carry on).' },
-        kinds: { type: 'array', items: { type: 'string', enum: ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress'] } },
+        kinds: { type: 'array', items: { type: 'string', enum: ['hook', 'statusline', 'transcript', 'terminal', 'input', 'launch', 'exit', 'api', 'hook-server', 'watch', 'merge-slot', 'progress', 'trigger'] } },
         seq: cardsArg('Events to give in full (their numbers, at most 3).')
       }
     },
