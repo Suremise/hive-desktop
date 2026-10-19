@@ -16,6 +16,7 @@ import { placeMatcher } from '../../fsutil'
 import { createLogger, userText } from '../../logger'
 import { findSecretWarnings } from '../../mcpSecrets'
 import { AGENTS_SKILLS, EDITOR_EXTENSION_PATH, EDITOR_ROOTS, agentsSkillCopyPath, compareVersions, hookForwardCommand, exportSubtitleText, hookIds, installText, notInstalledIssue, readFirstLine, run, signedOutIssue, syncAgentsSkills, taskArgs, toSpawnable, updateIssue, userMemoryLabel } from '../common'
+import { storePwshFirst, storePwshIssue } from './storePwsh'
 import type { BackgroundTaskEvent, CatalogRead, CommandSpec, ExternalSession, KeySteps, LaunchContext, LiveDetails, LockDecision, NormalizedHook, ProviderAdapter, SkillDelivery, SkillRoots, UsageParser } from '../types'
 import { codexBackgroundMemo, codexBackgroundTasks, type CodexBackgroundMemo } from './background'
 import { codexSafeguards } from './safeguards'
@@ -445,6 +446,9 @@ export class CodexAdapter implements ProviderAdapter {
         detail: [installText(msg({ id: 'providers.codex.sandbox.upgrade', defaultMessage: '**Upgrade** switches Codex to its default sandbox, which runs commands under separate Windows accounts instead of your own. Windows asks for Administrator permission once. Codex agents that are running keep their sandbox until they restart.', description: "Agent Setup, under Codex's sandbox setup (Windows): what Upgrade does. **…** marks bold text: keep the marks." }))]
       })
     }
+    // The Store's PowerShell 7 first on PATH, with the sandbox on: its commands fail while one is open (#585). Like the
+    // sandbox's own items, once Codex is signed in.
+    if (info.loggedIn !== false && sandbox && storePwshFirst()) out.push(storePwshIssue())
     if (info.updateAvailable) out.push(updateIssue(name, info.latestVersion))
     return out
   }
