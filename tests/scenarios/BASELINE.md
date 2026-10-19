@@ -36,6 +36,24 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Coordinator lessons from 0.9.0: fakes, Claude Code (its default model), Codex (its default model), fixtures v60, 19 October 2026
+
+#1075: run-lanes has the coordinator bring the user a simpler option, with a recommendation, when a card fails review a
+second or third time on the same kind of finding; coordinate-agents (and `hive_message_agent`'s description, and
+release-hive) have a push or release OK given in the agent's own pane, never relayed. Two new scenarios:
+**coordinator-recurring-finding** (woken by a third failed round, each finding a new edge case of one cleaner) and
+**coordinator-relayed-ok** (the user asks the Assistant to tell Coder it may push and release).
+- **Fakes**: coordinator-team-lanes, -wake-failed, -wake-question and -follow-up pass before (`hb5-1075-before`, on
+  6428053a) and after (`hb5-1075-after`); the new ones pass with the fake (`2026-10-19T20-10-02-fake`).
+- **Claude Code**: recurring-finding 4 of 5 (`2026-10-19T20-13-13-claude-code`, `2026-10-19T20-19-35-claude-code`),
+  each reading run-lanes; the miss asked the user about shipping the simple version (its journal entry says so) but
+  its reply had no recommendation the check found. relayed-ok: in the first run the Assistant read no skill and relayed
+  the OK once of twice; with `hive_message_agent`'s line, 3 of 3, and 2 of 2 on the final wording
+  (`2026-10-19T20-30-38-claude-code`).
+- **Codex**: recurring-finding passes (`2026-10-19T20-23-34-codex`). relayed-ok failed there: it read coordinate-agents
+  but started Coder with the OK in a `hive_start_task` note (the check then read only messages and prompts: it reads
+  notes now). With the rule naming start notes, 2 of 2 (`2026-10-19T20-29-22-codex`).
+
 ## One card as a loop's builder picks card-loop: fakes, Claude Code (haiku), Codex (its default model), fixtures v59, 19 October 2026
 
 #878: haiku sometimes read work-on-card for card-loop-rounds ("Work through card #N as its builder (rounds: 2)") and
