@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Agents and terminals find the Claude Code Hive found.** When Claude Code's own installer left its folder off your PATH, Agent Setup found Claude Code but a shell Hive started couldn't run `claude`. Hive now adds the folder of each CLI it finds to the PATH of what it starts, without changing your own PATH (#1103).
 - **A warning for Codex with the Store's PowerShell 7.** Codex's Windows sandbox can't start the Microsoft Store's PowerShell 7 while another copy of it is open, so Codex agents' commands failed at random. Agent Setup now warns when that PowerShell is the one Codex would use, says how it shows, and how to switch to the installer's PowerShell 7 (#585).
 - **Copilot compactions show up.** A Copilot agent's compactions now count in its usage and appear in the Sessions tab with their summary, and after a `/compact` typed in its terminal the agent shows as ready again once Copilot has finished, not only at your next message (#454).
 - **Plan usage no longer flips between figures.** With several agents running, the status bar's weekly figure could jump back and forth (98%, then 96%, then 98%) because each session passes on the figures from its own latest request, and a resumed Codex session could even bring back last week's. Hive now keeps the highest figure each limit has reached in its reset period, takes the new one as soon as it resets, and its tooltip says which agent reported each limit (#383).

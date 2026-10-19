@@ -9,7 +9,7 @@ import type { KeySteps, UpdateRetry } from './providers/types'
 import { msg, onLanguageChange, tr } from '../shared/i18n'
 import { hiveError } from './hiveError'
 import { config } from './config'
-import { refreshPath } from './freshPath'
+import { noteCliFolder, refreshPath } from './freshPath'
 import { emit, toast } from './events'
 import { createLogger } from './logger'
 import { childEnv, hasPty, killPty, spawnPty, startSize, writePty } from './ptyHost'
@@ -217,6 +217,8 @@ class ProviderService {
       const slow = app.isPackaged ? 0 : Number((process.env.HIVE_TEST_SLOW_DETECT ?? '').split(',').find((x) => x.startsWith(`${id}=`))?.slice(id.length + 1) ?? 0)
       if (slow > 0) await new Promise((r) => setTimeout(r, slow))
       const found = await adapter.locate()
+      // Its folder on the PATH of what Hive starts, so its sessions and terminals find the CLI Agent Setup found (#1103).
+      if (this.refreshes.get(id) === run) noteCliFolder(id, found.path)
       // Found is known before its version, models and sign-in are: Automatic's pick needs only that (#506).
       if (found.path && this.refreshes.get(id) === run && !this.info(id).found) this.set(id, { ...this.info(id), found: true, path: found.path })
       const latest = latestWanted ? await adapter.latestVersion() : prev.latestVersion
