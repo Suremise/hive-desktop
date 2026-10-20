@@ -36,7 +36,7 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
-## One answer per workflow rule (Phase 0 tidy): fakes, Codex (its default model), fixtures v67, 20 October 2026
+## One answer per workflow rule (Phase 0 tidy): fakes, Claude Code and Codex (their default models), fixtures v67, 20 October 2026
 
 #1129: the board rule says Done in the project folder is committed; merge-ready says who merges (a lane's builder at
 its end, otherwise the user or an agent asked); a lane's cards change only between cards (card-loop, run-lanes, the
@@ -54,9 +54,14 @@ names; merge-ready's timer line points to work-on-card. Repo docs (AGENTS.md, RE
   and checking the combined tree (the same path seen before #1129). With that line pointing to the section instead, 5 of
   8 (`05-00-39`, `05-03-11`; read 6 times, passed 5). Not reading merge-ready (about half the runs, both ways) is the
   main failure; #1162 settles the `--no-commit` path.
-- **Claude Code**: not run (its test home was signed out); see #1136.
+- **Claude Code** (CLI 2.1.304), after (`2026-10-20T07-34-17-claude-code`, 2 each): review-card and card-loop-lane pass
+  (card-loop-lane once ended its turn not watching); merge-main-moved 0 of 2 (merge-ready not read; one merged the
+  branch without merging the moved base first); merged-to-done 0 of 2 and assistant-new-lane's skill check 0 of 2,
+  both fixtures (#1169: the repo has no merge to find, so it rightly leaves the card; it reads run-lanes, which the
+  check doesn't count). Before, on the branch before #1129 (`07-42-36-claude-code`, those three): the same, and
+  merge-main-moved worse (1 of 8 checks each).
 
-## A decision about a card goes on the card: fakes, Codex (its default model), fixtures v65, 20 October 2026
+## A decision about a card goes on the card: fakes, Claude Code and Codex (their default models), fixtures v65, 20 October 2026
 
 #1136: with the journal on, its always-present rule said to write decisions as they happen, and nothing always-present
 said a decision about a card belongs on the card (coordinate-agents does, but a wake doesn't load it): Claude Code's
@@ -67,7 +72,9 @@ question on in its words; the journal and coordinate-agents skills match.
   worktree-isolation timed out once before, under load. The Assistant's guidance +172 bytes with the journal on.
 - **Claude Code, before**: assistant-reply-decision failed again (`2026-10-20T03-01-43-claude-code`).
 - **Codex**: both scenarios 2 of 2 before (`2026-10-20T03-04-44-codex`) and after (`03-42-10-codex`).
-- **Claude Code, after**: waits for its test home's sign-in.
+- **Claude Code, after** (CLI 2.1.304): assistant-reply-decision 3 of 3 (`2026-10-20T07-22-24-claude-code`);
+  coordinator-wake-question 5 of 5 that ran (`07-22-24`, `07-26-01`, `07-32-19`), 4 more lost to the harness before
+  the model acted (a typed prompt not taken: #1168). Before (`2026-10-19T22-48-31-claude-code`): 0 of 2 and 1 of 2.
 
 ## Screenshots read through their report: fakes, Claude Code (its default model), Codex (its default model), fixtures v65, 20 October 2026
 
