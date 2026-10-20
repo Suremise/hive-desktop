@@ -459,9 +459,9 @@ export interface HiveRequests {
   'worktrees:removeUnused': (projectPath: string, path: string, opts: { expectInto?: string | null; force?: string }) => UnusedWorktreeRemoval
   'agents:merge': (projectPath: string, agentId: string, opts: { squash: boolean; message: string; cleanup: boolean; moveBranch?: boolean }) => MergeResult
 
-  /** The conversation for the transcript viewer; null when the file has not grown since knownSize. Long tool input/output is shortened. */
-  /** The conversation from item `from` on (default: the last TRANSCRIPT_WINDOW items); null when the file hasn't grown since knownSize and `from` is unchanged. */
-  'transcript:read': (projectPath: string, sessionId: string, opts?: { knownSize?: number; from?: number }) => Transcript | null
+  /** The conversation for the transcript viewer; null when the file has not changed since knownVersion (a Transcript's `version`). Long tool input/output is shortened. */
+  /** The conversation from item `from` on (default: the last TRANSCRIPT_WINDOW items); null when the file hasn't changed since knownVersion and `from` is unchanged. */
+  'transcript:read': (projectPath: string, sessionId: string, opts?: { knownVersion?: string; from?: number }) => Transcript | null
   /** One tool call with its full input and output. */
   'transcript:tool': (projectPath: string, sessionId: string, itemId: number) => TranscriptTool
   /** An image stored in the transcript, as a data URL. */

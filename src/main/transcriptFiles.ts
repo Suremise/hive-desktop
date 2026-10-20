@@ -99,10 +99,14 @@ export async function readBytes(path: string, from: number, to: number): Promise
     }
   }
   const src = createReadStream(path)
+  const gunzip = createGunzip()
+  // pipe() doesn't pass the file's errors on (a backup gone or unreadable): fail the decompression with them, so the
+  // loop below throws them rather than the process seeing an unhandled stream error.
+  src.on('error', (e) => gunzip.destroy(e))
   const parts: Buffer[] = []
   let at = 0
   try {
-    for await (const d of src.pipe(createGunzip()) as AsyncIterable<Buffer>) {
+    for await (const d of src.pipe(gunzip) as AsyncIterable<Buffer>) {
       const end = at + d.length
       if (end > from) parts.push(d.subarray(Math.max(0, from - at), Math.min(d.length, to - at)))
       at = end
@@ -110,6 +114,7 @@ export async function readBytes(path: string, from: number, to: number): Promise
     }
   } finally {
     src.destroy()
+    gunzip.destroy()
   }
   return Buffer.concat(parts)
 }

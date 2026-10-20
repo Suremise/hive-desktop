@@ -46,6 +46,25 @@ describe('transcript files', () => {
     }
   })
 
+  it('a range of a missing or damaged .gz fails its call, not the process', async () => {
+    const dir = tempDir('hive-transcript-files-')
+    const uncaught: unknown[] = []
+    const onUncaught = (e: unknown): void => void uncaught.push(e)
+    process.on('uncaughtException', onUncaught)
+    try {
+      await expect(readBytes(join(dir, 'missing.jsonl.gz'), 0, 10)).rejects.toThrow(/ENOENT/)
+      writeFileSync(join(dir, 'bad.jsonl.gz'), 'not gzip at all')
+      await expect(readBytes(join(dir, 'bad.jsonl.gz'), 0, 10)).rejects.toThrow()
+      await expect(readFirstLineOf(join(dir, 'missing.jsonl.gz'))).rejects.toThrow(/ENOENT/)
+      await expect(readAll(join(dir, 'missing.jsonl.gz'))).rejects.toThrow(/ENOENT/)
+      // Any stream error left over would surface on a later tick.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(uncaught).toEqual([])
+    } finally {
+      process.off('uncaughtException', onUncaught)
+    }
+  })
+
   it("leaves a plain file's line still being written for the next read", async () => {
     const dir = tempDir('hive-transcript-files-')
     const plain = join(dir, 'a.jsonl')

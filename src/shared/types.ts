@@ -1985,8 +1985,10 @@ export type TranscriptItem = TranscriptItemBase &
 
 export interface Transcript {
   sessionId: string
-  /** File size read so far; pass back to transcript:read to get null when nothing changed. */
+  /** File size read so far. */
   size: number
+  /** Pass back to transcript:read (knownVersion) to get null when nothing changed: a plain file's size, a compressed backup's identity (#1110: replaced whole, maybe by one of the same size). */
+  version: string
   /** Items in the whole conversation; `items` holds those from `from` on (an item's id is its index). */
   total: number
   from: number

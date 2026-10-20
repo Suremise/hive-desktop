@@ -182,13 +182,13 @@ const text = (loc) => loc.textContent({ timeout: 1000 }).then((got) => got ?? ''
 
   // Incremental read: unchanged returns null, appended lines are picked up, a partial line waits.
   const r1 = await inv('transcript:read', proj, A)
-  const r2 = await inv('transcript:read', proj, A, { knownSize: r1.size })
+  const r2 = await inv('transcript:read', proj, A, { knownVersion: r1.version })
   check('unchanged transcript returns null', r2 === null)
   fs.appendFileSync(path.join(sessDir, `${A}.jsonl`), JSON.stringify({ type: 'user', timestamp: t(9), message: { role: 'user', content: 'one more thing' } }) + '\n{"type":"assistant","partial')
-  const r3 = await inv('transcript:read', proj, A, { knownSize: r1.size })
+  const r3 = await inv('transcript:read', proj, A, { knownVersion: r1.version })
   check('appended message read incrementally', !!r3 && r3.items.length === r1.items.length + 1 && r3.items.at(-1).text === 'one more thing')
   fs.appendFileSync(path.join(sessDir, `${A}.jsonl`), `":1,"requestId":"r9","timestamp":"${t(9)}","message":{"content":[{"type":"text","text":"Sure."}]}}\n`)
-  const r4 = await inv('transcript:read', proj, A, { knownSize: r3.size })
+  const r4 = await inv('transcript:read', proj, A, { knownVersion: r3.version })
   check('partial last line completed later', !!r4 && r4.items.at(-1).text === 'Sure.')
 
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'))

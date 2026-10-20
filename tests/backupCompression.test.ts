@@ -3,9 +3,9 @@
 // Storage says what they hold before compression. Backup retention (off by default) sends Hive's copies of sessions idle
 // that long to the Recycle Bin, only where the CLI still has the session, after the usage history has what it used; a
 // session whose only copy is Hive's is never touched.
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { gunzipSync } from 'zlib'
+import { gunzipSync, gzipSync } from 'zlib'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
 import { tempDir } from './tempDir'
@@ -24,6 +24,7 @@ const { sessions } = await import('../src/main/sessions')
 const { transcripts } = await import('../src/main/transcripts')
 const { projectStorage } = await import('../src/main/storage')
 const { config } = await import('../src/main/config')
+const { usageHistory } = await import('../src/main/usageHistory')
 
 const wsPath = join(base, 'ws')
 const p = join(wsPath, 'proj')
@@ -150,6 +151,27 @@ describe('compressed transcript backups', () => {
     expect(await run(() => transcripts.image(p, id, 0))).toBe(`data:image/png;base64,${png}`)
   })
 
+  it('a compressed backup replaced by another of the same size is read again: view, search, export and polling', async () => {
+    const id = await session()
+    const gzOf = (word: string): Buffer => gzipSync(transcript(id) + JSON.stringify({ type: 'user', sessionId: id, timestamp: at, message: { role: 'user', content: `Last word ${word}` } }) + '\n')
+    const [a, b] = [gzOf('AAAA'), gzOf('BBBB')]
+    expect(a.length).toBe(b.length)
+    rmSync(backup(id))
+    writeFileSync(backup(id) + '.gz', a)
+    const first = await run(() => transcripts.read(p, id))
+    expect(first?.items.at(-1)).toMatchObject({ kind: 'user', text: 'Last word AAAA' })
+    expect(await run(() => transcripts.read(p, id, { knownVersion: first!.version }))).toBeNull()
+    // Replaced whole, as compressing a resumed session's backup at its end does.
+    writeFileSync(backup(id) + '.gz.tmp', b)
+    renameSync(backup(id) + '.gz.tmp', backup(id) + '.gz')
+    const again = await run(() => transcripts.read(p, id, { knownVersion: first!.version }))
+    expect(again?.items.at(-1)).toMatchObject({ kind: 'user', text: 'Last word BBBB' })
+    expect(again?.version).not.toBe(first?.version)
+    expect((await run(() => transcripts.search(p, 'AAAA', id))).length).toBe(0)
+    expect((await run(() => transcripts.search(p, 'BBBB', id))).length).toBeGreaterThan(0)
+    expect(await run(() => transcripts.markdown(p, id, 'Export'))).toMatch(/Last word BBBB/)
+  })
+
   it('Storage gives what the backups hold before compression', async () => {
     const id = await session()
     const archived = await session({ archived: true })
@@ -186,5 +208,45 @@ describe('compressed transcript backups', () => {
       expect(u && u.outputTokens).toBe(2000)
       for (const kept of [hiveOnly, recent, live]) expect(existsSync(backup(kept)), kept).toBe(true)
     })
+
+    // What decides it can change while it waits: before the session is reserved (the first look at the CLI), and while
+    // what it used is recorded. Each change keeps its copies.
+    const changes: [string, (id: string) => Promise<void>][] = [
+      ['active again', async (id) => void (await run(() => workspace.upsertSession(p, { id, lastActiveAt: new Date().toISOString() })))],
+      ['retention turned off', async () => void (config.settings.sessions.backupRetention = 'off')],
+      ['started', async (id) => running(id)],
+      ["dropped by the CLI", async (id) => rmSync(cliFile(id), { force: true })]
+    ]
+    for (const [what, change] of changes) {
+      it(`keeps the copies of a session ${what} before it is reserved, or while what it used is recorded`, async () => {
+        config.settings.sessions.backupRetention = '30'
+        const before = await session({ days: 400, inCli: true })
+        let looks = 0
+        cliLookup.mockImplementation(async (pp, id) => {
+          if (id === before && looks++ === 0) await change(id)
+          return lookup(pp, id)
+        })
+        expect(await run(() => sessions.applyRetention(p))).toBe(0)
+        expect(existsSync(backup(before))).toBe(true)
+        cliLookup.mockImplementation(lookup)
+        s.live.clear()
+        // Out of the next run: the CLI no longer has it.
+        rmSync(cliFile(before), { force: true })
+
+        config.settings.sessions.backupRetention = '30'
+        const during = await session({ days: 400, inCli: true })
+        const record = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async (_p, id) => {
+          if (id === during) await change(id)
+          return true
+        })
+        try {
+          expect(await run(() => sessions.applyRetention(p))).toBe(0)
+        } finally {
+          record.mockRestore()
+        }
+        expect(trashed).toEqual([])
+        expect(existsSync(backup(during))).toBe(true)
+      })
+    }
   })
 })

@@ -169,6 +169,11 @@ export interface HiveMcpProvider {
 
 /** Minimum time between transcript backups while a turn is running. */
 const BACKUP_INTERVAL_MS = 60_000
+/** Settings → Sessions → Keep transcript backups now (#1110): days, or null when they're kept always. */
+const retentionDays = (): number | null => {
+  const setting = config.settings.sessions.backupRetention
+  return setting === 'off' ? null : Number(setting) || null
+}
 /** Minimum time between cost estimates while a turn is running (each parses the whole transcript). */
 const COST_INTERVAL_MS = 30_000
 /** How many of a launch's latest hooks are kept for the log (LiveSession.recentHooks). */
@@ -4918,19 +4923,28 @@ class SessionManager {
    * with its backups locked, just before they go. Returns how many sessions' copies went.
    */
   async applyRetention(projectPath: string): Promise<number> {
-    const setting = config.settings.sessions.backupRetention
-    const days = setting === 'off' ? null : Number(setting)
-    if (!days) return 0
+    if (!retentionDays()) return 0
     const recs = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
+    // Whether a session's copies may go, as things are now: the setting, its record's last activity, not running, with
+    // backups, and the CLI still having it. Asked before, and again under its reservation and locks, then once more
+    // after what it used is recorded (that waits), just before they go: any of it can change meanwhile.
+    // The record is read last, and nothing is awaited between these checks and the copies going.
+    const eligible = async (id: string): Promise<boolean> => {
+      if (!(await this.providerTranscript(projectPath, id).catch(() => null))) return false
+      const rec = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions.find((r) => r.id === id)
+      const days = retentionDays()
+      return !!rec && !!days && Date.now() - Date.parse(rec.lastActiveAt) > days * 86_400_000 && !this.liveAnywhere(id) && this.backupFiles(projectPath, id).length > 0
+    }
     let n = 0
     for (const rec of recs) {
-      if (Date.now() - Date.parse(rec.lastActiveAt) <= days * 86_400_000 || !this.backupFiles(projectPath, rec.id).length || this.liveAnywhere(rec.id)) continue
-      if (!(await this.providerTranscript(projectPath, rec.id).catch(() => null))) continue
+      const days = retentionDays()
+      if (!days || Date.now() - Date.parse(rec.lastActiveAt) <= days * 86_400_000 || !(await eligible(rec.id))) continue
       try {
         const went = await this.whileCleaning(projectPath, rec.id, () =>
           this.withBackupsLocked(projectPath, rec.id, async () => {
-            if (this.liveAnywhere(rec.id) || !(await this.providerTranscript(projectPath, rec.id).catch(() => null))) return false
+            if (!(await eligible(rec.id))) return false
             if (!(await usageHistory.recordNow(projectPath, rec.id).catch(() => false))) return false
+            if (!(await eligible(rec.id))) return false
             for (const b of this.backupFiles(projectPath, rec.id)) await trash(b)
             return true
           })
