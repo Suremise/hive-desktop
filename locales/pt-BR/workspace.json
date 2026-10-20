@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Sem passar pela Lixeira: o que for removido não pode ser restaurado.",
   "workspace.purge.project": "Projeto",
   "workspace.purge.record": "no registro",
+  "workspace.purge.recoverable": "{count, plural, one {# arquivo que sobrou é mantido: ele pode ser a única cópia de uma sessão, deixada quando o Hive parou enquanto a excluía ou movia.} other {# arquivos que sobraram são mantidos: eles podem ser a única cópia de uma sessão, deixada quando o Hive parou enquanto a excluía ou movia.}}",
   "workspace.purge.running": "{count, plural, one {# sessão em execução fica como está.} other {# sessões em execução ficam como estão.}}",
   "workspace.purge.sessionsDeleted": "{count, plural, one {# sessão cuja última cópia saiu foi excluída do Hive.} other {# sessões cuja última cópia saiu foram excluídas do Hive.}}",
   "workspace.purge.size": "Tamanho",

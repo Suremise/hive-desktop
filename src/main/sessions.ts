@@ -5165,9 +5165,9 @@ class SessionManager {
    * transcript not being read by Hive (nor shown, when its last copy goes), and its copies exactly those listed. What it used is recorded in the usage
    * history first, so totals don't change. Backups that are its last copy (`lastCopy`: the CLI no longer has its
    * transcript, checked again) go with its record, all or nothing, as Delete does. `remove` removes a file (to the
-   * Recycle Bin, or for good); `attachments` its attachments folder. The CLI's own files are never touched.
+   * Recycle Bin, or for good); `attachments` its listed attachments; `unchanged` throws when a listed file changed since. The CLI's own files are never touched.
    */
-  async purge(projectPath: string, sessionId: string, listed: { backups: string[]; leftovers: string[]; attachments: boolean; keptUsage: boolean; lastCopy: boolean }, remove: (file: string) => Promise<void>, attachments: () => Promise<void>): Promise<{ deleted: boolean }> {
+  async purge(projectPath: string, sessionId: string, listed: { backups: string[]; leftovers: string[]; attachments: boolean; keptUsage: boolean; lastCopy: boolean }, remove: (file: string) => Promise<void>, attachments: () => Promise<void>, unchanged?: () => Promise<void>): Promise<{ deleted: boolean }> {
     assertSessionId(sessionId)
     const check = async (): Promise<void> => {
       if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', msg({ id: 'session.purge.running', defaultMessage: 'It is running.', description: 'Purge left a session alone: it is running (or starting) now.' }))
@@ -5189,8 +5189,9 @@ class SessionManager {
         if ((listed.backups.length || listed.keptUsage) && !(await usageHistory.recordNow(projectPath, sessionId).catch(() => false))) {
           throw hiveError(msg({ id: 'session.purge.unread', defaultMessage: "Hive couldn't record what the session used, so it is kept.", description: "Purge left a session alone: Hive couldn't save its usage in the usage history, which the totals keep." }))
         }
-        // Again after the waits above: nothing is awaited between this and the first removal.
+        // Again after the waits above, and the files as listed (`unchanged`): nothing else is awaited before the first removal.
         await check()
+        await unchanged?.()
         const backups = listed.backups.length ? this.backupFiles(projectPath, sessionId) : []
         for (const f of listed.leftovers) if (existsSync(f)) await inUseOnFail(() => remove(f))
         if (listed.attachments) await attachments()

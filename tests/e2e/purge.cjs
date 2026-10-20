@@ -132,7 +132,7 @@ const write = (file, text) => {
     check('the dialog names the session', await lib.until(async () => /Purge Hive's Files of "Purged alone"/.test(await dialogText()), HUNG_MS), await dialogText())
     let listed = await lib.until(async () => {
       const r = rel(await rows(), alpha)
-      return JSON.stringify(r) === JSON.stringify([`attachments/${ONE}`, `sessions/${ONE}.jsonl.gz`]) && r
+      return JSON.stringify(r) === JSON.stringify([`attachments/${ONE}/shot.png`, `sessions/${ONE}.jsonl.gz`]) && r
     }, HUNG_MS)
     check("…and lists that session's backup and attachments only", !!listed, JSON.stringify(rel(await rows(), alpha)))
     check('…with their size on the button', /Move 2 items \(.+\) to the Recycle Bin/.test(await dialog.locator('.btn.primary').innerText()), await dialog.locator('.btn.primary').innerText())
@@ -157,7 +157,7 @@ const write = (file, text) => {
     const group = page.locator('.settings-group', { has: page.locator('h2', { hasText: /^Storage$/ }) })
     await lib.until(async () => (await group.getByRole('button', { name: 'Purge…' }).isEnabled().catch(() => false)), HUNG_MS)
     await group.getByRole('button', { name: 'Purge…' }).click()
-    const want = [`archive/${LOST}.jsonl.gz`, `attachments/${DELETED}`, `attachments/${LOST}`, `attachments/${WITH_CLI}`, `sessions/${WITH_CLI}.jsonl.gz`, `sessions/${WITH_CLI}.jsonl.gz.spare`].sort()
+    const want = [`archive/${LOST}.jsonl.gz`, `attachments/${DELETED}/shot.png`, `attachments/${LOST}/shot.png`, `attachments/${WITH_CLI}/shot.png`, `sessions/${WITH_CLI}.jsonl.gz`, `sessions/${WITH_CLI}.jsonl.gz.spare`].sort()
     listed = await lib.until(async () => {
       const r = rel(await rows(), alpha)
       return JSON.stringify(r) === JSON.stringify(want) && r

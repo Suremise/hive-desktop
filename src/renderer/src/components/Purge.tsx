@@ -12,6 +12,7 @@ const M = {
   title: msg({ id: 'workspace.purge.title', defaultMessage: '{scope, select, session {Purge Hive\'s Files of "{name}"} project {Purge What Hive Keeps for {name}} other {Purge What Hive Keeps in {name}}}', description: "The Purge dialog's title: for a session ({name}: its name), a project ({name}: its name) or the workspace ({name}: its folder's name)." }),
   intro: msg({ id: 'workspace.purge.intro', defaultMessage: "Removes what Hive keeps: its backups of the transcripts (the archive's too), attachments, and what is left of deleted sessions. The coding agents' own files (in ~/.claude, ~/.codex and ~/.copilot) are never touched, and running sessions are left alone. What the sessions used stays in the usage history, so the totals don't change.", description: 'The Purge dialog, at the top. Keep the paths as they are.' }),
   introSession: msg({ id: 'workspace.purge.introSession', defaultMessage: "Removes what Hive keeps of this session: its backups of the transcript (the archive's too) and its attachments. The coding agent's own files (in ~/.claude, ~/.codex or ~/.copilot) are never touched. What the session used stays in the usage history, so the totals don't change.", description: 'The Purge dialog for one session, at the top. Keep the paths as they are.' }),
+  recoverable: msg({ id: 'workspace.purge.recoverable', defaultMessage: "{count, plural, one {# leftover file is kept: it may be a session's only copy, left when Hive stopped while deleting or moving it.} other {# leftover files are kept: they may be a session's only copy, left when Hive stopped while deleting or moving it.}}", description: "The Purge dialog: leftover backup files Purge doesn't remove, because they may be all that's left of a session's transcript." }),
   running: msg({ id: 'workspace.purge.running', defaultMessage: '{count, plural, one {# running session is left alone.} other {# running sessions are left alone.}}', description: 'The Purge dialog: sessions running now, whose files are not listed.' }),
   lastCopies: msg({ id: 'workspace.purge.lastCopies', defaultMessage: "{count, plural, one {# session has no other copy: its CLI no longer has the transcript. It is deleted from Hive, as Delete Session does, and can't be resumed or read afterwards.} other {# sessions have no other copy: their CLI no longer has the transcripts. They are deleted from Hive, as Delete Session does, and can't be resumed or read afterwards.}} What they used still counts in the totals.", description: "The Purge dialog's warning when Hive's backup is a session's last copy. Delete Session is the Sessions tab's command." }),
   permanent: msg({ id: 'workspace.purge.permanent', defaultMessage: 'Delete permanently', description: "A Purge choice: delete instead of moving to the Recycle Bin." }),
@@ -106,7 +107,7 @@ export function PurgeDialog({ target, name, onClose, onDone, beforeApply }: { ta
   const go = async (): Promise<void> => {
     if (!items.length) return
     await beforeApply?.()
-    const r = await action.run('purge', () => call('storage:purge', target, items.map((i) => i.key), permanent))
+    const r = await action.run('purge', () => call('storage:purge', preview!.id, items.map((i) => i.key), permanent))
     if (!r) return
     const { removed, bytes, deleted, skipped } = r.value
     const byKey = new Map(items.map((i) => [i.key.toLowerCase(), i]))
@@ -164,6 +165,11 @@ export function PurgeDialog({ target, name, onClose, onDone, beforeApply }: { ta
       {!!lastCopies && (
         <div className="banner danger">
           <Icon name="warning" /> {tr(M.lastCopies, { count: lastCopies })}
+        </div>
+      )}
+      {!!preview?.recoverable && (
+        <div className="faint small purge-running">
+          <Icon name="info" /> {tr(M.recoverable, { count: preview.recoverable })}
         </div>
       )}
       {!!preview?.running && (

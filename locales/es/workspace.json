@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Sin pasar por la Papelera de reciclaje: lo que se quite no se podrá restaurar.",
   "workspace.purge.project": "Proyecto",
   "workspace.purge.record": "en su registro",
+  "workspace.purge.recoverable": "{count, plural, one {Se conserva # archivo sobrante: puede ser la única copia de una sesión, que quedó cuando Hive se detuvo mientras la eliminaba o la movía.} many {Se conservan # archivos sobrantes: pueden ser la única copia de una sesión, que quedó cuando Hive se detuvo mientras la eliminaba o la movía.} other {Se conservan # archivos sobrantes: pueden ser la única copia de una sesión, que quedó cuando Hive se detuvo mientras la eliminaba o la movía.}}",
   "workspace.purge.running": "{count, plural, one {# sesión en ejecución se deja como está.} many {# sesiones en ejecución se dejan como están.} other {# sesiones en ejecución se dejan como están.}}",
   "workspace.purge.sessionsDeleted": "{count, plural, one {Se eliminó de Hive # sesión cuya última copia se quitó.} many {Se eliminaron de Hive # sesiones cuya última copia se quitó.} other {Se eliminaron de Hive # sesiones cuya última copia se quitó.}}",
   "workspace.purge.size": "Tamaño",

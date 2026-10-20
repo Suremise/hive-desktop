@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "不经过回收站：删除的内容无法恢复。",
   "workspace.purge.project": "项目",
   "workspace.purge.record": "在记录中",
+  "workspace.purge.recoverable": "{count, plural, other {保留了 # 个残留文件：它们可能是某个会话仅剩的副本，是 Hive 在删除或移动它时停止而留下的。}}",
   "workspace.purge.running": "{count, plural, other {# 个正在运行的会话保持不动。}}",
   "workspace.purge.sessionsDeleted": "{count, plural, other {已从 Hive 中删除 # 个失去最后一份副本的会话。}}",
   "workspace.purge.size": "大小",

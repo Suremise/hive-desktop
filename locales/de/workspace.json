@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Ohne Papierkorb: Was entfernt wird, lässt sich nicht wiederherstellen.",
   "workspace.purge.project": "Projekt",
   "workspace.purge.record": "im Eintrag",
+  "workspace.purge.recoverable": "{count, plural, one {# übrig gebliebene Datei bleibt erhalten: Sie könnte die einzige Kopie einer Sitzung sein, übrig geblieben, als Hive beim Löschen oder Verschieben anhielt.} other {# übrig gebliebene Dateien bleiben erhalten: Sie könnten die einzige Kopie einer Sitzung sein, übrig geblieben, als Hive beim Löschen oder Verschieben anhielt.}}",
   "workspace.purge.running": "{count, plural, one {# laufende Sitzung bleibt unberührt.} other {# laufende Sitzungen bleiben unberührt.}}",
   "workspace.purge.sessionsDeleted": "{count, plural, one {# Sitzung, deren letzte Kopie entfernt wurde, wurde aus Hive gelöscht.} other {# Sitzungen, deren letzte Kopie entfernt wurde, wurden aus Hive gelöscht.}}",
   "workspace.purge.size": "Größe",

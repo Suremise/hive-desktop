@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Z pominięciem Kosza: tego, co zostanie usunięte, nie da się przywrócić.",
   "workspace.purge.project": "Projekt",
   "workspace.purge.record": "w rekordzie",
+  "workspace.purge.recoverable": "Zachowane pozostałe pliki: {count, plural, one {#} few {#} many {#} other {#}}. Mogą być jedyną kopią sesji, która została, gdy Hive zatrzymał się w trakcie jej usuwania lub przenoszenia.",
   "workspace.purge.running": "Działające sesje pozostawione bez zmian: {count, plural, one {#} few {#} many {#} other {#}}.",
   "workspace.purge.sessionsDeleted": "Sesje usunięte z Hive, bo zniknęła ich ostatnia kopia: {count, plural, one {#} few {#} many {#} other {#}}.",
   "workspace.purge.size": "Rozmiar",

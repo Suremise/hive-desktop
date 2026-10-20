@@ -1916,8 +1916,8 @@ export interface CleanupResult {
 export type PurgeTarget = { kind: 'session'; projectPath: string; sessionId: string } | { kind: 'project'; projectPath: string } | { kind: 'workspace' }
 
 /**
- * One thing Purge… removes, of Hive's only: a session's backup (an active or archived copy), its attachments folder, a
- * leftover file of a backup (a deleted session's, or half made: .spare, .tmp), the attachments of a session Hive no longer
+ * One thing Purge… removes, of Hive's only: a session's backup (an active or archived copy), each of its attachments, a
+ * leftover file of a backup (a deleted session's, or half made: .spare, .tmp), each attachment of a session Hive no longer
  * has, or old usage kept on a session's record (keptUsage) or for a deleted one (deletedUsage), from before the usage
  * history (#1106): those are records, not files (no path).
  */
@@ -1933,6 +1933,8 @@ export interface PurgeItem {
   assistant?: boolean
   path?: string
   bytes: number
+  /** A file's modified time as the preview saw it: apply leaves a file that changed since. */
+  mtimeMs?: number
   sessionId?: string
   label: string
   /** A backup that is its session's last copy (the CLI no longer has its transcript): the session is deleted from Hive with it. */
@@ -1940,7 +1942,11 @@ export interface PurgeItem {
 }
 
 export interface PurgePreview {
+  /** The preview's own id: storage:purge applies it, as it was listed (main keeps it a while). */
+  id: string
   items: PurgeItem[]
+  /** Leftover files kept because they may be a session's only copy (Hive stopped while it deleted or moved it). */
+  recoverable: number
   /** Sessions left alone because they are running or starting (whose things aren't listed). */
   running: number
 }

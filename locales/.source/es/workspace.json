@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Skip the Recycle Bin: what goes can't be restored.",
   "workspace.purge.project": "Project",
   "workspace.purge.record": "in its record",
+  "workspace.purge.recoverable": "{count, plural, one {# leftover file is kept: it may be a session's only copy, left when Hive stopped while deleting or moving it.} other {# leftover files are kept: they may be a session's only copy, left when Hive stopped while deleting or moving it.}}",
   "workspace.purge.running": "{count, plural, one {# running session is left alone.} other {# running sessions are left alone.}}",
   "workspace.purge.sessionsDeleted": "{count, plural, one {# session whose last copy went was deleted from Hive.} other {# sessions whose last copy went were deleted from Hive.}}",
   "workspace.purge.size": "Size",

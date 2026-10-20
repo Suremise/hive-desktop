@@ -361,8 +361,8 @@ export interface HiveRequests {
   'storage:cleanup': (projectPath: string, opts: CleanupOptions, listed: string[]) => CleanupResult
   /** What Purge… (#1138) would remove of Hive's for a session, a project or the window's workspace: every file and record, with its size. */
   'storage:purgePreview': (target: PurgeTarget) => PurgePreview
-  /** Removes what the preview listed (its keys), to the Recycle Bin or permanently, skipping what no longer qualifies. */
-  'storage:purge': (target: PurgeTarget, listed: string[], permanent: boolean) => PurgeResult
+  /** Removes what a preview (its id) listed, those of its keys given, to the Recycle Bin or permanently, skipping what changed since. */
+  'storage:purge': (previewId: string, listed: string[], permanent: boolean) => PurgeResult
   /** Forgets every transcript's usage, in memory and in usage-cache.json (Settings → Sessions → Usage cache). */
   'session:clearUsageCache': () => void
   'session:adopt': (projectPath: string, sessionId: string) => void

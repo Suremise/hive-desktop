@@ -267,6 +267,7 @@ interface HiveMessageValues {
   'workspace.purge.permanentDesc': undefined
   'workspace.purge.project': undefined
   'workspace.purge.record': undefined
+  'workspace.purge.recoverable': { count: number }
   'workspace.purge.running': { count: number }
   'workspace.purge.sessionsDeleted': { count: number }
   'workspace.purge.size': undefined

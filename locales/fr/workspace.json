@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "Sans passer par la Corbeille : ce qui part ne peut pas être restauré.",
   "workspace.purge.project": "Projet",
   "workspace.purge.record": "dans sa fiche",
+  "workspace.purge.recoverable": "{count, plural, one {# fichier restant est conservé : il peut être la seule copie d’une session, laissée quand Hive s’est arrêté en la supprimant ou en la déplaçant.} many {# fichiers restants sont conservés : ils peuvent être la seule copie d’une session, laissée quand Hive s’est arrêté en la supprimant ou en la déplaçant.} other {# fichiers restants sont conservés : ils peuvent être la seule copie d’une session, laissée quand Hive s’est arrêté en la supprimant ou en la déplaçant.}}",
   "workspace.purge.running": "{count, plural, one {# session en cours est laissée telle quelle.} many {# sessions en cours sont laissées telles quelles.} other {# sessions en cours sont laissées telles quelles.}}",
   "workspace.purge.sessionsDeleted": "{count, plural, one {# session dont la dernière copie est partie a été supprimée de Hive.} many {# sessions dont la dernière copie est partie ont été supprimées de Hive.} other {# sessions dont la dernière copie est partie ont été supprimées de Hive.}}",
   "workspace.purge.size": "Taille",

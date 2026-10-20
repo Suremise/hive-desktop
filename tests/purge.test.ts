@@ -85,7 +85,7 @@ async function purgeWith(target: PurgeTarget, opts: { permanent?: boolean; sessi
     if (id === opts.session && opts.meanwhile && ++calls === 2) await opts.meanwhile()
     return lookup(pp, id)
   })
-  const result = await run(() => purge(target, preview.items.map((i) => i.key), !!opts.permanent))
+  const result = await run(() => purge(preview.id, preview.items.map((i) => i.key), !!opts.permanent))
   cliLookup.mockImplementation(lookup)
   return { preview, result }
 }
@@ -353,17 +353,95 @@ describe('Purge', () => {
     const id = await session(true)
     const preview = await run(() => purgePreview(project))
     const later = await session(true)
-    const result = await run(() => purge(project, preview.items.map((i) => i.key), false))
+    const result = await run(() => purge(preview.id, preview.items.map((i) => i.key), false))
     expect(result.skipped).toEqual([])
     expect([existsSync(active(id)), existsSync(active(later)), existsSync(attachments(later))]).toEqual([false, true, true])
   })
 
-  it('an attachments folder holding something Hive did not put there is left alone', async () => {
+  it("only Hive's plain files go from an attachments folder: a folder inside stays, and so does the folder", async () => {
     const id = await session(true)
     mkdirSync(join(attachments(id), 'inner'))
-    const { result } = await purgeWith(project, { permanent: true })
-    expect(reasons(result)).toMatch(/didn't put there/)
-    expect(existsSync(join(attachments(id), 'a.png'))).toBe(true)
+    const { preview, result } = await purgeWith(project, { permanent: true })
+    expect(preview.items.filter((i) => i.kind === 'attachments').map((i) => i.path)).toEqual([join(attachments(id), 'a.png')])
+    expect(result.skipped).toEqual([])
+    expect([existsSync(join(attachments(id), 'a.png')), existsSync(join(attachments(id), 'inner'))]).toEqual([false, true])
+  })
+
+  // Round 1's findings (HR4): the preview is what is applied, not what a fresh plan would list.
+  it("a session whose CLI copy goes while the preview is open isn't deleted without its warning", async () => {
+    const id = await session(true)
+    const { preview, result } = await purgeWith(project, { before: async () => rmSync(join(cli, `${id}.jsonl`)) })
+    expect(preview.items.some((i) => i.lastCopy)).toBe(false)
+    expect(result.deleted).toBe(0)
+    expect(reasons(result)).toMatch(/last copy changed since the preview/)
+    expect([existsSync(active(id)), (await records()).some((r) => r.id === id)]).toEqual([true, true])
+  })
+
+  it('a session whose CLI copy comes back while the preview is open keeps its record and backup', async () => {
+    const id = await session(false)
+    const { result } = await purgeWith(project, { before: async () => write(join(cli, `${id}.jsonl`), transcript(id)) })
+    expect(result.deleted).toBe(0)
+    expect(reasons(result)).toMatch(/last copy changed since the preview/)
+    expect(existsSync(active(id))).toBe(true)
+  })
+
+  it('attachments added or changed after the preview stay, either way', async () => {
+    for (const permanent of [false, true]) {
+      const id = await session(true)
+      write(join(attachments(id), 'b.png'), 'png')
+      const { result } = await purgeWith(project, {
+        permanent,
+        before: async () => {
+          write(join(attachments(id), 'later.png'), 'later')
+          write(join(attachments(id), 'b.png'), 'png, edited')
+        }
+      })
+      expect([existsSync(join(attachments(id), 'a.png')), existsSync(join(attachments(id), 'b.png')), existsSync(join(attachments(id), 'later.png'))]).toEqual([false, true, true])
+      expect(reasons(result)).toMatch(/changed since the preview/)
+      expect(existsSync(active(id))).toBe(false)
+    }
+  })
+
+  it("a deleted session's attachments added after the preview stay", async () => {
+    const dead = newId()
+    write(join(attachments(dead), 'b.txt'), 'b')
+    const { result } = await purgeWith(project, { before: async () => write(join(attachments(dead), 'c.txt'), 'c') })
+    expect(result.skipped).toEqual([])
+    expect([existsSync(join(attachments(dead), 'b.txt')), existsSync(join(attachments(dead), 'c.txt'))]).toEqual([false, true])
+  })
+
+  it('a backup written to after the preview: the session keeps everything', async () => {
+    const id = await session(true)
+    const { result } = await purgeWith(project, { before: async () => write(active(id), transcript(id) + transcript(id)) })
+    expect(result.removed).toBe(0)
+    expect([existsSync(active(id)), existsSync(join(attachments(id), 'a.png'))]).toEqual([true, true])
+  })
+
+  it('a spare a crash left as the only copy is kept and counted, never purged as a leftover', async () => {
+    // Hive stopped in a delete between moving the backup and removing the record: only <backup>.spare is left.
+    const id = await session(false)
+    renameSync(active(id), active(id) + '.spare')
+    const { preview, result } = await purgeWith(project, { permanent: true })
+    expect([preview.recoverable, preview.items.some((i) => i.path?.endsWith('.spare'))]).toEqual([1, false])
+    expect(result.skipped).toEqual([])
+    expect([existsSync(active(id) + '.spare'), (await records()).some((r) => r.id === id)]).toEqual([true, true])
+  })
+
+  it("a spare beside its backup is a leftover, also when it's the session's last copy", async () => {
+    const id = await session(false)
+    write(active(id) + '.spare', transcript(id))
+    const { preview, result } = await purgeWith(project)
+    expect([preview.recoverable, preview.items.filter((i) => i.kind === 'leftover-backup').length]).toEqual([0, 1])
+    expect(result).toMatchObject({ deleted: 1, skipped: [] })
+    expect(readdirSync(join(p, '.hive', 'sessions'))).toEqual([])
+  })
+
+  it('a preview is applied once, and an unknown one is refused', async () => {
+    await session(true)
+    const preview = await run(() => purgePreview(project))
+    await run(() => purge(preview.id, preview.items.map((i) => i.key), false))
+    await expect(run(() => purge(preview.id, preview.items.map((i) => i.key), false))).rejects.toThrow(/out of date/)
+    await expect(run(() => purge('nope', [], false))).rejects.toThrow(/out of date/)
   })
 
   it('refuses a target that is not one', async () => {

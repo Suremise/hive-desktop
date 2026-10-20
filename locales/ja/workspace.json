@@ -265,6 +265,7 @@
   "workspace.purge.permanentDesc": "ごみ箱を使いません。削除したものは元に戻せません。",
   "workspace.purge.project": "プロジェクト",
   "workspace.purge.record": "記録内",
+  "workspace.purge.recoverable": "{count, plural, other {#件の残りファイルを保持します。Hiveが削除または移動の途中で停止したときに残った、セッションの唯一のコピーである可能性があります。}}",
   "workspace.purge.running": "{count, plural, other {実行中の#件のセッションはそのままにします。}}",
   "workspace.purge.sessionsDeleted": "{count, plural, other {最後のコピーがなくなった#件のセッションをHiveから削除しました。}}",
   "workspace.purge.size": "サイズ",
