@@ -1503,6 +1503,10 @@
     "defaultMessage": "Reverted \"{name}\" to default",
     "description": "A notice: an edited skill is back as Hive ships it."
   },
+  "assistant.skills.shipped.boardHygiene": {
+    "defaultMessage": "Tidy the board as the Hive Assistant: duplicates, unrecorded answers, stale blocked reasons. Use when asked to tidy the board.",
+    "description": "What a skill that ships with Hive (board-hygiene) is for: under its name in the Skills view and a project's Skills tab. Keep Hive Assistant as Hive names it. Decisions are what the user decided about a card, as the card shows them."
+  },
   "assistant.skills.shipped.cardLoop": {
     "defaultMessage": "Work through cards in turn as their builder or reviewer, waiting at no cost. Use when told to work through or review cards (one or several) as a builder or reviewer, or given rounds.",
     "description": "What a skill that ships with Hive (card-loop) is for: under its name in the Skills view and a project's Skills tab. Builder and reviewer are the two sides of a card loop; rounds are a card's build-and-review cycles in it."
@@ -1518,6 +1522,10 @@
   "assistant.skills.shipped.journal": {
     "defaultMessage": "Keep your journal as the Hive Assistant while it is on - what to write, recalling, superseding, the weekly digest and the scope. Use when something worth remembering happens, before deciding from memory, or when asked for a handover.",
     "description": "What a skill that ships with Hive (journal) is for: under its name in the Skills view and a project's Skills tab. The journal is the Assistant's memory across sessions; use the word Hive's settings use for it."
+  },
+  "assistant.skills.shipped.licenceAudit": {
+    "defaultMessage": "Audit the licences of what ships: dependencies, vendored files, installer parts. Use when releasing or adding assets.",
+    "description": "What a skill that ships with Hive (licence-audit) is for: under its name in the Skills view and a project's Skills tab. Vendored files are other people's files a package carries inside it."
   },
   "assistant.skills.shipped.mergeReady": {
     "defaultMessage": "Get a branch ready to review and merge in Hive: commit the task's work, run the checks, compare with the base, summarise. Use when asked to finish up or get a branch or worktree ready to merge. Merging and pushing stay separate.",
@@ -1538,6 +1546,10 @@
   "assistant.skills.shipped.splitWork": {
     "defaultMessage": "Plan whether and how to divide a task between agents without conflicts, and save the plan. Use when asked how to split work between agents, to parallelise it, or to run several agents on it. Plans only: starting agents is separate.",
     "description": "What a skill that ships with Hive (split-work) is for: under its name in the Skills view and a project's Skills tab."
+  },
+  "assistant.skills.shipped.triageReport": {
+    "defaultMessage": "Turn a reported problem into a card with evidence as the Hive Assistant: cause first, then duplicates. Use when the user reports a problem.",
+    "description": "What a skill that ships with Hive (triage-report) is for: under its name in the Skills view and a project's Skills tab. Keep Hive Assistant as Hive names it."
   },
   "assistant.skills.shipped.tuneSettings": {
     "defaultMessage": "Explain and suggest Hive's settings as the Hive Assistant; change one only when the user agrees. Use when asked what a setting does or how to make Hive behave differently, or when one would fix what you see.",

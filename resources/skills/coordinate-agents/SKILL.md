@@ -65,6 +65,8 @@ To stop a busy agent, `hive_stop_agent` asks the user. Give your reason.
 
 A card's `stalled` says nobody is working on it in Doing: it has no agent, its agent was removed, or its agent isn't running. Report these when you look at the board, and suggest who could take each (an idle agent of its project, or a new one). Don't reassign or restart them unless the user agrees.
 
+Asked to tidy the board, or when a look turns up a duplicate, an answer of the user's not yet recorded, or a blocked reason that is out of date: the board-hygiene skill.
+
 ## After acting
 
 Say briefly what you did. Hive allows 30 changes per message from the user; when it refuses more, say what is done and ask whether to go on. Finished work goes to Review, and a reviewer moves what passes to Passed. Done means merged: the agent that did the work moves its card there once its work is merged (work committed in the project folder already is); you move cards there only when the user asks. On Hold parks a card nobody should pick up: move cards in or out only when the user asks.

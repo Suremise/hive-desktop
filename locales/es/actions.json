@@ -63,6 +63,8 @@
   "actions.mcp.replaceMessage": "El espacio de trabajo ya tiene un servidor llamado {name}.",
   "actions.mcp.replaceTitle": "¿Reemplazar {name}?",
   "actions.mcp.updateFailed": "No se pudo actualizar el servidor",
+  "actions.pane.edge": "{agent} no puede moverse más {dir, select, left {a la izquierda} right {a la derecha} up {arriba} other {abajo}}",
+  "actions.pane.moved": "{agent}: {pages, select, one {} other {página {page}, }}fila {row}, columna {column}{other, select, none {} other {, intercambiado con {other}}}",
   "actions.project.activateFailed": "No se pudo activar el proyecto",
   "actions.project.create": "Crear",
   "actions.project.createFailed": "No se pudo crear el proyecto",

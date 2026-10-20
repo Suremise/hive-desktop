@@ -18,6 +18,8 @@ interface HiveMessageValues {
   'tasks.error.cardsTwice': { n: string | number }
   'tasks.error.changeNone': undefined
   'tasks.error.chooseProject': undefined
+  'tasks.error.contextList': undefined
+  'tasks.error.contextRef': { ref: string | number }
   'tasks.error.decisionEmptied': undefined
   'tasks.error.decisionGone': { n: string | number }
   'tasks.error.decisionsUsers': undefined
@@ -55,6 +57,7 @@ interface HiveMessageValues {
   'tasks.error.setAsideGone': undefined
   'tasks.error.staysInProject': { project: string | number }
   'tasks.error.tooLong': { what: string; max: number }
+  'tasks.error.tooManyContext': { max: string | number }
   'tasks.error.tooManyDecisions': { max: string | number }
   'tasks.error.tooManyLabels': { max: string | number }
   'tasks.error.unknownAgent': { agent: string | number; project: string | number }
@@ -71,6 +74,8 @@ interface HiveMessageValues {
   'tasks.history.archivedRemoved': { project: string | number }
   'tasks.history.backWithBatch': { label: string | number }
   'tasks.history.blocked': { reason: string | number }
+  'tasks.history.context': { refs: string | number }
+  'tasks.history.contextRemoved': undefined
   'tasks.history.created': { column: string }
   'tasks.history.decision': { decision: string | number }
   'tasks.history.decisionChanged': { decision: string | number; was: string | number }
@@ -121,6 +126,7 @@ interface HiveMessageValues {
   'tasks.start.alreadyStarting': { n: string | number }
   'tasks.start.archived': { n: string | number }
   'tasks.start.beingGiven': { agent: string | number }
+  'tasks.start.changed': { n: string | number }
   'tasks.start.movedColumn': { n: string | number; column: string }
   'tasks.start.movedDone': { n: string | number }
   'tasks.start.movedProject': { n: string | number; project: string | number }

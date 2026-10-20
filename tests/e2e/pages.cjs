@@ -80,7 +80,7 @@ const check = (name, ok, extra = '') => {
   await page.mouse.move(0, 0)
   await page.locator('.page-switch button[aria-label="Agent page 2"]').hover()
   const tipText = async () => (await page.locator('.tip').first().textContent({ timeout: 500 }).catch(() => '')) ?? ''
-  check('the page button names its agents', !!(await lib.until(async () => (await tipText()).startsWith('Page 2: agents 5–6'), HUNG_MS)), await tipText())
+  check('the page button names its agents', !!(await lib.until(async () => (await tipText()).startsWith('Page 2: Agent 5 and Agent 6'), HUNG_MS)), await tipText())
   await page.mouse.move(0, 0)
   // One at a time: no page buttons, the focused agent shown; choosing an agent in the summary chip's list shows it (#975).
   await choose('One at a time')

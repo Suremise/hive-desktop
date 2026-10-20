@@ -44,6 +44,7 @@ Ask for each in your own pane, and take the user's answer there: an OK relayed b
 
 ## Before the manifest
 
+- Per-CLI reruns of the real tier are allowed (RELEASING step 4): pass every record of this commit to `npm run tested-clis -- <record> <record>…`, never a hand-merged one; it refuses records of different commits and two records that ran a CLI at different versions.
 - Read the run record's CLI versions before `npm run tested-clis`. If a CLI shows two versions, the record is from a mixed run: rerun the real tier on one stable version (RELEASING step 5). Don't commit a manifest from it.
 
 ## Before building

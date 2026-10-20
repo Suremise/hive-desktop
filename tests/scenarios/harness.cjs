@@ -356,7 +356,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       cards: {},
       /** A card: { title, description, project (alpha), column, agent ('coder' | 'implementer'), labels, comments: [text] }. */
       card: async (key, c) => {
-        const r = await api('POST', '/v1/tasks', { title: c.title, description: c.description ?? '', project: c.project ?? 'alpha', labels: c.labels ?? [], ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })
+        const r = await api('POST', '/v1/tasks', { title: c.title, description: c.description ?? '', project: c.project ?? 'alpha', labels: c.labels ?? [], ...(c.context ? { context: c.context } : {}), ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })
         if (r.status !== 200) throw new Error(`card ${key}: ${r.text}`)
         for (const text of c.comments ?? []) await api('POST', `/v1/tasks/${r.body.number}/comments`, { text })
         if (c.column && c.column !== 'todo') await inv('tasks:update', r.body.number, { column: c.column, ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })
