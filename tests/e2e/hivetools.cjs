@@ -54,7 +54,7 @@ const check = (name, ok, extra = '') => {
     await lib.openWorkspace(inv, page, ws)
     const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
     const idle = async (id) => ['ready', 'finished'].includes((await live(id))?.status)
-    const until = (fn, ms = HUNG_MS) => lib.until(fn, ms, 250)
+    const until = (fn, ms) => lib.until(fn, ms, 250)
     const apiToken = JSON.parse(fs.readFileSync(path.join(userData, 'agent-api.json'), 'utf8')).token
     const call = async (method, route, body, token = apiToken) => {
       const r = await fetch(API + route, { method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })
@@ -65,7 +65,7 @@ const check = (name, ok, extra = '') => {
     const home = (await inv('workspace:refresh')).assistant.path
     await inv('session:start', home, { agentId: 'assistant' })
     const assistantNow = async () => (await inv('session:live')).find((s) => s.agentId === 'assistant')?.status
-    check('the Assistant starts', !!(await until(async () => ['ready', 'finished'].includes(await assistantNow()))), await assistantNow())
+    check('the Assistant starts', !!(await until(async () => ['ready', 'finished'].includes(await assistantNow()), HUNG_MS)), await assistantNow())
     const asAssistant = (method, route, body) => call(method, route, body, JSON.parse(fs.readFileSync(asTokenFile, 'utf8')).token)
     // Hive's doorbells in the builder's conversation (#650: a prompt "[Hive] New in your inbox: …", read with hive_inbox).
     let sessionId = ''
@@ -82,22 +82,22 @@ const check = (name, ok, extra = '') => {
     await page.getByText('alpha', { exact: true }).first().click()
     const builder = await lib.addAgent(inv, alpha, { name: 'Builder' })
     await inv('session:start', alpha, { agentId: builder.id })
-    check('the builder starts', !!(await until(() => idle(builder.id))))
+    check('the builder starts', !!(await until(() => idle(builder.id), HUNG_MS)))
     sessionId = (await live(builder.id)).sessionId
     // Its first launch's token, which stops working when that launch ends.
     const tokenDir = path.join(userData, 'agent-api')
     const firstToken = JSON.parse(fs.readFileSync(path.join(tokenDir, fs.readdirSync(tokenDir)[0]), 'utf8')).token
     // Started fresh, its tools connect as it starts: a message is told to it at once.
     const m0 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (fresh start).' })
-    check('a message for a fresh launch is given', m0.status === 200 && !!(await until(() => delivery(m0.body?.id)?.state === 'acked' || delivery(m0.body?.id)?.state === 'received')), JSON.stringify(m0))
+    check('a message for a fresh launch is given', m0.status === 200 && !!(await until(() => delivery(m0.body?.id)?.state === 'acked' || delivery(m0.body?.id)?.state === 'received', HUNG_MS)), JSON.stringify(m0))
     const bellsFresh = bells().length
 
     // --- 1. Resumed, with its hive server's connection held back.
     await inv('session:stop', alpha, builder.id)
-    check('the builder stops', !!(await until(async () => !(await live(builder.id)))))
+    check('the builder stops', !!(await until(async () => !(await live(builder.id)), HUNG_MS)))
     hold()
     await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
-    check('it is resumed and ready', !!(await until(() => idle(builder.id))))
+    check('it is resumed and ready', !!(await until(() => idle(builder.id), HUNG_MS)))
     const task = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'A task while its tools are connecting.' })
     check('a task is refused: its hive tools have not connected', task.status === 409 && /hive tools haven't connected yet/.test(task.body?.error ?? ''), JSON.stringify(task))
     const m1 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (resumed).' })
@@ -107,7 +107,7 @@ const check = (name, ok, extra = '') => {
     check('still held: the gate is the same', task2.status === 409 && /hive tools/.test(task2.body?.error ?? ''), JSON.stringify(task2))
     check('no doorbell while held', bells().length === bellsFresh && delivery(m1.body.id)?.state === 'queued', `${bells().length} bells, ${delivery(m1.body.id)?.state}`)
     go()
-    check('once connected, the message is read', !!(await until(() => ['received', 'acked'].includes(delivery(m1.body.id)?.state))), delivery(m1.body.id)?.state)
+    check('once connected, the message is read', !!(await until(() => ['received', 'acked'].includes(delivery(m1.body.id)?.state), HUNG_MS)), delivery(m1.body.id)?.state)
     check('with one doorbell', bells().length === bellsFresh + 1 && bells().at(-1).includes(m1.body.id), JSON.stringify(bells().slice(bellsFresh)))
 
     // --- 2. Only the launch's own token says it has connected.
@@ -124,13 +124,13 @@ const check = (name, ok, extra = '') => {
     // --- 3. Never connected: the bound (3 s here) lets the doorbell through.
     await inv('advanced:set', 'hive.mcp.connectSeconds', 3)
     await inv('session:stop', alpha, builder.id)
-    check('the builder stops again', !!(await until(async () => !(await live(builder.id)))))
+    check('the builder stops again', !!(await until(async () => !(await live(builder.id)), HUNG_MS)))
     hold()
     await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
-    check('resumed again', !!(await until(() => idle(builder.id))))
+    check('resumed again', !!(await until(() => idle(builder.id), HUNG_MS)))
     const m2 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (never connected).' })
     check('a message for it is taken', m2.status === 200, JSON.stringify(m2))
-    check('after the bound, it is told anyway', !!(await until(() => ['received', 'acked'].includes(delivery(m2.body.id)?.state))), delivery(m2.body.id)?.state)
+    check('after the bound, it is told anyway', !!(await until(() => ['received', 'acked'].includes(delivery(m2.body.id)?.state), HUNG_MS)), delivery(m2.body.id)?.state)
     check('with one doorbell', bells().length === bellsFresh + 2 && bells().at(-1).includes(m2.body.id), JSON.stringify(bells().slice(bellsFresh)))
     // Its held connection ends with the launch.
     go()
