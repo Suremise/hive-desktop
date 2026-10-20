@@ -448,6 +448,11 @@ export interface ProviderAdapter {
   parseUsage(text: string, sessionId: string): SessionUsage
   /** Reads a transcript's usage a piece at a time (whole lines), for transcripts that keep growing. */
   usageParser(sessionId: string): UsageParser
+  /**
+   * The title the CLI gives a session outside its transcript (Codex's and Copilot's session index), for a usage read
+   * without it (the usage history, #1106); absent for a CLI whose transcript has it.
+   */
+  usageTitle?(sessionId: string): string | null
   conversationParser(projectPath: string): ConversationParserLike
   /** An image's data URL from the transcript line holding it. */
   imageData(line: Record<string, any>, loc: ImageLocation): string | null

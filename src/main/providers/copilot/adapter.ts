@@ -440,6 +440,10 @@ export class CopilotAdapter implements ProviderAdapter {
   }
 
   /** The session's name from its workspace.yaml (the user's /rename, or Copilot's own). */
+  usageTitle(sessionId: string): string | null {
+    return this.title(sessionId)
+  }
+
   private title(sessionId: string): string | null {
     try {
       const yaml = join(this.sessionDir(sessionId), 'workspace.yaml')

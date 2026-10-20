@@ -1,22 +1,24 @@
 import { basename } from 'path'
 import { config } from './config'
-import { sessions } from './sessions'
-import { allTasks, cardHolds, type CardHolds } from './tasks'
+import { allTasks, cardHolds } from './tasks'
 import { listLanes } from './lanes'
+import { usageHistory } from './usageHistory'
 import { inWorkspace, type WorkspaceService } from './workspace'
 import { projectAgents } from '../shared/defaults'
-import { addPart, cardRounds, emptyPart, holdsFromHistory, mergeSpans, roundPart, scalePart, sharedSpans, sliceSession, subtractSpans, unknownPart, type CardCost, type CostPart, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
-import type { TaskCard, TaskHold } from '../shared/types'
+import { addPart, cardRounds, emptyPart, mergeSpans, roundPart, sliceSession, subtractSpans, unknownPart, type CardCost, type LaneCost, type SessionSlice, type Span } from '../shared/cardCosts'
+import { holdIsSessions, holdsOfCard, rowsPart, usageFromRows, type LedgerRow, type SessionWho } from '../shared/usageLedger'
+import type { ProviderId, TaskCard, TaskHold } from '../shared/types'
 
 /**
- * Cost per card and per lane (#602): each card's holds (TaskCard.held) against its agents' sessions' usage over time
- * (sessions.usageTimeline, from the usage cache). Read when asked (the card's panel, a lane's hover, Performance's
- * Cards table), nothing kept: the holds are on the cards and the timelines in the usage cache.
+ * Cost per card and per lane (#602), from the usage history (#1106): a card's cost is its rows there (each session's part
+ * while its agent held the card, worked out as the session was recorded, shared/usageLedger.ts); a lane's is its agents'
+ * sessions' usage over its time (their timelines, kept in the history). Read when asked (the card's panel, a lane's hover,
+ * Performance's Cards table); no transcript is read.
  */
 
-interface AgentSessions {
-  /** Each session of the project's agents: whose (agent id and name, as its record has them) and its usage. */
-  list: { agentId?: string; agentName?: string; slice: SessionSlice }[]
+interface HostSessions {
+  /** Each session of the host's agents in the history: whose, and its usage over time. */
+  list: (SessionWho & { slice: SessionSlice })[]
   /** The project's agents now, for holds named by a name only. */
   agents: { id: string; name: string }[]
 }
@@ -26,87 +28,60 @@ const ms = (iso: string | undefined | null, fallback: number): number => {
   return Number.isFinite(t) ? t : fallback
 }
 
-/** A project's agents' sessions (deleted ones' kept usage too), read once per request. */
-async function projectSessions(ws: WorkspaceService, projectPath: string): Promise<AgentSessions> {
-  const file = await ws.sessionsFile(projectPath)
-  const cfg = await ws.projectConfig(projectPath)
-  const ctx = { records: file.sessions, cfg }
-  const list: AgentSessions['list'] = []
-  for (const rec of file.sessions) {
-    if (!rec.agentId && !rec.agentName) continue
-    const got = await sessions.usageTimeline(projectPath, rec.id, ctx).catch(() => null)
-    const u = got?.usage ?? null
-    list.push({ agentId: rec.agentId, agentName: rec.agentName, slice: { usage: u, timeline: got?.timeline ?? null, from: ms(u?.firstActivity ?? rec.createdAt, 0), to: ms(u?.lastActivity ?? rec.lastActiveAt, 0) } })
-  }
-  for (const k of file.deletedUsage ?? []) {
-    if (!k.agentId) continue
-    list.push({ agentId: k.agentId, slice: { usage: k.usage, timeline: null, from: ms(k.usage.firstActivity, 0), to: ms(k.usage.lastActivity, 0) } })
-  }
-  return { list, agents: projectAgents(cfg).map((a) => ({ id: a.id, name: a.name })) }
-}
-
-/** The sessions of a hold's agent: by its id, else by its name (the agent named so now, and records that kept the name). */
-function sessionsOf(p: AgentSessions, who: { agent?: string; name: string }): SessionSlice[] {
-  const name = who.name.toLowerCase()
-  const ids = new Set(who.agent ? [who.agent] : p.agents.filter((a) => a.name.toLowerCase() === name).map((a) => a.id))
-  return p.list.filter((s) => (s.agentId ? ids.has(s.agentId) : !who.agent && s.agentName?.toLowerCase() === name)).map((s) => s.slice)
-}
-
-const holdSpan = (h: TaskHold, now: number): Span => [ms(h.from, now), ms(h.to, now)]
-
-/** What some sessions used in spans of time, summed. */
-function usedIn(list: SessionSlice[], spans: Span[]): CostPart {
-  const out = emptyPart()
-  for (const s of list) {
-    const part = sliceSession(s, spans, config.settings)
-    if (part) addPart(out, part)
-  }
-  return out
-}
-
-/** A card's holds: kept on it, or (a card no change has saved since #602) from its history. */
-const holdsOfCard = (c: CardHolds): TaskHold[] => c.held ?? holdsFromHistory(c)
-
-/** Reads the projects' sessions once each, by the project's folder name. */
-async function sessionReader(ws: WorkspaceService): Promise<(project: string) => Promise<AgentSessions | null>> {
+/** A project's sessions in the history, read once per request, by the project's folder name. */
+async function sessionReader(ws: WorkspaceService): Promise<(project: string) => Promise<HostSessions | null>> {
   const paths = [...(await ws.listProjectPaths()), ...(await ws.listProjectPaths({ hidden: true }))]
-  const cache = new Map<string, Promise<AgentSessions | null>>()
+  const cache = new Map<string, Promise<HostSessions | null>>()
+  const settings = config.settings
   return (project) => {
     const key = project.toLowerCase()
     if (!cache.has(key)) {
       const path = paths.find((p) => basename(p).toLowerCase() === key)
-      cache.set(key, path ? projectSessions(ws, path).catch(() => null) : Promise.resolve(null))
+      const read = async (p: string): Promise<HostSessions> => {
+        const cfg = await ws.projectConfig(p)
+        const list = (await usageHistory.timelines(p)).map((s) => {
+          const usage = usageFromRows(s.summary, [], settings)
+          return { agentId: s.agentId, agentName: s.agentName, slice: { usage, timeline: s.timeline, from: ms(s.firstActivity, 0), to: ms(s.lastActivity, 0) } }
+        })
+        return { list, agents: projectAgents(cfg).map((a) => ({ id: a.id, name: a.name })) }
+      }
+      cache.set(key, path ? read(path).catch(() => null) : Promise.resolve(null))
     }
     return cache.get(key)!
   }
 }
 
-/** Each agent's merged spans on each card of a project (by the project and the agent's name), for sharedSpans. */
-type HeldIndex = Map<string, Map<number, Span[]>>
-const heldKey = (project: string, name: string): string => `${project.toLowerCase()}|${name.toLowerCase()}`
-
-function heldIndex(cards: CardHolds[], now: number): HeldIndex {
-  const raw = new Map<string, Map<number, Span[]>>()
-  for (const c of cards) {
-    for (const h of holdsOfCard(c)) {
-      const byCard = raw.get(heldKey(c.project, h.name)) ?? new Map<number, Span[]>()
-      byCard.set(c.number, [...(byCard.get(c.number) ?? []), holdSpan(h, now)])
-      raw.set(heldKey(c.project, h.name), byCard)
-    }
-  }
-  for (const byCard of raw.values()) for (const [n, spans] of byCard) byCard.set(n, mergeSpans(spans))
-  return raw
+/** Whose sessions a hold's are: by the agent's id, else by its name (the agent named so now, and records that kept the name). */
+function namedIn(p: HostSessions): (name: string) => string[] {
+  return (name) => p.agents.filter((a) => a.name.toLowerCase() === name.toLowerCase()).map((a) => a.id)
 }
 
-function costOf(card: TaskCard, p: AgentSessions | null, now: number, index: HeldIndex): CardCost {
+const holdSpan = (h: TaskHold, now: number): Span => [ms(h.from, now), ms(h.to, now)]
+
+/**
+ * A card's cost: its rows in the history, each session's apart (a part each, as cost per card counts them), its builders'
+ * and its reviewers'. A hold whose agent has no session in the history is unknown, never $0.
+ */
+function costOf(card: TaskCard, rows: { provider: ProviderId; session: string; row: LedgerRow }[], p: HostSessions | null, now: number): CardCost {
   const build = emptyPart()
   const review = emptyPart()
+  const settings = config.settings
+  const bySession = new Map<string, { role: 'build' | 'review'; provider: ProviderId; rows: LedgerRow[] }>()
+  for (const r of rows) {
+    if (r.row.role !== 'build' && r.row.role !== 'review') continue
+    const k = `${r.row.role}\0${r.session}`
+    const g = bySession.get(k) ?? { role: r.row.role, provider: r.provider, rows: [] }
+    g.rows.push(r.row)
+    bySession.set(k, g)
+  }
+  for (const g of bySession.values()) {
+    const part = rowsPart(g.rows, g.provider, settings)
+    if (part) addPart(g.role === 'build' ? build : review, part)
+  }
   let unmatched = 0
   let last: number | null = null
-  const holds = holdsOfCard(card)
-  // One agent's holds in a role together, so time it held the card twice over isn't counted twice.
   const groups = new Map<string, { who: TaskHold; spans: Span[] }>()
-  for (const h of holds) {
+  for (const h of holdsOfCard(card)) {
     const key = `${h.role} ${h.agent ?? `name:${h.name.toLowerCase()}`}`
     const g = groups.get(key) ?? { who: h, spans: [] }
     g.spans.push(holdSpan(h, now))
@@ -114,19 +89,13 @@ function costOf(card: TaskCard, p: AgentSessions | null, now: number, index: Hel
     last = Math.max(last ?? 0, ms(h.to, now))
   }
   for (const g of groups.values()) {
-    const list = p ? sessionsOf(p, g.who) : []
-    const spans = mergeSpans(g.spans)
-    if (!list.length) {
-      // No session Hive knows of for this agent: what it used is unknown, never $0.
-      if (spans.length) {
-        unmatched++
-        addPart(g.who.role === 'build' ? build : review, unknownPart())
-      }
-      continue
+    if (!mergeSpans(g.spans).length) continue
+    const named = p ? namedIn(p) : () => []
+    // No session Hive knows of for this agent: what it used is unknown, never $0.
+    if (!p?.list.some((s) => holdIsSessions(g.who, s, named))) {
+      unmatched++
+      addPart(g.who.role === 'build' ? build : review, unknownPart())
     }
-    // While the agent held other cards too, its usage is shared between them.
-    const others = [...(index.get(heldKey(card.project, g.who.name))?.entries() ?? [])].filter(([n]) => n !== card.number).map(([, s]) => s)
-    for (const [k, part] of sharedSpans(spans, others)) addPart(g.who.role === 'build' ? build : review, scalePart(usedIn(list, part), 1 / k))
   }
   return {
     number: card.number,
@@ -161,16 +130,34 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
       const to = o.to ?? now
       return holds.some((h) => ms(h.from, now) < to && ms(h.to, now) >= from)
     })
+    if (!held.length || !ws.path) return []
+    // Its running agents' latest use recorded first: a card's cost is read when asked, not on a tick.
+    await usageHistory.freshen(ws)
+    const rows = new Map<number, { provider: ProviderId; session: string; row: LedgerRow }[]>()
+    for (const r of await usageHistory.cardRows(ws.path, held.map((c) => c.number))) {
+      const list = rows.get(r.row.card) ?? []
+      list.push({ provider: r.provider, session: `${r.scope}\0${r.session}`, row: r.row })
+      rows.set(r.row.card, list)
+    }
     const cards = await allTasks(ws, { numbers: held.map((c) => c.number) })
-    const index = heldIndex(all, now)
     const read = await sessionReader(ws)
     const out: CardCost[] = []
     for (const c of cards) {
       if (!holdsOfCard(c).length) continue
-      out.push(costOf(c, c.project ? await read(c.project) : null, now, index))
+      out.push(costOf(c, rows.get(c.number) ?? [], c.project ? await read(c.project) : null, now))
     }
     return out
   })
+}
+
+/** What some sessions used in spans of time, summed. */
+function usedIn(list: SessionSlice[], spans: Span[]): ReturnType<typeof emptyPart> {
+  const out = emptyPart()
+  for (const s of list) {
+    const part = sliceSession(s, spans, config.settings)
+    if (part) addPart(out, part)
+  }
+  return out
 }
 
 /**
@@ -183,6 +170,7 @@ export async function laneCosts(ws: WorkspaceService, ids?: string[]): Promise<L
     const lanes = (await listLanes(ws, { all: !!ids })).filter((l) => !ids || ids.includes(l.id))
     if (!lanes.length) return []
     const cards = await cardHolds(ws)
+    await usageHistory.freshen(ws)
     const read = await sessionReader(ws)
     const out: LaneCost[] = []
     for (const l of lanes) {
@@ -192,7 +180,7 @@ export async function laneCosts(ws: WorkspaceService, ids?: string[]): Promise<L
       const onCards = emptyPart()
       const overhead = emptyPart()
       for (const a of [l.builder, ...(l.reviewer ? [l.reviewer] : [])]) {
-        const list = p ? sessionsOf(p, { agent: a.id, name: a.name }) : []
+        const list = p ? p.list.filter((s) => holdIsSessions({ agent: a.id, name: a.name }, s, namedIn(p))).map((s) => s.slice) : []
         if (!list.length) {
           addPart(total, unknownPart())
           continue

@@ -1,10 +1,11 @@
 import { execFile } from 'child_process'
 import { existsSync, readFileSync, statSync } from 'original-fs'
-import { appendFile, mkdir, open, readdir, readFile, writeFile } from 'original-fs/promises'
+import { appendFile, mkdir, readdir, readFile, writeFile } from 'original-fs/promises'
 import { basename, delimiter, dirname, isAbsolute, join, resolve as resolvePath } from 'path'
 import { englishText, shownText, type TextPart } from '../../shared/advanced'
 import { msg, tr } from '../../shared/i18n'
 import type { AgentInstallInfo, ReadinessIssue, RecacheEstimate, SessionUsage } from '../../shared/types'
+import { readFirstLineOf } from '../transcriptFiles'
 import { cleanSwaps, contentHash, ContentTooLarge, COPY_MARKER, CopyFailed, LinkNotCopied, removePath, sourceProblem, swapIn, tooBigToDeliver, withFileLock } from '../fsutil'
 import { createLogger, userText } from '../logger'
 import { hiveError } from '../hiveError'
@@ -13,25 +14,9 @@ import type { HookIds, LaunchContext, SkillDelivery } from './types'
 const log = createLogger('providers')
 
 /** The first line of a file (a transcript's header), read without loading the whole transcript. */
-export async function readFirstLine(path: string, max = 1 << 20): Promise<string> {
-  const fh = await open(path, 'r')
-  try {
-    let out = ''
-    const buf = Buffer.alloc(64 * 1024)
-    let pos = 0
-    while (out.length < max) {
-      const { bytesRead } = await fh.read(buf, 0, buf.length, pos)
-      if (!bytesRead) break
-      const chunk = buf.toString('utf8', 0, bytesRead)
-      const nl = chunk.indexOf('\n')
-      if (nl >= 0) return out + chunk.slice(0, nl)
-      out += chunk
-      pos += bytesRead
-    }
-    return out
-  } finally {
-    await fh.close()
-  }
+export function readFirstLine(path: string, max = 1 << 20): Promise<string> {
+  // A compressed backup too (#1110).
+  return readFirstLineOf(path, max)
 }
 
 /** Helpers shared by provider adapters. */

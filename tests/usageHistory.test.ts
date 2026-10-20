@@ -1,0 +1,229 @@
+// The usage history in a workspace (#1106): its one-time import takes each record's transcript (or Hive's backup), a
+// record's kept usage when it has no file left, and each deleted session's kept usage, so nothing already counted is
+// lost; the Overview's figures then come from it, and stay when the transcripts go; a transcript that grows while Hive
+// isn't reading it is found by the sweep; card costs come from its rows.
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import * as electron from 'electron'
+import { priceUsage } from '../src/shared/usageDays'
+import { DEFAULT_SETTINGS } from '../src/shared/defaults'
+import type { SessionListItem, SessionUsage } from '../src/shared/types'
+import { tempDir } from './tempDir'
+
+const base = tempDir('hive-usage-history-')
+;(electron.app as unknown as { getPath: () => string }).getPath = () => join(base, 'profile')
+
+const { createWorkspaceService, disposeWorkspaceService, inWorkspace, workspace } = await import('../src/main/workspace')
+const { sessions } = await import('../src/main/sessions')
+const { usageHistory } = await import('../src/main/usageHistory')
+const { newUsageParser } = await import('../src/main/usageParsers')
+
+const wsPath = join(base, 'ws')
+const p = join(wsPath, 'proj')
+const cli = join(base, 'cli')
+let w: ReturnType<typeof createWorkspaceService>
+const run = <T>(fn: () => Promise<T>): Promise<T> => inWorkspace(w, fn)
+const T0 = Date.parse('2026-10-12T10:00:00.000Z')
+let n = 0
+const newId = (): string => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}`
+
+const request = (sid: string, i: number, output: number): string => JSON.stringify({ type: 'assistant', sessionId: sid, requestId: `r${i}`, timestamp: new Date(T0 + i * 60_000).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: output } } }) + '\n'
+const transcript = (sid: string, outputs: number[]): string => JSON.stringify({ type: 'user', sessionId: sid, timestamp: new Date(T0).toISOString(), message: { role: 'user', content: 'Task' } }) + '\n' + outputs.map((o, i) => request(sid, i + 1, o)).join('')
+const write = (file: string, text: string): void => {
+  mkdirSync(join(file, '..'), { recursive: true })
+  writeFileSync(file, text)
+}
+const backup = (id: string): string => join(p, '.hive', 'sessions', `${id}.jsonl`)
+const cliFile = (id: string): string => join(cli, `${id}.jsonl`)
+/** A kept usage, priced as Hive kept them before the history. */
+const keptUsage = (sid: string, output: number): SessionUsage => {
+  const parser = newUsageParser('claude-code', sid)!
+  parser.feed(transcript(sid, [output]))
+  return { ...priceUsage(parser.result(), DEFAULT_SETTINGS), lastPrompt: null }
+}
+const outputOf = (items: SessionListItem[], id: string): number | undefined => items.find((i) => i.id === id)?.usage?.outputTokens
+
+const cliLookup = vi.spyOn(sessions, 'providerTranscript')
+
+describe('the usage history of a workspace', () => {
+  const inCli = newId()
+  const onlyBackup = newId()
+  const keptOnRecord = newId()
+  const deleted = newId()
+  const noUsage = newId()
+
+  beforeAll(async () => {
+    mkdirSync(join(wsPath, '.hive'), { recursive: true })
+    mkdirSync(join(p, '.hive'), { recursive: true })
+    writeFileSync(join(p, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'c1', name: 'Agent 1' }] }))
+    // An old Hive's usage-cache.json, which the history replaces.
+    mkdirSync(join(base, 'profile'), { recursive: true })
+    writeFileSync(join(base, 'profile', 'usage-cache.json'), '{"version":"0.9.3","entries":[]}')
+    cliLookup.mockImplementation(async (_pp, id) => (existsSync(cliFile(id)) ? { path: cliFile(id), provider: 'claude-code' as const } : null))
+    write(cliFile(inCli), transcript(inCli, [100, 200]))
+    write(backup(inCli), transcript(inCli, [100, 200]))
+    write(backup(onlyBackup), transcript(onlyBackup, [300]))
+    // Sessions as an older Hive left them: records (one whose transcripts went, with its kept usage) and a deleted one's usage.
+    const at = new Date(T0).toISOString()
+    write(
+      join(p, '.hive', 'sessions.json'),
+      JSON.stringify({
+        version: 1,
+        sessions: [
+          { id: inCli, agent: 'claude-code', agentId: 'c1', name: 'in the CLI', createdAt: at, lastActiveAt: at },
+          { id: onlyBackup, agent: 'claude-code', agentId: 'c1', name: 'only a backup', createdAt: at, lastActiveAt: at },
+          { id: keptOnRecord, agent: 'claude-code', agentId: 'c1', name: 'kept', archived: true, createdAt: at, lastActiveAt: at, keptUsage: keptUsage(keptOnRecord, 400) },
+          { id: noUsage, agent: 'claude-code', name: 'never said anything', createdAt: at, lastActiveAt: at }
+        ],
+        deleted: [deleted],
+        deletedUsage: [{ id: deleted, provider: 'claude-code', agentId: 'c1', name: 'deleted', cwd: p, usage: keptUsage(deleted, 500) }]
+      })
+    )
+    // As Hive starts it: its tick, and the board read for holds dropped after a change.
+    usageHistory.start()
+    w = createWorkspaceService()
+    await w.open(wsPath)
+  })
+  afterAll(async () => {
+    cliLookup.mockRestore()
+    await disposeWorkspaceService(w)
+    await usageHistory.stop()
+  })
+
+  it('before its import, the Overview counts what an older Hive kept, and says the figures are partial', async () => {
+    expect(usageHistory.progressOf(wsPath).importing).toBe(true)
+    const items = await run(() => sessions.usageItems(p))
+    expect(outputOf(items, keptOnRecord)).toBe(400)
+    expect(outputOf(items, deleted)).toBe(500)
+    expect(items.find((i) => i.id === noUsage)?.usage).toBeNull()
+  })
+
+  it('imports every session once, losing nothing already counted, and retires usage-cache.json', async () => {
+    await run(() => usageHistory.opened(w))
+    expect(usageHistory.progressOf(wsPath)).toEqual({ importing: false, done: 5, total: 5 })
+    expect(existsSync(join(base, 'profile', 'usage-cache.json'))).toBe(false)
+    const items = await run(() => sessions.usageItems(p))
+    expect([inCli, onlyBackup, keptOnRecord, deleted].map((id) => outputOf(items, id))).toEqual([300, 300, 400, 500])
+    expect(items.find((i) => i.id === deleted)?.deleted).toBe(true)
+    expect(items.find((i) => i.id === noUsage)?.usage).toBeNull()
+    // The kept usage keeps its cost as it was priced.
+    expect(items.find((i) => i.id === keptOnRecord)?.usage?.costUsd).toBeCloseTo(keptUsage(keptOnRecord, 400).costUsd!, 6)
+    // Opened again: nothing is imported again.
+    await run(() => usageHistory.opened(w))
+    expect(usageHistory.progressOf(wsPath)).toEqual({ importing: false, done: 0, total: 0 })
+  })
+
+  it('the totals stay when the transcripts and backups go', async () => {
+    const before = await run(() => sessions.usageItems(p))
+    rmSync(cliFile(inCli))
+    // Plain or compressed (#1110: the import's housekeeping compresses ended sessions' backups).
+    for (const b of [backup(inCli), backup(onlyBackup)]) for (const f of [b, `${b}.gz`]) rmSync(f, { force: true })
+    const after = await run(() => sessions.usageItems(p))
+    expect([inCli, onlyBackup].map((id) => outputOf(after, id))).toEqual([inCli, onlyBackup].map((id) => outputOf(before, id)))
+    // A session's own usage too, as the Sessions list and the Agent API read it.
+    expect((await run(() => sessions.usage(p, onlyBackup)))?.outputTokens).toBe(300)
+  })
+
+  it("a transcript that grew while Hive wasn't reading it is found and read", async () => {
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'grows', lastActiveAt: new Date(T0).toISOString() }))
+    write(cliFile(id), transcript(id, [10]))
+    expect((await usageHistory.ingest(p, id, { priority: 1, keepState: 'no' }))?.status).toBe('written')
+    appendFileSync(cliFile(id), request(id, 9, 90))
+    // The sweep (every ten minutes, and after a workspace's import) finds it changed and reads it.
+    await (usageHistory as unknown as { sweep: (ws: unknown) => Promise<void> }).sweep(w)
+    await vi.waitFor(async () => expect(outputOf(await run(() => sessions.usageItems(p)), id)).toBe(100), { timeout: 10_000 })
+  })
+
+  it("a deleted session's usage is recorded before its copies go, and stays in the totals", async () => {
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'to delete', lastActiveAt: new Date(T0).toISOString() }))
+    write(backup(id), transcript(id, [70]))
+    ;(electron.shell as unknown as { trashItem: (f: string) => Promise<void> }).trashItem = async (f) => rmSync(f, { force: true })
+    await run(() => sessions.delete(p, id))
+    expect(existsSync(backup(id))).toBe(false)
+    const kept = await run(() => sessions.keptUsage(p))
+    expect(kept.find((k) => k.id === id)).toMatchObject({ deleted: true, name: 'to delete', agentId: 'c1' })
+    expect(outputOf(kept, id)).toBe(70)
+  })
+
+  it("a session started outside Hive is kept for the Sessions list, never counted, until a record makes it Hive's", async () => {
+    const id = newId()
+    write(cliFile(id), transcript(id, [40]))
+    expect((await usageHistory.ingestExternal(p, { id, provider: 'claude-code', transcriptPath: cliFile(id) }))?.status).toBe('written')
+    const stored = await usageHistory.storedUsage(p)
+    expect(stored.get(id)).toMatchObject({ source: 'external', read: { path: cliFile(id) } })
+    expect(outputOf(await run(() => sessions.usageItems(p)), id)).toBeUndefined()
+    expect((await run(() => sessions.keptUsage(p))).some((k) => k.id === id)).toBe(false)
+    // Adopted: its record's job makes it Hive's, so once deleted it stays in the totals.
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'adopted', lastActiveAt: new Date(T0).toISOString() }))
+    await usageHistory.ingest(p, id, { priority: 1, keepState: 'no' })
+    expect((await usageHistory.storedUsage(p)).get(id)?.source).toBe('transcript')
+    expect(outputOf(await run(() => sessions.usageItems(p)), id)).toBe(40)
+  })
+
+  it("a card's cost is its builder's session's use while it held the card, from the history", async () => {
+    const tasks = await import('../src/main/tasks')
+    const { cardCosts } = await import('../src/main/cardCosts')
+    const card = await run(() => tasks.createTask({ title: 'Costed', project: 'proj', agent: 'c1', column: 'doing' }, { kind: 'user' }))
+    const id = newId()
+    const now = Date.now()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'builds', lastActiveAt: new Date(now).toISOString() }))
+    // Two requests while the card is held, in the same second as the card's hold or after it.
+    const req = (i: number, at: number, output: number): string => JSON.stringify({ type: 'assistant', sessionId: id, requestId: `q${i}`, timestamp: new Date(at).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: output } } }) + '\n'
+    write(cliFile(id), req(1, now + 1500, 30) + req(2, now + 2500, 20))
+    // Recorded ten seconds on (the card still held): only the clock is moved, nothing waits.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now + 10_000)
+    try {
+      await usageHistory.ingest(p, id, { priority: 1, keepState: 'no' })
+    } finally {
+      vi.useRealTimers()
+    }
+    const [cost] = await run(() => cardCosts(w, { numbers: [card.number] }))
+    expect(cost.build).toMatchObject({ outputTokens: 50, requests: 2, priced: 1, unpriced: 0 })
+    expect(cost.unmatched).toBe(0)
+  })
+
+  it("a stopped session's share on a card follows the card's hold after it stopped (the board change, then the cost asked)", async () => {
+    const tasks = await import('../src/main/tasks')
+    const { cardCosts } = await import('../src/main/cardCosts')
+    const card = await run(() => tasks.createTask({ title: 'Closed later', project: 'proj', agent: 'c1', column: 'doing' }, { kind: 'user' }))
+    const from = Date.parse(card.held![0].from)
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'stopped', lastActiveAt: new Date(from).toISOString() }))
+    // Its last request 2.3 s into the hold; recorded as it stopped, 0.1 s later, the hold still open (cut at that moment).
+    const req = { type: 'assistant', sessionId: id, requestId: 'z1', timestamp: new Date(from + 2300).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1000 } } }
+    write(cliFile(id), JSON.stringify(req) + '\n')
+    // This session's part of the card (the agent's other sessions here may have some too), after its cost is asked for.
+    const onCard = async (): Promise<number> => {
+      await run(() => cardCosts(w, { numbers: [card.number] }))
+      return (await usageHistory.cardRows(wsPath, [card.number])).filter((r) => r.session === id).reduce((sum, r) => sum + r.row.outputTokens, 0)
+    }
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(from + 2400)
+      await usageHistory.ingest(p, id, { priority: 1, keepState: 'now' })
+      expect(await onCard()).toBeLessThan(1000)
+      // Ten seconds on, the card goes to Done: its hold ends after the whole request's second.
+      vi.setSystemTime(from + 10_000)
+      await run(() => tasks.updateTask(card.number, { column: 'done' }, { kind: 'user' }))
+    } finally {
+      vi.useRealTimers()
+    }
+    // The session isn't running: nothing reads its file again; asking for the card's cost shares it out again.
+    await run(() => cardCosts(w, { numbers: [card.number] }))
+    expect(await onCard()).toBe(1000)
+  })
+
+  it('the Overview reads no transcript', async () => {
+    const reads = vi.spyOn(sessions, 'anyTranscript')
+    const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')
+    await run(() => sessions.usageItems(p))
+    expect(reads).not.toHaveBeenCalled()
+    expect(usageFor).not.toHaveBeenCalled()
+    reads.mockRestore()
+    usageFor.mockRestore()
+  })
+})

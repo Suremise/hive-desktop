@@ -116,6 +116,7 @@ Test copies run quiet: an unpackaged build with a test profile (`HIVE_USER_DATA`
 | `src/shared/advanced.ts`, `src/main/advanced.ts`, `src/renderer/src/components/AdvancedSettings.tsx` | Advanced settings (#367): the overridable defaults with their recorded samples, advanced.json and the CLI versions overrides were made for, Settings → Advanced's list |
 | `src/shared/prices.ts`, `instructions.ts` | Price tables and cost estimates; shared AGENTS.md logic |
 | `src/main/servers.ts` | Hook server (random port) and Agent API |
+| `src/main/usageHistory.ts`, `usageWorker.ts`, `usageDb.ts`, `usageParsers.ts`, `src/shared/usageLedger.ts` | The usage history (#1106): what each session used, recorded by a worker thread in the workspace's `.hive/usage.db` (rows per day, model and card), and every usage view's source |
 | `src/main/updater.ts`, `src/renderer/src/components/Updates.tsx` | Hive's own updates (electron-updater, GitHub Releases): state, status bar item, update dialog |
 | `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
 | `src/main/progressReporters/`, `tests/progressReport.mts` | `hive-progress` wrapper (shims on every session's PATH) and Hive's test runners reporting to the Progress panel (`src/main/progress.ts`) |

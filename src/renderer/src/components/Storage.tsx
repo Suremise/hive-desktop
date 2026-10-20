@@ -17,6 +17,7 @@ const M = {
   loadTarget: msg({ id: 'workspace.storage.loadTarget', defaultMessage: 'the storage sizes', description: 'What could not be loaded when Storage measured: shown in "Could not load {what}: {error}", with Retry.' }),
   backups: msg({ id: 'workspace.storage.backups', defaultMessage: 'Transcript backups', description: "Storage: Hive's copies of the sessions' transcripts (.hive/sessions)." }),
   archive: msg({ id: 'workspace.storage.archive', defaultMessage: 'Archive', description: "Storage: Hive's archive folder (.hive/archive)." }),
+  beforeCompression: msg({ id: 'workspace.storage.beforeCompression', defaultMessage: '{size} before compression', description: "Storage, beside the size of Hive's transcript backups or archive: what they hold uncompressed ({size}: like 1.2 GB). Ended sessions' backups are compressed." }),
   attachments: msg({ id: 'workspace.storage.attachments', defaultMessage: 'Attachments', description: 'Storage: files pasted or dropped into sessions (.hive/attachments).' }),
   worktree: msg({ id: 'workspace.storage.worktree', defaultMessage: "{agent}'s worktree", description: "Storage: an agent's worktree." }),
   unused: msg({ id: 'workspace.storage.unused', defaultMessage: 'Unused worktrees ({count})', description: 'Storage: the worktrees no agent works in, on one line.' }),
@@ -70,6 +71,8 @@ interface StorageRow {
   label: string
   where: string
   bytes: number
+  /** What it holds before compression (#1110: compressed backups), when that's more. */
+  raw?: number
   /** The project whose Overview lists them, for a Review link (unused worktrees, #353). */
   review?: string
 }
@@ -93,7 +96,19 @@ const storageColumns = (): DataColumn<StorageRow>[] => [
     ),
     sortValue: (r) => r.label
   },
-  { key: 'size', header: tr(M.size), num: true, descFirst: true, cell: (r) => formatSize(r.bytes), sortValue: (r) => r.bytes }
+  {
+    key: 'size',
+    header: tr(M.size),
+    num: true,
+    descFirst: true,
+    cell: (r) => (
+      <>
+        {formatSize(r.bytes)}
+        {r.raw !== undefined && r.raw > r.bytes && <div className="faint small">{tr(M.beforeCompression, { size: formatSize(r.raw) })}</div>}
+      </>
+    ),
+    sortValue: (r) => r.bytes
+  }
 ]
 
 /**
@@ -146,8 +161,8 @@ export function StorageView({ path }: { path: string }) {
   if (error) return <LoadFailed inline what={tr(M.loadTarget)} error={error} onRetry={() => load(true)} />
   const rows: StorageRow[] = data
     ? [
-        { label: tr(M.backups), where: '.hive/sessions', bytes: data.sessions },
-        { label: tr(M.archive), where: '.hive/archive', bytes: data.archive },
+        { label: tr(M.backups), where: '.hive/sessions', bytes: data.sessions, raw: data.sessionsRaw },
+        { label: tr(M.archive), where: '.hive/archive', bytes: data.archive, raw: data.archiveRaw },
         { label: tr(M.attachments), where: '.hive/attachments', bytes: data.attachments },
         ...data.worktrees.map((w) => ({ label: tr(M.worktree, { agent: w.agent }), where: w.path, bytes: w.bytes })),
         // The worktrees no agent works in (#353), on one line: the Overview lists and tidies them.

@@ -914,7 +914,7 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
   const [allOpen, setAllOpen] = useState(false)
   const [viewing, setViewing] = useState<TranscriptImageRef | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
-  const sizeRef = useRef<number | undefined>(undefined)
+  const versionRef = useRef<string | undefined>(undefined)
   /** The first item loaded: the latest TRANSCRIPT_WINDOW open first, earlier ones load as you scroll up. */
   const fromRef = useRef<number | undefined>(undefined)
   /** Scrolling up loaded earlier items: keep the view where it was (distance from the bottom). */
@@ -932,9 +932,9 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
       try {
         const from = opts.from ?? fromRef.current
         const same = from === fromRef.current && !opts.force
-        const t = await call('transcript:read', project.path, session.id, { knownSize: same ? sizeRef.current : undefined, from })
+        const t = await call('transcript:read', project.path, session.id, { knownVersion: same ? versionRef.current : undefined, from })
         if (!t) return
-        sizeRef.current = t.size
+        versionRef.current = t.version
         fromRef.current = t.from
         setTranscript(t)
         setError(null)
@@ -947,7 +947,7 @@ function TranscriptView({ project, session, origin, live, jump, query, viewId, m
 
   useEffect(() => {
     fromRef.current = undefined
-    sizeRef.current = undefined
+    versionRef.current = undefined
     void load()
   }, [load])
   // Follow a running session as its CLI appends to it (when switched on).

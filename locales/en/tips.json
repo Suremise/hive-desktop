@@ -215,6 +215,14 @@
     "defaultMessage": "Attach any file to a prompt",
     "description": "A tip's title."
   },
+  "tips.backupRetention.text": {
+    "defaultMessage": "Hive compresses its transcript backups once a session ends, and Storage shows what they hold. To let old ones go, set Settings → Sessions → Keep transcript backups: only copies of sessions the CLI still has go to the Recycle Bin.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.backupRetention.title": {
+    "defaultMessage": "Backups take less room, and can expire",
+    "description": "A tip's title."
+  },
   "tips.banners.text": {
     "defaultMessage": "While you use Hive, an agent finishing or needing you is a banner in the window, not a Windows notification over the Assistant. Settings → Notifications chooses where it shows, for which workspaces, and for how long.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

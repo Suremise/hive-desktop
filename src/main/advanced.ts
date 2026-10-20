@@ -11,6 +11,7 @@ import type { SettingsPatch } from '../shared/api'
 import { emit } from './events'
 import { writeTextUnlessChanged } from './fsutil'
 import { createLogger } from './logger'
+import { readAdvancedFrom } from './advancedValues'
 
 const log = createLogger('advanced')
 
@@ -351,6 +352,8 @@ export class AdvancedStore {
 }
 
 export const advanced = new AdvancedStore()
+// The CLIs' parsers read through advancedValues (they also run in the usage worker, #1106): in main, what this has.
+readAdvancedFrom(advanced)
 
 /**
  * What a caller checks and reports around a change, run in the change's turn (after the changes queued before it): a

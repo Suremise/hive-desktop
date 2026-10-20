@@ -53,6 +53,8 @@
   "tips.assistantWaits.title": "Que el Asistente te avise cuando un agente termine",
   "tips.attachFiles.text": "Suelta un PDF, un registro o cualquier archivo en la terminal de un agente: Hive guarda una copia con la sesión y pega su ruta. Una etiqueta muestra lo adjunto, y avisa cuando la CLI del agente no lee ese tipo de archivo por sí misma, para que el agente lo abra por su ruta.",
   "tips.attachFiles.title": "Adjunta cualquier archivo a un prompt",
+  "tips.backupRetention.text": "Hive comprime sus copias de las transcripciones cuando termina una sesión, y Almacenamiento muestra lo que contienen. Para dejar ir las antiguas, ajusta Configuración → Sesiones → Conservar las copias de las transcripciones: solo van a la Papelera de reciclaje las copias de sesiones que la CLI aún tiene.",
+  "tips.backupRetention.title": "Las copias ocupan menos y pueden caducar",
   "tips.banners.text": "Mientras usas Hive, que un agente termine o te necesite se muestra como un banner en la ventana, no como una notificación de Windows encima del Asistente. Configuración → Notificaciones elige dónde se muestra, para qué espacios de trabajo y durante cuánto tiempo.",
   "tips.banners.title": "Avisos en Hive, no encima de él",
   "tips.board.text": "Tarjetas en las columnas En espera, Pendiente, En curso, Revisión, Aprobado y Hecho, cada una de un proyecto. Iniciar… da una tarjeta a un agente con la tarjeta como prompt. {key}",

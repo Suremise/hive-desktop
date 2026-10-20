@@ -759,6 +759,14 @@ interface HiveMessageValues {
   'settings.section.updates.label': undefined
   'settings.section.workspace.desc': undefined
   'settings.section.workspace.label': undefined
+  'settings.sessions.backupRetention.desc': undefined
+  'settings.sessions.backupRetention.option.d180': undefined
+  'settings.sessions.backupRetention.option.d30': undefined
+  'settings.sessions.backupRetention.option.d365': undefined
+  'settings.sessions.backupRetention.option.d90': undefined
+  'settings.sessions.backupRetention.option.off': undefined
+  'settings.sessions.backupRetention.tip': undefined
+  'settings.sessions.backupRetention.title': undefined
   'settings.sessions.backupTranscripts.desc': undefined
   'settings.sessions.backupTranscripts.tip': undefined
   'settings.sessions.backupTranscripts.title': undefined

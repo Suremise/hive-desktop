@@ -46,6 +46,8 @@ const write = (file, text) => {
   fs.utimesSync(file, old, old)
 }
 const backup = (sid, archived = false) => path.join(alpha, '.hive', archived ? 'archive' : 'sessions', `${sid}.jsonl`)
+// Hive's copy, plain or compressed (#1110: an ended or archived session's is compressed).
+const kept = (sid, archived = false) => fs.existsSync(backup(sid, archived)) || fs.existsSync(backup(sid, archived) + '.gz')
 const cliFile = (sid) => path.join(claudeHome, 'projects', alpha.replace(/[^a-zA-Z0-9]/g, '-'), `${sid}.jsonl`)
 
 ;(async () => {
@@ -122,7 +124,7 @@ const cliFile = (sid) => path.join(claudeHome, 'projects', alpha.replace(/[^a-zA
     check('…1 skipped: running', /Archived 2 sessions; 1 skipped: 1 running/.test(said) && /Running old: running/.test(said), said)
     check('exactly the old ones are archived', await lib.until(() => record(S.week)?.archived === true && record(S.month)?.archived === true, HUNG_MS), JSON.stringify(records().map((s) => [s.name, s.archived])))
     check('…the newer ones and the running one are not', [S.fresh, S.day, S.running].every((s) => record(s)?.archived === false))
-    check("…their transcripts kept in Hive's archive", fs.existsSync(backup(S.week, true)) && fs.existsSync(backup(S.month, true)) && !fs.existsSync(backup(S.week)))
+    check("…their transcripts kept in Hive's archive", kept(S.week, true) && kept(S.month, true) && !kept(S.week))
     check('the running session still runs', (await live())?.sessionId === S.running)
     check('the archived ones leave the list', await lib.until(async () => (await row('Week old').count()) === 0 && (await row('Month old').count()) === 0, HUNG_MS))
 
@@ -139,7 +141,7 @@ const cliFile = (sid) => path.join(claudeHome, 'projects', alpha.replace(/[^a-zA
     check('…1 skipped: running', /Deleted 4 sessions; 1 skipped: 1 running/.test(deletedSaid), deletedSaid)
     check('exactly the old ones are gone from Hive', await lib.until(() => [S.day, S.week, S.month, S.archived].every((s) => !record(s)), HUNG_MS), JSON.stringify(records().map((s) => s.name)))
     check('…the fresh and running ones stay', !!record(S.fresh) && !!record(S.running))
-    check("…Hive's copies in the suite's trash (#414)", lib.trashed(S.day).length === 1 && lib.trashed(S.archived).length === 1 && !fs.existsSync(backup(S.day)) && !fs.existsSync(backup(S.archived, true)))
+    check("…Hive's copies in the suite's trash (#414)", lib.trashed(S.day).length === 1 && lib.trashed(S.archived).length === 1 && !kept(S.day) && !kept(S.archived, true))
     check("the CLI's own transcripts are untouched", Object.values(S).every((s) => fs.existsSync(cliFile(s))))
     check('the running session still runs', (await live())?.sessionId === S.running)
 

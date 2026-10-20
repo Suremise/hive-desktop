@@ -26,6 +26,8 @@ let failTrash: ((p: string) => boolean) | null = null
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace, workspace } = await import('../src/main/workspace')
 const { sessions, SessionInUse } = await import('../src/main/sessions')
+// What a delete does under its lock before the copies go: record what the session used (#1106).
+const { usageHistory } = await import('../src/main/usageHistory')
 const { setViewing, whileReading } = await import('../src/main/transcriptReads')
 const { encodeProjectPath } = await import('../src/main/providers/claude/usage')
 
@@ -168,8 +170,9 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     expect(await records()).not.toContain(free1)
     const file = await run(() => workspace.sessionsFile(p))
     expect(file.deleted).toEqual(expect.arrayContaining([free1, free2]))
-    // Totals keep what the deleted ones used.
-    expect(file.deletedUsage?.map((k) => k.id).sort()).toEqual([free1, free2].sort())
+    // Totals keep what the deleted ones used (the usage history, #1106).
+    const kept = (await run(() => sessions.keptUsage(p))).map((k) => k.id)
+    expect([live, held, writing, reading, free1, free2].filter((id) => kept.includes(id)).sort()).toEqual([free1, free2].sort())
     // The CLI's own transcripts stay.
     for (const id of [live, held, writing, reading, free1, free2]) expect(existsSync(cliFile(id))).toBe(true)
   })
@@ -181,17 +184,18 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     // Hive ran it, and saw its CLI exit (Archive and Start New archives one just stopped).
     s.noteExit(id)
     await run(() => sessions.archive(p, id, true))
-    expect(existsSync(backup(id, true))).toBe(true)
+    // Archived copies are compressed (#1110).
+    expect(existsSync(backup(id, true) + '.gz')).toBe(true)
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     expect(r.done).toEqual([id])
   })
 
   it('a session that starts while the delete waits is kept', async () => {
     const id = await session()
-    // It starts after the first check, while its usage is read under the lock.
-    const usage = vi.spyOn(sessions, 'usage').mockImplementation(async () => {
+    // It starts after the first check, while its usage is recorded under the lock.
+    const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-y', projectPath: p, agentId: 'c1', sessionId: id, status: 'starting' } })
-      return null
+      return true
     })
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()
@@ -206,11 +210,11 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     write(cliFile(outside), transcript(outside))
     const r = await run(() => sessions.bulk(p, 'archive', [mine, outside]))
     expect(r).toEqual({ done: [mine], skipped: [{ id: outside, reason: 'external' }] })
-    expect(existsSync(backup(mine, true))).toBe(true)
+    expect(existsSync(backup(mine, true) + '.gz')).toBe(true)
     expect(await records()).not.toContain(outside)
     const back = await run(() => sessions.bulk(p, 'unarchive', [mine]))
     expect(back.done).toEqual([mine])
-    expect(existsSync(backup(mine))).toBe(true)
+    expect(existsSync(backup(mine) + '.gz')).toBe(true)
   })
 
   it('a delete that fails after a copy went to the Recycle Bin puts that copy back, and keeps the record', async () => {
@@ -271,9 +275,9 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     const id = await session()
     const { transcripts } = await import('../src/main/transcripts')
     let during: unknown = null
-    const usage = vi.spyOn(sessions, 'usage').mockImplementation(async () => {
+    const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       during = await run(async () => transcripts.viewing(7, 'v2', p, id)).catch((e) => e)
-      return null
+      return true
     })
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()
@@ -285,9 +289,9 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     const id = await session()
     const { transcripts } = await import('../src/main/transcripts')
     let during: unknown = null
-    const usage = vi.spyOn(sessions, 'usage').mockImplementation(async () => {
+    const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       during = await run(() => transcripts.read(p, id)).catch((e) => e)
-      return null
+      return true
     })
     await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()

@@ -13,6 +13,7 @@ import { workspace } from './workspace'
 import { unusedWorktreeFolders } from './unusedWorktrees'
 import { trash } from './trash'
 import { attachmentsDir } from './attachmentsFolder'
+import { gzSize, isGz } from './transcriptFiles'
 
 const log = createLogger('storage')
 
@@ -195,6 +196,9 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
   // Backups grow in place, so they are always measured afresh (a few files).
   const backups = await folderSize(join(hive, 'sessions'), 'none', signal)
   const archive = await folderSize(join(hive, 'archive'), 'none', signal)
+  // What they hold before compression (#1110).
+  const sessionsRaw = await beforeCompression(join(hive, 'sessions'), backups)
+  const archiveRaw = await beforeCompression(join(hive, 'archive'), archive)
   const attachments = await folderSize(await attachmentsDir(projectPath), cache, signal)
   const worktrees: ProjectStorage['worktrees'] = []
   if (!assistant) {
@@ -211,6 +215,8 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
     ...(assistant ? { assistant: true } : {}),
     sessions: backups,
     archive,
+    ...(sessionsRaw !== backups ? { sessionsRaw } : {}),
+    ...(archiveRaw !== archive ? { archiveRaw } : {}),
     attachments,
     worktrees,
     ...(unused.length ? { unusedWorktrees: unused } : {}),
@@ -219,6 +225,21 @@ async function measure(projectPath: string, refresh: boolean, signal: AbortSigna
   }
   results.set(projectPath.toLowerCase(), result)
   return result
+}
+
+/**
+ * A backups folder's size before compression (#1110): its size, with each compressed backup's own size in place of
+ * the file's (from the gzip trailer; a file it can't read counts as it is).
+ */
+async function beforeCompression(dir: string, bytes: number): Promise<number> {
+  let raw = bytes
+  for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    if (!e.isFile() || !isGz(e.name)) continue
+    const path = join(dir, e.name)
+    const [packed, size] = [(await lstat(path).catch(() => null))?.size, await gzSize(path)]
+    if (packed !== undefined && size !== null) raw += size - packed
+  }
+  return raw
 }
 
 /** Every project's storage and the Assistant's, biggest first (one project at a time); `request` as for projectStorage. */
