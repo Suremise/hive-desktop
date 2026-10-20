@@ -303,6 +303,11 @@ export interface BaselineDay {
   compactions: number
   costUsd: number | null
   costEstimated: boolean
+  /**
+   * The tokens that cost covers (round 5: a charge and what it paid for are one record, restored together, so the same
+   * tokens are never estimated again on top of it).
+   */
+  covered: UsageTokens
 }
 
 /** What a baseline day holds that rows add up to (cost apart). */
@@ -312,7 +317,7 @@ const COUNTS = ['inputTokens', 'outputTokens', 'cacheWriteTokens', 'cacheReadTok
 export function baselineOfUsage(usage: SessionUsage): BaselineDay[] {
   const model = usage.model ?? ''
   const days: [string, DayUsage][] = usage.days && Object.keys(usage.days).length ? Object.entries(usage.days) : [[localDay(usage.lastActivity ?? usage.firstActivity), { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheWriteTokens: usage.cacheWriteTokens, cacheReadTokens: usage.cacheReadTokens, requests: usage.requests, prompts: usage.userMessages, compactions: usage.compactions.length, costUsd: usage.costUsd, costEstimated: usage.costEstimated }]]
-  return days.filter(([day]) => !!day).map(([day, d]) => ({ day, model, inputTokens: d.inputTokens, outputTokens: d.outputTokens, cacheWriteTokens: d.cacheWriteTokens, cacheReadTokens: d.cacheReadTokens, requests: d.requests, prompts: d.prompts, compactions: d.compactions, costUsd: d.costUsd, costEstimated: d.costEstimated }))
+  return days.filter(([day]) => !!day).map(([day, d]) => ({ day, model, inputTokens: d.inputTokens, outputTokens: d.outputTokens, cacheWriteTokens: d.cacheWriteTokens, cacheReadTokens: d.cacheReadTokens, requests: d.requests, prompts: d.prompts, compactions: d.compactions, costUsd: d.costUsd, costEstimated: d.costEstimated, covered: d.costUsd === null ? ZERO() : { inputTokens: d.inputTokens, outputTokens: d.outputTokens, cacheWriteTokens: d.cacheWriteTokens, cacheReadTokens: d.cacheReadTokens } }))
 }
 
 /** What of a row's cost the provider reported (a charge it was given; never Hive's estimate, which follows the prices). */
@@ -326,9 +331,11 @@ export function baselineOfRows(rows: LedgerRow[]): BaselineDay[] {
   const by = new Map<string, BaselineDay & { most: number }>()
   for (const r of rows) {
     let b = by.get(r.day)
-    if (!b) by.set(r.day, (b = { day: r.day, model: r.model, ...ZERO(), requests: 0, prompts: 0, compactions: 0, costUsd: null, costEstimated: false, most: -1 }))
+    if (!b) by.set(r.day, (b = { day: r.day, model: r.model, ...ZERO(), requests: 0, prompts: 0, compactions: 0, costUsd: null, costEstimated: false, covered: ZERO(), most: -1 }))
     for (const k of COUNTS) b[k] += r[k]
     if (reported(r) > 0) b.costUsd = (b.costUsd ?? 0) + reported(r)
+    // The tokens the reported charges paid for (on the charge's own rows, or rows a restored charge covers).
+    if (!r.fixedEstimated) for (const k of KINDS) b.covered[k] += r.covered[k]
     // The day's model: the one with the most tokens.
     if (tokenSum(r) > b.most) {
       b.most = tokenSum(r)
@@ -340,17 +347,19 @@ export function baselineOfRows(rows: LedgerRow[]): BaselineDay[] {
 
 /** Two baselines as one: each day the larger of each (its cost too), so neither loses anything it had. */
 export function mergeBaselines(a: BaselineDay[], b: BaselineDay[]): BaselineDay[] {
-  const by = new Map(a.map((d) => [d.day, { ...d }]))
+  const by = new Map(a.map((d) => [d.day, { ...d, covered: { ...d.covered } }]))
   for (const d of b) {
     const was = by.get(d.day)
     if (!was) {
-      by.set(d.day, { ...d })
+      by.set(d.day, { ...d, covered: { ...d.covered } })
       continue
     }
     for (const k of COUNTS) was[k] = Math.max(was[k], d[k])
+    // A cost with the tokens it covers: the larger record whole, never one's amount with the other's coverage.
     if (d.costUsd !== null && (was.costUsd === null || d.costUsd > was.costUsd)) {
       was.costUsd = d.costUsd
       was.costEstimated = d.costEstimated
+      was.covered = { ...d.covered }
     }
   }
   return [...by.values()].sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : 0))
@@ -362,20 +371,42 @@ export function mergeBaselines(a: BaselineDay[], b: BaselineDay[]): BaselineDay[
  * own `kept` rows (an earlier baseline's) are replaced.
  */
 export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
-  const rows = all.filter((r) => r.role !== 'kept')
+  // Copies: a restored charge marks tokens of these rows covered.
+  const rows = all.filter((r) => r.role !== 'kept').map((r) => ({ ...r, covered: { ...r.covered } }))
   const out = [...rows]
   for (const b of baseline) {
     const day = rows.filter((r) => r.day === b.day)
     const r = emptyRow(b.day, b.model, 0, 'kept')
     for (const k of COUNTS) r[k] = Math.max(0, b[k] - day.reduce((n, x) => n + x[k], 0))
-    // A reported charge against the rows' reported charges (an estimate never stands in for one); a kept usage's cost,
-    // estimated when it was kept, against what the rows cost now.
-    const has = day.reduce((n, x) => n + (b.costEstimated ? (rowCost(x, provider, settings).usd ?? 0) : reported(x)), 0)
-    if (b.costUsd !== null && b.costUsd > has) {
-      // Its tokens are the baseline's, so its cost is what they were counted at: covered, not estimated again.
-      r.fixedUsd = b.costUsd - has
-      r.fixedEstimated = b.costEstimated
-      r.covered = { inputTokens: r.inputTokens, outputTokens: r.outputTokens, cacheWriteTokens: r.cacheWriteTokens, cacheReadTokens: r.cacheReadTokens }
+    if (b.costUsd !== null && b.costEstimated) {
+      // A kept usage's cost, estimated when it was kept, against what the rows cost now; what they're short of covers
+      // the tokens they lack (the rows' own are priced as they are).
+      const has = day.reduce((n, x) => n + (rowCost(x, provider, settings).usd ?? 0), 0)
+      if (b.costUsd > has) {
+        r.fixedUsd = b.costUsd - has
+        r.fixedEstimated = true
+        r.covered = { inputTokens: r.inputTokens, outputTokens: r.outputTokens, cacheWriteTokens: r.cacheWriteTokens, cacheReadTokens: r.cacheReadTokens }
+      }
+    } else if (b.costUsd !== null) {
+      // A reported charge and the tokens it paid for, as one record (round 5): what the rows' own reported charges lack of
+      // it, with the tokens they lack coverage for. Those are marked covered on the day's rows first (the same tokens,
+      // read again without their report: not estimated a second time), the rest on the `kept` row's own tokens.
+      const has = day.reduce((n, x) => n + reported(x), 0)
+      if (b.costUsd > has) {
+        r.fixedUsd = b.costUsd - has
+        for (const k of KINDS) {
+          let need = Math.max(0, b.covered[k] - day.reduce((n, x) => n + (x.fixedEstimated ? 0 : x.covered[k]), 0))
+          for (const x of day) {
+            if (need <= 0) break
+            const free = x[k] - x.covered[k]
+            if (free <= 0 || x.fixedEstimated) continue
+            const take = Math.min(free, need)
+            x.covered[k] += take
+            need -= take
+          }
+          r.covered[k] = Math.min(r[k], need)
+        }
+      }
     }
     if (hasUse(r)) out.push(r)
   }

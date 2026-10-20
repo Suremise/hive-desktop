@@ -163,6 +163,10 @@ export const USAGE_MIGRATIONS: Migration[] = [
           compactions    INTEGER NOT NULL,
           cost_usd       REAL,
           cost_estimated INTEGER NOT NULL,
+          covered_input  INTEGER NOT NULL,
+          covered_output INTEGER NOT NULL,
+          covered_cache_write INTEGER NOT NULL,
+          covered_cache_read  INTEGER NOT NULL,
           PRIMARY KEY (scope, session, day)
         ) STRICT, WITHOUT ROWID;
         CREATE TABLE usage_meta (
@@ -325,8 +329,8 @@ function putTimeline(db: DatabaseSync, scope: string, session: string, t: UsageT
 /** A session's baseline replaced. */
 function putBaseline(db: DatabaseSync, scope: string, session: string, days: BaselineDay[]): void {
   db.prepare(`DELETE FROM ${BASELINE} WHERE scope = ? AND session = ?`).run(scope, session) // i18n-ignore: SQL
-  const put = db.prepare(`INSERT INTO ${BASELINE} (scope, session, day, model, input, output, cache_write, cache_read, requests, prompts, compactions, cost_usd, cost_estimated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`) // i18n-ignore: SQL
-  for (const d of days) put.run(scope, session, d.day, d.model, d.inputTokens, d.outputTokens, d.cacheWriteTokens, d.cacheReadTokens, d.requests, d.prompts, d.compactions, d.costUsd, d.costEstimated ? 1 : 0)
+  const put = db.prepare(`INSERT INTO ${BASELINE} (scope, session, day, model, input, output, cache_write, cache_read, requests, prompts, compactions, cost_usd, cost_estimated, covered_input, covered_output, covered_cache_write, covered_cache_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`) // i18n-ignore: SQL
+  for (const d of days) put.run(scope, session, d.day, d.model, d.inputTokens, d.outputTokens, d.cacheWriteTokens, d.cacheReadTokens, d.requests, d.prompts, d.compactions, d.costUsd, d.costEstimated ? 1 : 0, d.covered.inputTokens, d.covered.outputTokens, d.covered.cacheWriteTokens, d.covered.cacheReadTokens)
 }
 
 /** A session's baseline (none: []). */
@@ -342,7 +346,8 @@ export function baselineOf(db: DatabaseSync, scope: string, session: string): Ba
     prompts: r.prompts as number,
     compactions: r.compactions as number,
     costUsd: (r.cost_usd as number | null) ?? null,
-    costEstimated: r.cost_estimated === 1
+    costEstimated: r.cost_estimated === 1,
+    covered: { inputTokens: r.covered_input as number, outputTokens: r.covered_output as number, cacheWriteTokens: r.covered_cache_write as number, cacheReadTokens: r.covered_cache_read as number }
   }))
 }
 

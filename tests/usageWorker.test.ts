@@ -12,6 +12,8 @@ import { summaryOf, usageFromRows } from '../src/shared/usageLedger'
 import { priceUsage } from '../src/shared/usageDays'
 import { newUsageParser } from '../src/main/usageParsers'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
+import { estimateCost } from '../src/shared/prices'
+import type { AppSettings } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 const T0 = Date.parse('2026-10-12T10:00:00.000Z')
@@ -183,27 +185,30 @@ describe('the usage worker', () => {
     await t.close()
   })
 
-  it('never erases a charge the provider reported: a rewrite without its report, same counts or more', async () => {
+  it('never erases a charge the provider reported, nor charges its tokens twice: a rewrite without its report costs the same', async () => {
     const t = await setup()
-    const req = (rid: string, input: number, output: number): string => JSON.stringify({ type: 'assistant', requestId: rid, timestamp: new Date(T0).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output } } }) + '\n'
-    const charge = JSON.stringify({ type: 'cost-state', timestamp: new Date(T0 + 1000).toISOString(), totalCostUSD: 5 }) + '\n'
-    const cost = async (): Promise<number> => {
+    const req = (rid: string, input: number, output: number, at = T0): string => JSON.stringify({ type: 'assistant', requestId: rid, timestamp: new Date(at).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output } } }) + '\n'
+    const charge = JSON.stringify({ type: 'cost-state', timestamp: new Date(T0 + 1000).toISOString(), totalCostUSD: 0.5 }) + '\n'
+    const own = { providers: { ...DEFAULT_SETTINGS.providers, 'claude-code': { ...DEFAULT_SETTINGS.providers['claude-code'], costSource: 'prices' as const } } }
+    const priced = async (settings: Pick<AppSettings, 'providers'> = DEFAULT_SETTINGS) => {
       const s = (await t.stored())!
-      return usageFromRows(s.summary, s.rows, DEFAULT_SETTINGS).costUsd!
+      const u = usageFromRows(s.summary, s.rows, settings)
+      return { cost: u.costUsd!, input: u.inputTokens, output: u.outputTokens, requests: u.requests }
     }
-    writeFileSync(t.transcript, req('r1', 100, 1) + charge)
+    const est = (input: number, output: number): number => estimateCost({ provider: 'claude-code', model: 'claude-opus-5-5', inputTokens: input, outputTokens: output, cacheWriteTokens: 0, cacheReadTokens: 0 }, DEFAULT_SETTINGS)!
+    writeFileSync(t.transcript, req('r1', 100_000, 10_000) + charge)
     await t.ingest()
-    expect(await cost()).toBeCloseTo(5, 6)
-    // Rewritten without the report: the same request and a new prompt (the same counts, bar the prompt).
-    writeFileSync(t.transcript, req('r1', 100, 1) + prompt(5))
+    expect((await priced()).cost).toBeCloseTo(0.5, 9)
+    // Rewritten without the report: the same request and a new prompt. The same use, the same cost: $0.50, not $1.10.
+    writeFileSync(t.transcript, req('r1', 100_000, 10_000) + prompt(5))
     expect((await t.ingest()).status).toBe('written')
-    expect(await cost()).toBeGreaterThanOrEqual(5)
-    // And grown: another request, still without the report.
-    appendFileSync(t.transcript, req('r2', 50, 2))
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
+    // A request added, still without a report: the old charge, and Hive's estimate for the new request alone.
+    appendFileSync(t.transcript, req('r2', 1_000, 100, T0 + 2000))
     expect((await t.ingest()).status).toBe('written')
-    expect(await cost()).toBeGreaterThanOrEqual(5)
-    const rows = (await t.stored())!.rows
-    expect([rows.reduce((n, r) => n + r.inputTokens, 0), rows.reduce((n, r) => n + r.requests, 0)]).toEqual([150, 2])
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5 + est(1_000, 100), 9), input: 101_000, output: 10_100, requests: 2 })
+    // The user's own prices (#436): Hive's estimate for all of it, as for any session.
+    expect((await priced(own)).cost).toBeCloseTo(est(101_000, 10_100), 9)
     await t.close()
   })
 
