@@ -35,6 +35,7 @@ export const SUITES = [
   { name: 'assistantresume', needs: ['claude'], claudeHome: 'test' },
   { name: 'assistantsettings' },
   { name: 'assistantside' },
+  { name: 'atlasmerge' },
   { name: 'attention' },
   { name: 'automode' },
   { name: 'background' },
