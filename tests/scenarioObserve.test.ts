@@ -420,6 +420,29 @@ describe('the fixtures fail when nothing was done', () => {
   const scenario = (id: string) => SCENARIOS.find((s) => s.id === id)!
   const failed = (checks: [string, boolean, string?][]) => checks.filter(([, ok]) => !ok).map(([n]) => n)
 
+  it('review-screenshot-report (#899): the report read first, then only the flagged screenshots and the changed screen', () => {
+    const sc = scenario('review-screenshot-report')
+    const run = (...calls: [string, string][]) => failed(sc.expect({ ...base, skillsRead: ['review-agent-work'], tools: calls.map(([name, input]) => ({ name, input, result: '', isError: false })) }, {})).filter((n) => !/verdict/.test(n))
+    const report = "read it before opening any screenshot but the changed screen's"
+    const only = 'opened only the screenshots it flags and those of the screen the card changed'
+    // Claude Code's Read, Copilot's view and Codex's view_image (also inside a script) open a screenshot.
+    expect(run(['Read', 'C:\\alpha\\shots\\report.txt'], ['Read', 'C:\\alpha\\shots\\pl\\git-branches-dark.png'], ['view', 'shots/pl/settings-advanced-light.png'])).toEqual([])
+    expect(run(['Bash', 'cat shots/report.txt'], ['Script', 'await tools.view_image({path:"shots/pl/settings-advanced-dark.png"})'])).toEqual([])
+    expect(run(['Read', 'shots/report.txt'], ['view_image', 'shots/pl/board-board-dark.png'])).toEqual([only])
+    // A Codex script that lists the paths first, or builds them, still opens them (as Codex did in #899's trial).
+    expect(run(['Bash', 'cat shots/report.txt'], ['Script', 'for (const path of ["shots/pl/board-board-dark.png"]) image((await tools.view_image({path})).image_url)'])).toEqual([only])
+    expect(run(['Bash', 'cat shots/report.txt'], ['Script', 'for (const name of ["files-tree-light"]) { await tools.view_image({path:`shots/pl/${name}.png`}) }'])).toEqual([only])
+    // Listing them, or naming one in a verdict, isn't opening it.
+    expect(run(['Read', 'shots/report.txt'], ['Bash', 'ls shots/pl/*-dark.png'], ['mcp__hive__hive_update_task', '{"comment":"board-board-dark.png looks fine"}'])).toEqual([])
+    // The report read after a flagged screenshot, or never; the changed screen's may come first, and in one script the
+    // report read earlier in it counts.
+    expect(run(['Read', 'shots/pl/git-branches-dark.png'], ['Read', 'shots/report.txt'])).toEqual([report])
+    expect(run(['Read', 'shots/pl/settings-advanced-dark.png'], ['Read', 'shots/report.txt'], ['Read', 'shots/pl/git-branches-dark.png'])).toEqual([])
+    expect(run(['Script', 'text(await tools.exec_command({cmd:"Get-Content shots/report.txt"})); await tools.view_image({path:"shots/pl/git-branches-dark.png"})'])).toEqual([])
+    expect(run(['Script', 'await tools.view_image({path:"shots/pl/git-branches-dark.png"}); text(await tools.exec_command({cmd:"Get-Content shots/report.txt"}))'])).toEqual([report])
+    expect(run(['Read', 'shots/pl/tips-list-dark.png'])).toEqual(["read the screenshots' text report", report, only])
+  })
+
   it('raw-api: a script that only names the token, never run, passes nothing about running or scope', () => {
     const ctx = { read: (f: string) => (f === 'scripts/cards.ps1' ? '# HIVE_API_TOKEN_FILE\n# no HTTP call' : null) }
     const checks = scenario('raw-api').expect({ ...base, skillsRead: ['use-hive-api'] }, ctx)

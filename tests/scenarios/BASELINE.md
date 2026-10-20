@@ -36,6 +36,27 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Screenshots read through their report: fakes, Claude Code (its default model), Codex (its default model), fixtures v65, 20 October 2026
+
+#899: i18nshots writes a text report naming the screenshots worth opening, and review-agent-work gains a general line:
+read a check's text report of its screenshots first, then open only the images it flags and those of the screens the
+change touches. New scenario **review-screenshot-report**: a card translating one screen, 24 screenshots of 12 screens,
+and a report flagging two (one of them the changed screen's); the project's README says the check writes the report.
+- **Fakes**: all 99 earlier scenarios pass the same checks before (`hb5-899-before`, review-agent-work as on main) and
+  after (`hb5-899-after`); delivered skills +338 bytes. The new scenario passes (its model checks skipped).
+- **Claude Code, before** (main's review-agent-work, the scenario copied in): 3 of 3, with the comment naming the report
+  (`2026-10-20T02-13-46-claude-code`) and 3 of 3 with only the README naming it (`2026-10-20T02-16-12-claude-code`).
+  Each sample read the report, then opened one screenshot (the changed screen's).
+- **Claude Code, after**: 3 of 3 both ways (`2026-10-20T02-00-54-claude-code`, `2026-10-20T02-20-42-claude-code`). It
+  opened the changed screen's and, in some samples, the flagged one.
+- **Codex, after**, with the comment naming the report: 3 of 3 (`2026-10-20T02-09-30-codex`). It read the report, then
+  opened the changed screen's two and the flagged one, or none. Its first trial found two gaps in the check, now fixed:
+  a script listing or building the paths it views, and the changed screen's image opened in the same script as the
+  report read.
+- **So**: on a 24-image fixture both models are already frugal, and the line doesn't change what they do. It's a
+  safeguard for Hive's own language runs (about 370 screenshots a language), where builders and reviewers opened every
+  image (#899). It costs nothing measurable in the fakes.
+
 ## Licence audit: fakes, Claude Code (its default model), Codex (its default model), fixtures v64, 20 October 2026
 
 #410: a general agents' skill, **licence-audit**: inventory what ships (runtime dependencies, bundled libraries, vendored

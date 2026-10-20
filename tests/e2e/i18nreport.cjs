@@ -6,7 +6,8 @@
 // (a paragraph, short labels that fit, a long code line, a scrolling list, translated text, a path broken anywhere, a
 // word broken at its hyphens, an id in camelCase, a sticky header over its rows, a fixed dialog in a narrow scrolling box, text for screen
 // readers, a long description cut to one line, a path cut with "…", a popup menu over its bar, a document's own
-// English, a word of an id that is also a message) must not be. The page runs in a bare Electron window (no Hive), hidden.
+// English, a word of an id that is also a message, a list's row half scrolled out of view) must not be. Round 1 of
+// the review added a short label cut to a few letters and a line cut in half at the bottom of its box. The page runs in a bare Electron window (no Hive), hidden.
 const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
@@ -44,7 +45,8 @@ section { margin: 8px; }
 .keys td.cmd { width: 50px; word-break: break-all; }
 .mode { position: relative; width: 300px; } .mode .badge { position: absolute; left: 20px; top: 0; background: #333; color: #fff; }
 .edge { position: absolute; left: 860px; top: 4px; white-space: nowrap; }
-.clean p { width: 600px; } .clean .list { height: 60px; overflow-y: auto; } .clean .list div { height: 30px; }
+.vclip { width: 300px; height: 30px; overflow: hidden; line-height: 24px; }
+.clean p { width: 600px; } .clean .list { height: 50px; overflow-y: auto; } .clean .list div { height: 30px; }
 .clean pre { width: 200px; overflow-x: auto; }
 .sticky-wrap { height: 40px; overflow-y: auto; } .sticky-wrap > div { height: 20px; } .sticky-head { position: sticky; top: 0; background: #ddd; }
 .page-scroll { width: 100px; height: 40px; overflow: auto; } .dialog { position: fixed; left: 300px; top: 600px; width: 400px; }
@@ -60,6 +62,8 @@ section { margin: 8px; }
 <section><div class="mode"><span>Domyślny tryb pracy</span><span class="badge">W użyciu</span></div></section>
 <section style="position: relative; height: 30px"><button class="edge">Wznów w agencie</button></section>
 <section><span>Not running</span> <span>Alice (removed)</span></section>
+<section><button style="width: 40px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Berechtigungsmodus</button></section>
+<section><div class="vclip"><div>Pierwsza widoczna linia<br>Druga linia ucięta w połowie</div></div></section>
 <section class="clean">
   <p>To jest zwykły akapit, który mieści się w swojej kolumnie i zawija się tylko między słowami, tak jak powinien.</p>
   <h3>Ustawienia</h3><button>Zapisz</button><span class="badge">Nowy</span>
@@ -82,7 +86,7 @@ section { margin: 8px; }
 
 const MAIN = `const { app, BrowserWindow } = require('electron')
 app.whenReady().then(() => {
-  const w = new BrowserWindow({ width: 900, height: 700, show: false, webPreferences: { backgroundThrottling: false } })
+  const w = new BrowserWindow({ width: 900, height: 1800, show: false, webPreferences: { backgroundThrottling: false } })
   w.loadFile(require('path').join(__dirname, 'page.html'))
 })
 `
@@ -103,6 +107,9 @@ app.whenReady().then(() => {
   try {
     const page = await app.firstWindow()
     await page.waitForLoadState('load')
+    // The whole page is in the window: text below its edge would be skipped as not shown, and pass unchecked.
+    const fits = await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)
+    check('the whole page is in the window', fits)
     const issues = await page.evaluate(layout.inspectLayout, [null, left])
     fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(issues, null, 2))
     const has = (kind, text) => issues.some((i) => i.kind === kind && i.text.includes(text))
@@ -115,6 +122,8 @@ app.whenReady().then(() => {
     check('a word broken across lines (#887, #892: the shortcuts table)', has('mid-word', 'Einstellungen'), said())
     check('a badge over its label (#890, #892: the mode row)', has('overlaps', 'W użyciu') || has('overlaps', 'Domyślny tryb'), said())
     check("a button past the window's edge", has('outside', 'Wznów w agencie'), said())
+    check('a short label cut to a few letters with "…" (#899 round 1: however much is cut)', has('ellipsis', 'Berechtigungsmodus'), said())
+    check('a line cut in half by the box around it (#899 round 1: at the bottom)', has('cut-off', 'Druga linia'), said())
     check('English left: a translated message shown in English', has('english', 'Not running'), said())
     check('English left: a message with a placeholder', has('english', 'Alice (removed)'), said())
     const clean = ['To jest zwykły', 'Ustawienia', 'Zapisz', 'Nowy', 'npm run', 'Pierwszy', 'Drugi', 'Trzeci', 'Nie działa', 'Bob (usunięty)', 'OK', 'To do', 'hive-test', 'Users', 'przyciskiem', 'Nagłówek', 'Wiersz', 'Okno dialogowe', 'Tylko dla', 'Opis umiejętności', 'Someone', 'applyPermissionModes', 'Etykieta paska', 'Menu nad']

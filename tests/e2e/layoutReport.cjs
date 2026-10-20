@@ -2,7 +2,8 @@
 // reads a short report and opens only the screenshots it flags instead of every image of a language run. Kinds:
 //   ellipsis   text cut off with "…" (text-overflow: ellipsis or a line clamp)
 //   clipped    text cut off by its own box, with no "…"
-//   cut-off    text cut off by a box around it (overflow hidden; out of a sideways-scrolling box's view is that box's sideways)
+//   cut-off    text cut off by a box around it (overflow hidden), at a side or with a line cut or hidden at its top or
+//              bottom (out of a scrolling box's view is that box's content: sideways says so, once)
 //   outside    text past the window's left or right edge
 //   wraps      a short label (a heading, a button, a column header, a badge, a tab) on more than one line
 //   mid-word   a word broken across two lines
@@ -200,12 +201,13 @@ function inspectLayout([root, english]) {
     const over = el.scrollWidth - el.clientWidth
     const overY = el.scrollHeight - el.clientHeight
     const ownClipX = s.overflowX !== 'visible'
-    // Deliberate too: a long text cut to a one-line summary (more of it cut than shown) and a path cut short. A
-    // language's longer words show as a label cut by a little.
+    // Deliberate too: a long text (a description, past LABEL_CHARS) cut to a one-line summary, more of it cut than
+    // shown, and a path cut short. A label or action is reported however much of it is cut.
     const cutWithDots = (e, px, extra = {}) => {
       const shownPx = extra.detail ? e.clientHeight : e.clientWidth
       const whole = e.textContent ?? ''
-      if (tooltip(e) || px >= shownPx || /[A-Za-z]:\\|\/[^/\s]+\//.test(whole)) return
+      const summary = whole.trim().length > LABEL_CHARS && px >= shownPx
+      if (tooltip(e) || summary || /[A-Za-z]:\\|\/[^/\s]+\//.test(whole)) return
       add('ellipsis', e, whole, { px, ...extra })
     }
     if (over > 1 && ownClipX) {
@@ -230,6 +232,21 @@ function inspectLayout([root, english]) {
       }
     }
     if (!cutBy && !ownClipX && (box.right > vw + 1 || box.left < -1)) add('outside', el, text, { px: Math.round(Math.max(box.right - vw, -box.left)) })
+    // Cut at the top or bottom by a box around it that hides what doesn't fit (a line cut in half, or lines hidden below
+    // others that show). Rows a scrolling box hides are its content, not cut: the check stops at the first box that
+    // scrolls downwards.
+    if (s.overflowY === 'visible' && t.shown.length) {
+      for (const c of clips) {
+        if (c.el === el) continue
+        if (/auto|scroll/.test(c.s.overflowY)) break
+        if (c.s.overflowY === 'visible') continue
+        const halved = rects.some((r) => (r.top < c.bottom - 1 && r.bottom > c.bottom + 1) || (r.top < c.top - 1 && r.bottom > c.top + 1))
+        const hidden = rects.some((r) => r.top >= c.bottom - 1 || r.bottom <= c.top + 1)
+        if (!halved && !hidden) continue
+        add('cut-off', el, text, { px: Math.round(Math.max(box.bottom - c.bottom, c.top - box.top)), detail: `${box.bottom > c.bottom ? 'below' : 'above'}, by ${name(c.el)}` })
+        break
+      }
+    }
     const lines = lineCount(rects)
     // A short label on more than one line.
     if (lines > 1 && el.matches(LABEL) && text.trim().length <= LABEL_CHARS) add('wraps', el, text, { detail: `${lines} lines` })
