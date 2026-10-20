@@ -229,7 +229,8 @@ For a card in the builder/reviewer loop (the `card-loop` skill), so a round does
 same code while every required check still runs:
 
 - **The builder** runs the suites the card names and moves the card to Review with a **run record**
-  (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes), each suite's result and time,
+  (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes; in a card loop the builder
+  commits first, so it is the commit the round names), each suite's result and time,
   and the logs folder. Paste the printed block into the card comment. When real suites ran, the record also names the
   real CLIs' versions as the suites' test copies of Hive selected them ("Real CLIs (as Hive selected them): Claude Code
   2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and

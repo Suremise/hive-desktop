@@ -47,7 +47,7 @@ describe('the session contract', () => {
     expect(agent).toMatch(/Reviewing a card is not working on it: it stays in review with its agent/)
     expect(agent).toMatch(/then failed, or passed with column passed/)
     expect(agent).toMatch(/If it leaves review meanwhile, your review is over: leave the card where it is \(not back to review or on to passed\)/)
-    expect(agent).toMatch(/Done means merged: move a card to done only once its work is merged, or when the user asks/)
+    expect(agent).toMatch(/Done means merged: move a card to done only once its work is merged \(in the project folder: committed\), or when the user asks/)
     expect(agent).toMatch(/On hold is the user's: never move cards in or out unasked/)
     expect(agent).toMatch(/Add cards for follow-up work rather than doing it unasked/)
     expect(agent).toMatch(/use the hive tools for them, not the file system/)
@@ -61,8 +61,9 @@ describe('the session contract', () => {
     // Measured for #102 (2,007 characters before): a guard against procedure creeping back in, not a target. #167's
     // hive-progress line added about 180, #170's On Hold, Passed and Done-means-merged about 80, #476's worktree
     // boundary about 160, #509's scratch rule about 220, #613's stop-what-you-start line about 260, #650's inbox line
-    // about 280 (and 160 for the Assistant's), #817's long-documents line about 110 (both).
-    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(2760)
+    // about 280 (and 160 for the Assistant's), #817's long-documents line about 110 (both), #1129's Done in the project
+    // folder about 35.
+    expect(withLatestHandover(agent, 'handovers/2026-10-03-web-auth-refactor.md').length).toBeLessThan(2800)
     expect(assistant.length).toBeLessThan(710)
     for (const level of ['look', 'agents', 'projects'] as const) expect(controlRules(level).length).toBeLessThan(1200)
     const card = { number: 7, title: 'T', description: 'D', blockedBy: [], comments: [] } as unknown as TaskCard

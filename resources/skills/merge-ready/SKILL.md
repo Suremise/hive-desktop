@@ -27,13 +27,13 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 
 ## Finishing
 
-Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Merging is done from Hive, where the user reviews it first. Rebase, merge, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
+Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Who merges: in a card loop, the builder, at the lane's end, as its brief says (below, `--no-ff` through the merge slot). Otherwise the user, from Hive, where they review it first (its Merge dialog's squash or merge commit is their choice), or you when they ask. Rebase, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
 
-## Merging, when the user asks you to
+## Merging, when the user or your brief asks you to
 
 Other agents merge into the same base. What you merge must be what you checked, so merges into a base take turns through Hive's **merge slot**:
 1. **Claim the slot** for the base with `hive_merge_slot` (`claim`, with the cards you are merging). If it replies that you are still in line, claim again: you keep your place. Without Hive's tools, go on without it; step 4 still protects the merge.
-2. **Merge the base into your branch, note its commit** (`git rev-parse <base>`) **and run the checks** the combined change needs. While you hold the slot nobody merges into the base through Hive, so one run is enough. The hold lasts 60 minutes: claim again to extend it, or run long checks through `hive-progress`. Waiting while you hold it (for the user, a push, a card), don't set a sleep or timer to renew it: wait with a card watch (`hive_wait_for_tasks` with `wake` and `limitMinutes` under the hold, such as 40), and claim again when it wakes you.
+2. **Merge the base into your branch, note its commit** (`git rev-parse <base>`) **and run the checks** the combined change needs. While you hold the slot nobody merges into the base through Hive, so one run is enough. The hold lasts 60 minutes: claim again to extend it, or run long checks through `hive-progress`. Waiting while you hold it (for the user, a push, a card), wait with a watch, not a timer (work-on-card), its `limitMinutes` under the hold (such as 40), and claim again when it wakes you.
 3. **If something fails**, release the slot (`release`) before fixing it, and claim it again when you are ready.
 4. **Just before merging, compare** the base's commit with the one you noted. If it moved anyway (a merge from outside Hive), merge the base in again, rerun the checks (all of them when the new commits touch shared code or test tooling) and compare again.
 5. **Merge** in the checkout where the base is (`git -C <that checkout> merge --no-ff <branch>`). If git says `index.lock` exists, another merge is under way there: wait and try again; never delete the lock.

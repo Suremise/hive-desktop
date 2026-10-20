@@ -20,7 +20,7 @@ You are the reviewer: find what's wrong, don't fix it. Leave the code, the branc
 
 ## 2. Know the intent
 
-Check the change against what was asked: the card, the user's request, a handover (`hive_read_latest_handover`) or a plan in the shared notes. A clean change can still do the wrong thing. A card's **decisions** (listed first by `hive_read_task`) are what the user decided, and win over its description: check the work against every one, and work that doesn't follow one is a blocking finding.
+Check the change against what was asked: the card, the user's request, a handover (`hive_read_latest_handover`) or a plan in the shared notes. A clean change can still do the wrong thing. A convention your brief or the card names (screenshots the user OKs before a visible change merges, say) is part of the intent: check the work has it. A card's **decisions** (listed first by `hive_read_task`) are what the user decided, and win over its description: check the work against every one, and work that doesn't follow one is a blocking finding.
 
 ## 3. Review
 
