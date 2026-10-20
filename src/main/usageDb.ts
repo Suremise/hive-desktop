@@ -1,24 +1,32 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { join } from 'path'
 import { HIVE_DIR } from '../shared/defaults'
-import type { ProviderId } from '../shared/types'
+import type { CompactionEvent, ProviderId } from '../shared/types'
 import type { LedgerRow, UsageSummary } from '../shared/usageLedger'
-import { readTimeline, type UsageTimeline } from '../shared/usageTimeline'
+import type { UsageRow, UsageTimeline } from '../shared/usageTimeline'
 import { transaction, type Migration } from './db'
 
 /**
  * The usage history's database (#1106): `.hive/usage.db`, beside the workspace's `hive.db`, under each session host's
- * scope (a project's id, `assistant` for the Assistant), as its session records are (#1061). Its own file, so the usage
- * worker's commits never wait on a board change held across awaits, never look like another process's change to the
- * board's poll, and an older Hive still opens `hive.db` for writing. Only the usage worker opens it (usageWorker.ts): it
- * writes, and answers main's queries. No Electron here: the worker can't load it.
+ * scope (a project's id, `assistant` for the Assistant), as its session records are (#1061). Its own file (Darren, 20
+ * Oct), so the usage worker's commits never wait on a board change held across awaits, never look like another
+ * process's change to the board's poll, and an older Hive still opens `hive.db` for writing. Only the usage worker opens
+ * it (usageWorker.ts): it writes, and answers main's queries. No Electron here: the worker can't load it.
  *
- * - `usage_sessions`: a row a session (`source`: read from its `transcript`, a `kept` usage imported from before, or an
- *   `external` session, started outside Hive: kept for the Sessions list, never counted in totals): who (provider,
- *   agent, name, folder), where it was read (`path`, the size and
- *   modified time read, the offset read to), the parser's saved state (`state` at `state_offset`, its shape and the Hive
- *   version that saved it), its summary (shared/usageLedger.ts UsageSummary) and its timeline (cost per lane).
- * - `usage_rows`: its rows (LedgerRow), keyed by session, day, model, card and role.
+ * Real tables, each value a typed column (Darren, 20 Oct: "proper tables, not JSON in a database"); the parser's saved
+ * state is the one blob (a parser's own fields, taken up as they were):
+ * - `usage_sessions`: a row a session. `source`: read from its `transcript`, a `kept` usage imported from before, or an
+ *   `external` session (started outside Hive: kept for the Sessions list, never counted in totals). Who it was (provider,
+ *   agent, name, folder); where it was read (`path`, the size and modified time read, the offset read to); the parser's
+ *   saved state (`state` at `state_offset`, its shape and the Hive version that saved it); the holds its card rows were
+ *   shared out by (`holds_key`); and what isn't a sum of its rows (title, model, CLI version, context, activity…).
+ * - `usage_rows`: its rows (shared/usageLedger.ts LedgerRow), keyed by session, day, model, card and role; what every
+ *   usage view adds up.
+ * - `usage_compactions`, `usage_safeguards`: its compactions in order, and its safeguard stops by model and the stops
+ *   it may have asked about by turn (#606).
+ * - `usage_timeline`, `usage_charges`: its use over time (shared/usageTimeline.ts: a row a second or step, with the
+ *   charge covering it and its model) and the provider's charges, for spans of time no card row has (a lane's cost) and
+ *   to share a session's cards out again when their holds change.
  * - `usage_meta`: per scope, or '' for the workspace (the backfill's record).
  */
 
@@ -48,11 +56,25 @@ export const USAGE_MIGRATIONS: Migration[] = [
           state_offset   INTEGER,
           state_shape    TEXT,
           state_version  TEXT,
+          state_check    TEXT,
           state_at       TEXT,
-          summary        TEXT NOT NULL,
-          timeline       TEXT,
+          holds_key      TEXT,
+          title          TEXT,
+          custom_title   TEXT,
+          model          TEXT,
+          cli_version    TEXT,
+          reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+          context_tokens INTEGER NOT NULL DEFAULT 0,
+          context_input_tokens INTEGER,
+          last_output_tokens INTEGER,
+          context_window INTEGER,
+          cache_ttl_seconds INTEGER NOT NULL DEFAULT 0,
           first_activity TEXT,
           last_activity  TEXT,
+          user_messages  INTEGER NOT NULL DEFAULT 0,
+          last_prompt    TEXT,
+          premium_requests REAL,
+          timeline_step  INTEGER,
           updated_at     TEXT NOT NULL,
           PRIMARY KEY (scope, session)
         ) STRICT;
@@ -80,7 +102,50 @@ export const USAGE_MIGRATIONS: Migration[] = [
           shared         INTEGER NOT NULL,
           PRIMARY KEY (scope, session, day, model, card, role)
         ) STRICT, WITHOUT ROWID;
+        CREATE INDEX usage_rows_day ON usage_rows(scope, day);
         CREATE INDEX usage_rows_card ON usage_rows(card) WHERE card > 0;
+        CREATE TABLE usage_compactions (
+          scope          TEXT NOT NULL,
+          session        TEXT NOT NULL,
+          seq            INTEGER NOT NULL,
+          at             TEXT NOT NULL,
+          trigger_kind   TEXT NOT NULL,
+          pre_tokens     INTEGER NOT NULL,
+          post_tokens    INTEGER NOT NULL,
+          last_input_tokens  INTEGER,
+          last_output_tokens INTEGER,
+          PRIMARY KEY (scope, session, seq)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE usage_safeguards (
+          scope          TEXT NOT NULL,
+          session        TEXT NOT NULL,
+          kind           TEXT NOT NULL,
+          key            TEXT NOT NULL,
+          count          INTEGER NOT NULL,
+          PRIMARY KEY (scope, session, kind, key)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE usage_timeline (
+          scope          TEXT NOT NULL,
+          session        TEXT NOT NULL,
+          seq            INTEGER NOT NULL,
+          start          INTEGER NOT NULL,
+          input          INTEGER NOT NULL,
+          output         INTEGER NOT NULL,
+          cache_write    INTEGER NOT NULL,
+          cache_read     INTEGER NOT NULL,
+          requests       INTEGER NOT NULL,
+          charge         INTEGER NOT NULL,
+          flags          INTEGER NOT NULL,
+          model          TEXT NOT NULL,
+          PRIMARY KEY (scope, session, seq)
+        ) STRICT, WITHOUT ROWID;
+        CREATE TABLE usage_charges (
+          scope          TEXT NOT NULL,
+          session        TEXT NOT NULL,
+          seq            INTEGER NOT NULL,
+          usd            REAL NOT NULL,
+          PRIMARY KEY (scope, session, seq)
+        ) STRICT, WITHOUT ROWID;
         CREATE TABLE usage_meta (
           scope TEXT NOT NULL,
           key   TEXT NOT NULL,
@@ -90,6 +155,9 @@ export const USAGE_MIGRATIONS: Migration[] = [
       `)
   }
 ]
+
+/** The tables a session has rows in besides usage_sessions (each cleared and written with it). */
+const CHILD_TABLES = ['usage_rows', 'usage_compactions', 'usage_safeguards', 'usage_timeline', 'usage_charges'] as const
 
 /** Where a session was read: what an ingest compares the file with, and the state it takes up. */
 export interface Cursor {
@@ -101,15 +169,19 @@ export interface Cursor {
   stateOffset: number | null
   stateShape: string | null
   stateVersion: string | null
+  /** The bytes just before `stateOffset`, as a hash: a state is taken up only while the file still has them there. */
+  stateCheck: string | null
   stateAt: string | null
   /** Its rows' requests and tokens, added up: an ingest never makes them fewer (usage history is only added to). */
   requests: number
   tokens: number
   source: string
+  /** The holds its rows were shared out by (null: none recorded). */
+  holdsKey: string | null
 }
 
 export function cursorOf(db: DatabaseSync, scope: string, session: string): Cursor | null {
-  const s = db.prepare('SELECT path, size, mtime, offset, state, state_offset, state_shape, state_version, state_at, source FROM usage_sessions WHERE scope = ? AND session = ?').get(scope, session) as Record<string, unknown> | undefined // i18n-ignore: SQL
+  const s = db.prepare('SELECT path, size, mtime, offset, state, state_offset, state_shape, state_version, state_check, state_at, source, holds_key FROM usage_sessions WHERE scope = ? AND session = ?').get(scope, session) as Record<string, unknown> | undefined // i18n-ignore: SQL
   if (!s) return null
   const sums = db.prepare('SELECT coalesce(sum(requests), 0) AS q, coalesce(sum(input + output + cache_write + cache_read), 0) AS t FROM usage_rows WHERE scope = ? AND session = ?').get(scope, session) as { q: number; t: number } // i18n-ignore: SQL
   return {
@@ -121,10 +193,12 @@ export function cursorOf(db: DatabaseSync, scope: string, session: string): Curs
     stateOffset: (s.state_offset as number | null) ?? null,
     stateShape: (s.state_shape as string | null) ?? null,
     stateVersion: (s.state_version as string | null) ?? null,
+    stateCheck: (s.state_check as string | null) ?? null,
     stateAt: (s.state_at as string | null) ?? null,
     requests: sums.q,
     tokens: sums.t,
-    source: s.source as string
+    source: s.source as string,
+    holdsKey: (s.holds_key as string | null) ?? null
   }
 }
 
@@ -146,16 +220,21 @@ export interface SessionWrite extends SessionMeta {
   size: number
   mtime: number
   offset: number
-  /** The parser's state to keep (null: keep the one saved, if any). */
-  state: { data: Uint8Array; offset: number; shape: string; version: string } | null
+  /**
+   * The parser's state to keep; null keeps the one saved, `clear` lets it go (a read from the start, or of another file:
+   * a state is only ever taken up for the file and the bytes it was made from).
+   */
+  state: { data: Uint8Array; offset: number; shape: string; version: string; check: string } | null | 'clear'
+  /** The holds its rows were shared out by. */
+  holdsKey: string | null
   summary: UsageSummary
   timeline: UsageTimeline | null
   rows: LedgerRow[]
 }
 
 /**
- * Records a session: its rows replaced by these, its row in usage_sessions written, in one transaction. `expect`: the
- * offset it was read from as found then (null: not recorded yet); when another writer (another Hive on this workspace)
+ * Records a session: everything it has in the history replaced by this, in one transaction. `expect`: the offset and
+ * file it was read from as found then (null: not recorded yet); when another writer (another Hive on this workspace)
  * recorded it meanwhile, nothing is written and it says so (false), so a reader that started from an older point never
  * writes over a newer one.
  */
@@ -163,26 +242,85 @@ export function writeSession(db: DatabaseSync, w: SessionWrite, expect: { offset
   return transaction(db, () => {
     const now = db.prepare('SELECT offset, path FROM usage_sessions WHERE scope = ? AND session = ?').get(w.scope, w.session) as { offset: number; path: string | null } | undefined // i18n-ignore: SQL
     if (expect ? !now || now.offset !== expect.offset || now.path !== expect.path : !!now) return false
-    db.prepare('DELETE FROM usage_rows WHERE scope = ? AND session = ?').run(w.scope, w.session) // i18n-ignore: SQL
-    const put = db.prepare('INSERT INTO usage_rows (scope, session, day, model, card, role, input, output, cache_write, cache_read, requests, prompts, compactions, fixed_usd, fixed_estimated, covered_input, covered_output, covered_cache_write, covered_cache_read, tokens_unknown, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)') // i18n-ignore: SQL
-    for (const r of w.rows) put.run(w.scope, w.session, r.day, r.model, r.card, r.role, r.inputTokens, r.outputTokens, r.cacheWriteTokens, r.cacheReadTokens, r.requests, r.prompts, r.compactions, r.fixedUsd, r.fixedEstimated ? 1 : 0, r.covered.inputTokens, r.covered.outputTokens, r.covered.cacheWriteTokens, r.covered.cacheReadTokens, r.tokensUnknown, r.shared ? 1 : 0)
+    for (const t of CHILD_TABLES) db.prepare(`DELETE FROM ${t} WHERE scope = ? AND session = ?`).run(w.scope, w.session) // i18n-ignore: SQL
+    putRows(db, w.scope, w.session, w.rows)
+    putSummary(db, w.scope, w.session, w.summary)
+    if (w.timeline) putTimeline(db, w.scope, w.session, w.timeline)
+    const s = w.summary
     const at = new Date().toISOString()
     db.prepare(
       // i18n-ignore: SQL
-      `INSERT INTO usage_sessions (scope, session, provider, agent_id, agent_name, name, cwd, source, path, size, mtime, offset, summary, timeline, first_activity, last_activity, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO usage_sessions (scope, session, provider, agent_id, agent_name, name, cwd, source, path, size, mtime, offset, holds_key, title, custom_title, model, cli_version, reasoning_tokens,
+         context_tokens, context_input_tokens, last_output_tokens, context_window, cache_ttl_seconds, first_activity, last_activity, user_messages, last_prompt, premium_requests, timeline_step, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(scope, session) DO UPDATE SET provider = excluded.provider, agent_id = excluded.agent_id, agent_name = excluded.agent_name, name = excluded.name, cwd = excluded.cwd,
-         source = excluded.source, path = excluded.path, size = excluded.size, mtime = excluded.mtime, offset = excluded.offset, summary = excluded.summary, timeline = excluded.timeline,
-         first_activity = excluded.first_activity, last_activity = excluded.last_activity, updated_at = excluded.updated_at`
-    ).run(w.scope, w.session, w.provider, w.agentId ?? null, w.agentName ?? null, w.name ?? null, w.cwd ?? null, w.source, w.path, w.size, w.mtime, w.offset, JSON.stringify(w.summary), w.timeline ? JSON.stringify(w.timeline) : null, w.summary.firstActivity, w.summary.lastActivity, at) // i18n-ignore: SQL
-    if (w.state) db.prepare('UPDATE usage_sessions SET state = ?, state_offset = ?, state_shape = ?, state_version = ?, state_at = ? WHERE scope = ? AND session = ?').run(w.state.data, w.state.offset, w.state.shape, w.state.version, at, w.scope, w.session) // i18n-ignore: SQL
+         source = excluded.source, path = excluded.path, size = excluded.size, mtime = excluded.mtime, offset = excluded.offset, holds_key = excluded.holds_key, title = excluded.title,
+         custom_title = excluded.custom_title, model = excluded.model, cli_version = excluded.cli_version, reasoning_tokens = excluded.reasoning_tokens, context_tokens = excluded.context_tokens,
+         context_input_tokens = excluded.context_input_tokens, last_output_tokens = excluded.last_output_tokens, context_window = excluded.context_window,
+         cache_ttl_seconds = excluded.cache_ttl_seconds, first_activity = excluded.first_activity, last_activity = excluded.last_activity, user_messages = excluded.user_messages,
+         last_prompt = excluded.last_prompt, premium_requests = excluded.premium_requests, timeline_step = excluded.timeline_step, updated_at = excluded.updated_at`
+    ).run(
+      w.scope, w.session, w.provider, w.agentId ?? null, w.agentName ?? null, w.name ?? null, w.cwd ?? null, w.source, w.path, w.size, w.mtime, w.offset, w.holdsKey,
+      s.title, s.customTitle ?? null, s.model, s.cliVersion, s.reasoningTokens ?? 0, s.contextTokens ?? 0, s.contextInputTokens ?? null, s.lastOutputTokens ?? null, s.contextWindow ?? null,
+      s.cacheTtlSeconds ?? 0, s.firstActivity, s.lastActivity, s.userMessages ?? 0, s.lastPrompt, premiumOf(s), w.timeline ? w.timeline.step : null, at
+    )
+    if (w.state === 'clear') clearState(db, w.scope, w.session)
+    else if (w.state) db.prepare('UPDATE usage_sessions SET state = ?, state_offset = ?, state_shape = ?, state_version = ?, state_check = ?, state_at = ? WHERE scope = ? AND session = ?').run(w.state.data, w.state.offset, w.state.shape, w.state.version, w.state.check, at, w.scope, w.session) // i18n-ignore: SQL
     return true
   })
 }
 
-/** Notes a session's file as read with nothing new (its size and time), so the next tick doesn't read it again. */
+/** Copilot's running count of premium requests (#454), kept beside the summary's fields when the CLI gives one. */
+const premiumOf = (s: UsageSummary): number | null => {
+  const p = (s as { premiumRequests?: unknown }).premiumRequests
+  return typeof p === 'number' && Number.isFinite(p) ? p : null
+}
+
+function putRows(db: DatabaseSync, scope: string, session: string, rows: LedgerRow[]): void {
+  const put = db.prepare('INSERT INTO usage_rows (scope, session, day, model, card, role, input, output, cache_write, cache_read, requests, prompts, compactions, fixed_usd, fixed_estimated, covered_input, covered_output, covered_cache_write, covered_cache_read, tokens_unknown, shared) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)') // i18n-ignore: SQL
+  for (const r of rows) put.run(scope, session, r.day, r.model, r.card, r.role, r.inputTokens, r.outputTokens, r.cacheWriteTokens, r.cacheReadTokens, r.requests, r.prompts, r.compactions, r.fixedUsd, r.fixedEstimated ? 1 : 0, r.covered.inputTokens, r.covered.outputTokens, r.covered.cacheWriteTokens, r.covered.cacheReadTokens, r.tokensUnknown, r.shared ? 1 : 0)
+}
+
+/** A summary's lists: its compactions in order, its safeguard stops by model and those it may have asked about by turn. */
+function putSummary(db: DatabaseSync, scope: string, session: string, s: UsageSummary): void {
+  const comp = db.prepare('INSERT INTO usage_compactions (scope, session, seq, at, trigger_kind, pre_tokens, post_tokens, last_input_tokens, last_output_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)') // i18n-ignore: SQL
+  s.compactions.forEach((c, i) => comp.run(scope, session, i, c.timestamp ?? '', c.trigger ?? 'unknown', c.preTokens ?? 0, c.postTokens ?? 0, c.lastInputTokens ?? null, c.lastOutputTokens ?? null))
+  const guard = db.prepare('INSERT INTO usage_safeguards (scope, session, kind, key, count) VALUES (?, ?, ?, ?, ?)') // i18n-ignore: SQL
+  for (const [model, n] of Object.entries(s.safeguards ?? {})) guard.run(scope, session, 'stops', model, n)
+  for (const [turn, n] of Object.entries(s.safeguardsAsked ?? {})) guard.run(scope, session, 'asked', turn, n)
+}
+
+/** A timeline's rows (each with its model's name, '' for the session's) and its charges, in order. */
+function putTimeline(db: DatabaseSync, scope: string, session: string, t: UsageTimeline): void {
+  const row = db.prepare('INSERT INTO usage_timeline (scope, session, seq, start, input, output, cache_write, cache_read, requests, charge, flags, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)') // i18n-ignore: SQL
+  t.rows.forEach((r, i) => row.run(scope, session, i, r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], (r[8] !== undefined && r[8] >= 0 ? t.models?.[r[8]] : undefined) ?? ''))
+  const charge = db.prepare('INSERT INTO usage_charges (scope, session, seq, usd) VALUES (?, ?, ?, ?)') // i18n-ignore: SQL
+  t.reports.forEach((usd, i) => charge.run(scope, session, i, usd))
+}
+
+/**
+ * Notes a session's file as read with nothing it keeps (its size and time), so the next tick doesn't read it again; the
+ * parser's state, made from what it read before, goes (it would be taken up for this file's bytes).
+ */
 export function touchSession(db: DatabaseSync, scope: string, session: string, path: string, size: number, mtime: number): void {
-  db.prepare('UPDATE usage_sessions SET path = ?, size = ?, mtime = ? WHERE scope = ? AND session = ?').run(path, size, mtime, scope, session) // i18n-ignore: SQL
+  transaction(db, () => {
+    db.prepare('UPDATE usage_sessions SET path = ?, size = ?, mtime = ? WHERE scope = ? AND session = ?').run(path, size, mtime, scope, session) // i18n-ignore: SQL
+    clearState(db, scope, session)
+  })
+}
+
+/** A session's saved parser state let go. */
+function clearState(db: DatabaseSync, scope: string, session: string): void {
+  db.prepare('UPDATE usage_sessions SET state = NULL, state_offset = NULL, state_shape = NULL, state_version = NULL, state_check = NULL, state_at = NULL WHERE scope = ? AND session = ?').run(scope, session) // i18n-ignore: SQL
+}
+
+/** A session's rows replaced (its holds changed), with the holds they were made by; everything else as it was. */
+export function replaceRows(db: DatabaseSync, scope: string, session: string, rows: LedgerRow[], holdsKey: string | null): void {
+  transaction(db, () => {
+    db.prepare('DELETE FROM usage_rows WHERE scope = ? AND session = ?').run(scope, session) // i18n-ignore: SQL
+    putRows(db, scope, session, rows)
+    db.prepare('UPDATE usage_sessions SET holds_key = ? WHERE scope = ? AND session = ?').run(holdsKey, scope, session) // i18n-ignore: SQL
+  })
 }
 
 /**
@@ -219,9 +357,9 @@ export interface StoredSession extends SessionMeta {
   rows: LedgerRow[]
 }
 
-type RowRecord = Record<string, number | string>
+type Rec = Record<string, unknown>
 
-const rowOf = (r: RowRecord): LedgerRow => ({
+const rowOf = (r: Rec): LedgerRow => ({
   day: r.day as string,
   model: r.model as string,
   card: r.card as number,
@@ -240,7 +378,7 @@ const rowOf = (r: RowRecord): LedgerRow => ({
   shared: r.shared === 1
 })
 
-const metaOf = (s: Record<string, unknown>): SessionMeta => ({
+const metaOf = (s: Rec): SessionMeta => ({
   scope: s.scope as string,
   session: s.session as string,
   provider: s.provider as ProviderId,
@@ -251,54 +389,119 @@ const metaOf = (s: Record<string, unknown>): SessionMeta => ({
 })
 
 const placeholders = (n: number): string => Array.from({ length: n }, () => '?').join(', ')
+const keyOf = (r: Rec): string => `${r.scope as string}\0${r.session as string}`
 
-/** The sessions of some scopes (all of them: null), with their rows. A summary that can't be read leaves its session out. */
-export function storedSessions(db: DatabaseSync, scopes: string[] | null): StoredSession[] {
-  const where = scopes ? `WHERE scope IN (${placeholders(scopes.length)})` : '' // i18n-ignore: SQL
-  if (scopes && !scopes.length) return []
-  const args = scopes ?? []
-  const rows = new Map<string, LedgerRow[]>()
-  for (const r of db.prepare(`SELECT * FROM usage_rows ${where}`).all(...args) as RowRecord[]) { // i18n-ignore: SQL
-    const k = `${r.scope}\0${r.session}`
-    const list = rows.get(k)
-    if (list) list.push(rowOf(r))
-    else rows.set(k, [rowOf(r)])
-  }
-  const out: StoredSession[] = []
-  for (const s of db.prepare(`SELECT scope, session, provider, agent_id, agent_name, name, cwd, source, path, size, mtime, summary FROM usage_sessions ${where}`).all(...args) as Record<string, unknown>[]) { // i18n-ignore: SQL
-    let summary: UsageSummary
-    try {
-      summary = JSON.parse(s.summary as string) as UsageSummary
-    } catch {
-      continue
-    }
-    out.push({ ...metaOf(s), source: s.source as string, path: (s.path as string | null) ?? null, size: s.size as number, mtime: s.mtime as number, summary, rows: rows.get(`${s.scope}\0${s.session}`) ?? [] })
+/** Rows of a table for some scopes (all: null) or one session, grouped by session in their order. */
+function grouped<T>(db: DatabaseSync, table: string, where: { scopes: string[] | null } | { scope: string; session: string }, order: string, map: (r: Rec) => T): Map<string, T[]> {
+  const [sql, args] =
+    'session' in where
+      ? [`WHERE scope = ? AND session = ?`, [where.scope, where.session]] // i18n-ignore: SQL
+      : where.scopes
+        ? [`WHERE scope IN (${placeholders(where.scopes.length)})`, where.scopes] // i18n-ignore: SQL
+        : ['', []]
+  const out = new Map<string, T[]>()
+  for (const r of db.prepare(`SELECT * FROM ${table} ${sql} ORDER BY scope, session, ${order}`).all(...args) as Rec[]) { // i18n-ignore: SQL
+    const k = keyOf(r)
+    const list = out.get(k)
+    if (list) list.push(map(r))
+    else out.set(k, [map(r)])
   }
   return out
+}
+
+const compactionOf = (r: Rec): CompactionEvent => ({
+  timestamp: r.at as string,
+  trigger: r.trigger_kind as string,
+  preTokens: r.pre_tokens as number,
+  postTokens: r.post_tokens as number,
+  ...(r.last_input_tokens !== null ? { lastInputTokens: r.last_input_tokens as number, lastOutputTokens: (r.last_output_tokens as number | null) ?? 0 } : {})
+})
+
+/** A session's summary from its columns and its lists. */
+function summaryOf(s: Rec, compactions: CompactionEvent[], guards: Rec[]): UsageSummary {
+  const stops = Object.fromEntries(guards.filter((g) => g.kind === 'stops').map((g) => [g.key as string, g.count as number]))
+  const asked = Object.fromEntries(guards.filter((g) => g.kind === 'asked').map((g) => [g.key as string, g.count as number]))
+  const premium = s.premium_requests as number | null
+  return {
+    provider: s.provider as ProviderId,
+    sessionId: s.session as string,
+    title: (s.title as string | null) ?? null,
+    customTitle: (s.custom_title as string | null) ?? null,
+    model: (s.model as string | null) ?? null,
+    cliVersion: (s.cli_version as string | null) ?? null,
+    reasoningTokens: s.reasoning_tokens as number,
+    contextTokens: s.context_tokens as number,
+    ...(s.context_input_tokens !== null ? { contextInputTokens: s.context_input_tokens as number } : {}),
+    ...(s.last_output_tokens !== null ? { lastOutputTokens: s.last_output_tokens as number } : {}),
+    contextWindow: (s.context_window as number | null) ?? null,
+    compactions,
+    cacheTtlSeconds: s.cache_ttl_seconds as number,
+    firstActivity: (s.first_activity as string | null) ?? null,
+    lastActivity: (s.last_activity as string | null) ?? null,
+    userMessages: s.user_messages as number,
+    lastPrompt: (s.last_prompt as string | null) ?? null,
+    ...(Object.keys(stops).length ? { safeguards: stops } : {}),
+    ...(Object.keys(asked).length ? { safeguardsAsked: asked } : {}),
+    ...(premium !== null ? { premiumRequests: premium } : {})
+  } as UsageSummary
+}
+
+/** A session's timeline from its rows and charges (null: none kept). */
+function timelineOf(step: number | null, rows: Rec[], charges: number[]): UsageTimeline | null {
+  if (step === null) return null
+  const models: string[] = []
+  const out = rows.map((r): UsageRow => {
+    const name = r.model as string
+    const row: UsageRow = [r.start as number, r.input as number, r.output as number, r.cache_write as number, r.cache_read as number, r.requests as number, r.charge as number, r.flags as number]
+    if (name) row[8] = models.includes(name) ? models.indexOf(name) : models.push(name) - 1
+    return row
+  })
+  return { step, rows: out, reports: charges, ...(models.length ? { models } : {}) }
+}
+
+/** The sessions of some scopes (all of them: null), with their rows. */
+export function storedSessions(db: DatabaseSync, scopes: string[] | null): StoredSession[] {
+  if (scopes && !scopes.length) return []
+  const where = { scopes }
+  const rows = grouped(db, 'usage_rows', where, 'day, model, card, role', rowOf)
+  const compactions = grouped(db, 'usage_compactions', where, 'seq', compactionOf)
+  const guards = grouped(db, 'usage_safeguards', where, 'kind, key', (r) => r)
+  const sql = scopes ? `WHERE scope IN (${placeholders(scopes.length)})` : '' // i18n-ignore: SQL
+  return (db.prepare(`SELECT * FROM usage_sessions ${sql}`).all(...(scopes ?? [])) as Rec[]).map((s) => { // i18n-ignore: SQL
+    const k = keyOf(s)
+    return { ...metaOf(s), source: s.source as string, path: (s.path as string | null) ?? null, size: s.size as number, mtime: s.mtime as number, summary: summaryOf(s, compactions.get(k) ?? [], guards.get(k) ?? []), rows: rows.get(k) ?? [] }
+  })
+}
+
+/** What a session's rows are made again from when its cards' holds change: its summary, timeline and rows as stored. */
+export function storedSession(db: DatabaseSync, scope: string, session: string): { summary: UsageSummary; timeline: UsageTimeline | null; rows: LedgerRow[] } | null {
+  const s = db.prepare('SELECT * FROM usage_sessions WHERE scope = ? AND session = ?').get(scope, session) as Rec | undefined // i18n-ignore: SQL
+  if (!s) return null
+  const where = { scope, session }
+  const k = keyOf(s)
+  const timeline = timelineOf((s.timeline_step as number | null) ?? null, grouped(db, 'usage_timeline', where, 'seq', (r) => r).get(k) ?? [], grouped(db, 'usage_charges', where, 'seq', (r) => r.usd as number).get(k) ?? [])
+  return { summary: summaryOf(s, grouped(db, 'usage_compactions', where, 'seq', compactionOf).get(k) ?? [], grouped(db, 'usage_safeguards', where, 'kind, key', (r) => r).get(k) ?? []), timeline, rows: grouped(db, 'usage_rows', where, 'day, model, card, role', rowOf).get(k) ?? [] }
 }
 
 /** The rows on some cards (role and card kept), with whose session each is. */
 export function cardRows(db: DatabaseSync, cards: number[]): (SessionMeta & { row: LedgerRow })[] {
   if (!cards.length) return []
-  const rows = db.prepare(`SELECT r.*, s.provider, s.agent_id, s.agent_name, s.name, s.cwd FROM usage_rows r JOIN usage_sessions s ON s.scope = r.scope AND s.session = r.session WHERE r.card IN (${placeholders(cards.length)})`).all(...cards) as Record<string, unknown>[] // i18n-ignore: SQL
-  return rows.map((r) => ({ ...metaOf(r), row: rowOf(r as RowRecord) }))
+  const rows = db.prepare(`SELECT r.*, s.provider, s.agent_id, s.agent_name, s.name, s.cwd FROM usage_rows r JOIN usage_sessions s ON s.scope = r.scope AND s.session = r.session WHERE r.card IN (${placeholders(cards.length)})`).all(...cards) as Rec[] // i18n-ignore: SQL
+  return rows.map((r) => ({ ...metaOf(r), row: rowOf(r) }))
 }
 
 /** Sessions of a scope with their timelines (for spans of time no card has: a lane's), who each was and its summary. */
 export function storedTimelines(db: DatabaseSync, scope: string): (SessionMeta & { summary: UsageSummary; timeline: UsageTimeline | null; firstActivity: string | null; lastActivity: string | null })[] {
-  const out = []
-  for (const s of db.prepare('SELECT scope, session, provider, agent_id, agent_name, name, cwd, summary, timeline, first_activity, last_activity FROM usage_sessions WHERE scope = ?').all(scope) as Record<string, unknown>[]) { // i18n-ignore: SQL
-    let summary: UsageSummary
-    let timeline: UsageTimeline | null = null
-    try {
-      summary = JSON.parse(s.summary as string) as UsageSummary
-      if (s.timeline) timeline = readTimeline(JSON.parse(s.timeline as string))
-    } catch {
-      continue
-    }
-    out.push({ ...metaOf(s), summary, timeline, firstActivity: (s.first_activity as string | null) ?? null, lastActivity: (s.last_activity as string | null) ?? null })
-  }
-  return out
+  const where = { scopes: [scope] }
+  const rows = grouped(db, 'usage_timeline', where, 'seq', (r) => r)
+  const charges = grouped(db, 'usage_charges', where, 'seq', (r) => r.usd as number)
+  const compactions = grouped(db, 'usage_compactions', where, 'seq', compactionOf)
+  const guards = grouped(db, 'usage_safeguards', where, 'kind, key', (r) => r)
+  return (db.prepare('SELECT * FROM usage_sessions WHERE scope = ?').all(scope) as Rec[]).map((s) => { // i18n-ignore: SQL
+    const k = keyOf(s)
+    const summary = summaryOf(s, compactions.get(k) ?? [], guards.get(k) ?? [])
+    return { ...metaOf(s), summary, timeline: timelineOf((s.timeline_step as number | null) ?? null, rows.get(k) ?? [], charges.get(k) ?? []), firstActivity: summary.firstActivity, lastActivity: summary.lastActivity }
+  })
 }
 
 /** Which sessions of a scope the history has (and whether each was read from a transcript). */

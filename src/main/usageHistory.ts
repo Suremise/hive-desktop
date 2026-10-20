@@ -2,6 +2,7 @@ import { Worker } from 'worker_threads'
 import { app } from 'electron'
 import { existsSync } from 'original-fs'
 import { stat } from 'original-fs/promises'
+import { createHash } from 'crypto'
 import { basename, join } from 'path'
 import type { KeptUsage, ProviderId, SessionRecord, TaskCard, UsageHistoryProgress } from '../shared/types'
 import { projectAgents } from '../shared/defaults'
@@ -84,11 +85,38 @@ class UsageHistory {
     this.stopped = false
     this.timer = setInterval(() => this.tick(), TICK_MS)
     this.timer.unref?.()
-    // The board read for holds is read again after a change.
+    const status = new Map<string, string>()
     onHiveEvent((e) => {
-      if (e.type === 'tasks-changed') this.cards.delete(wsKey(e.workspacePath))
+      // The board changed: its holds are read again, and running sessions' cards shared out again if they changed.
+      if (e.type === 'tasks-changed') {
+        this.cards.delete(wsKey(e.workspacePath))
+        this.cardsChanged(e.workspacePath)
+      }
+      // A turn ended: what it used is recorded now, not at the next tick, so views that read the history have it.
+      if (e.type === 'session-status') {
+        const k = `${e.state.projectPath.toLowerCase()}#${e.state.agentId}`
+        const was = status.get(k)
+        status.set(k, e.state.status)
+        if (e.state.status === 'stopped') status.delete(k)
+        if (was === 'working' && e.state.status !== 'working' && e.state.sessionId && !e.state.settingUp) this.ingest(e.state.projectPath, e.state.sessionId, { priority: 1, keepState: 'running' }).catch((err) => log.warn('recording a turn that ended', err))
+      }
     })
     WorkspaceService.closingListeners.add((path) => this.closeWorkspace(path))
+  }
+
+  /** Board changes in a workspace, a second apart at most: its running sessions' cards shared out again (when their holds changed). */
+  private cardsDue = new Map<string, NodeJS.Timeout>()
+  private cardsChanged(workspacePath: string): void {
+    const key = wsKey(workspacePath)
+    if (this.cardsDue.has(key)) return
+    const t = setTimeout(() => {
+      this.cardsDue.delete(key)
+      for (const st of sessions.liveStates()) {
+        if (st.sessionId && !st.settingUp && workspaceFor(st.projectPath)?.path?.toLowerCase() === key) this.ingest(st.projectPath, st.sessionId, { priority: 1, keepState: 'running' }).catch(() => undefined)
+      }
+    }, 1000)
+    t.unref?.()
+    this.cardsDue.set(key, t)
   }
 
   /** Hive quits: what is queued is dropped and the worker ends (each write is a transaction: nothing is left half done). */
@@ -241,8 +269,8 @@ class UsageHistory {
       const rec = (await ws.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
       if (!rec) return null
       const path = o.path && existsSync(o.path) ? o.path : await sessions.anyTranscript(projectPath, sessionId).catch(() => null)
-      const holds = await this.holdsFor(ws, projectPath, rec)
-      const job: IngestJob = { ...metaOf(scope, rec), path, holds, keepState: o.keepState }
+      const { holds, holdsKey } = await this.holdsFor(ws, projectPath, rec)
+      const job: IngestJob = { ...metaOf(scope, rec), path, holds, holdsKey, keepState: o.keepState }
       return { type: 'ingest', file: usageFile(workspace), job }
     })
   }
@@ -256,26 +284,33 @@ class UsageHistory {
       const ws = workspaceFor(projectPath)
       if (!ws?.path) return null
       const { workspace, scope } = await ws.sessionScope(projectPath)
-      const job: IngestJob = { scope, session: ext.id, provider: ext.provider, path: ext.transcriptPath, holds: [], keepState: 'no', external: true }
+      const job: IngestJob = { scope, session: ext.id, provider: ext.provider, path: ext.transcriptPath, holds: [], holdsKey: null, keepState: 'no', external: true }
       return { type: 'ingest', file: usageFile(workspace), job }
     })
   }
 
-  /** Records a kept usage (a deleted session's, or a record's whose transcript went) for a session the history doesn't have. */
-  private importKept(projectPath: string, k: { id: string; provider: ProviderId; agentId?: string; agentName?: string; name?: string; cwd?: string; usage: KeptUsage['usage'] }): Promise<IngestResult | null> {
-    return this.enqueue<IngestResult>(`kept|${projectPath.toLowerCase()}|${k.id}`, 2, async () => {
+  /**
+   * Records a kept usage (a deleted session's, or a record's whose transcript went): for a session the history doesn't
+   * have, or has with less counted (the worker keeps whichever counted more). `priority` 0 before a delete.
+   */
+  private importKept(projectPath: string, k: { id: string; provider: ProviderId; agentId?: string; agentName?: string; name?: string; cwd?: string; usage: KeptUsage['usage'] }, priority: Priority = 2): Promise<IngestResult | null> {
+    return this.enqueue<IngestResult>(`kept|${projectPath.toLowerCase()}|${k.id}`, priority, async () => {
       const ws = workspaceFor(projectPath)
       if (!ws?.path) return null
       const { workspace, scope } = await ws.sessionScope(projectPath)
-      const holds = await this.holdsFor(ws, projectPath, { agentId: k.agentId, agentName: k.agentName })
-      const job: KeptJob = { scope, session: k.id, provider: k.provider, ...(k.agentId ? { agentId: k.agentId } : {}), ...(k.agentName ? { agentName: k.agentName } : {}), ...(k.name ? { name: k.name } : {}), ...(k.cwd ? { cwd: k.cwd } : {}), usage: k.usage, holds }
+      const { holds, holdsKey } = await this.holdsFor(ws, projectPath, { agentId: k.agentId, agentName: k.agentName })
+      const job: KeptJob = { scope, session: k.id, provider: k.provider, ...(k.agentId ? { agentId: k.agentId } : {}), ...(k.agentName ? { agentName: k.agentName } : {}), ...(k.name ? { name: k.name } : {}), ...(k.cwd ? { cwd: k.cwd } : {}), usage: k.usage, holds, holdsKey }
       return { type: 'kept', file: usageFile(workspace), job }
     })
   }
 
-  /** The cards a session's agent held (none for the Assistant's), from the board as it is, archived cards too (read again after a change, or half a minute). */
-  private async holdsFor(ws: WorkspaceService, projectPath: string, who: Pick<SessionRecord, 'agentId' | 'agentName'>): Promise<SessionHold[]> {
-    if (!ws.path || ws.isAssistantHome(projectPath)) return []
+  /**
+   * The cards a session's agent held (none for the Assistant's), from the board as it is, archived cards too (read again
+   * after a change, or half a minute); and their key, open holds as open, so the worker shares a session's cards out again
+   * only when they changed.
+   */
+  private async holdsFor(ws: WorkspaceService, projectPath: string, who: Pick<SessionRecord, 'agentId' | 'agentName'>): Promise<{ holds: SessionHold[]; holdsKey: string | null }> {
+    if (!ws.path || ws.isAssistantHome(projectPath)) return { holds: [], holdsKey: null }
     const key = wsKey(ws.path)
     let c = this.cards.get(key)
     if (!c || Date.now() - c.at > CARDS_MS) {
@@ -284,19 +319,30 @@ class UsageHistory {
     }
     const project = basename(projectPath).toLowerCase()
     const cards = (await c.cards).filter((card) => card.project.toLowerCase() === project)
-    if (!cards.length) return []
+    if (!cards.length) return { holds: [], holdsKey: null }
     const cfg = await ws.projectConfig(projectPath).catch(() => null)
     const agents = cfg ? projectAgents(cfg) : []
     const named = (name: string): string[] => agents.filter((a) => a.name.toLowerCase() === name.toLowerCase()).map((a) => a.id)
-    return sessionHolds(cards, who, named, Date.now())
+    const holds = sessionHolds(cards, who, named, Date.now())
+    if (!holds.length) return { holds, holdsKey: null }
+    // Open holds end "never" in the key: one going on doesn't change it, one ending does.
+    const open = sessionHolds(cards, who, named, Number.MAX_SAFE_INTEGER)
+    return { holds, holdsKey: createHash('sha1').update(JSON.stringify(open)).digest('hex') }
   }
 
-  /** Running sessions, read about every minute; every ten minutes, each open workspace's sessions checked for changes. */
+  /**
+   * Running sessions, read about every minute; every ten minutes, each open workspace's sessions checked for changes,
+   * and an import that couldn't finish tried again.
+   */
   private tick(): void {
     for (const st of sessions.liveStates()) {
       if (st.sessionId && !st.settingUp) this.ingest(st.projectPath, st.sessionId, { priority: 1, keepState: 'running' }).catch((e) => log.warn('recording a running session', e))
     }
-    if (++this.ticks % SWEEP_TICKS === 0) for (const ws of openWorkspaces()) void this.sweep(ws).catch((e) => log.warn('checking the usage history', e))
+    if (++this.ticks % SWEEP_TICKS !== 0) return
+    for (const ws of openWorkspaces()) {
+      if (ws.path && !this.backfilled(ws.path)) void this.opened(ws)
+      else void this.sweep(ws).catch((e) => log.warn('checking the usage history', e))
+    }
   }
 
   /** A session's launch ended: what it used is recorded now, with its parser's state. */
@@ -320,12 +366,20 @@ class UsageHistory {
   }
 
   /**
-   * Records what a session used before Hive lets its transcript go (Delete, Clean Up): waits for nothing else queued.
-   * Resolves whether the history has the session now.
+   * Records what a session used before Hive lets its copies or record go (Delete, Clean Up), waiting for nothing else
+   * queued: its file, and its kept usage from before the history when it has one (whichever counted more is kept).
+   * Resolves whether that's done: true also for a session with nothing to keep (no file, no kept usage); false when its
+   * use couldn't be recorded (the delete then keeps it).
    */
   async recordNow(projectPath: string, sessionId: string): Promise<boolean> {
+    const rec = (await workspaceFor(projectPath)?.sessionsFile(projectPath).catch(() => null))?.sessions.find((s) => s.id === sessionId)
     const r = await this.ingest(projectPath, sessionId, { priority: 0, keepState: 'no' })
-    return !!r && r.status !== 'missing' && r.status !== 'busy'
+    if (!r || r.status === 'busy') return false
+    if (rec?.keptUsage) {
+      const k = await this.importKept(projectPath, { ...rec, provider: recordProvider(rec), usage: rec.keptUsage }, 0)
+      if (!k || k.status === 'busy') return false
+    }
+    return true
   }
 
   /** The hosts of a workspace whose history counts: its projects, hidden ones too, and the Assistant. */
@@ -379,7 +433,10 @@ class UsageHistory {
     emit({ type: 'usage-history', workspacePath, progress: p })
   }
 
-  /** A workspace opened: its backfill runs if it hasn't been done (once; a later open carries on with what is left). */
+  /**
+   * A workspace opened: its backfill runs if it hasn't been done (once; a later open, or the ten-minute tick after one
+   * that couldn't finish, carries on with what is left).
+   */
   opened(ws: WorkspaceService): Promise<void> {
     if (!ws.path) return Promise.resolve()
     const path = ws.path
@@ -398,10 +455,13 @@ class UsageHistory {
 
   /**
    * The one-time import of a workspace's sessions (Darren's decision 3): each record's transcript (or Hive's backup of
-   * it) read in the worker, newest first, so recent periods fill first; a record with no file left, its kept usage; each
-   * deleted session's kept usage. Nothing already counted is lost: what keptUsage and deletedUsage held is imported, and
-   * stays where it was. Interrupted (Hive quit, the workspace closed), the next open carries on: what was imported is
-   * skipped. Done, it is recorded in the history (usage_meta), and usage-cache.json is retired (decision 6).
+   * it) read in the worker, newest first, so recent periods fill first; a record's kept usage (a backup can lag what was
+   * kept: whichever counted more stays); each deleted session's kept usage. Nothing already counted is lost: what
+   * keptUsage and deletedUsage held is imported, and stays where it was. Only when every session was imported is it
+   * recorded as done (usage_meta) and usage-cache.json retired (decision 6): one that failed (the worker ended, a file
+   * that can't be read, a write another Hive held) leaves it not done, and it runs again (what was imported is skipped)
+   * at the next open or ten-minute tick, the Overview saying meanwhile that its figures are partial; so does an
+   * interruption (Hive quit, the workspace closed).
    */
   private async backfill(ws: WorkspaceService, path: string): Promise<void> {
     const file = usageFile(path)
@@ -410,7 +470,9 @@ class UsageHistory {
       this.setProgress(path, { importing: false, done: 0, total: 0 })
       return
     }
-    type Item = { at: string; run: () => Promise<unknown> }
+    /** Whether a job did what it was for (null: the workspace closed meanwhile). */
+    const ok = (r: IngestResult | null): boolean => !!r && r.status !== 'busy'
+    type Item = { at: string; run: () => Promise<boolean> }
     const items: Item[] = []
     for (const host of await this.hosts(ws)) {
       const f = await ws.sessionsFile(host)
@@ -418,29 +480,39 @@ class UsageHistory {
         items.push({
           at: rec.lastActiveAt ?? rec.createdAt ?? '',
           run: async () => {
-            const r = await this.ingest(host, rec.id, { priority: 2, keepState: 'no' })
-            if (r?.status === 'missing' && rec.keptUsage) await this.importKept(host, { ...rec, provider: recordProvider(rec), usage: rec.keptUsage })
+            if (!ok(await this.ingest(host, rec.id, { priority: 2, keepState: 'no' }))) return false
+            return !rec.keptUsage || ok(await this.importKept(host, { ...rec, provider: recordProvider(rec), usage: rec.keptUsage }))
           }
         })
       }
-      for (const k of f.deletedUsage ?? []) items.push({ at: k.usage.lastActivity ?? '', run: () => this.importKept(host, k) })
+      for (const k of f.deletedUsage ?? []) items.push({ at: k.usage.lastActivity ?? '', run: async () => ok(await this.importKept(host, k)) })
     }
     items.sort((a, b) => (b.at > a.at ? 1 : b.at < a.at ? -1 : 0))
     const total = items.length
     log.info(`importing the usage history of ${userText(path)}: ${total} session(s)`)
     const t0 = Date.now()
     let n = 0
+    let failed = 0
     let told = 0
     this.setProgress(path, { importing: true, done: 0, total })
     for (const it of items) {
       if (ws.lifetime.aborted || ws.path !== path || this.stopped) return
-      await it.run().catch((e) => log.warn('importing a session into the usage history', e))
+      const good = await it.run().catch((e) => {
+        log.warn('importing a session into the usage history', e)
+        return false
+      })
+      if (!good) failed++
       n++
       // Told at most every half second, and at the end.
       if (Date.now() - told > 500) {
         told = Date.now()
         this.setProgress(path, { importing: true, done: n, total })
       }
+    }
+    if (failed || ws.lifetime.aborted || ws.path !== path || this.stopped) {
+      log.warn(`the usage history of ${userText(path)}: ${failed} of ${total} session(s) not imported; tried again at the next open or in ten minutes`)
+      this.setProgress(path, { importing: true, done: n - failed, total })
+      return
     }
     await this.call({ type: 'meta', file, scope: '', key: 'backfill', value: JSON.stringify({ at: new Date().toISOString(), sessions: total, hiveVersion: appVersion() }) })
     log.info(`imported the usage history of ${userText(path)}: ${total} session(s) in ${Date.now() - t0} ms`)

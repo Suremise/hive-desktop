@@ -147,6 +147,21 @@ describe("a session's rows", () => {
     expect(rows.some((r) => r.card === 4)).toBe(false)
   })
 
+  it("shares out whole tokens and requests that add up to the day: a request shared by cards is still one", () => {
+    const when = new Date(T0).toISOString()
+    for (const [cards, input, output, requests] of [[2, 1, 1, 1], [3, 7, 5, 1], [2, 3, 1, 3], [4, 1001, 333, 7]] as const) {
+      const p = newUsageParser('claude-code', 'r')!
+      p.feed(Array.from({ length: requests }, (_, i) => JSON.stringify({ type: 'assistant', requestId: `q${i}`, timestamp: when, message: { model: i % 2 ? 'claude-sonnet-5-5' : 'claude-opus-5-5', usage: { input_tokens: i === 0 ? input - (requests - 1) : 1, output_tokens: i === 0 ? output - (requests - 1) : 1 } } })).join('\n') + '\n')
+      const raw = p.result()
+      // The same second held by `cards` cards at once (1/k each), each in a role.
+      const holds: SessionHold[] = Array.from({ length: cards }, (_, i) => ({ card: i + 1, role: i % 2 ? 'review' : 'build', parts: [[cards, [[T0 - 1000, T0 + 2000]]]] }))
+      const rows = ledgerRows(raw, holds, SETTINGS)
+      const u = usageFromRows(summaryOf(raw), rows, SETTINGS)
+      expect([u.inputTokens, u.outputTokens, u.requests]).toEqual([input, output, requests])
+      expect(rows.every((r) => Number.isInteger(r.inputTokens) && Number.isInteger(r.outputTokens) && Number.isInteger(r.requests))).toBe(true)
+    }
+  })
+
   it('a row with no price is unknown, never $0', () => {
     const raw = { ...whole(CASES[0]), model: 'claude-unknown-9', costReports: undefined, timeline: undefined }
     const rows = ledgerRows(raw, [], SETTINGS)

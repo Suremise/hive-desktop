@@ -1,11 +1,13 @@
 import { parentPort } from 'worker_threads'
+import { createHash } from 'crypto'
 import { open, stat } from 'original-fs/promises'
 import { dirname, join } from 'path'
 import type { AppSettings, SessionUsage } from '../shared/types'
-import { keptRows, ledgerRows, summaryOf, type SessionHold } from '../shared/usageLedger'
+import { keptRows, ledgerRows, reshareRows, summaryOf, type SessionHold } from '../shared/usageLedger'
 import { openDb, type Db } from './db'
 import { readAdvancedFrom, valuesReader } from './advancedValues'
-import { cardRows, cursorOf, getMeta, sessionIds, setMeta, storedSessions, storedTimelines, touchSession, updateMeta, USAGE_MIGRATIONS, writeSession, type SessionMeta, type SessionWrite } from './usageDb'
+import type { DatabaseSync } from 'node:sqlite'
+import { cardRows, cursorOf, getMeta, replaceRows, sessionIds, setMeta, storedSession, storedSessions, storedTimelines, touchSession, updateMeta, USAGE_MIGRATIONS, writeSession, type Cursor, type SessionMeta, type SessionWrite } from './usageDb'
 import { newUsageParser, parserShape, restoreParser, saveParser, type RawUsageParser } from './usageParsers'
 
 /**
@@ -28,12 +30,15 @@ export interface IngestJob extends SessionMeta {
   keepState: 'now' | 'running' | 'no'
   /** A session started outside Hive (no record): kept for the Sessions list, never counted in totals. */
   external?: boolean
+  /** The holds `holds` were made from, as a key (open ones as open): a change re-shares the session's cards. */
+  holdsKey: string | null
 }
 
 export interface KeptJob extends SessionMeta {
   /** A kept usage (a deleted session's, or one whose transcript went): priced when it was kept. */
   usage: SessionUsage
   holds: SessionHold[]
+  holdsKey: string | null
 }
 
 export type IngestResult = { status: 'written' | 'unchanged' | 'missing' | 'kept' | 'busy'; requests?: number }
@@ -133,56 +138,82 @@ function readOnly(file: string): boolean {
   return true
 }
 
+/** How much of a file just before a state's offset its check covers. */
+const CHECK_BYTES = 4096
+
+/** A hash of the bytes just before `offset` in a file (what a saved state was made from ends there); null when unreadable. */
+async function bytesBefore(path: string, offset: number): Promise<string | null> {
+  try {
+    const fh = await open(path, 'r')
+    try {
+      const n = Math.min(CHECK_BYTES, offset)
+      const buf = Buffer.alloc(n)
+      const { bytesRead } = await fh.read(buf, 0, n, offset - n)
+      return createHash('sha1').update(buf.subarray(0, bytesRead)).update(String(offset)).digest('hex')
+    } finally {
+      await fh.close()
+    }
+  } catch {
+    return null
+  }
+}
+
 const tokenSum = (u: Pick<SessionUsage, 'inputTokens' | 'outputTokens' | 'cacheWriteTokens' | 'cacheReadTokens'>): number => u.inputTokens + u.outputTokens + u.cacheWriteTokens + u.cacheReadTokens
 
 /**
- * Records what a session used from its file: unchanged since it was read, nothing; else from where it was left (its
- * parser's saved state), or from the start (no state of this parser's shape and Hive's version, a file that shrank or is
- * another). What it read is recorded unless it would make the session's totals smaller than recorded (usage history is
- * only added to: a backup that lags the transcript it replaced, a rewritten file), which leaves the rows as they were.
+ * Records what a session used from its file: unchanged since it was read, nothing (its cards re-shared from what is stored
+ * when their holds changed); else from where it was left (its parser's saved state, made from this file's bytes), or from
+ * the start (no state of this parser's shape and Hive's version, a file that shrank or is another). What it read is
+ * recorded unless it would make the session's totals smaller than recorded (usage history is only added to: a backup
+ * that lags the transcript it replaced, a rewritten file, a kept usage that counted more), which leaves the rows as
+ * they were. A state is only ever kept for the file and bytes it was made from: a read from the start lets it go.
  */
 async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   if (readOnly(file)) return { status: 'busy' }
   const db = dbOf(file).writer
   const cur = cursorOf(db, job.scope, job.session)
-  if (!job.path) return { status: cur ? 'unchanged' : 'missing' }
+  const unchanged = (): IngestResult => {
+    updateMeta(db, job, job.external ? 'external' : 'transcript')
+    reshare(db, job, cur)
+    return { status: 'unchanged' }
+  }
+  if (!job.path) return cur ? unchanged() : { status: 'missing' }
   let st
   try {
     st = await stat(job.path)
   } catch {
-    return { status: cur ? 'unchanged' : 'missing' }
+    return cur ? unchanged() : { status: 'missing' }
   }
-  if (!st.isFile()) return { status: cur ? 'unchanged' : 'missing' }
+  if (!st.isFile()) return cur ? unchanged() : { status: 'missing' }
   const samePath = !!cur?.path && cur.path.toLowerCase() === job.path.toLowerCase()
-  if (cur && samePath && cur.size === st.size && cur.mtime === st.mtimeMs && cur.source !== 'kept') {
-    updateMeta(db, job, job.external ? 'external' : 'transcript')
-    return { status: 'unchanged' }
-  }
+  if (cur && samePath && cur.size === st.size && cur.mtime === st.mtimeMs) return unchanged()
   let parser: RawUsageParser | null = null
   let from = 0
-  if (cur?.state && samePath && cur.stateOffset !== null && cur.stateOffset <= st.size && cur.stateVersion === hiveVersion && cur.stateShape) {
+  // Taken up only for this file's bytes: the same path, at least as long, its bytes before the offset as they were (a file
+  // that shrank and grew again between reads is another), by this Hive's parser.
+  if (cur?.state && samePath && cur.stateOffset !== null && cur.stateOffset <= st.size && cur.stateVersion === hiveVersion && cur.stateShape && cur.stateCheck === (await bytesBefore(job.path, cur.stateOffset))) {
     parser = restoreParser(job.provider, job.session, cur.state, cur.stateShape)
     if (parser) from = cur.stateOffset
   }
   parser ??= newUsageParser(job.provider, job.session)
-  if (!parser) return { status: cur ? 'unchanged' : 'missing' }
+  if (!parser) return cur ? unchanged() : { status: 'missing' }
   let offset: number
   try {
     offset = await feed(job.path, parser, from, st.size)
   } catch (e) {
     log('warn', `usage history: couldn't read a transcript (${(e as Error).message})`, job.path)
-    return { status: cur ? 'unchanged' : 'missing' }
+    return cur ? unchanged() : { status: 'busy' }
   }
   const raw = parser.result()
   // Read again after the awaits: what another writer recorded meanwhile is checked in the write.
   const now = cursorOf(db, job.scope, job.session)
   if (now && (raw.requests < now.requests || tokenSum(raw) < now.tokens)) {
     touchSession(db, job.scope, job.session, job.path, st.size, st.mtimeMs)
+    reshare(db, job, now)
     log('info', `usage history: ${job.session} read ${raw.requests} request(s), fewer than recorded (${now.requests}): kept as recorded`, job.path)
     return { status: 'kept', requests: now.requests }
   }
   const due = job.keepState === 'now' || (job.keepState === 'running' && (!now?.stateAt || Date.now() - Date.parse(now.stateAt) >= STATE_EVERY_MS))
-  const timeline = raw.timeline ?? null
   const w: SessionWrite = {
     ...job,
     // An external session a record now has is Hive's; one recorded as Hive's stays so.
@@ -191,22 +222,40 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
     size: st.size,
     mtime: st.mtimeMs,
     offset,
-    state: due ? { data: saveParser(parser), offset, shape: parserShape(parser), version: hiveVersion } : null,
+    state: due ? { data: saveParser(parser), offset, shape: parserShape(parser), version: hiveVersion, check: (await bytesBefore(job.path, offset)) ?? '' } : from === 0 ? 'clear' : null,
     summary: summaryOf(raw),
-    timeline,
-    rows: ledgerRows(raw, job.holds, providers ? { providers } : null)
+    timeline: raw.timeline ?? null,
+    rows: ledgerRows(raw, job.holds, providers ? { providers } : null),
+    holdsKey: job.holdsKey
   }
   const ok = writeSession(db, w, now ? { offset: now.offset, path: now.path } : null)
   return { status: ok ? 'written' : 'busy', requests: raw.requests }
 }
 
-/** Records a kept usage, for a session the history doesn't have yet (one read from its transcript is never replaced). */
+/** A recorded session's cards shared out again from what is stored, when the holds its rows were made by changed. */
+function reshare(db: DatabaseSync, job: { scope: string; session: string; holds: SessionHold[]; holdsKey: string | null }, cur: Cursor | null): void {
+  if (!cur || cur.holdsKey === job.holdsKey) return
+  const s = storedSession(db, job.scope, job.session)
+  if (!s) return
+  replaceRows(db, job.scope, job.session, reshareRows(s.summary, s.timeline, s.rows, job.holds, providers ? { providers } : null), job.holdsKey)
+}
+
+/**
+ * Records a kept usage (a deleted session's, or a record's whose transcript went): for a session the history doesn't
+ * have, or has with less counted (a stale or partial backup read: usage history is never made smaller). One recorded
+ * with as much or more stays as it is.
+ */
 function kept(file: string, job: KeptJob): IngestResult {
   if (readOnly(file)) return { status: 'busy' }
   const db = dbOf(file).writer
-  if (cursorOf(db, job.scope, job.session)) return { status: 'unchanged' }
-  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: null, summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: keptRows(job.usage, job.holds) }
-  return { status: writeSession(db, w, null) ? 'written' : 'busy', requests: job.usage.requests }
+  const cur = cursorOf(db, job.scope, job.session)
+  const tokens = tokenSum(job.usage)
+  if (cur && (cur.tokens > tokens || (cur.tokens === tokens && cur.requests >= job.usage.requests))) {
+    reshare(db, job, cur)
+    return { status: 'unchanged', requests: cur.requests }
+  }
+  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: 'clear', summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: keptRows(job.usage, job.holds), holdsKey: job.holdsKey }
+  return { status: writeSession(db, w, cur ? { offset: cur.offset, path: cur.path } : null) ? 'written' : 'busy', requests: job.usage.requests }
 }
 
 /** Jobs one at a time; queries at once. (Exported for main to run it in its own thread in unit tests: usageHistory.ts.) */
@@ -240,7 +289,7 @@ export async function handleRequest(m: WorkerRequest): Promise<unknown> {
     }
     case 'forgetStates': {
       if (readOnly(m.file)) return 0
-      const r = dbOf(m.file).writer.prepare('UPDATE usage_sessions SET state = NULL, state_offset = NULL, state_shape = NULL, state_version = NULL, state_at = NULL WHERE state IS NOT NULL AND updated_at < ?').run(m.before) // i18n-ignore: SQL
+      const r = dbOf(m.file).writer.prepare('UPDATE usage_sessions SET state = NULL, state_offset = NULL, state_shape = NULL, state_version = NULL, state_check = NULL, state_at = NULL WHERE state IS NOT NULL AND updated_at < ?').run(m.before) // i18n-ignore: SQL
       return Number(r.changes)
     }
     case 'close': {

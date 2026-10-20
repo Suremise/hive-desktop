@@ -5008,8 +5008,9 @@ class SessionManager {
         // What it used stays in the project's totals: recorded in the usage history (#1106) before its copies go, where
         // it stays once the record is gone.
         const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
-        const recorded = rec ? await usageHistory.recordNow(projectPath, sessionId).catch(() => false) : false
-        if (expected && !recorded) throw hiveError(msg({ id: 'session.cleanUp.unread', defaultMessage: "Hive couldn't read what the session used, so it is kept.", description: "Clean Up… kept a session: Hive couldn't read its usage, which the project's totals keep." }))
+        // Not recorded (the worker ended, a write another Hive held): the session stays, Delete and Clean Up alike.
+        const recorded = rec ? await usageHistory.recordNow(projectPath, sessionId).catch(() => false) : true
+        if (!recorded) throw hiveError(msg({ id: 'session.cleanUp.unread', defaultMessage: "Hive couldn't read what the session used, so it is kept.", description: "Clean Up… kept a session: Hive couldn't read its usage, which the project's totals keep." }))
         if (expected) await this.assertCleanable(projectPath, sessionId, expected)
         this.assertNotLive(sessionId, 'delete')
         const files = this.backupFiles(projectPath, sessionId)
@@ -5045,15 +5046,11 @@ class SessionManager {
     const done = usageHistory.backfilled(workspaceOf(projectPath).path ?? '')
     // Whose each was, by the agent's name now (its name then once it is gone): Performance's totals by agent (#606).
     const named = new Map(projectAgents(cfg).map((a) => [a.id, a.name]))
-    // A running session's as Hive reads it while it runs (its footer's: what its transcript added, in memory), not the
-    // history's of the last tick.
-    const running = new Set(this.projectStates(projectPath).map((s) => s.sessionId).filter(Boolean))
-    const ctx: ListContext = { records: file.sessions, cfg, stored }
+    // A running session's too as the history has it: its last tick or turn's end (decision 4: views may lag by a tick).
     const items: SessionListItem[] = []
     for (const rec of file.sessions) {
-      // (usage() adds the stops seen on screen itself.)
       const kept = stored.get(rec.id)?.usage ?? (done ? null : (rec.keptUsage ?? null))
-      const usage = running.has(rec.id) ? await this.usage(projectPath, rec.id, ctx).catch(() => null) : kept && withScreenStopsIn(kept, rec.screenStops)
+      const usage = kept && withScreenStopsIn(kept, rec.screenStops)
       const agentName = (rec.agentId && named.get(rec.agentId)) || rec.agentName
       items.push({
         id: rec.id,

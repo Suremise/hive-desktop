@@ -1,7 +1,7 @@
 import type { AppSettings, DayUsage, ProviderId, SessionUsage, TaskCard, TaskHold, UsageTokens } from './types'
 import { estimateCost, usesOwnPrices } from './prices'
 import { localDay } from './usageDays'
-import { TOKENS_SPREAD, TOKENS_UNKNOWN, chargeShares, rowModel, type UsageRow } from './usageTimeline'
+import { TOKENS_SPREAD, TOKENS_UNKNOWN, chargeShares, rowModel, type UsageRow, type UsageTimeline } from './usageTimeline'
 import { emptyPart, holdsFromHistory, mergeSpans, sharedSpans, type CostPart, type Span } from './cardCosts'
 
 /**
@@ -151,25 +151,23 @@ export function ledgerRows(raw: SessionUsage, holds: SessionHold[], settings?: P
       const tq = total((r) => r.requests)
       for (const r of rows) r.requests = tq > 0 ? d.requests * (r.requests / tq) : 0
     }
-    // Whole numbers: every row rounded, main takes the difference from the day (never below 0).
-    for (const r of rows) {
-      if (r === main) continue
-      for (const k of KINDS) {
-        r[k] = Math.round(r[k])
-        r.covered[k] = Math.min(r[k], Math.round(r.covered[k]))
-      }
-      r.requests = Math.round(r.requests)
-      r.tokensUnknown = Math.round(r.tokensUnknown)
-    }
-    const others = rows.filter((r) => r !== main)
-    const sum = (f: (r: LedgerRow) => number): number => others.reduce((n, r) => n + f(r), 0)
+    // Whole numbers that add up to the day (round 2 of #1106: rounding each row on its own counted a shared request
+    // twice): each kind shared out by largest remainder, what no row has (a kind the day's timeline didn't show) on main.
+    const at = rows.indexOf(main)
     for (const k of KINDS) {
-      const want = d ? d[k] : Math.round(main[k] + sum((r) => r[k]))
-      main[k] = Math.max(0, want - sum((r) => r[k]))
-      main.covered[k] = Math.min(main[k], Math.round(main.covered[k]))
+      const whole = wholeShares(rows.map((r) => r[k]), d ? d[k] : Math.round(rows.reduce((n, r) => n + r[k], 0)), at)
+      const covered = wholeShares(rows.map((r) => r.covered[k]), Math.round(rows.reduce((n, r) => n + r.covered[k], 0)), at)
+      rows.forEach((r, i) => {
+        r[k] = whole[i]
+        r.covered[k] = Math.min(whole[i], covered[i])
+      })
     }
-    main.requests = Math.max(0, (d ? d.requests : Math.round(main.requests + sum((r) => r.requests))) - sum((r) => r.requests))
-    main.tokensUnknown = Math.round(main.tokensUnknown)
+    const requests = wholeShares(rows.map((r) => r.requests), d ? d.requests : Math.round(rows.reduce((n, r) => n + r.requests, 0)), at)
+    const unknown = wholeShares(rows.map((r) => r.tokensUnknown), Math.round(rows.reduce((n, r) => n + r.tokensUnknown, 0)), at)
+    rows.forEach((r, i) => {
+      r.requests = requests[i]
+      r.tokensUnknown = unknown[i]
+    })
     if (d) {
       main.prompts = d.prompts
       main.compactions = d.compactions
@@ -192,6 +190,21 @@ export function ledgerRows(raw: SessionUsage, holds: SessionHold[], settings?: P
     }
   }
   return out.filter(hasUse)
+}
+
+/**
+ * Fractions as whole numbers adding up to `total` (largest remainder: each its whole part, then one more to those with
+ * the largest fractions until the total is reached); with nothing to share it out by, all of it to `fallback`.
+ */
+export function wholeShares(values: number[], total: number, fallback: number): number[] {
+  const sum = values.reduce((n, v) => n + Math.max(0, v), 0)
+  if (sum <= 0) return values.map((_, i) => (i === fallback ? total : 0))
+  const exact = values.map((v) => (Math.max(0, v) * total) / sum)
+  const out = exact.map(Math.floor)
+  let rest = total - out.reduce((n, v) => n + v, 0)
+  const order = exact.map((v, i) => [v - Math.floor(v), i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1])
+  for (let j = 0; rest > 0; j = (j + 1) % order.length, rest--) out[order[j][1]]++
+  return out
 }
 
 /** Whether a row records anything. */
@@ -220,19 +233,49 @@ export function keptRows(usage: SessionUsage, holds: SessionHold[]): LedgerRow[]
     }
     if (hasUse(r)) out.push(r)
   }
+  return [...out, ...unknownOnCards(usage, holds)]
+}
+
+/**
+ * A usage without a timeline (a kept one) on the cards its agent held while it was active (its first and last activity,
+ * with a minute's margin): a row each, its use there unknown (`tokensUnknown`, no tokens), never $0.
+ */
+export function unknownOnCards(usage: Pick<SessionUsage, 'model' | 'firstActivity' | 'lastActivity'>, holds: SessionHold[]): LedgerRow[] {
+  const out: LedgerRow[] = []
   const from = Date.parse(usage.firstActivity ?? usage.lastActivity ?? '')
   const to = Date.parse(usage.lastActivity ?? usage.firstActivity ?? '')
-  if (Number.isFinite(from) && Number.isFinite(to)) {
-    for (const h of holds) {
-      // Active in the hold (its first and last activity, with a minute's margin): what it used on the card is unknown.
-      const at = h.parts.flatMap(([, s]) => s).find(([a, b]) => b > from - 60_000 && a < Math.max(to, from + 1) + 60_000)
-      if (!at) continue
-      const r = emptyRow(localDay(Math.max(at[0], from)), model, h.card, h.role)
-      r.tokensUnknown = 1
-      out.push(r)
-    }
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return out
+  for (const h of holds) {
+    const at = h.parts.flatMap(([, s]) => s).find(([a, b]) => b > from - 60_000 && a < Math.max(to, from + 1) + 60_000)
+    if (!at) continue
+    const r = emptyRow(localDay(Math.max(at[0], from)), usage.model ?? '', h.card, h.role)
+    r.tokensUnknown = 1
+    out.push(r)
   }
   return out
+}
+
+/**
+ * A session's rows shared out again by its cards' holds now (they changed since it was recorded), from what is stored:
+ * each day's totals as its rows have them, split by the stored timeline (a kept usage, without one: its days as they
+ * are, and its cards' unknown parts again). Its totals never change, only which card each part is on.
+ */
+export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | null, rows: LedgerRow[], holds: SessionHold[], settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
+  if (!timeline?.rows.length) return [...rows.filter((r) => r.card === 0), ...unknownOnCards(summary, holds)]
+  const days: Record<string, DayUsage> = {}
+  const usage: SessionUsage = { ...summary, ...ZERO(), requests: 0, costUsd: null, costEstimated: false, days, timeline }
+  for (const r of rows) {
+    const d = (days[r.day] ??= { ...ZERO(), requests: 0, prompts: 0, compactions: 0, costUsd: null, costEstimated: false })
+    for (const k of KINDS) {
+      d[k] += r[k]
+      usage[k] += r[k]
+    }
+    d.requests += r.requests
+    usage.requests += r.requests
+    d.prompts += r.prompts
+    d.compactions += r.compactions
+  }
+  return ledgerRows(usage, holds, settings)
 }
 
 /** A row's cost with today's prices: its known amount, and Hive's estimate for the tokens it doesn't cover (null: none known). */

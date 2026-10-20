@@ -194,7 +194,7 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     // It starts after the first check, while its usage is recorded under the lock.
     const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-y', projectPath: p, agentId: 'c1', sessionId: id, status: 'starting' } })
-      return false
+      return true
     })
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()
@@ -276,7 +276,7 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     let during: unknown = null
     const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       during = await run(async () => transcripts.viewing(7, 'v2', p, id)).catch((e) => e)
-      return false
+      return true
     })
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()
@@ -290,7 +290,7 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     let during: unknown = null
     const usage = vi.spyOn(usageHistory, 'recordNow').mockImplementation(async () => {
       during = await run(() => transcripts.read(p, id)).catch((e) => e)
-      return false
+      return true
     })
     await run(() => sessions.bulk(p, 'delete', [id]))
     usage.mockRestore()
