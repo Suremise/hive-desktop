@@ -39,7 +39,7 @@ import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
 import { holdLane } from './clean.mjs'
-import { LANES, OWN_POOL_FIRST, holdOwnPool } from './lanes.mjs'
+import { LANES, OWN_POOL_FIRST, claimHeld, holdOwnPool } from './lanes.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
@@ -324,21 +324,35 @@ async function laneWaitCheck(wt) {
     // The source changes while they wait: what they test must be this, not what was there when they started.
     writeFileSync(probe, '// A source file added while runs waited for a test lane (concurrency.mjs, #735).\nexport {}\n')
     const source = { inputs: buildInputs(wt), code: fingerprint(wt) }
-    // A machine lane of the same number held as a runner holds it, with a suite's folder in it (#1133): the waiting runs'
-    // housekeeping, as they end, must leave it, whatever their own pool's claims say.
+    // Machine lanes of the same numbers, held as a runner holds them, each with a suite's folder in it (#1133): the
+    // waiting runs' housekeeping, as they end, must leave them, whatever their own pool's claims say. A lane free on the
+    // machine is held by this checker; one another worktree's runner holds is used as it is (its own suites' folders
+    // were what went), and counts only while that runner still holds it when the runs end.
+    const machineClaim = (k) => {
+      try {
+        const c = JSON.parse(readFileSync(join(runContext.MACHINE_LANES_DIR, `lane-${k}.json`), 'utf8'))
+        return claimHeld(c) ? c : null
+      } catch {
+        return null
+      }
+    }
     const sentinels = []
     for (let k = 0; k < 2; k++) {
-      const release = await holdLane(runContext.MACHINE_LANES_DIR, k, { owner: process.pid })
-      if (!release) continue
+      const release = (await holdLane(runContext.MACHINE_LANES_DIR, k, { owner: process.pid })) ?? (() => {})
+      const holder = machineClaim(k)
+      if (!holder) continue
       const dir = join(runContext.TEST_ROOT, 'e2e', 'lanes', String(k), `concurrency-sentinel-${process.pid}`)
       mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, 'held.txt'), "A machine lane's suite folder, held by the concurrency check (#1133).\n")
-      sentinels.push({ k, dir, release })
+      writeFileSync(join(dir, 'held.txt'), "A machine lane's suite folder, kept while its lane is held (the concurrency check, #1133).\n")
+      sentinels.push({ k, dir, release, holder })
     }
     for (let k = 0; k < 2; k++) rmSync(join(pool, `lane-${k}.json`), { force: true })
     const [e2e, scenario] = await runs
-    if (sentinels.length) check("a machine lane held by another runner keeps its folders through the waiting runs' housekeeping", sentinels.every((s) => existsSync(join(s.dir, 'held.txt'))), sentinels.filter((s) => !existsSync(s.dir)).map((s) => `lane ${s.k}'s folder was removed`).join('; '))
-    else console.log("(machine lanes 0 and 1 were both in use: the housekeeping check had no lane to hold, and didn't run)")
+    // Still held by the same runner throughout: its lane's folders were never another runner's to remove.
+    const counted = sentinels.filter((s) => machineClaim(s.k)?.pid === s.holder.pid)
+    for (const s of sentinels.filter((x) => !counted.includes(x))) console.log(`(machine lane ${s.k} changed hands while the runs ran: it doesn't count)`)
+    if (counted.length) check("machine lanes held by a runner keep their folders through the waiting runs' housekeeping", counted.every((s) => existsSync(join(s.dir, 'held.txt'))), counted.filter((s) => !existsSync(join(s.dir, 'held.txt'))).map((s) => `lane ${s.k}'s folder was removed, the lane held by ${s.holder.pid === process.pid ? 'this checker' : `process ${s.holder.pid}`} throughout`).join('; '))
+    else console.log("(no machine lane 0 or 1 stayed held through the runs: the housekeeping check didn't run)")
     for (const s of sentinels) {
       rmSync(s.dir, { recursive: true, force: true })
       s.release()
