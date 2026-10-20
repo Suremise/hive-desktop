@@ -16,7 +16,7 @@ import { createLogger, userText } from './logger'
 import { recordProvider, sessions } from './sessions'
 import { cardHolds, type CardHolds } from './tasks'
 import { usageFile, type SessionId, type SessionMeta, type StoredSession } from './usageDb'
-import type { IngestJob, IngestResult, KeptJob, WorkerReply, WorkerRequest } from './usageWorker'
+import type { IngestJob, IngestResult, KeptJob, ReadResult, ReadSeed, WorkerReply, WorkerRequest } from './usageWorker'
 import { openWorkspaces, workspaceFor, WorkspaceService } from './workspace'
 
 const log = createLogger('usage')
@@ -225,7 +225,7 @@ class UsageHistory {
   /** A request to the worker, the settings it reads sent first when they changed. */
   private async call<T>(body: Body): Promise<T> {
     const send = await this.transport()
-    const cfg = JSON.stringify({ advanced: resolvedValues(advanced), providers: config.settings.providers, hiveVersion: appVersion() })
+    const cfg = JSON.stringify({ advanced: resolvedValues(advanced), providers: config.settings.providers, hiveVersion: appVersion(), cacheSize: usageCacheSize() })
     if (cfg !== this.sentConfig) {
       this.sentConfig = cfg
       this.post(send, { type: 'config', ...(JSON.parse(cfg) as Omit<Extract<Body, { type: 'config' }>, 'type'>) }).catch((e) => log.warn('sending the usage worker its settings', e))
@@ -612,6 +612,29 @@ class UsageHistory {
   // Reading.
   // -------------------------------------------------------------------------
 
+  /**
+   * What a transcript used so far, read in the worker (#1147), never in main: a running session's (its footer and context
+   * gauge, its cost, the Agent API's), or one the history doesn't have yet. Not queued: the worker reads it at once, from
+   * where its last read of the file stopped, or from the session's saved state when it hasn't read it in this run (a
+   * resume after a restart reads only what was added since). `projectPath`: the session's host, whose history has that
+   * state. Null when it can't be read, or once Hive is quitting.
+   */
+  async read(projectPath: string, path: string, sessionId: string, provider: ProviderId): Promise<ReadResult | null> {
+    if (this.stopped) return null
+    let seed: ReadSeed | null = null
+    const ws = workspaceFor(projectPath)
+    if (ws?.path) {
+      const scope = await ws.sessionScope(projectPath).catch(() => null)
+      if (scope) seed = { file: usageFile(scope.workspace), scope: scope.scope }
+    }
+    return this.call<ReadResult | null>({ type: 'read', path, session: sessionId, provider, seed })
+  }
+
+  /** Forgets what the worker read in this run (Settings → Sessions → Clear): each transcript is read again when asked for. */
+  async forgetReads(): Promise<void> {
+    if (!this.stopped) await this.call({ type: 'forgetReads' })
+  }
+
   /** The history's sessions of some hosts of a workspace (by scope), with their rows. */
   async storedSessions(workspacePath: string, scopes: string[] | null): Promise<StoredSession[]> {
     return this.call<StoredSession[]>({ type: 'sessions', file: usageFile(workspacePath), scopes })
@@ -650,6 +673,9 @@ const metaOf = (scope: string, rec: SessionRecord): SessionMeta => ({
   ...(rec.name ? { name: rec.name } : {}),
   ...(rec.cwd ? { cwd: rec.cwd } : {})
 })
+
+/** Transcripts whose results the worker keeps (Settings → Sessions → Usage cache size). */
+const usageCacheSize = (): number => Math.min(50000, Math.max(100, Number(config.settings.sessions.usageCacheSize) || 5000))
 
 const appVersion = (): string => {
   try {
