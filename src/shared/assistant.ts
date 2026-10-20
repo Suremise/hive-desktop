@@ -28,6 +28,8 @@ export const ASSISTANT_TRUSTED_TOOLS = [
   'hive_session_usage',
   'hive_list_shared_notes',
   'hive_read_shared_note',
+  'hive_doc_outline',
+  'hive_read_section',
   'hive_read_latest_handover',
   'hive_list_skills'
 ]

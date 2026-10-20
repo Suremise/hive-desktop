@@ -1,4 +1,5 @@
 {
+  "worktrees.agent.badPlacement": "W tym układzie nie można tak rozmieścić paneli.",
   "worktrees.agent.chooseMove": "Wybierz, gdzie przenieść agenta.",
   "worktrees.agent.chooseTree": "Wybierz worktree.",
   "worktrees.agent.detached": "To worktree nie jest na żadnej gałęzi (detached HEAD).",

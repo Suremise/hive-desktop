@@ -1,6 +1,7 @@
 // Generated from locales/en/worktrees.json: do not edit. Each message's placeholders and their types, for tr(): a
 // global script, so its interface merges with every other area's (shared/i18n/msg.ts).
 interface HiveMessageValues {
+  'worktrees.agent.badPlacement': undefined
   'worktrees.agent.chooseMove': undefined
   'worktrees.agent.chooseTree': undefined
   'worktrees.agent.detached': undefined

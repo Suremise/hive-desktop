@@ -2,10 +2,11 @@
 // the two (running or stopped), in a fresh window and after clicking agents into panes (what failed before, when a
 // stored pane arrangement won over the order); Move Left in an agent's menu (#975: the strip's tabs inserted); holding a dragged agent over a
 // page button switches to that page, to drop it on a pane there (the swap crosses pages); a drop on a page button
-// moves it to that page's last place; a drop on an empty pane moves it there; and no target is offered where a drop
-// would change nothing (the last agent over the spare panes or its own page's button, #238). After every step the panes show the
-// agents in their saved order. Four agents in three columns (pages abc | d); one runs the fake Claude Code
-// (fake-claude/) and keeps its session throughout. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
+// moves it to that page's first empty cell (#762); a drop on an empty pane moves it there, leaving its own cell empty;
+// and no page button is a target where a drop would change nothing (its own page's, or a page with no empty cell,
+// #238). After every step the panes show the cells saved for the layout, and the order follows them as they read. Four
+// agents in three columns (pages abc | d); one runs the fake Claude Code (fake-claude/) and keeps its session
+// throughout. Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
@@ -44,14 +45,17 @@ const check = (name, ok, extra = '') => {
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
   const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
-  const saved = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8')).agents.map((a) => a.name)
+  const projectJson = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8'))
+  const saved = () => projectJson().agents.map((a) => a.name)
   const paneNames = async () => (await page.locator('.pane-header-bar .agent-name').allInnerTexts()).map((t) => t.trim())
   const activePage = async () => Number((await page.locator('.page-switch button.active').innerText().catch(() => '1')).trim())
-  // The panes show the saved order: the page on screen holds agents (page − 1)·3 … +3.
+  // The panes show the saved cells (#762; before any move, the order): the page on screen holds cells (page − 1)·3 … +3.
   const matches = async () => {
-    const order = saved()
+    const now = projectJson()
+    const name = (id) => now.agents.find((a) => a.id === id)?.name
+    const cells = now.placement?.columns3 ?? now.agents.map((a) => a.id)
     const p = await activePage()
-    return JSON.stringify(await paneNames()) === JSON.stringify(order.slice((p - 1) * 3, p * 3))
+    return JSON.stringify(await paneNames()) === JSON.stringify(cells.slice((p - 1) * 3, p * 3).filter(Boolean).map(name))
   }
   const settle = async (want) => lib.until(async () => saved().join(',') === want && (await matches()), 8000)
   const at = async (loc) => {
@@ -162,20 +166,22 @@ const check = (name, ok, extra = '') => {
   await drag(header('One'), [page.locator('.project-header h1')])
   check('a drop outside the targets moves nothing and leaves no drop targets', saved().join(',') === before && (await page.locator('.pane-drop').count()) === 0, `${saved()} / ${await page.locator('.pane-drop').count()}`)
 
-  // --- A drop on a page button: to that page's last place (Four, from page 1, to page 2's end).
+  // --- A drop on a page button: to that page's first empty cell (#762; Four, from page 1, beside Three on page 2). Its
+  // own cell on page 1 stays empty.
   await drag(header('Four'), [page.locator('.page-switch button[aria-label="Agent page 2"]')])
-  check("a drop on a page button moves the agent to that page's last place", !!(await lib.until(async () => saved().join(',') === 'Two,One,Three,Four', 8000)), saved().join(','))
-  check('the panes still follow the order', !!(await lib.until(matches, 5000)), `${saved()} / ${await paneNames()}`)
+  check("a drop on a page button moves the agent to that page's first empty cell", !!(await lib.until(async () => saved().join(',') === 'Two,One,Three,Four', 8000)), saved().join(','))
+  check('the panes show the cells saved', !!(await lib.until(matches, 5000)), `${saved()} / ${await paneNames()}`)
+  check('…its cell on page 1 is left empty', JSON.stringify(projectJson().placement?.columns3?.map((id) => projectJson().agents.find((a) => a.id === id)?.name ?? null)) === '[null,"Two","One","Three","Four"]', JSON.stringify(projectJson().placement))
 
-  // --- A drop on an empty pane (page 2 has one agent and two spare panes): the agent moves there, the end. Two (on page 1)
-  // is held over page 2's button until it shows, then dropped on a spare pane. Page 1 first (Four's move showed page 2).
+  // --- A drop on an empty pane (page 2 has two agents and a spare cell): the agent moves there. Two (on page 1) is held
+  // over page 2's button until it shows, then dropped on the spare pane. Page 1 first (Four's move showed page 2).
   await page.locator('.page-switch button[aria-label="Agent page 1"]').click()
   await lib.until(async () => (await activePage()) === 1, 5000)
   await drag(header('Two'), [page.locator('.page-switch button[aria-label="Agent page 2"]'), () => page.locator('.agent-pane:not(:has(.pane-header-bar))').last()], 900)
   check('a drop on an empty pane moves the agent there', !!(await settle('One,Three,Four,Two')), `${saved()} / ${await paneNames()}`)
 
-  // --- No target where a drop would change nothing (#238): Two is now last, alone on page 2 with two spare panes. Each
-  // hover is shorter than the page switch (600 ms).
+  // --- No page button is a target where a drop changes nothing (#238): Two is on page 2, now full; page 1 has two empty
+  // cells. Each hover is shorter than the page switch (600 ms).
   const order = saved().join(',')
   const t2 = await at(header('Two'))
   await page.mouse.move(t2.x, t2.y)
@@ -189,13 +195,11 @@ const check = (name, ok, extra = '') => {
     await page.mouse.move(b.x + 1, b.y, { steps: 2 })
     await lib.sleep(120)
   }
-  await hover(page.locator('.agent-pane:not(:has(.pane-header-bar))').last())
-  check('the last agent dragged: no "Move here" on the spare panes (it is already at the end)', (await page.locator('.pane-drop').count()) === 0, `${await page.locator('.pane-drop').count()} drop targets`)
   const button = (n) => page.locator(`.page-switch button[aria-label="Agent page ${n}"]`)
   await hover(button(2))
-  check("…nor its own page's button", (await page.locator('.page-switch button.drop-target').count()) === 0)
+  check("the agent dragged: its own page's button isn't a target", (await page.locator('.page-switch button.drop-target').count()) === 0)
   await hover(button(1))
-  check("…while page 1's button is one (a drop there moves it)", (await button(1).getAttribute('class'))?.includes('drop-target'), await button(1).getAttribute('class'))
+  check("…while page 1's button is one (it has empty cells)", (await button(1).getAttribute('class'))?.includes('drop-target'), await button(1).getAttribute('class'))
   await hover(button(2))
   await page.mouse.up()
   await lib.sleep(400)

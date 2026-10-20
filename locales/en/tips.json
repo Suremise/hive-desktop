@@ -351,6 +351,14 @@
     "defaultMessage": "Move a dialog out of the way",
     "description": "A tip's title."
   },
+  "tips.cardReadFirst.text": {
+    "defaultMessage": "In a card's Read first, list the doc sections it needs, like docs/PLAN.md#setup: the agent's start prompt lists them, so it reads those sections instead of a whole plan. Click one to read it in Hive.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. Keep docs/PLAN.md#setup as it is."
+  },
+  "tips.cardReadFirst.title": {
+    "defaultMessage": "Point a card at the docs it needs",
+    "description": "A tip's title."
+  },
   "tips.cardSummaries.text": {
     "defaultMessage": "Agents start a card's report or review verdict with one line saying what is ready or what was found, the details below; they and the Assistant read just those lines when that's enough.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
@@ -769,6 +777,14 @@
   },
   "tips.palette.title": {
     "defaultMessage": "Everything is in the command palette",
+    "description": "A tip's title."
+  },
+  "tips.paneCells.text": {
+    "defaultMessage": "Drag a pane by its header onto an empty pane to move it there, or onto another to swap them. Each layout keeps where you put them, so switching layouts and back restores it.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.paneCells.title": {
+    "defaultMessage": "Put an agent in any pane",
     "description": "A tip's title."
   },
   "tips.pasteScreenshot.text": {
