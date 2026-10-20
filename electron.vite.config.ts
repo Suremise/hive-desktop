@@ -1,6 +1,34 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+
+/** Monaco's own copy of DOMPurify, which its domSanitize.js imports by a relative path. */
+const MONACO_DOMPURIFY = /[\\/]monaco-editor[\\/]esm[\\/]vs[\\/]base[\\/]browser[\\/]dompurify[\\/]dompurify\.js$/
+const MONACO_SANITIZE = /[\\/]monaco-editor[\\/]esm[\\/]vs[\\/]base[\\/]browser[\\/]domSanitize\.js$/
+
+/**
+ * Monaco's DOMPurify is Hive's (#1141). monaco-editor 0.57.0 bundles its own copy of DOMPurify 3.4.15 (two IN_PLACE
+ * advisories: Monaco doesn't sanitise in place, but the copy ships) and never imports the dompurify package it lists, so
+ * package.json's override alone wouldn't change what ships. Its one import, from vs/base/browser/domSanitize.js, is Hive's
+ * dompurify (3.4.16, the same library a patch on) instead, and a build that would still take Monaco's copy fails. The
+ * dev server's pre-bundled Monaco keeps its copy (development only). Remove this and the override once Monaco bundles
+ * 3.4.16 or later: tests/monacoDompurify.test.ts fails then to say so.
+ */
+export function monacoDompurify(): Plugin {
+  return {
+    name: 'hive-monaco-dompurify',
+    enforce: 'pre',
+    resolveId(source: string, importer?: string) {
+      if (source !== './dompurify/dompurify.js' || !importer || !MONACO_SANITIZE.test(importer)) return null
+      return resolve(__dirname, 'node_modules/dompurify/dist/purify.es.mjs')
+    },
+    load(id: string) {
+      if (MONACO_DOMPURIFY.test(id)) throw new Error(`Monaco's own DOMPurify would be bundled (${id}): see hive-monaco-dompurify in electron.vite.config.ts (#1141)`)
+      return null
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -33,6 +61,7 @@ export default defineConfig({
     },
     plugins: [
       react(),
+      monacoDompurify(),
       {
         // Codicons' base rule (.codicon[class*='codicon-'] { font: 16px/1 codicon }) comes twice: from
         // @vscode/codicons at start, and from Monaco when an editor first loads. As plain CSS it ties with Hive's own

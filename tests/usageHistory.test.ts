@@ -217,6 +217,32 @@ describe('the usage history of a workspace', () => {
     expect(await onCard()).toBe(1000)
   })
 
+  it("a running session's row follows its transcript at once, a CLI /rename too, read by the worker (#1157)", async () => {
+    const id = newId()
+    write(cliFile(id), transcript(id, [100]))
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'Docs pass', titleAtRename: null, lastActiveAt: new Date(T0).toISOString() }))
+    const live = (sessions as unknown as { live: Map<string, unknown> }).live
+    live.set(`${p.toLowerCase()}#c1`, { state: { sessionId: id, projectPath: p, provider: 'claude-code' } })
+    const reads = vi.spyOn(usageHistory, 'read')
+    try {
+      const row = async (): Promise<SessionListItem | undefined> => (await run(() => sessions.list(p))).find((i) => i.id === id)
+      expect((await row())?.usage?.outputTokens).toBe(100)
+      // No turn ends and no tick comes: the history has none of it.
+      appendFileSync(cliFile(id), JSON.stringify({ type: 'custom-title', customTitle: 'Guide only', sessionId: id }) + '\n' + request(id, 2, 50))
+      reads.mockClear()
+      const after = await row()
+      expect([after?.usage?.customTitle, after?.title, after?.usage?.outputTokens]).toEqual(['Guide only', 'Guide only', 150])
+      expect(reads).toHaveBeenCalledTimes(1)
+      // Unchanged since: the worker isn't asked again.
+      reads.mockClear()
+      expect((await row())?.usage?.customTitle).toBe('Guide only')
+      expect(reads).not.toHaveBeenCalled()
+    } finally {
+      reads.mockRestore()
+      live.delete(`${p.toLowerCase()}#c1`)
+    }
+  })
+
   it('the Overview reads no transcript', async () => {
     const reads = vi.spyOn(sessions, 'anyTranscript')
     const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')

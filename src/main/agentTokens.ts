@@ -46,12 +46,12 @@ export function endAgentToken(projectPath: string, agentId: string, runId: strin
   if (tokens.get(k)?.runId === runId) tokens.delete(k)
 }
 
-/** The agent a token belongs to, or null. */
-export function agentForToken(token: string): AgentIdentity | null {
+/** The agent a token belongs to, with the launch it was made for, or null. */
+export function agentForToken(token: string): (AgentIdentity & { runId: string }) | null {
   const got = Buffer.from(token)
   for (const t of tokens.values()) {
     const want = Buffer.from(t.token)
-    if (got.length === want.length && timingSafeEqual(got, want)) return { workspace: t.workspace, projectPath: t.projectPath, agentId: t.agentId }
+    if (got.length === want.length && timingSafeEqual(got, want)) return { workspace: t.workspace, projectPath: t.projectPath, agentId: t.agentId, runId: t.runId }
   }
   return null
 }

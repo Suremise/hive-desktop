@@ -1266,16 +1266,25 @@ export async function deliverNow(host: string, nd: NewDelivery, holds?: () => bo
     }
     throw new NotGiven(whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : 'Hive could not type it'))
   }
+  /**
+   * Waits while the agent's hive tools are connecting (#865 round 3: a task given in the second after it became ready):
+   * held, not refused, until they connect or the bound passes (sessions.hiveToolsSettled). Whether it waited.
+   */
+  const heldByTools = async (): Promise<boolean> => {
+    if (!sessions.hiveToolsWaiting(host, nd.agentId) || !readyFor(sessions.liveFor(host, nd.agentId), nd.need ?? 'idle')) return false
+    await sessions.hiveToolsSettled(host, nd.agentId)
+    return true
+  }
   const rec = await createDelivery(host, nd, { ...hooks, ...(holds ? { holds } : {}) })
   const store = await load(host)
   let why: string | null = null
   try {
     // Another try for the agent may be running (the tick's): once it is done, this one's own. A wait for its folder
-    // (#646) is no try: given at once after it, or cancelled as before if it can't be then.
+    // (#646) or its hive tools (#865) is no try: given at once after it, or cancelled as before if it can't be then.
     for (let i = 0; i < 3; ) {
       const now = deliveryNow(host, rec.id)
       if (!now || !isWaiting(now)) break
-      if (await heldByFolder()) continue
+      if ((await heldByFolder()) || (await heldByTools())) continue
       why = whyNoLine(host, nd.agentId, nd.need ?? 'idle') ?? (holds && !holds() ? 'what it was for changed meanwhile' : null)
       if (why) break
       if (await offerNow(host, nd.agentId, rec.id)) break
