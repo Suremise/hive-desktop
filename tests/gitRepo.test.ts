@@ -22,6 +22,9 @@ let nested = ''
 /** The project's agents, and their sessions' status by agent id. */
 let agents: { id: string; name: string; worktree?: { path: string; branch: string; base: string } }[] = []
 let live: Record<string, string> = {}
+/** Agents with input of Hive's on its way (#646 round 1): a prompt given and not taken, a line typed and not taken. */
+const pendingInput = new Set<string>()
+const typedWaiting = new Set<string>()
 let slots: MergeSlotInfo[] = []
 const asUser = vi.fn((_p: string, _b: string, fn: () => Promise<unknown>) => fn())
 /** While set, an action waiting for the project's merge lock stops at its door: `entered` says it got there, `open` lets it in. */
@@ -37,7 +40,7 @@ vi.mock('../src/main/workspace', () => ({
   },
   workspaceOf: () => ({ refresh: async () => ({}) })
 }))
-vi.mock('../src/main/sessions', () => ({ sessions: { liveFor: (_p: string, id: string) => (live[id] ? { status: live[id] } : null) } }))
+vi.mock('../src/main/sessions', () => ({ sessions: { liveFor: (_p: string, id: string) => (live[id] ? { status: live[id] } : null), agentNow: (_p: string, id: string) => (live[id] ? { pending: pendingInput.has(id) } : null), lineWaiting: (_p: string, id: string) => typedWaiting.has(id) } }))
 vi.mock('../src/main/mergeSlotHost', () => ({ mergeSlots: { list: () => slots, asUser } }))
 vi.mock('../src/main/branchWatch', () => ({ checkProject: async () => undefined }))
 vi.mock('../src/main/fsutil', async (importOriginal) => {
@@ -55,7 +58,26 @@ vi.mock('../src/main/fsutil', async (importOriginal) => {
   }
 })
 
+/** While set, a `git checkout` or `git merge` (a switch, a create, a pull) stops before git starts: `entered`, then `open` (#646). */
+let gitDoor: { entered: () => void; open: Promise<void> } | null = null
+vi.mock('../src/main/git', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/main/git')>()
+  return {
+    ...real,
+    git: async (...args: Parameters<typeof real.git>) => {
+      const door = gitDoor
+      if (door && (args[1][0] === 'checkout' || args[1][0] === 'merge')) {
+        gitDoor = null
+        door.entered()
+        await door.open
+      }
+      return real.git(...args)
+    }
+  }
+})
+
 const repo = await import('../src/main/gitRepo')
+const fence = await import('../src/main/folderFence')
 
 // Real git work, not a wait: each test runs a few dozen git commands, slow under a full unit run's load.
 vi.setConfig({ testTimeout: 60_000 })
@@ -202,6 +224,62 @@ describe('switching branch', () => {
     agents = [{ id: 'a3', name: 'B3', worktree: { path: join(outer, 'wt'), branch: 'hive/b3', base: 'main' } }]
     live = { a3: 'working' }
     expect(await repo.switchBranch(proj, 'other')).toBe('Switched to other.')
+  })
+
+  it("fences the project folder while git switches or pulls it, and only then: Hive's lines and starts there wait for it (#646)", async () => {
+    agents = [{ id: 'a1', name: 'B1' }]
+    git(proj, 'branch', 'feature/y')
+    // git's checkout is held: the folder is fenced (a subfolder too), another folder isn't; a start there waits.
+    let entered!: () => void
+    let open!: () => void
+    const atGit = new Promise<void>((r) => (entered = r))
+    gitDoor = { entered, open: new Promise<void>((r) => (open = r)) }
+    const switched = repo.switchBranch(proj, 'feature/y')
+    await atGit
+    expect(fence.folderChanging(proj)).toBe('a Git switch')
+    expect(fence.folderChanging(join(proj, 'src'))).toBe('a Git switch')
+    expect(fence.folderChanging(other)).toBeNull()
+    expect(fence.folderChanging(`${proj}-2`)).toBeNull()
+    let steady = false
+    const waited = fence.folderSteady(proj).then(() => (steady = true))
+    const lifted: string[] = []
+    fence.onFolderSteady((f) => lifted.push(f))
+    // Still held: nothing may start there (the promise is still pending after the event loop turns).
+    await new Promise<void>((r) => setImmediate(r))
+    expect(steady).toBe(false)
+    open()
+    expect(await switched).toBe('Switched to feature/y.')
+    await waited
+    expect(steady).toBe(true)
+    expect(fence.folderChanging(proj)).toBeNull()
+    expect(lifted).toEqual([proj])
+    // An idle agent with input of Hive's on its way (a prompt given and not taken, a line typed and not taken) counts as
+    // working at the fenced check: its CLI may start that turn while git runs, and the fence can't take it back.
+    live = { a1: 'ready' }
+    pendingInput.add('a1')
+    await expect(repo.switchBranch(proj, 'main')).rejects.toThrow(/B1 is working in the project folder/)
+    pendingInput.clear()
+    typedWaiting.add('a1')
+    await expect(repo.switchBranch(proj, 'main')).rejects.toThrow(/B1 is working in the project folder/)
+    typedWaiting.clear()
+    expect(fence.folderChanging(proj)).toBeNull()
+    // Refused (B1 working when the fenced check runs): the fence comes down with it, never left up.
+    live = { a1: 'working' }
+    await expect(repo.switchBranch(proj, 'main')).rejects.toThrow(/B1 is working in the project folder/)
+    expect(fence.folderChanging(proj)).toBeNull()
+    // A pull is fenced too.
+    live = {}
+    theyPush('fenced.txt')
+    git(proj, 'fetch', '-q')
+    git(proj, 'checkout', '-q', 'main')
+    const pulledAt = new Promise<void>((r) => (entered = r))
+    gitDoor = { entered, open: new Promise<void>((r) => (open = r)) }
+    const pulled = repo.pull(proj)
+    await pulledAt
+    expect(fence.folderChanging(proj)).toBe('a Git pull')
+    open()
+    await pulled
+    expect(fence.folderChanging(proj)).toBeNull()
   })
 
   it('is refused when the agent starts working while the action waits for the merge lock', async () => {

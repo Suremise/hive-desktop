@@ -17,19 +17,19 @@ export function hookSummary(name: string, tool: unknown, event: string, status: 
 
 export function detailsSummary(d: LiveDetails): string {
   const parts: string[] = []
-  if (d.modelId || d.modelName) parts.push(`model ${safeWord(d.modelId ?? d.modelName)}`)
-  if (d.effort) parts.push(`effort ${safeWord(d.effort)}`)
+  if (d.modelId || d.modelName) parts.push(`model ${safeWord(d.modelId ?? d.modelName)}`) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
+  if (d.effort) parts.push(`effort ${safeWord(d.effort)}`) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   if (typeof d.costUsd === 'number' && Number.isFinite(d.costUsd)) parts.push(`$${d.costUsd.toFixed(2)}`)
-  if (typeof d.contextWindow === 'number') parts.push(`window ${d.contextWindow}`)
-  if (d.permissionMode) parts.push(`mode ${safeWord(d.permissionMode)}`)
-  if (d.planMode !== undefined) parts.push(`plan mode ${d.planMode ? 'on' : 'off'}`)
+  if (typeof d.contextWindow === 'number') parts.push(`window ${d.contextWindow}`) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
+  if (d.permissionMode) parts.push(`mode ${safeWord(d.permissionMode)}`) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
+  if (d.planMode !== undefined) parts.push(`plan mode ${d.planMode ? 'on' : 'off'}`) // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   for (const l of (d.planUsage?.limits ?? []).slice(0, 6)) parts.push(`${safeWord(l.id)} ${Math.round(Number(l.usedPercent) || 0)}%`)
-  if (d.signIn) parts.push('sign-in refused')
+  if (d.signIn) parts.push('sign-in refused') // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
   if (d.interruptedAt) parts.push('interrupted')
   return parts.join(' · ')
 }
 
-export const statusLineSummary = (d: LiveDetails): string => `status line → ${detailsSummary(d) || 'nothing new'}`
+export const statusLineSummary = (d: LiveDetails): string => `status line → ${detailsSummary(d) || 'nothing new'}` // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
 
 /** At most this many of a read's newest records go into its event (each redacted, the event bounded). */
 const RECORDS = 10
@@ -45,7 +45,7 @@ export function transcriptEvent(provider: ProviderId, chunk: string, d: LiveDeta
     }
   })
   const said = detailsSummary(d)
-  return { kind: 'transcript', name: 'transcript', provider, raw: { records: lines.length, newest }, made: d, safe: { raw: TRANSCRIPT_FIELDS, made: DETAILS_FIELDS }, summary: `transcript +${lines.length} record${lines.length === 1 ? '' : 's'} → ${said || 'nothing new'}` }
+  return { kind: 'transcript', name: 'transcript', provider, raw: { records: lines.length, newest }, made: d, safe: { raw: TRANSCRIPT_FIELDS, made: DETAILS_FIELDS }, summary: `transcript +${lines.length} record${lines.length === 1 ? '' : 's'} → ${said || 'nothing new'}` } // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
 }
 
 /**

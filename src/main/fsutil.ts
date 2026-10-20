@@ -221,11 +221,22 @@ export function writeTextUnlessChanged(path: string, text: string, expected?: st
   })
 }
 
-/** Saves a kept file and its .bak copy. */
-export async function writeKeptJson(path: string, data: unknown): Promise<void> {
-  const text = JSON.stringify(data, null, 2) + '\n'
+/** Kept files whose .bak this run has written (`bakOncePerRun`), by lower-case path. */
+const backedUp = new Set<string>()
+
+/**
+ * Saves a kept file and its .bak copy. `compact`: JSON without spaces; `bakOncePerRun`: the .bak only at the first save
+ * of the run (#1111: config.json, saved often, then costs one write a save, not two).
+ */
+export async function writeKeptJson(path: string, data: unknown, opts: { compact?: boolean; bakOncePerRun?: boolean } = {}): Promise<void> {
+  const text = (opts.compact ? JSON.stringify(data) : JSON.stringify(data, null, 2)) + '\n'
   await writeTextAtomic(path, text)
-  await writeTextAtomic(`${path}.bak`, text).catch(() => undefined)
+  const k = path.toLowerCase()
+  if (opts.bakOncePerRun && backedUp.has(k)) return
+  await writeTextAtomic(`${path}.bak`, text).then(
+    () => void backedUp.add(k),
+    () => undefined
+  )
 }
 
 /** Writes via a temp file + rename so a crash never leaves a half-written file. */

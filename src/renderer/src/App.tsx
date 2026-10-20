@@ -22,7 +22,7 @@ import { CornerPlacement, TipCard, TipsDialog } from './components/Tips'
 import { applyTipsState, showTodaysTip } from './tips'
 import { startupReplay } from './startupReplay'
 import { AssistantPanel, AssistantSettingsDialog } from './components/Assistant'
-import { ProgressPanel } from './components/Progress'
+import { ProgressPanel, progressRunsChanged } from './components/Progress'
 import { AssistantMain } from './components/AssistantView'
 import { agentOnScreen, applyLeftovers, applyLiveState, assistantOnLeft, assistantWasOpen, clearStartFailure, filesListeners, findProject, get, loadTasks, noteAgentAdded, notify, projectKey, pushToast, set, useLanguage, useProviderWarnings, useStore } from './store'
 import { DocsView, McpView, NotesView, SkillView, WelcomeView } from './views/OtherViews'
@@ -225,8 +225,8 @@ function handleEvent(e: HiveEvent): void {
       // The usage history's import (#1106): the Workspace Overview's note follows it.
       set((s) => (s.workspaceUsage && s.workspaceUsage.workspacePath.toLowerCase() === e.workspacePath.toLowerCase() ? { workspaceUsage: { ...s.workspaceUsage, history: e.progress } } : {}))
       break
-    case 'progress-changed':
-      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ progressRuns: e.runs })
+    case 'progress-runs':
+      if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) progressRunsChanged(e)
       break
     case 'merge-slots-changed':
       if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set({ mergeSlots: e.slots })

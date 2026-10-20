@@ -9,7 +9,8 @@ export const LIMIT_MS = 10 * 60_000
  * PostCompact; when it doesn't, Hive learns it from the transcript (a compaction more than before), the terminal
  * (the CLI refused or failed it, which sends no hook), or the time limits. `over` is called once, whichever comes
  * first; a hook that ends it (PostCompact, or a prompt that starts a new turn) calls end() and takes care of the
- * status itself.
+ * status itself. One the CLI began by itself while the agent was idle is watched the same way from its PreCompact
+ * (#1115: nothing else may say it is over).
  */
 export class Compaction {
   started = false
@@ -18,8 +19,12 @@ export class Compaction {
   private done = false
 
   constructor(
-    /** Compactions in the transcript before this one. */
-    readonly before: number,
+    /**
+     * What came before it in the transcript: how many compactions (Hive's own Compact counts them before typing it), or
+     * when it began (one the CLI began by itself, #1115: counted after its PreCompact, a compaction written meanwhile
+     * would pass for an earlier one), so only a compaction recorded since then is this one.
+     */
+    private readonly before: number | { since: number },
     /** What the CLI prints when it refuses or fails a compaction (ProviderAdapter.compactFailure). */
     private readonly failure: RegExp | null,
     private readonly over: () => void
@@ -40,9 +45,10 @@ export class Compaction {
     this.timer = setTimeout(() => this.finish(), LIMIT_MS)
   }
 
-  /** The transcript has `count` compactions: one more than before means it is done. */
-  transcript(count: number): void {
-    if (count > this.before) this.finish()
+  /** The transcript's compactions: one more than before, or one recorded since it began, means it is done. */
+  transcript(compactions: readonly { timestamp: string }[]): void {
+    const b = this.before
+    if (typeof b === 'number' ? compactions.length > b : compactions.some((c) => Date.parse(c.timestamp) >= b.since)) this.finish()
   }
 
   /** Terminal output while it runs. */

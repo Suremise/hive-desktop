@@ -32,6 +32,9 @@ const check = (name, ok, extra = '') => {
   cfg.settings.providers['claude-code'].executablePath = path.join(__dirname, 'fake-claude', 'fake-claude.cmd')
   cfg.settings.general = { ...cfg.settings.general, confirmOnQuit: 'never' }
   cfg.settings.agentApi = { ...cfg.settings.agentApi, enabled: true }
+  // The suite gives its agents their work by typing in their panes, as the user would: with a lane watch, those are the
+  // user's replies to lane agents, which reach the Assistant at once (#1099; replytell tests that). Off here.
+  cfg.settings.assistant = { ...cfg.settings.assistant, tellReplies: false }
   fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2))
 
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: String(PORT), CLAUDE_CONFIG_DIR: claudeHome, HIVE_TEST_TIPS: 'off' })

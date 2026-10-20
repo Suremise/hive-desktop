@@ -291,6 +291,10 @@
     "defaultMessage": "Collapse #{card} to one line",
     "description": "Tooltip on the chevron of a card: folds it to one line. {card} is its number (after #)."
   },
+  "board.card.contextBroken": {
+    "defaultMessage": "{n, plural, one {Read first no longer resolves: {refs}} other {# Read first references no longer resolve: {refs}}}",
+    "description": "A warning on a card (#819): its Read first references (doc sections) that didn't resolve when last checked: how many ({n}) and which ({refs}: references such as \"docs/PLAN.md#setup\", separated by commas; keep them as they are). The tooltip says why."
+  },
   "board.card.decisionsCount": {
     "defaultMessage": "Decisions: {n}",
     "description": "Accessible name of a card's decision count: how many decisions the user recorded about it."
@@ -430,6 +434,26 @@
   "board.columns.more": {
     "defaultMessage": "{column}: more",
     "description": "Tooltip on a board column's ⋯ button: opens its menu. {column} is its name."
+  },
+  "board.context.close": {
+    "defaultMessage": "Close",
+    "description": "Button: closes the doc section viewer."
+  },
+  "board.context.loading": {
+    "defaultMessage": "Reading…",
+    "description": "The doc section viewer while it reads the section."
+  },
+  "board.context.open": {
+    "defaultMessage": "Open in Files",
+    "description": "Button in the doc section viewer (a card's Read first reference, #818): opens the project's file in the Files tab, at the section."
+  },
+  "board.context.openNote": {
+    "defaultMessage": "Open in Shared Notes",
+    "description": "Button in the doc section viewer (a card's Read first reference to a shared note, #818): opens the note in the Shared Notes view."
+  },
+  "board.context.problem": {
+    "defaultMessage": "{why, select, noHeading {That heading isn't in the file} ambiguous {Several headings have that heading's text, so the reference may mean another} notFound {The file isn't there} notMarkdown {It isn't a Markdown file} invalid {It isn't a doc section (a Markdown file, optionally with # and a heading's slug)} tooBig {The file is too big to read} other {It can't be read here}}.{closest, select, none {} other { {why, select, ambiguous {They are} other {Closest headings}}: {closest}.}}",
+    "description": "Why a card's Read first reference doesn't lead to a section (#818, #819; the section viewer, the card dialog, a card's tooltip): why ({why}, select: translate each; ambiguous: two headings now have the same text) and the closest headings' slugs, or for ambiguous the headings with that text ({closest}; none: leave that branch empty)."
   },
   "board.cost.cardLine": {
     "defaultMessage": "cost: {cost}{rounds, plural, =0 {} one { · # round} other { · # rounds}}",
@@ -739,6 +763,14 @@
     "defaultMessage": "Comments ({n})",
     "description": "A heading in the card dialog: the card's comments, and how many ({n})."
   },
+  "board.dialog.context": {
+    "defaultMessage": "Read first",
+    "description": "A field label in the card dialog (#818): doc sections the card's agent reads before starting, given in its start prompt."
+  },
+  "board.dialog.contextPlaceholder": {
+    "defaultMessage": "Doc sections, one a line: docs/PLAN.md#setup, shared:plans/notes.md#open-questions",
+    "description": "Placeholder of the card dialog's Read first box (#818): references to doc sections, one a line (keep the examples as they are)."
+  },
   "board.dialog.creatingWorktree": {
     "defaultMessage": "Creating the worktree…",
     "description": "A button while a card is being started on a new agent in its own git worktree (making the worktree takes a moment)."
@@ -1030,6 +1062,10 @@
   "board.field.column": {
     "defaultMessage": "column",
     "description": "A card's field, named in a list (\"Your column replaced the change made meanwhile\"): the board column it is in. Lower case."
+  },
+  "board.field.context": {
+    "defaultMessage": "doc sections to read first",
+    "description": "A card's field, named in a list (\"Your doc sections to read first replaced the change made meanwhile\"): its Read first references. Lower case."
   },
   "board.field.description": {
     "defaultMessage": "description",
@@ -1851,6 +1887,10 @@
     "defaultMessage": "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.",
     "description": "Tooltip on a card stalled in Review: its reviewer watches it but has not started."
   },
+  "board.stall.hintWakeUntaken": {
+    "defaultMessage": "Hive typed this card's wake into that agent, but its CLI didn't send it. Show the agent, click its terminal and press Enter.",
+    "description": "Tooltip on a stalled card: Hive typed the line that wakes the agent into its terminal, and the agent's CLI never sent it (it waits in the agent's prompt)."
+  },
   "board.stalled.noAgent": {
     "defaultMessage": "In Doing, but no agent has it.",
     "description": "Why a card in the Doing column is stalled (on the card). Doing is the column."
@@ -1886,6 +1926,10 @@
   "board.stalled.reviewWaitSilent": {
     "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent, number} min: state unknown): in Review for {waited}.",
     "description": "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
+  },
+  "board.stalled.wakeUntaken": {
+    "defaultMessage": "{agent} hasn't taken the wake Hive typed for #{card}: it waits in its prompt.",
+    "description": "Why a card in a card loop is stalled: the agent watched the card, and Hive typed its wake line into the agent's terminal, but the agent's CLI never sent it. {agent} is its name, {card} the card number (after #)."
   },
   "board.start.busy": {
     "defaultMessage": "{status}. Choose it once it's idle.",

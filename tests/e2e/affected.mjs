@@ -105,6 +105,8 @@ export const AREAS = [
   { paths: ['src/main/consoleRecorder.ts', 'src/main/diagnostics.ts'], suites: ['consolewindow'] },
   // Developer console: show text (#699): the advanced setting, what main sends the window, the banner.
   { paths: ['src/main/consoleWindow.ts', 'src/renderer/src/ConsoleApp.tsx', 'src/renderer/src/styles/console.css', 'src/shared/devConsole.ts', 'src/main/devConsole.ts', 'src/main/ipc.ts', 'src/shared/advanced.ts', 'src/main/advanced.ts', 'src/shared/redact.ts', 'tests/e2e/consoletext.cjs'], suites: ['consoletext'] },
+  // The developer console's flight recorder (#698): its triggers, captures and notices.
+  { paths: ['src/main/flightRecorder.ts', 'src/shared/flightRecorder.ts', 'src/main/consoleRecorder.ts', 'tests/e2e/flightrecorder.cjs'], suites: ['flightrecorder'] },
   // Advanced settings (#367): the list, advanced.json, the workspace's own values, and what uses them (the hive MCP server's waits).
   { paths: ['src/main/advanced.ts', 'src/shared/advanced.ts', 'src/renderer/src/advanced.ts', 'src/renderer/src/components/AdvancedSettings.tsx', 'src/main/diagnostics.ts', 'src/shared/settingsCatalog.ts', 'tests/fixtures/advanced/', 'tests/e2e/advanced.cjs'], suites: ['advanced'] },
   { paths: ['src/main/advanced.ts'], suites: ['replysize', 'assistantsettings'] },
@@ -132,7 +134,7 @@ export const AREAS = [
   // Unused worktrees (#353): the Overview's section, the Changes notice, Storage's line and the hints.
   { paths: ['src/main/unusedWorktrees.ts', 'src/shared/unusedWorktrees.ts', 'src/shared/recentCache.ts', 'src/renderer/src/components/UnusedWorktrees.tsx'], suites: ['unusedwt', 'changespicker', 'wtreuse'] },
   { paths: ['src/main/workspaceMove.ts', 'src/shared/movePaths.ts', 'src/renderer/src/components/MoveRepair.tsx', 'src/main/agentWorktree.ts', 'src/shared/projectIds.ts', 'src/main/beforeIds.ts', 'src/main/leftovers.ts', 'src/main/projectRename.ts', 'src/main/projectNames.ts'], suites: ['wsmove', 'wtrecreate', 'projectrename'] },
-  { paths: ['src/main/bundled.ts', 'src/main/bundledHistory.json', 'src/main/skills.ts', 'src/main/revisions.ts', 'src/renderer/src/components/Skills.tsx'], suites: ['skills', 'skillaudience', 'skilldelivery'] },
+  { paths: ['src/main/bundled.ts', 'src/main/bundledHistory.json', 'src/main/skills.ts', 'src/main/revisions.ts', 'src/renderer/src/components/Skills.tsx', 'src/shared/skillDescriptions.ts'], suites: ['skills', 'skillaudience', 'skilldelivery'] },
   { paths: ['src/main/guidance.ts', 'src/shared/hiveGuidance.ts', 'src/shared/toolReplies.ts', 'src/main/mcp/'], suites: ['skilldelivery', 'replysize', 'mcp', 'bridgereport', 'cardloop'] },
   { paths: ['src/main/cardSessions.ts', 'src/renderer/src/components/CardChip.tsx'], suites: ['cardchip', 'sessionorigin'] },
   { paths: ['src/main/compaction.ts'], suites: ['compact', 'overview', 'paneheader', 'idlestatus'] },
@@ -162,7 +164,7 @@ export const AREAS = [
   // The shared list's other user: the Assistant's "Done by the Assistant" (#312).
   { paths: ['src/renderer/src/components/ShowAllList.tsx'], suites: ['assistantpanel'] },
   { paths: ['src/main/progressReporters/'], suites: ['progressreport', 'progressstates', 'packaged-progress'] },
-  { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'agents24', 'reorder', 'pages', 'unmerged', 'removeall', 'mergeslot', 'wtreuse'] },
+  { paths: ['src/main/projectAgents.ts'], suites: ['agents', 'agents-ui', 'agents24', 'reorder', 'pages', 'unmerged', 'removeall', 'mergeslot', 'wtreuse', 'placement', 'swap'] },
   { paths: ['src/main/mergeSlots.ts', 'src/main/mergeSlotHost.ts', 'src/shared/mergeSlot.ts', 'src/renderer/src/components/MergeSlots.tsx'], suites: ['mergeslot', 'progresslanes', 'replysize'] },
   // Lanes (#483): the card loop registers its lane; replysize measures hive_lane; the Progress panel shows them (#484).
   { paths: ['src/main/lanes.ts', 'src/shared/lanes.ts'], suites: ['cardloop', 'progresslanes', 'replysize'] },
@@ -177,6 +179,8 @@ export const AREAS = [
   // Why Hive stopped (#985): crash dumps and a log line for every way out; the updater and install-folder checks end the app through it.
   // Hive closing unexpectedly (#984): the running marker, the notice, Resume All and the setting; a merge left half done is told in it.
   { paths: ['src/main/lastRun.ts', 'src/shared/unexpectedClose.ts', 'src/main/mergeSlotHost.ts', 'src/main/mergeSlots.ts', 'tests/e2e/unexpectedclose.cjs', 'tests/e2e/unexpectedclose-leftovers.cjs'], suites: ['unexpectedclose', 'unexpectedclose-leftovers'] },
+  // "The main process was busy" (#1109): sleep isn't a stall, and a stall names what was running.
+  { paths: ['src/main/mainStalls.ts', 'tests/e2e/stalls.cjs'], suites: ['stalls'] },
   { paths: ['src/main/exitLog.ts', 'src/main/memory.ts', 'src/main/diagnostics.ts', 'src/main/updater.ts', 'src/main/installDir.ts'], suites: ['crashdumps'] },
   // .hive kept out of version control, and its notice (#345).
   { paths: ['src/main/hiveVcs.ts', 'src/shared/hiveVcsText.ts', 'src/renderer/src/components/HiveVcsNotice.tsx'], suites: ['hivevcs', 'gitinit'] },
@@ -211,8 +215,11 @@ export const AREAS = [
   { paths: ['src/main/notices.ts', 'src/renderer/src/components/NoticeBanners.tsx', 'src/main/planUsage.ts'], suites: ['banners'] },
   { paths: ['src/main/updater.ts', 'src/renderer/src/components/Updates.tsx'], suites: ['update', 'about'] },
   { paths: ['src/renderer/src/components/AgentDialogs.tsx', 'src/renderer/src/components/PermissionMode.tsx'], suites: ['agents-ui', 'agents', 'mode', 'context', 'codex-handover', 'footerfit', 'dialogs', 'wtreuse', 'mcpagents'] },
-  { paths: ['src/renderer/src/components/AgentPanes.tsx'], suites: ['paneheader', 'pages', 'reorder', 'unmerged', 'sessionname', 'ctxpercent', 'footerfit', 'longsession', 'startfail', 'cardchip', 'agents-ui', 'unpricedcost', 'swap', 'templates', 'narrowmain'] },
-  { paths: ['src/renderer/src/components/TerminalView.tsx', 'src/renderer/src/fileLinks.ts', 'src/shared/fileLinks.ts', 'src/renderer/src/cardLinks.ts', 'src/shared/cardLinks.ts', 'src/shared/osc52.ts'], suites: ['filelinks', 'cardlinks', 'image', 'restart', 'rendercrash', 'termsize', 'assistantbatch', 'copilotsize', 'copilotcopy'] },
+  { paths: ['src/renderer/src/components/AgentPanes.tsx'], suites: ['paneheader', 'pages', 'reorder', 'unmerged', 'sessionname', 'ctxpercent', 'footerfit', 'longsession', 'startfail', 'cardchip', 'agents-ui', 'unpricedcost', 'swap', 'templates', 'narrowmain', 'placement'] },
+  { paths: ['src/shared/paneCells.ts'], suites: ['placement', 'swap', 'reorder', 'pages', 'agents'] },
+  { paths: ['src/main/docSections.ts', 'src/shared/docSections.ts', 'src/main/mcp/', 'src/shared/toolReplies.ts'], suites: ['docsections', 'replysize'] },
+  { paths: ['src/shared/docRefs.ts', 'src/main/docSections.ts', 'src/main/taskStart.ts', 'src/main/tasks.ts', 'src/renderer/src/components/Board.tsx', 'src/renderer/src/components/DocRefViewer.tsx'], suites: ['cardcontext'] },
+  { paths: ['src/renderer/src/components/TerminalView.tsx', 'src/renderer/src/fileLinks.ts', 'src/shared/fileLinks.ts', 'src/renderer/src/cardLinks.ts', 'src/shared/cardLinks.ts', 'src/shared/osc52.ts'], suites: ['filelinks', 'cardlinks', 'image', 'restart', 'rendercrash', 'termsize', 'assistantbatch', 'copilotsize', 'copilotcopy', 'atlasmerge'] },
   { paths: ['src/renderer/src/deferredFocus.ts'], suites: ['progress', 'restart', 'termsize', 'assistantbatch'] },
   { paths: ['src/renderer/src/components/Inbox.tsx', 'src/renderer/src/inbox.ts', 'src/shared/inbox.ts'], suites: ['inbox', 'attention', 'bell', 'signin'] },
   { paths: ['src/renderer/src/components/Keybindings.tsx'], suites: ['keys'] },
@@ -267,10 +274,18 @@ export const AREAS = [
   // Copilot's offline suite (the real CLI against the stand-in model), the provider pages and the skill copies it shares with Codex.
   { paths: ['src/main/providers/copilot/', 'src/shared/copilot.ts'], suites: ['copilot', 'copilotsize', 'copilotcopy', 'providers', 'skilldelivery', 'models'] },
   { paths: ['tests/e2e/fake-copilot-api.cjs'], suites: ['copilot', 'copilotsize', 'copilotcopy'] },
+  // A folder being changed under its agents (#646): the Git view takes it; deliveries and starts wait for it.
+  { paths: ['src/main/folderFence.ts'], suites: ['gitview', 'deliveries', 'inbox', 'agentmessage', 'background'] },
+  // How Hive's lines reach a busy real Codex or Copilot (#600): their runner, and what they check.
+  { paths: ['tests/e2e/wakepaste-cli/', 'src/main/terminalScreen.ts', 'src/main/lineWriter.ts', 'src/main/deliveries.ts'], suites: ['wakepaste-codex', 'wakepaste-copilot'] },
+  { paths: ['src/shared/copilot.ts', 'tests/e2e/fake-copilot-api.cjs'], suites: ['wakepaste-copilot'] },
+  { paths: ['src/main/providers/codex/', 'src/shared/codex.ts'], suites: ['wakepaste-codex'] },
+  // What a Codex launch through its app server would rely on (#653): checked against the installed Codex.
+  { paths: ['src/main/providers/codex/'], suites: ['codex-appserver'] },
   // The run context: every suite (above); isolation checks what it gives a test Hive and the children a suite starts.
   { paths: ['tests/e2e/runContext.cjs', 'src/main/testQuiet.ts'], suites: ['isolation'] },
   // The fake Codex CLI: every suite that runs it.
-  { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize', 'freshpath', 'defaultprovider', 'providerdetect', 'codexfolder', 'turnledger'] },
+  { paths: ['tests/e2e/fake-codex/'], suites: ['attention', 'footerfit', 'skilldelivery', 'models', 'sessiontree', 'termsize', 'freshpath', 'defaultprovider', 'providerdetect', 'codexfolder', 'turnledger', 'flightrecorder'] },
   // Hive's bundled skills and personas, read at runtime (not documentation).
   { paths: ['resources/skills/', 'src/main/bundledHistory.json'], suites: ['skills', 'skillaudience', 'skilldelivery', 'cardloop', 'replysize'] },
   { paths: ['resources/personas/', 'src/main/assistantMode.ts'], suites: ['assistant', 'assistant-control', 'assistantend', 'assistantmode', 'assistantresume'] },

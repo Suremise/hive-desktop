@@ -71,6 +71,8 @@ interface HiveMessageValues {
   'tips.boardExport.title': undefined
   'tips.boardFold.text': undefined
   'tips.boardFold.title': undefined
+  'tips.boardHygiene.text': undefined
+  'tips.boardHygiene.title': undefined
   'tips.boardOrder.text': undefined
   'tips.boardOrder.title': undefined
   'tips.boardReview.text': undefined
@@ -87,6 +89,8 @@ interface HiveMessageValues {
   'tips.cardLoop.title': undefined
   'tips.cardMove.text': undefined
   'tips.cardMove.title': undefined
+  'tips.cardReadFirst.text': undefined
+  'tips.cardReadFirst.title': undefined
   'tips.cardSummaries.text': undefined
   'tips.cardSummaries.title': undefined
   'tips.closeWindow.text': { key: string | number }
@@ -120,6 +124,8 @@ interface HiveMessageValues {
   'tips.fileLinks.title': undefined
   'tips.filesTab.text': undefined
   'tips.filesTab.title': undefined
+  'tips.flightRecorder.text': undefined
+  'tips.flightRecorder.title': undefined
   'tips.gitCheck.text': undefined
   'tips.gitCheck.title': undefined
   'tips.gitInit.text': undefined
@@ -154,6 +160,8 @@ interface HiveMessageValues {
   'tips.language.title': undefined
   'tips.leftoverProcesses.text': undefined
   'tips.leftoverProcesses.title': undefined
+  'tips.licenceAudit.text': undefined
+  'tips.licenceAudit.title': undefined
   'tips.loopDefaults.text': { rounds: number; hours: number }
   'tips.loopDefaults.title': undefined
   'tips.loopLanes.text': undefined
@@ -188,6 +196,8 @@ interface HiveMessageValues {
   'tips.ownShortcuts.title': undefined
   'tips.palette.text': { key: string | number }
   'tips.palette.title': undefined
+  'tips.paneCells.text': undefined
+  'tips.paneCells.title': undefined
   'tips.pasteScreenshot.text': undefined
   'tips.pasteScreenshot.title': undefined
   'tips.perfCompare.text': undefined
@@ -272,6 +282,8 @@ interface HiveMessageValues {
   'tips.tileStrip.title': undefined
   'tips.tilesView.text': undefined
   'tips.tilesView.title': undefined
+  'tips.triageReport.text': undefined
+  'tips.triageReport.title': undefined
   'tips.twoProviders.text': undefined
   'tips.twoProviders.title': undefined
   'tips.ui.close': undefined

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, crashReporter, powerMonitor } from 'electron'
-import { readdirSync, statSync } from 'original-fs'
+import { readdirSync, rmSync, statSync } from 'original-fs'
 import { basename, join } from 'path'
 import { createLogger } from './logger'
 import { memoryLine } from './memory'
@@ -118,8 +118,32 @@ export function startExitLog(): void {
   })
 }
 
-/** At start, after its first line: the crash dumps the profile has, and the newest's time. */
+/** How many crash dumps the profile keeps (#1111): one can be tens of MB, and the newest say what is wrong now. */
+export const CRASH_DUMPS_KEPT = 3
+
+/**
+ * Removes all but the newest `keep` dumps (newest first, as crashDumps gives them), as old heap snapshots are (not to
+ * the Recycle Bin: Hive's own diagnostics in its profile). Returns the dumps left; one that can't be removed stays.
+ */
+export function pruneCrashDumps(dumps: CrashDump[], keep = CRASH_DUMPS_KEPT): { kept: CrashDump[]; removed: number; bytes: number } {
+  let removed = 0
+  let bytes = 0
+  const kept = dumps.slice(0, keep)
+  for (const d of dumps.slice(keep)) {
+    try {
+      rmSync(d.file)
+      removed++
+      bytes += d.bytes
+    } catch {
+      kept.push(d)
+    }
+  }
+  return { kept, removed, bytes }
+}
+
+/** At start, after its first line: the crash dumps the profile has, and the newest's time; past the newest three, the rest go. */
 export function logCrashDumps(): void {
-  const dumps = crashDumps()
+  const { kept: dumps, removed, bytes } = pruneCrashDumps(crashDumps())
+  if (removed) log.info(`Removed ${removed} older crash dump(s) (${Math.round(bytes / 1024 / 1024)} MB): the newest ${CRASH_DUMPS_KEPT} are kept`)
   if (dumps.length) log.info(`${dumps.length} crash dump(s) in the profile; the newest from ${new Date(dumps[0].at).toISOString()}`)
 }

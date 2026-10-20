@@ -5,6 +5,14 @@ import { METRICS_EXPORT_SCHEMA } from '../shared/benchmark'
 import type { SessionListItem } from '../shared/types'
 import { sessions } from './sessions'
 import { inWorkspace, type WorkspaceService } from './workspace'
+import { englishText, type Text } from '../shared/advanced'
+import { msg } from '../shared/i18n'
+
+/** Why a report has no provider usage: the window's text; the Agent API's report and its export get the English (#1104). */
+const NOTE = {
+  scripts: msg({ id: 'performance.providersNote.scripts', defaultMessage: 'Scripts start no sessions, so they have no provider usage.', description: "Performance, under Provider usage with Scripts chosen as whose work: why the table is empty (scripts call Hive's API and run no coding agents)." }),
+  assistant: msg({ id: 'performance.providersNote.assistant', defaultMessage: 'The Assistant’s sessions are the workspace’s, not a project’s.', description: "Performance, under Provider usage for a project with the Hive Assistant chosen as whose work: why the table is empty (the Assistant isn't any project's)." })
+}
 
 /** Which sessions' usage a report is about: a project's, or the workspace's (all, or its own only), and whose. */
 export interface UsageFilter {
@@ -22,9 +30,9 @@ export interface UsageFilter {
  * reads every project and the Assistant once each (its own work: the Assistant only), so nothing is counted twice.
  * Scripts have no sessions: their usage is none, and the note says so.
  */
-export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: number, to: number): Promise<{ providers: ProviderUsageSummary[]; safeguards?: SafeguardCount[]; note?: string; unreadable?: number; hosts?: number }> {
-  if (f.role === 'api') return { providers: [], note: 'Scripts start no sessions, so they have no provider usage.' } // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
-  if (f.project && f.role === 'assistant') return { providers: [], note: 'The Assistant’s sessions are the workspace’s, not a project’s.' } // i18n-ignore: the Agent API's metrics report and its export, in English (mixed audience: the Performance view gets messages with E10a's pattern)
+export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: number, to: number): Promise<{ providers: ProviderUsageSummary[]; safeguards?: SafeguardCount[]; note?: Text; unreadable?: number; hosts?: number }> {
+  if (f.role === 'api') return { providers: [], note: NOTE.scripts }
+  if (f.project && f.role === 'assistant') return { providers: [], note: NOTE.assistant }
   // The workspace as it is now: if it closes (or its window opens another) while this reads, the answer is refused
   // rather than mixing two workspaces' sessions.
   const lifetime = w.lifetime
@@ -106,7 +114,7 @@ export async function providerUsage(w: WorkspaceService, f: UsageFilter, from: n
 export async function metricsReport(w: WorkspaceService, q: MetricsQuery): Promise<MetricsReport> {
   const r = queryMetrics(w, q)
   const usage = await providerUsage(w, { project: r.scope.kind === 'project' ? r.scope.project : null, own: r.filters.own, role: r.filters.role, provider: r.filters.provider }, Date.parse(r.from), Date.parse(r.to))
-  return { ...r, providers: usage.providers, ...(usage.safeguards ? { safeguards: usage.safeguards } : {}), ...(usage.note ? { providersNote: usage.note } : {}), ...(usage.unreadable ? { providersUnreadable: usage.unreadable, providersHosts: usage.hosts } : {}) }
+  return { ...r, providers: usage.providers, ...(usage.safeguards ? { safeguards: usage.safeguards } : {}), ...(usage.note ? { providersNote: englishText(usage.note), providersNoteText: usage.note } : {}), ...(usage.unreadable ? { providersUnreadable: usage.unreadable, providersHosts: usage.hosts } : {}) }
 }
 
 /** Safeguard counts with their project and agent names replaced (an export's sanitize). */

@@ -20,6 +20,7 @@ import type {
   MovePlan,
   MoveReport,
   ProgressRun,
+  ProgressSnapshot,
   PermissionMode,
   AddAgentOptions,
   AddedAgent,
@@ -78,6 +79,7 @@ import type {
   AttachmentPlan,
   Attached,
   AttachmentContent,
+  SessionLayout,
   SessionListItem,
   WorkspaceUsage,
   WorkspaceStorage,
@@ -293,7 +295,9 @@ export interface HiveRequests {
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard
   'tasks:discardSetAside': (file: string) => void
-  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
+  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; context?: string[] }) => TaskCard
+  /** A card's context reference (#818): its section's text and heading line, or why it doesn't resolve. projectPath: the card's project's (null: a card about the workspace). */
+  'docs:section': (projectPath: string | null, ref: string) => { ref: string; content: string; line: number } | { ref: string; problem: string; closest?: string[] }
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard
   /** Changes the words of one of a card's decisions, or removes it (text null): the user's (#357). */
@@ -407,6 +411,8 @@ export interface HiveRequests {
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
   /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */
   'agents:swap': (projectPath: string, agentId: string, otherId: string) => string[]
+  /** Saves where the panes are in one layout (#762): its cells page after page, an agent's id or null; returns them as saved. */
+  'agents:place': (projectPath: string, layout: SessionLayout, cells: (string | null)[]) => (string | null)[]
   /** Agent templates (#126): the workspace's and the project's. */
   'templates:list': (projectPath: string) => TemplateEntry[]
   /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */
@@ -552,6 +558,8 @@ export interface HiveRequests {
   'costs:lanes': (laneIds?: string[]) => LaneCost[]
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
+  /** The same, with the number of the last telling of them sent (#1108: `progress-runs`' seq), so later ones can follow it. */
+  'progress:snapshot': () => ProgressSnapshot
   /** Moves a finished or stale run to Recent. */
   'progress:dismiss': (id: string) => void
   /** The user looked at the Progress panel: the taskbar stops showing a failure in red. */
@@ -586,6 +594,8 @@ export interface HiveRequests {
   'console:recordings': () => { active: ConsoleRecordingInfo | null; latest: ConsoleRecordingInfo | null }
   /** Shows one of Hive's recordings (by its file name) in its folder. */
   'console:showRecording': (name: string) => void
+  /** The flight recorder's captures (#698), newest first: each one's trigger, agent and when. */
+  'console:captures': () => ConsoleRecordingInfo[]
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

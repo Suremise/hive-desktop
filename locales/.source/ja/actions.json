@@ -63,6 +63,8 @@
   "actions.mcp.replaceMessage": "The workspace has a server named {name}.",
   "actions.mcp.replaceTitle": "Replace {name}?",
   "actions.mcp.updateFailed": "Could not update the server",
+  "actions.pane.edge": "{agent} can't move further {dir, select, left {left} right {right} up {up} other {down}}",
+  "actions.pane.moved": "{agent}: {pages, select, one {} other {page {page}, }}row {row}, column {column}{other, select, none {} other {, swapped with {other}}}",
   "actions.project.activateFailed": "Could not activate project",
   "actions.project.create": "Create",
   "actions.project.createFailed": "Could not create project",

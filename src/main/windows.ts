@@ -99,7 +99,7 @@ function forEvent(e: HiveEvent): BrowserWindow[] {
     case 'tasks-changed':
     case 'journal-changed':
       return wins([windowForPath(e.workspacePath)])
-    case 'progress-changed':
+    case 'progress-runs':
       return wins([windowShowing(e.workspacePath)])
     case 'workspace-changed':
     case 'skills-changed':

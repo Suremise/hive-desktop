@@ -627,6 +627,14 @@ export interface TaskHistoryEntry {
   id?: string
 }
 
+/** A card's context reference that doesn't resolve (#819): the reference, why, and the closest headings' slugs (without #). */
+export interface ContextProblem {
+  ref: string
+  /** outside, hidden, notMarkdown, notFound, tooBig (its file), invalid (not a reference), noHeading or ambiguous (its heading). */
+  problem: 'outside' | 'hidden' | 'notMarkdown' | 'notFound' | 'tooBig' | 'invalid' | 'noHeading' | 'ambiguous'
+  closest?: string[]
+}
+
 export interface TaskCard {
   /** #number, unique in the workspace and never reused. */
   number: number
@@ -654,6 +662,16 @@ export interface TaskCard {
   blockedBy: number[]
   /** Related cards. */
   links: number[]
+  /**
+   * Doc sections the agent reads first (#818): references by file and heading, never by line (`docs/PLAN.md#setup`,
+   * `shared:plans/notes.md#open-questions`; shared/docRefs.ts). Absent when none.
+   */
+  context?: string[]
+  /**
+   * Its context references that didn't resolve when they were last checked (#819: when the list was edited, and when the
+   * card was started): which, why, and the closest headings' slugs. Absent when all did.
+   */
+  contextProblems?: ContextProblem[]
   comments: TaskComment[]
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
@@ -805,6 +823,8 @@ export interface TaskPatch {
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
+  /** The doc sections to read first (#818), replacing the list; [] clears it. */
+  context?: string[]
   /** Records a decision the user made (#357), attributed to the user whoever records it. Editing or removing one is the user's (tasks:editDecision). */
   decision?: string
 }
@@ -870,6 +890,11 @@ export interface ProjectConfig {
   agents: AgentDef[]
   /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
   layout: PageLayout
+  /**
+   * Where the user put each agent's pane, per layout (#762): its cells page after page, an agent's id or null for an
+   * empty cell (shared/paneCells.ts). A layout without one shows the agents in order.
+   */
+  placement?: Partial<Record<SessionLayout, (string | null)[]>>
   /** The Session tab's view, once chosen with its Panes | Tiles toggle (#975); absent, Settings → Sessions → Default session view. */
   sessionView?: SessionView
   /** Where the project folder was last opened (#146), as workspace.json's lastPath. */
@@ -2316,8 +2341,10 @@ export type HiveEvent =
   | { type: 'update-state'; state: UpdateState }
   /** The language Hive shows changed (Settings → General → Language): every window shows it. */
   | { type: 'language-changed'; language: LanguageInfo }
-  /** A workspace's progress runs changed (all of them, newest first). */
+  /** A workspace's progress runs changed (all of them, newest first): for in-process listeners (the Agent API's stream, the developer console). */
   | { type: 'progress-changed'; workspacePath: string; runs: ProgressRun[] }
+  /** The window's telling of the same (#1108): ProgressTelling. */
+  | ProgressTelling
   /** A workspace's merge slots changed (those held or waited for). */
   | { type: 'merge-slots-changed'; workspacePath: string; slots: MergeSlotInfo[] }
   /** A workspace's lanes changed, or one of their cards did (the lanes it lists, as lanes:list gives them). */
@@ -2400,6 +2427,26 @@ export interface MergeSlotInfo {
  * A long run an agent reports (tests, a build), for the Progress panel. `step` counts finished steps (0 to `total`),
  * `stepName` is the one running now, and `estimateMs` the time left as of `updatedAt` (epoch ms throughout).
  */
+/**
+ * The window's telling of a workspace's runs (#1108): `whole`, every run (newest first); else only the runs that changed,
+ * to put in place by id (a new one by when it started). `seq` counts a workspace's tellings: one skipped means read the
+ * list again.
+ */
+export interface ProgressTelling {
+  type: 'progress-runs'
+  workspacePath: string
+  seq: number
+  whole: boolean
+  runs: ProgressRun[]
+}
+
+/** A workspace's runs as a window reads them, with the number of the last telling sent before (#1108). */
+export interface ProgressSnapshot {
+  workspacePath: string
+  seq: number
+  runs: ProgressRun[]
+}
+
 export interface ProgressRun {
   id: string
   workspacePath: string

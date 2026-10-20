@@ -333,6 +333,16 @@
   border-radius: 4px;
   box-shadow: var(--shadow);
 }
+/* The flight recorder's captures (#698): newest first, scrolling past a few. */
+.dc-captures-menu {
+  width: 420px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.dc-capture-what {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 
 .dc-record-actions {
   display: flex;

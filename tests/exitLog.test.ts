@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync, utimesSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
-import { crashDumpLines, crashDumps } from '../src/main/exitLog'
+import { crashDumpLines, crashDumps, pruneCrashDumps } from '../src/main/exitLog'
 import { tempDir } from './tempDir'
 
 describe('crash dumps (#985)', () => {
@@ -18,6 +18,21 @@ describe('crash dumps (#985)', () => {
     at('settings.dat', Date.UTC(2026, 9, 18))
     expect(crashDumps(dir).map((d) => d.file)).toEqual([join(dir, 'new.DMP'), join(dir, 'old.dmp')])
     expect(crashDumps(join(dir, 'missing'))).toEqual([])
+  })
+
+  it('keeps the newest three dumps and removes the rest, nothing else (#1111)', () => {
+    const dir = tempDir('dumps-')
+    for (let i = 1; i <= 5; i++) {
+      writeFileSync(join(dir, `d${i}.dmp`), Buffer.alloc(1024 * 1024))
+      utimesSync(join(dir, `d${i}.dmp`), Date.UTC(2026, 9, i) / 1000, Date.UTC(2026, 9, i) / 1000)
+    }
+    writeFileSync(join(dir, 'settings.dat'), '')
+    const { kept, removed, bytes } = pruneCrashDumps(crashDumps(dir))
+    expect(kept.map((d) => d.file)).toEqual([join(dir, 'd5.dmp'), join(dir, 'd4.dmp'), join(dir, 'd3.dmp')])
+    expect({ removed, bytes }).toEqual({ removed: 2, bytes: 2 * 1024 * 1024 })
+    expect(readdirSync(dir).sort()).toEqual(['d3.dmp', 'd4.dmp', 'd5.dmp', 'settings.dat'])
+    // Three or fewer: nothing goes.
+    expect(pruneCrashDumps(crashDumps(dir)).removed).toBe(0)
   })
 
   it("Copy Diagnostics names the newest and how many, and says they're never sent", () => {

@@ -1,5 +1,5 @@
 import { msg, type Msg } from './i18n/msg'
-import type { BoardFold, TaskCard, TaskColumn } from './types'
+import type { BoardFold, ContextProblem, TaskCard, TaskColumn } from './types'
 
 /**
  * The window's tr() (#798), passed in: agent scripts (hive-mcp.js) import this module and must not load the
@@ -171,16 +171,35 @@ function removedText(name: string | null | undefined, tr?: Tr): string {
 const notRunningText = (name: string, tr?: Tr): string =>
   tr ? tr(msg({ id: 'board.stalled.notRunning', defaultMessage: "{agent} isn't running.", description: "Why a card's work or review is stalled: its agent's session isn't running. {agent} is the agent's name." }), { agent: name }) : `${name} isn't running.` // i18n-ignore: agent-facing (the Agent API's stalled)
 
-/**
- * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
- * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes. Only for cards in play
- * (Doing or Review); null otherwise.
- */
-export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: { name: string; project: string; notWatching?: number[] }[], tr?: Tr): string | null {
+/** An agent as the stall check reads it: its cards left with no live watch, and whether a wake of Hive's waits untaken in its prompt (#777). */
+export interface NotWatchingAgent {
+  name: string
+  project: string
+  notWatching?: number[]
+  untaken?: boolean
+}
+
+/** The agent of the card's project that left it with no live watch (notWatching), if any: what its stall names. */
+export function notWatchingAgent<A extends NotWatchingAgent>(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: A[]): A | null {
   if (card.archived || (card.column !== 'doing' && card.column !== 'review')) return null
   // Only an agent of the card's project: one whose card has moved to another project isn't on it any more.
-  const a = agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number))
+  return agents.find((x) => x.project.toLowerCase() === card.project.toLowerCase() && x.notWatching?.includes(card.number)) ?? null
+}
+
+/**
+ * Why a card in a card loop is stuck (#376): an agent that was looping on it ended its turn with no card watch
+ * (`notWatching`, set by Hive after a short grace), so nothing wakes it when the card changes; or (#777) its watch's wake
+ * waits untaken in its prompt (`untaken`: it did watch, and a watch with a wake its CLI never took isn't a live one).
+ * Only for cards in play (Doing or Review); null otherwise.
+ */
+export function notWatchingReason(card: Pick<TaskCard, 'number' | 'column' | 'archived' | 'project'>, agents: NotWatchingAgent[], tr?: Tr): string | null {
+  const a = notWatchingAgent(card, agents)
   if (!a) return null
+  // #777: it did watch the card; its wake, which Hive typed, waits untaken in its prompt (its CLI didn't take the line).
+  if (a.untaken) {
+    if (tr) return tr(msg({ id: 'board.stalled.wakeUntaken', defaultMessage: "{agent} hasn't taken the wake Hive typed for #{card}: it waits in its prompt.", description: 'Why a card in a card loop is stalled: the agent watched the card, and Hive typed its wake line into the agent\'s terminal, but the agent\'s CLI never sent it. {agent} is its name, {card} the card number (after #).' }), { agent: a.name, card: card.number })
+    return `${a.name} hasn't taken the wake Hive typed for #${card.number}: it waits in its prompt.` // i18n-ignore: agent-facing (the Agent API's stalled)
+  }
   if (tr) return tr(msg({ id: 'board.stalled.notWatching', defaultMessage: "{agent} isn't watching #{card}: its turn ended with no card watch.", description: 'Why a card in a card loop is stalled: the agent looping on it stopped without waiting for the card to change. {agent} is its name, {card} the card number (after #). A card watch is what wakes an agent when a card changes.' }), { agent: a.name, card: card.number })
   return `${a.name} isn't watching #${card.number}: its turn ended with no card watch.` // i18n-ignore: agent-facing (the Agent API's stalled)
 }
@@ -402,6 +421,41 @@ export function reviewStalled(card: Pick<TaskCard, 'review' | 'archived'>, revie
   return null
 }
 
+/** A card's context reference (#818) as its start prompt gives it: the reference, and its section's size when it resolved. */
+export interface ContextLine {
+  ref: string
+  size?: number
+  /** Why it doesn't resolve now (#819), with the closest headings. */
+  problem?: ContextProblem
+}
+
+/** A size in characters, short: "840", "3.2k", "56k". */
+const charsShort = (n: number): string => (n < 1000 ? String(n) : n < 10_000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n / 1000)}k`) // i18n-ignore: agent-facing: sizes in the prompt an agent starts a card with
+
+/**
+ * The start prompt's "Read these first" (#818): each reference with its size, not the sections themselves (the agent
+ * fetches what it needs, so launch prompts stay small). References are relative to the project (or the shared notes),
+ * whatever folder the agent works in.
+ */
+function contextText(lines: ContextLine[], withTools: boolean): string {
+  const ok = lines.filter((l) => !l.problem)
+  const broken = lines.flatMap((l) => (l.problem ? [l.problem] : []))
+  const list = ok.map((l) => `${l.ref}${l.size !== undefined ? ` (${charsShort(l.size)} characters)` : ''}`).join(', ')
+  const parts = ok.length ? [withTools ? `Read these first: ${list}.` : `Read these sections of the project's docs first: ${list}.`] : [] // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  // Never silently nothing (#819): what doesn't resolve now is named, with why and the closest headings.
+  if (broken.length) parts.push(`${broken.length === 1 ? 'This reference no longer resolves' : 'These references no longer resolve'}: ${broken.map(problemText).join('; ')}. Ask the user which section is meant, or read the closest.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  // How to read them, for those that resolve and the closest headings alike (#818, #819): from the copy the card was
+  // checked against, the project's, whatever folder the agent works in.
+  if (withTools) parts.push(`hive_read_section reads ${ok.length ? 'each' : 'the closest'} as the card has it (path: the file; heading: # and the slug${ok.length ? ' after it, none for a whole file' : ''}; from: "project").`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  return parts.join(' ')
+}
+
+/** Why a reference doesn't resolve, for an agent (English): "docs/PLAN.md#setup (no such heading; closest: #install)". */
+export function problemText(p: ContextProblem): string {
+  const why = { notFound: 'no such file', noHeading: 'no such heading', ambiguous: 'several headings have its text', invalid: 'not a doc section', outside: 'not in the project', hidden: "in Hive's or git's own folder", notMarkdown: 'not Markdown', tooBig: 'too big to read' }[p.problem] // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  return `${p.ref} (${why}${p.closest?.length ? `; ${p.problem === 'ambiguous' ? 'they are' : 'closest'}: ${p.closest.map((s) => `#${s}`).join(', ')}` : ''})` // i18n-ignore: agent-facing: the prompt an agent starts a card with
+}
+
 /** How much of a card's latest comment a restarted card's prompt carries (the rest is a hive_read_task away). */
 const PROMPT_COMMENT_MAX = 4000
 
@@ -412,13 +466,15 @@ const PROMPT_COMMENT_MAX = 4000
  * tools the prompt only points there; without them the card is all the agent has. from: the column it was started
  * from; note: what to do now.
  */
-export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string } = {}): string {
+export function taskPrompt(card: TaskCard, withTools: boolean, opts: { from?: TaskColumn; note?: string; context?: ContextLine[] } = {}): string {
   const parts = [`Work on task #${card.number} from the Hive task board: ${card.title}`] // i18n-ignore: agent-facing: the prompt an agent starts a card with
   const again = opts.from === 'review' || opts.from === 'passed' || opts.from === 'done'
   if (again) parts.push(`It was in ${columnLabel(opts.from!)} and is back in Doing for more work.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
   if (opts.note?.trim()) parts.push(opts.note.trim())
   if (card.description.trim()) parts.push(card.description.trim())
   if (card.blockedBy.length) parts.push(`It depends on ${card.blockedBy.map((n) => `#${n}`).join(', ')}.`) // i18n-ignore: agent-facing: the prompt an agent starts a card with
+  const context = opts.context ?? (card.context ?? []).map((ref) => ({ ref }))
+  if (context.length) parts.push(contextText(context, withTools))
   const latest = card.comments[card.comments.length - 1]
   if (again && latest?.text.trim()) {
     const text = latest.text.trim()

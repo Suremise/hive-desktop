@@ -5,10 +5,36 @@ import { DEFAULT_APP_CONFIG, mergeDefaults, migrateConfig, withLegacySettings } 
 import { extraArgsProblem } from '../shared/providers'
 import type { AppConfig, AppSettings, EffortOption, FallbackModel, ModelPrice, ProviderSettings } from '../shared/types'
 import type { SettingsPatch } from '../shared/api'
-import { readKeptJsonSync, writeKeptJson } from './fsutil'
+import { readKeptJsonSync, writeKeptJson, writeTextAtomic } from './fsutil'
 import { createLogger } from './logger'
 
 const log = createLogger('config')
+
+/** What config.json leaves to ui-state.json (#1111): UI state and caches, not settings. */
+export interface UiState {
+  boardFold?: AppConfig['ui']['boardFold']
+  modelCatalogs?: AppConfig['modelCatalogs']
+}
+
+/** The config as config.json keeps it, and the UI state kept beside it. */
+export function splitUiState<C extends AppConfig>(c: C): { saved: C; state: UiState } {
+  const { modelCatalogs, ...rest } = c
+  const { boardFold, ...ui } = c.ui
+  return { saved: { ...rest, ui } as C, state: { ...(boardFold ? { boardFold } : {}), ...(modelCatalogs ? { modelCatalogs } : {}) } }
+}
+
+/** ui-state.json's text as a UiState: anything else (missing, damaged, not an object) is none, a cache lost. */
+export function parseUiState(text: string | null): UiState {
+  try {
+    const j: unknown = text === null ? null : JSON.parse(text)
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return {}
+    const obj = (v: unknown): boolean => !!v && typeof v === 'object' && !Array.isArray(v)
+    const { boardFold, modelCatalogs } = j as Record<string, unknown>
+    return { ...(obj(boardFold) ? { boardFold: boardFold as UiState['boardFold'] } : {}), ...(obj(modelCatalogs) ? { modelCatalogs: modelCatalogs as UiState['modelCatalogs'] } : {}) }
+  } catch {
+    return {}
+  }
+}
 
 /** App-level configuration stored in %APPDATA%/Hive/config.json. */
 class ConfigStore {
@@ -21,6 +47,14 @@ class ConfigStore {
   get path(): string {
     return join(app.getPath('userData'), 'config.json')
   }
+
+  /** The board's folds and the model catalogs (#1111), written only when they change. */
+  get statePath(): string {
+    return join(app.getPath('userData'), 'ui-state.json')
+  }
+
+  /** ui-state.json's text as last written (or read), so a save that didn't change it doesn't write it. */
+  private stateWritten: string | null = null
 
   /** Where a config from an older version is copied before this version first saves over it. */
   get backupPath(): string {
@@ -36,6 +70,17 @@ class ConfigStore {
       this.backupBeforeSave = (raw.version ?? 1) < DEFAULT_APP_CONFIG.version
       this.data = migrateConfig(mergeDefaults(structuredClone(DEFAULT_APP_CONFIG), raw), raw)
     }
+    // Kept beside it since #1111; a config.json from before still has them, and its first save moves them.
+    let text: string | null = null
+    try {
+      text = readFileSync(this.statePath, 'utf8')
+    } catch {
+      // None yet.
+    }
+    const state = parseUiState(text)
+    if (state.boardFold) this.data.ui.boardFold = state.boardFold
+    if (state.modelCatalogs) this.data.modelCatalogs = state.modelCatalogs
+    if (state.boardFold || state.modelCatalogs) this.stateWritten = text
     // Tests (unpackaged builds): no tip card over what a suite clicks, unless its profile turns tips on.
     if (!app.isPackaged && process.env.HIVE_TEST_TIPS === 'off' && raw?.settings?.general?.showTips === undefined) this.data.settings.general.showTips = false
   }
@@ -181,8 +226,16 @@ class ConfigStore {
           log.info(`Saved the previous version's settings to ${this.backupPath}`)
         }
       }
-      // Claude Code's settings are also written where 0.1.x reads them, so going back keeps them.
-      await writeKeptJson(this.path, withLegacySettings(this.data))
+      // Claude Code's settings are also written where 0.1.x reads them, so going back keeps them. Compact, with its .bak
+      // once a run, and without the UI state, which goes beside it when it changed (#1111): first, so a save that moves
+      // it out of an older config.json never loses it.
+      const { saved, state } = splitUiState(withLegacySettings(this.data))
+      const text = JSON.stringify(state) + '\n'
+      if (text !== this.stateWritten) {
+        await writeTextAtomic(this.statePath, text)
+        this.stateWritten = text
+      }
+      await writeKeptJson(this.path, saved, { compact: true, bakOncePerRun: true })
     } catch (e) {
       log.error('Failed to save config', e)
     }

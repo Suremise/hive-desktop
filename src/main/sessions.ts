@@ -1,7 +1,9 @@
 import { randomUUID, randomBytes } from 'crypto'
 import { fmt, msg, onLanguageChange, tr } from '../shared/i18n'
-import { englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
+import { drawnWaitId, englishText, shownText, withValues, type Text, type TextPart } from '../shared/advanced'
 import { capturedText, hiveError, HiveError, shownError } from './hiveError'
+import { advanced } from './advanced'
+import { folderChanging, folderSteady } from './folderFence'
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'path'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, writeFile } from 'original-fs/promises'
 import { constants as fsConstants, existsSync, realpathSync } from 'original-fs'
@@ -83,6 +85,7 @@ import { GUIDANCE_REVISION, launchParts, launchRecord } from './guidance'
 import { notificationIcon } from './paths'
 import { reportPlanUsage } from './planUsage'
 import { devConsole, sessionSourceId } from './devConsole'
+import { flightRecorder } from './flightRecorder'
 import { DETAILS_FIELDS, HOOK_FIELDS, HOOK_MADE_FIELDS, STATUSLINE_FIELDS, safeWord } from '../shared/devConsole'
 import { hookSummary, launchEvent, statusLineSummary, transcriptEvent } from './devConsoleWords'
 import { ScreenRecognition } from './screenRecognition'
@@ -270,6 +273,8 @@ interface LiveSession {
   initialPrompt?: string
   /** This launch was given its first task on its command line: until its CLI takes it, it is pending (#712). */
   launchTask?: true
+  /** When such a launch first became ready (or watching), in ms: its task is pending at most PENDING_MS from then (#721). */
+  launchReadyAt?: number
   /**
    * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
    * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
@@ -524,6 +529,17 @@ async function typeInto(key: string, text: string, still: () => boolean = () => 
   }
 }
 
+/**
+ * Whether a line Hive is typing has been drawn on an agent's screen (#600): its end (spaces left out, as a CLI wraps
+ * it) shows more often than when this was called, before it was typed (a doorbell's end is in its earlier ones too).
+ */
+export function drawnLine(screen: Pick<TerminalScreen, 'text'>, line: string): () => boolean {
+  const end = line.replace(/\s+/g, '').slice(-40)
+  const count = (): number => (end ? screen.text().replace(/\s+/g, '').split(end).length - 1 : 0)
+  const before = count()
+  return () => count() > before
+}
+
 /** Runs a worktree's setup command in the agent's terminal (Windows: cmd.exe, elsewhere: sh). */
 function shellCommand(command: string): { file: string; args: string[] } {
   return process.platform === 'win32' ? { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', command] } : { file: '/bin/sh', args: ['-c', command] }
@@ -677,6 +693,20 @@ const USER_REPLY_MS = 15_000
 /** How long a prompt Hive typed counts as pending (the agent just given a task) while its CLI hasn't taken it (#416). */
 const PENDING_MS = 30_000
 
+/**
+ * A launch's task on its CLI's command line not taken yet (#712): the CLI is ready at its SessionStart and takes the task
+ * only after, so it is pending until its first prompt, at most PENDING_MS after it became ready. Ready shows as watching
+ * when a watch of the agent's outlived its last launch (#721 round 1 finding 1), and as finished once that watch ends:
+ * pending too, timed from when it first became ready (launchReadyAt), which a watch's coming or going doesn't move.
+ */
+function launchPending(l: LiveSession): boolean {
+  const st = l.state
+  if (!l.launchTask || (l.prompts ?? 0) > 0) return false
+  if (st.status === 'starting') return true
+  if (st.status !== 'ready' && st.status !== 'watching' && st.status !== 'finished') return false
+  return Date.now() - (l.launchReadyAt ?? Date.parse(st.statusSince ?? '')) < PENDING_MS
+}
+
 /** Agents whose sign-in is refused at about the same time are told in one notice, this long after the first. */
 const SIGNED_OUT_GATHER_MS = 3000
 /** How often a CLI's sign-in is checked again while its agents wait for it (its own check, e.g. claude auth status). */
@@ -766,10 +796,18 @@ class SessionManager {
     if (!l) return null
     const prompts = l.prompts ?? 0
     const typed = !!l.typed && prompts <= l.typed.prompts && Date.now() - l.typed.at < PENDING_MS
-    const st = l.state
-    const launch = !!l.launchTask && prompts === 0 && (st.status === 'starting' || (st.status === 'ready' && Date.now() - Date.parse(st.statusSince ?? '') < PENDING_MS))
-    const pending = typed || launch
+    const pending = typed || launchPending(l)
     return { status: l.state.status, runId: l.state.runId, prompts, pending, statusMessage: l.state.statusMessage ?? null, backgroundTasks: l.state.backgroundTasks ?? 0, reply: l.lastReply ?? null }
+  }
+
+  /**
+   * Whether an agent's CLI hasn't taken its launch's task yet (#712), as agentNow counts it (#721): nothing of Hive's is
+   * typed into it meanwhile, or its CLI's first prompt, the task's, would be taken for that line's and the line would go
+   * first.
+   */
+  launchTaskWaiting(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    return !!l && launchPending(l)
   }
 
   /**
@@ -780,7 +818,8 @@ class SessionManager {
   submitAgain(projectPath: string, agentId: string, runId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     const key = this.key(projectPath, agentId)
-    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key)) return false
+    // Nor while its folder is being changed (#646 round 1: the Enter would start a turn under a Git switch or pull).
+    if (!l || l.state.runId !== runId || !readyFor(l.state) || this.userMayBeTyping(projectPath, agentId) || this.delivering.has(key) || folderChanging(l.state.cwd)) return false
     // The prompt is the user's draft once they have typed in it (#652 round 1 finding 2): never sent by Hive's Enter.
     if (this.userTypedOverLine(projectPath, agentId)) return false
     writePty(key, '\r')
@@ -1436,6 +1475,8 @@ class SessionManager {
     if (workspace.isAssistantHome(projectPath)) await this.onAssistantLaunch(projectPath)
     // Through its gate when its processes can be tracked (#507), else directly, untracked, as said once.
     const tracked = await this.trackingReady()
+    // Not while its folder is being changed under it (#646: a Git switch or pull there): it starts once that is done.
+    await folderSteady(cwd)
     // Checked after the last await, just before spawning: stopped, its workspace closed or switched, or the
     // provider turned off while this launch was being prepared, it must not start a process.
     if (l.stopRequested || this.live.get(id) !== l || this.starting.get(id)?.cancelled || !workspaceFor(projectPath) || this.shuttingDown || workspaceFor(projectPath)?.closing) throw hiveError(M.stoppedBeforeStart)
@@ -1487,10 +1528,12 @@ class SessionManager {
     // menu, whose entries Hive picks by what they say (#396).
     const key = this.key(projectPath, agent.id)
     const size = startSize(key)
-    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen ? new TerminalScreen(size.cols, size.rows) : null
+    const caps = l.adapter.descriptor.capabilities
+    const screen = l.adapter.footerMode || l.adapter.modeMenuKeys || l.turnScreen || caps.bracketedPaste || caps.enterOnceDrawn ? new TerminalScreen(size.cols, size.rows) : null
     l.screen = screen
     // The developer console (#636): how it was started (launchEvent: never its arguments).
     devConsole.capture([sessionSourceId(projectPath, agent.id)], () => launchEvent({ provider: adapter.id, name: adapter.descriptor.name, file: cmd.file, args: cmd.args, cwd, version: info.version, state, resumed: !!l.resumed }))
+    flightRecorder.launched(l.state, () => this.label(l.state), info.version)
     spawnPty(key, {
       ...size,
       file: cmd.file,
@@ -1707,15 +1750,7 @@ class SessionManager {
     check(l)
     // Reserved while Hive types the command (a long focus takes a while), so nothing else is typed or compacted
     // meanwhile; Compaction's limits run from its submission.
-    const release = (): void => {
-      if (l.compacting !== c) return
-      l.compacting = undefined
-      // A session that has exited stays stopped.
-      if (this.live.get(id) !== l) return
-      const ended = this.fact(l.state, { maintenance: null })
-      if (applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready'))) || ended) this.emitState(l.state)
-    }
-    const c: Compaction = new Compaction(before, l.adapter.compactFailure, release)
+    const c: Compaction = new Compaction(before, l.adapter.compactFailure, () => this.compactionDone(id, l, c))
     l.compacting = c
     this.fact(l.state, { maintenance: 'compacting' })
     l.state.status = 'working'
@@ -1744,12 +1779,34 @@ class SessionManager {
       c.submitted()
     } catch (e) {
       c.end()
-      release()
+      this.compactionDone(id, l, c)
       throw e
     } finally {
       this.delivering.delete(key)
       this.noteComposer(this.live.get(id), key)
     }
+  }
+
+  /** A compaction Hive watches is over with no hook saying so (Compaction's `over`): an agent still showing it is idle again. */
+  private compactionDone(id: string, l: LiveSession, c: Compaction): void {
+    if (l.compacting !== c) return
+    l.compacting = undefined
+    // A session that has exited stays stopped.
+    if (this.live.get(id) !== l) return
+    const ended = this.fact(l.state, { maintenance: null })
+    if (applyStep(l.state, compactionOver(l.state, this.idleStatus(l, 'ready'))) || ended) this.emitState(l.state)
+  }
+
+  /**
+   * A compaction the CLI began by itself while the agent was idle (#1115): Claude Code precomputes one in the background,
+   * idle too, sending PreCompact at once and PostCompact only once it uses it, so it may never say this one is over.
+   * Watched as Hive's own from now (begun): over at PostCompact or a prompt, a compaction recorded in the transcript
+   * since its PreCompact (the CLI writes it once the model has summarised, well after the hook), or LIMIT_MS.
+   */
+  private watchAutoCompaction(id: string, l: LiveSession): void {
+    const c: Compaction = new Compaction({ since: Date.now() }, null, () => this.compactionDone(id, l, c))
+    l.compacting = c
+    c.begin()
   }
 
   /**
@@ -1765,7 +1822,7 @@ class SessionManager {
     const asks = l.titleAttention(title)
     if (asks === !!l.titleRead) return
     l.titleRead = asks
-    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+    // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'title', provider: l.state.provider, raw: { title }, made: { asksYou: asks }, summary: `terminal title: ${asks ? 'asks you' : 'asks nobody'}` }))
     // After the hooks that came before it: they are answered at once and handled one at a time, so a slow one (the
     // first records the session) holds back a prompt and an ask that came before the title (#254).
@@ -1788,7 +1845,7 @@ class SessionManager {
     const seen = startupScreen(s, l.modeTail.replace(/\s+/g, ' '), l.adapter)
     if (seen && seen !== 'ready') {
       const asked = seen.asked
-      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+      // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'startup question', provider: l.state.provider, raw: { screen: asked }, made: { status: 'waiting', trust: asked.includes('trust') }, safe: { made: { status: true } }, summary: 'terminal: asks something before it starts; waiting' }))
       if (l.state.status !== 'starting') log.info(`${userText(this.label(l.state))}: asks something before it starts, after its prompt showed (it was ready): waiting`)
       l.askedAtStart = true
@@ -1803,7 +1860,7 @@ class SessionManager {
       this.notify(l.state.projectPath, withValues(M.needsInput, { agent: this.label(l.state) }), asks, 'waiting', undefined, l.state.agentId)
       this.emitState(l.state)
     } else if (seen === 'ready') {
-      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+      // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'ready', provider: l.state.provider, raw: { screen: l.modeTail.replace(/\s+/g, ' ').slice(-200) }, made: { status: 'ready' }, safe: { made: { status: true } }, summary: 'terminal: its prompt shows; ready' }))
       this.startupAnswered(l)
       this.fact(l.state, { lifecycle: 'running' })
@@ -1818,7 +1875,7 @@ class SessionManager {
    */
   private recognisePrompt(l: LiveSession, data: string): void {
     if (!l.recognition.output(data)) return
-    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+    // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'prompt shown', provider: l.state.provider, made: { recognised: 'prompt' }, safe: { made: { recognised: true } }, summary: 'terminal: its prompt recognised' }))
   }
 
@@ -1870,11 +1927,11 @@ class SessionManager {
     const text = screen.text()
     // The first footer recognised this launch, whatever the mode was before (#638's contract marker).
     const first = l.recognition.footerOf(text, l.launchMode)
-    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+    // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
     if (first) devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer seen', provider: l.state.provider, raw: { footer: first }, made: { recognised: 'footer', permissionMode: first }, safe: { raw: { footer: true }, made: { recognised: true, permissionMode: true } }, summary: `terminal footer recognised: mode ${first}` }))
     const mode = l.adapter.footerMode(text, l.launchMode)
     if (mode && (mode !== l.state.permissionMode || mode !== l.state.modeObserved)) {
-      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+      // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
       devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'terminal', name: 'footer mode', provider: l.state.provider, raw: { footer: mode }, made: { permissionMode: mode, was: l.state.permissionMode }, safe: { raw: { footer: true }, made: { permissionMode: true, was: true } }, summary: `terminal footer: mode ${mode}` }))
       l.state.permissionMode = l.state.modeObserved = mode
       this.emitState(l.state)
@@ -2233,16 +2290,31 @@ class SessionManager {
       // A CLI busy for a moment reads what Hive typed in one go, Ctrl+U and Enter included: Claude Code takes such a
       // read as a paste with those keys in it as text, and then Enter again doesn't send it either (#597). A bracketed
       // paste is text however it arrives. A slash command is still typed: pasted, it is sent as a message.
+      // Enter once the CLI has drawn the line (#600: a busy Codex drops an Enter it reads with the line): its end shows
+      // on the screen once more than before it was typed.
+      const drawn = l?.screen && l.adapter.descriptor.capabilities.enterOnceDrawn ? drawnLine(l.screen, line) : null
       if (l?.screen?.bracketedPaste() && l.adapter.descriptor.capabilities.bracketedPaste && !line.startsWith('/')) writePty(key, `\x1b[200~${line.replace(/[\x00-\x1f\x7f-\x9f]/g, '')}\x1b[201~`)
       else await typeInto(key, line, () => (check(), true))
       await new Promise((r) => setTimeout(r, 300))
       check()
+      if (drawn && !drawn()) {
+        // How long, at most: Settings → Advanced (a slower CLI may need longer).
+        const most = advanced.number(drawnWaitId(l!.adapter.id)) * 1000
+        // Typed, and not drawn yet (a busy CLI): e2e suites wait for this line (wakepaste-codex).
+        log.info(`${userText(this.label(l!.state))}: the line Hive typed is in; Enter once it shows`)
+        const t = Date.now()
+        while (!drawn() && Date.now() - t < most) {
+          await new Promise((r) => setTimeout(r, 50))
+          check()
+        }
+        if (!drawn()) log.info(`${userText(this.label(l!.state))}: the line Hive typed wasn't drawn within ${most} ms: Enter anyway`)
+      }
       const before = l?.prompts ?? 0
       writePty(key, '\r')
       // Waiting to be taken from here (#430), for whatever Hive types next: recorded once this call is done with it (its
       // own Enter again below is no line over it; nothing else types meanwhile, it holds `delivering`).
       sent = { at: Date.now(), prompts: before, from: since }
-      // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+      // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
       devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'input', name: 'Hive typed a line', provider: l?.state.provider, raw: { text: line }, made: { bracketedPaste: !!l?.screen?.bracketedPaste(), confirm: !!opts.confirm }, summary: `Hive typed a line (${line.length} chars) and Enter` }))
       // confirm: until the CLI reports the prompt submitted. One just resumed and still drawing its conversation can
       // drop the Enter, or take it as a new line (#334): Enter again, which an empty prompt ignores. Still not
@@ -2619,7 +2691,7 @@ class SessionManager {
       }
     }
     emit({ type: 'session-exit', projectPath, agentId, sessionId, exitCode: code, ...(failure ? { failure } : {}) })
-    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+    // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
     devConsole.capture([sessionSourceId(projectPath, agentId)], () => ({ kind: 'exit', name: 'exit', provider: l?.state.provider, raw: { exitCode: code }, made: { failedStart: !!failure, stopRequested: !!l?.stopRequested }, summary: `exited with code ${code}${failure ? ' before it started' : ''}` }))
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
@@ -2803,7 +2875,7 @@ class SessionManager {
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
-      if (u) l.compacting?.transcript(u.compactions.length)
+      if (u) l.compacting?.transcript(u.compactions)
     }
     if (l.defaultModel) {
       const usage = await this.usageFor(src, sessionId, l.state.provider)
@@ -2971,6 +3043,7 @@ class SessionManager {
     if (!next) return
     st.safeguard = next
     this.emitState(st)
+    flightRecorder.safeguard(st, () => this.label(st), ev)
     if (ev.kind !== 'switch' || !next.switched || next.switched.to === before?.switched?.to) return
     const d = l.adapter.descriptor
     const label = this.label(st)
@@ -3221,6 +3294,8 @@ class SessionManager {
     // Its input as Hive holds it now (#648): a line typed or given up since the last report.
     const l = state.projectPath ? this.live.get(liveId(state.projectPath, state.agentId)) : undefined
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
+    // A launch with its task on its command line: when it first became ready, before a watch shows that as watching (#721).
+    if (l?.state === state && l.launchTask && l.launchReadyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) l.launchReadyAt = Date.now()
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)
@@ -3357,6 +3432,12 @@ class SessionManager {
   }
 
   /** "hive" for a project with one agent, "hive · Agent 2" when it has several. */
+  /** The running agent a developer console source is, or null (#698: the flight recorder's pattern trigger finds it here). */
+  flightAgent(source: string): { projectPath: string; agentId: string; provider: string; label: () => string } | null {
+    for (const l of this.live.values()) if (sessionSourceId(l.state.projectPath, l.state.agentId) === source) return { projectPath: l.state.projectPath, agentId: l.state.agentId, provider: l.state.provider, label: () => this.label(l.state) }
+    return null
+  }
+
   private label(st: LiveSessionState): string {
     if (workspace.isAssistantHome(st.projectPath)) return ASSISTANT_NAME
     const project = basename(st.projectPath)
@@ -3370,8 +3451,9 @@ class SessionManager {
     if (!found?.[1].adapter.statusLine) return
     const l = found[1]
     const d = l.adapter.statusLine!(body)
-    // i18n-ignore: the developer console's words, which stay English (Darren, 14 Oct, #808)
+    // i18n-ignore: the developer console's event data, recorded like a log, stays English (#1104)
     devConsole.capture([sessionSourceId(l.state.projectPath, l.state.agentId)], () => ({ kind: 'statusline', name: 'status line', provider: l.state.provider, raw: body, made: d, safe: { raw: STATUSLINE_FIELDS, made: DETAILS_FIELDS }, summary: statusLineSummary(d) }))
+    flightRecorder.arrived(l.state, () => this.label(l.state), 'statusline', body)
     this.applyDetails(l, d)
   }
 
@@ -3783,6 +3865,7 @@ class SessionManager {
     const st = l.state
     const hook = l.adapter.normalizeHook(body)
     const label = this.label(st)
+    flightRecorder.arrived(st, () => label, 'hook', body)
     // Still this launch after each wait below (#650): one stopped or started again meanwhile gets nothing more of this
     // hook (no reply, status, actions or notification of the old one over the new).
     const current = (): boolean => this.live.get(id) === l
@@ -3980,6 +4063,7 @@ class SessionManager {
       // A tool call still open may really be running long; only a longer silence makes its state unknown.
       if (openCalls(l.ledger!) && silentFor(l.ledger!)! < silentMs() * OPEN_CALL_SILENCE) return
       this.noteTurn(l, { since: l.ledger!.heard })
+      flightRecorder.stalled(st, () => this.label(st), silentFor(l.ledger!))
       const seen = (l.recentHooks ?? []).map((h) => `${h.kind} ${new Date(h.at).toISOString().slice(11, 19)} → ${h.status}`).join(', ')
       log.info(`${userText(this.label(st))}: silent for ${howLong(silentFor(l.ledger!)!)} with no sign of its turn's end: state unknown (${describeTurn(l.ledger!)}; hooks before: ${seen || 'none'})`)
     })
@@ -4071,6 +4155,9 @@ class SessionManager {
             undefined,
             st.projectPath
           )
+          break
+        case 'autoCompactIdle':
+          this.watchAutoCompaction(id, l)
           break
         case 'notifyWaiting':
           this.notify(st.projectPath, withValues(M.needsInput, { agent: label }), step.messageText ?? (step.message || msg({ id: 'session.notice.waitingForInput', defaultMessage: 'Waiting for your input', description: "The notification that an agent waits for the user, when its CLI didn't say what for." })), 'waiting', undefined, st.agentId)

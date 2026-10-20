@@ -1,4 +1,4 @@
-import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, agentPageCount, projectSessionView, resolveKeybinding } from '@shared/defaults'
+import { PROJECT_KEYBINDING_CATEGORIES, SESSION_LAYOUTS, projectSessionView, resolveKeybinding } from '@shared/defaults'
 import { PROVIDERS, providerDescriptor } from '@shared/providers'
 import { batchCounts, type BatchCounts } from '@shared/startAll'
 import type { ProjectInfo, ProviderId, SessionLayout } from '@shared/types'
@@ -14,7 +14,7 @@ import { noteCommandUsed } from './tips'
 import { requestStripMenu, type StripMenu } from './stripMenus'
 import { showAntivirus } from './components/Antivirus'
 import { focusTileAfter } from './components/AgentTiles'
-import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, shownPerPage, toggleCompactSidebar, type ProjectTab } from './store'
+import { agentPage, assistantOnLeft, closeTile, showTilePage, tileFocusOf, tilePage, focusedAgentId, get, isAssistantPath, setAssistantSide, notify, openProjectSettings, revealAgent, set, setActivity, setAssistantOpen, setProgressOpen, progressIsOpen, showAssistantView, showView, showUnusedWorktrees, setProjectTab, showAgent, showPage, panePageCount, shownLayout, toggleCompactSidebar, type ProjectTab } from './store'
 import { STRIP_TABS } from '@shared/projectTabs'
 
 /** A command's category: an id (CATEGORY_TEXT names it), as Settings → Keyboard Shortcuts groups and filters them. */
@@ -128,11 +128,25 @@ function cycleTab(delta: number): void {
 /** Whether the selected project's Session tab shows Tiles (#976), whose pages are pages of tiles. */
 const tilesShown = (p: ProjectInfo): boolean => projectSessionView(p.config, get().settings) === 'tiles'
 
-/** How many agent pages the selected project has (its agents ÷ its layout's panes, #134; in Tiles, of tiles, #976). */
+/** How many agent pages the selected project has (its panes' cells ÷ its layout's panes, #134, #762; in Tiles, of tiles, #976). */
 const pageCount = (): number => {
   const p = selected()
   if (!p) return 1
-  return tilesShown(p) ? tilePageCount(p.agents.length) : agentPageCount(p.agents.length, shownPerPage(p))
+  return tilesShown(p) ? tilePageCount(p.agents.length) : panePageCount(p)
+}
+
+/** Whether the selected project's agents move: two or more (in order), or one in panes side by side (to another cell, #762). */
+const canMove = (): boolean => {
+  const p = selected()
+  return !!p && (p.agents.length > 1 || (p.agents.length === 1 && actions.panesPlaced(p)))
+}
+
+/** Whether the selected project's panes form a grid, whose panes also move up and down (#762). */
+const gridShown = (): boolean => {
+  const p = selected()
+  if (!p || tilesShown(p) || !p.agents.length) return false
+  const l = shownLayout(p)
+  return l === 'grid' || l === 'grid6'
 }
 
 /** Goes to the next or previous agent page (when the project has more than one). */
@@ -381,8 +395,10 @@ const COMMAND_DEFS: CommandDef[] = [
     run: () => cycleAgent(1)
   },
   { id: 'agent.previous', name: msg({ id: 'shell.command.agent.previous', defaultMessage: 'Focus Previous Agent', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+[', when: hasProject, run: () => cycleAgent(-1) }, // i18n-ignore: a shortcut's keys
-  { id: 'agent.moveLeft', name: msg({ id: 'shell.command.agent.moveLeft', defaultMessage: 'Move Agent Left', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(-1) }, // i18n-ignore: a shortcut's keys
-  { id: 'agent.moveRight', name: msg({ id: 'shell.command.agent.moveRight', defaultMessage: 'Move Agent Right', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: () => (selected()?.agents.length ?? 0) > 1, run: () => actions.nudgeAgent(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveLeft', name: msg({ id: 'shell.command.agent.moveLeft', defaultMessage: 'Move Agent Left', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowLeft', when: canMove, run: () => actions.nudgeAgent(-1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveRight', name: msg({ id: 'shell.command.agent.moveRight', defaultMessage: 'Move Agent Right', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowRight', when: canMove, run: () => actions.nudgeAgent(1) }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveUp', name: msg({ id: 'shell.command.agent.moveUp', defaultMessage: 'Move Agent Up', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: moves the agent's pane one cell up in a grid layout." }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowUp', when: gridShown, run: () => actions.moveAgentPane('up') }, // i18n-ignore: a shortcut's keys
+  { id: 'agent.moveDown', name: msg({ id: 'shell.command.agent.moveDown', defaultMessage: 'Move Agent Down', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category: moves the agent's pane one cell down in a grid layout." }), category: 'session', keybinding: 'Mod+Alt+Shift+ArrowDown', when: gridShown, run: () => actions.moveAgentPane('down') }, // i18n-ignore: a shortcut's keys
   { id: 'agent.nextPage', name: msg({ id: 'shell.command.agent.nextPage', defaultMessage: 'Next Agent Page', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+PageDown', when: () => pageCount() > 1, run: () => cyclePage(1) }, // i18n-ignore: a shortcut's keys
   { id: 'agent.previousPage', name: msg({ id: 'shell.command.agent.previousPage', defaultMessage: 'Previous Agent Page', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category.' }), category: 'session', keybinding: 'Mod+Alt+PageUp', when: () => pageCount() > 1, run: () => cyclePage(-1) }, // i18n-ignore: a shortcut's keys
   ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n): CommandDef => ({ id: `agent.focus${n}`, name: msg({ id: 'shell.command.agent.focusN', defaultMessage: 'Focus Agent {n}', description: "A command per agent number (the menus, the command palette, Settings → Keyboard Shortcuts), in the Session category. {n} is the agent's place in the strip, 1 to 9." }), nameValues: { n }, category: 'session', keybinding: `Mod+${n}`, // i18n-ignore: a shortcut's keys
@@ -552,6 +568,7 @@ const COMMAND_DEFS: CommandDef[] = [
   { id: 'view.alwaysOnTop', name: msg({ id: 'shell.command.view.alwaysOnTop', defaultMessage: 'Always on Top', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category.' }), category: 'view', keybinding: 'Mod+Alt+O', checked: () => get().alwaysOnTop, run: () => toggleAlwaysOnTop() }, // i18n-ignore: a shortcut's keys
   { id: 'view.devTools', name: msg({ id: 'shell.command.view.devTools', defaultMessage: 'Toggle Developer Tools', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', keybinding: 'Mod+Shift+I', run: () => call('window:toggleDevTools') }, // i18n-ignore: a shortcut's keys
   { id: 'help.devConsole', name: msg({ id: 'shell.command.help.devConsole', defaultMessage: 'Developer Console', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', keybinding: 'Mod+Alt+J', when: hasWorkspace, hidden: () => !get().settings?.advanced.showDeveloperFeatures, tip: () => tr(msg({ id: 'shell.tip.help.devConsole', defaultMessage: 'What each CLI sends Hive, next to what Hive made of it, in a window of its own', description: 'What a command does, on hover in the menus.' })), run: () => call('console:open') }, // i18n-ignore: a shortcut's keys
+  { id: 'console.showCapture', name: msg({ id: 'shell.command.console.showCapture', defaultMessage: 'Show Capture in Folder', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category: shows a capture of the developer console's flight recorder in File Explorer. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'developer', internal: true, run: (name: string) => typeof name === 'string' && void call('console:showRecording', name) },
   { id: 'view.reload', name: msg({ id: 'shell.command.view.reload', defaultMessage: 'Reload Window', description: 'A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category.' }), category: 'developer', run: () => void actions.saveUnsavedFirst('reload the window' /* i18n-ignore: actions.ts slots the phrase into its sentence (E5b) */).then((ok) => ok && location.reload()) },
   { id: 'notes.open', name: msg({ id: 'shell.command.notes.open', defaultMessage: 'Open Shared Note', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Notes category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'notes', internal: true, run: (path: string) => { showView('notes'); set({ selectedNote: path }) } },
   { id: 'mcp.import', name: msg({ id: 'shell.command.mcp.import', defaultMessage: 'Copy Project MCP Servers to Workspace', description: "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the MCP category. It isn't in the menus or the palette: notifications and buttons run it by its name." }), category: 'mcp', internal: true, run: (path: string, names: string[]) => actions.importProjectMcp(path, names) },

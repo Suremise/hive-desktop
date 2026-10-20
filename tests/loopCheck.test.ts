@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { cardsInPlay, unwatched } from '../src/main/loopCheck'
 import { providerDescriptor } from '../src/shared/providers'
-import { notWatchingReason, REVIEW_WAIT_STALL_MS, reviewVerdictWaitReason, reviewWaitReason } from '../src/shared/tasks'
+import { notWatchingAgent, notWatchingReason, REVIEW_WAIT_STALL_MS, reviewVerdictWaitReason, reviewWaitReason } from '../src/shared/tasks'
 import type { TaskCard } from '../src/shared/types'
 
 const card = (number: number, over: Partial<TaskCard> = {}): TaskCard => ({ number, title: `Card ${number}`, project: 'alpha', column: 'todo', agent: null, archived: false, labels: [], blockedBy: [], links: [], comments: [], history: [], ...over }) as unknown as TaskCard
@@ -37,6 +37,13 @@ describe('cards in play for a loop agent (#376)', () => {
     expect(notWatchingReason(card(334, { column: 'review' }), agents)).toBeNull()
     // Moved to another project: its old project's agent isn't on it any more.
     expect(notWatchingReason(card(333, { column: 'review', project: 'beta' }), agents)).toBeNull()
+  })
+
+  it("an agent that did watch, whose wake waits untaken in its prompt, is stalled for that, not for ending its turn without a watch (#777)", () => {
+    const agents = [{ name: 'AMR3', project: 'alpha', notWatching: [779], untaken: true }]
+    expect(notWatchingReason(card(779, { column: 'review' }), agents)).toBe("AMR3 hasn't taken the wake Hive typed for #779: it waits in its prompt.")
+    expect(notWatchingAgent(card(779, { column: 'review' }), agents)?.untaken).toBe(true)
+    expect(notWatchingReason(card(779, { column: 'passed' }), agents)).toBeNull()
   })
 
   it("an agent whose turn ended with background tasks running is not flagged where they wake it; where they don't (Codex), it is (#521)", () => {

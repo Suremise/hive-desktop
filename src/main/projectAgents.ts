@@ -2,11 +2,12 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'original-fs'
 import { rename } from 'original-fs/promises'
 import { basename, dirname, join } from 'path'
-import { ROLE_MAX, agentLimitText, agentPtyKey, mergeBlocked, moveAgentTo, projectAgents, slugify, swapAgentsIn } from '../shared/defaults'
+import { ROLE_MAX, SESSION_LAYOUTS, agentLimitText, agentPtyKey, layoutPanes, mergeBlocked, moveAgentTo, projectAgents, projectLayout, slugify, swapAgentsIn } from '../shared/defaults'
+import { orderByCells, placedCells } from '../shared/paneCells'
 import { forgetPtys } from './ptyHost'
 import { agentProvider, defaultProviderPending, isKnownProvider } from '../shared/providers'
 import { cleanMcpServers } from '../shared/agentMcp'
-import type { AddAgentOptions, AddedAgent, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, WorktreeCheck, WorktreeMatch, WorktreeReuse } from '../shared/types'
+import type { AddAgentOptions, AddedAgent, AgentBranchStatus, AgentDef, AgentPatch, AgentWorktree, MergeResult, ProjectConfig, ProjectGitInfo, RemovedAgent, SessionLayout, WorktreeCheck, WorktreeMatch, WorktreeReuse } from '../shared/types'
 import { lockfileChanged, reuseNote } from '../shared/unusedWorktrees'
 import { config } from './config'
 import { toast } from './events'
@@ -40,6 +41,7 @@ const log = createLogger('agents')
  */
 const M = {
   noAgent: msg({ id: 'worktrees.agent.gone', defaultMessage: 'That agent no longer exists.', description: 'An error: the agent being changed was removed meanwhile.' }),
+  badLayout: msg({ id: 'worktrees.agent.badPlacement', defaultMessage: "The panes can't be placed like that in this layout.", description: "An error: saving where the user put the agents' panes in a layout (dragging a pane to another cell) was given a layout or places Hive doesn't know." }),
   sharedTree: msg({ id: 'worktrees.agent.sharedTree', defaultMessage: 'Another agent already works in that worktree.', description: 'An error: an agent was to be added in a worktree another agent of the project already works in.' }),
   unknownProvider: msg({ id: 'worktrees.agent.unknownProvider', defaultMessage: 'Unknown provider "{provider}".', description: 'An error: {provider} is not a coding-agent CLI this Hive knows (Claude Code, Codex…).' }),
   cantCheckAgainst: msg({ id: 'worktrees.reuse.cantCheck', defaultMessage: "git couldn't check it against {base}", description: "Why an unused worktree isn't reused for a new agent: git couldn't check whether it is merged into the branch {base}. A clause, lower case." }),
@@ -578,6 +580,29 @@ export async function swapAgents(projectPath: string, agentId: string, otherId: 
   })
   await workspaceOf(projectPath).refresh()
   return projectAgents(next).map((a) => a.id)
+}
+
+/**
+ * Saves where the user put the panes in one layout (#762): its cells, page after page, an agent's id or null, and the
+ * agents' order as the cells read. Ids of agents removed meanwhile go (their cells stay empty), and agents added meanwhile
+ * take a cell. An automatic layout becomes the one shown, chosen: the user has
+ * placed its panes. Returns the cells as saved.
+ */
+export async function placePanes(projectPath: string, layout: SessionLayout, cells: (string | null)[]): Promise<(string | null)[]> {
+  projectPath = workspace.assertProject(projectPath)
+  if (layout === 'single' || !SESSION_LAYOUTS.some((l) => l.value === layout)) throw hiveError(M.badLayout)
+  if (!Array.isArray(cells) || cells.length > 48 || cells.some((c) => c !== null && (typeof c !== 'string' || c.length > 200))) throw hiveError(M.badLayout)
+  // An agent in one cell only.
+  const named = cells.filter((c): c is string => c !== null)
+  if (new Set(named).size !== named.length) throw hiveError(M.badLayout)
+  let saved: (string | null)[] = []
+  await workspace.mutateProjectConfig(projectPath, (now) => {
+    // Agents gone meanwhile leave their cell empty; agents added meanwhile take one, as on any change of agents.
+    saved = placedCells(projectAgents(now).map((a) => a.id), cells, layoutPanes(layout))
+    return { placement: { ...now.placement, [layout]: saved }, agents: orderByCells(projectAgents(now), saved), ...(now.layout === 'auto' ? { layout: projectLayout(now) } : {}) }
+  })
+  await workspaceOf(projectPath).refresh()
+  return saved
 }
 
 async function worktreeOf(projectPath: string, agentId: string) {
