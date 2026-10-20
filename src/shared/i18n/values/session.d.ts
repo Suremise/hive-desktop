@@ -121,6 +121,14 @@ interface HiveMessageValues {
   'session.plan.noToggle': { provider: string | number }
   'session.plan.typing': undefined
   'session.prompt.untaken': undefined
+  'session.purge.changed': undefined
+  'session.purge.cliBack': undefined
+  'session.purge.cliGone': undefined
+  'session.purge.gone': undefined
+  'session.purge.open': undefined
+  'session.purge.reading': undefined
+  'session.purge.running': undefined
+  'session.purge.unread': undefined
   'session.setup.failed': { code: string | number }
   'session.setup.failedTitle': { project: string | number; agent: string | number }
   'session.signIn.again': { provider: string | number }

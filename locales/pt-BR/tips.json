@@ -270,6 +270,8 @@
   "tips.startNewAll.title": "Sessões novas para todos os agentes",
   "tips.storageCleanup.text": "Configurações do projeto → Armazenamento mostra quanto espaço os backups, os arquivados, os anexos e os worktrees de um projeto ocupam. Limpar… move anexos e backups antigos para a Lixeira e mostra antes exatamente o que vai.",
   "tips.storageCleanup.title": "Veja o que o Hive guarda e faça uma limpeza",
+  "tips.storagePurge.text": "Expurgar… em Configurações do projeto → Armazenamento, ou Expurgar os arquivos do Hive… em uma sessão, remove o que o Hive guarda das sessões: backups, anexos e sobras. Ele lista cada arquivo antes; os arquivos dos agentes e seus totais de uso ficam.",
+  "tips.storagePurge.title": "Expurgar o que o Hive guarda",
   "tips.taskbarBadge.text": "O botão do Hive na barra de tarefas mostra quantos agentes precisam de você e pisca quando um deles pergunta algo enquanto o Hive está em segundo plano.",
   "tips.taskbarBadge.title": "Dê uma olhada na barra de tarefas",
   "tips.templateNames.text": "Os nomes de agentes são únicos no espaço de trabalho. Ao carregar um modelo de outro projeto, dê novos nomes aos agentes dele na lista, ao lado dos nomes do modelo: Carregar modelo espera até que nenhum esteja em uso.",

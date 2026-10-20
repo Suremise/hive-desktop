@@ -415,6 +415,10 @@
     "defaultMessage": "{kind, select, conversation {Delete Conversation…} other {Delete Session…}}",
     "description": "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation."
   },
+  "sessions.menu.purge": {
+    "defaultMessage": "Purge Hive's Files…",
+    "description": "Menu item on a session: lists, then removes, everything Hive keeps of it (its backups, attachments, old usage), never the coding agent's own files."
+  },
   "sessions.menu.rename": {
     "defaultMessage": "Rename…",
     "description": "Menu item on a session: renames it."

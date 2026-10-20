@@ -5126,6 +5126,72 @@ class SessionManager {
   }
 
   /**
+   * Purge… (#1138): removes what Hive keeps of one of its sessions as the preview listed it (`listed`: its backups,
+   * leftovers of them, its attachments folder, the old usage on its record). The session is reserved (nothing resumes it
+   * meanwhile) with its backups locked, and checked again just before anything goes: not running or starting, its
+   * transcript not being read by Hive (nor shown, when its last copy goes), and its copies exactly those listed. What it used is recorded in the usage
+   * history first, so totals don't change. Backups that are its last copy (`lastCopy`: the CLI no longer has its
+   * transcript, checked again) go with its record, all or nothing, as Delete does. `remove` removes a file (to the
+   * Recycle Bin, or for good); `attachments` its listed attachments; `unchanged` throws when a listed file changed since. The CLI's own files are never touched.
+   */
+  async purge(projectPath: string, sessionId: string, listed: { backups: string[]; leftovers: string[]; attachments: boolean; keptUsage: boolean; lastCopy: boolean }, remove: (file: string) => Promise<void>, attachments: () => Promise<void>, unchanged?: () => Promise<void>): Promise<{ deleted: boolean }> {
+    assertSessionId(sessionId)
+    const check = async (): Promise<void> => {
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', msg({ id: 'session.purge.running', defaultMessage: 'It is running.', description: 'Purge left a session alone: it is running (or starting) now.' }))
+      if (beingRead(projectPath, sessionId)) throw new SessionInUse('reading', msg({ id: 'session.purge.reading', defaultMessage: 'Hive is reading its transcript (an export or a search). Try again in a moment.', description: 'Purge left a session alone for a moment: Hive is reading its transcript.' }))
+      // A view reads the CLI's transcript while the CLI has it: only a last copy going takes what it shows.
+      if (listed.lastCopy && viewingWindows(projectPath, sessionId).length) throw new SessionInUse('open', msg({ id: 'session.purge.open', defaultMessage: 'Its transcript is open in Hive. Close it, then try again.', description: "Purge left a session alone: its transcript is open in Hive's Sessions tab." }))
+      const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+      if (!rec) throw hiveError(msg({ id: 'session.purge.gone', defaultMessage: 'The session is no longer in Hive.', description: 'Purge left a session alone: it was deleted since the preview.' }))
+      const want = new Set(listed.backups.map((b) => b.toLowerCase()))
+      const has = this.backupFiles(projectPath, sessionId).map((b) => b.toLowerCase())
+      if (want.size && (has.length !== want.size || !has.every((b) => want.has(b)))) throw hiveError(msg({ id: 'session.purge.changed', defaultMessage: "The session's copies changed since the preview.", description: "Purge left a session alone: Hive's copies of its transcript changed since the preview." }))
+    }
+    const deleted = await this.whileCleaning(projectPath, sessionId, () =>
+      this.withBackupsLocked(projectPath, sessionId, async () => {
+        await check()
+        if (listed.backups.length && !!(await this.providerTranscript(projectPath, sessionId).catch(() => null)) === listed.lastCopy) {
+          throw hiveError(listed.lastCopy ? msg({ id: 'session.purge.cliBack', defaultMessage: "The CLI has this session's transcript again.", description: "Purge left a session alone: the coding agent's own transcript is back since the preview, so Hive's backups are no longer its last copy." }) : msg({ id: 'session.purge.cliGone', defaultMessage: "The CLI no longer has this session's transcript.", description: "Purge left a session alone: the coding agent's own transcript went since the preview, so Hive's backups are now its last copy." }))
+        }
+        if ((listed.backups.length || listed.keptUsage) && !(await usageHistory.recordNow(projectPath, sessionId).catch(() => false))) {
+          throw hiveError(msg({ id: 'session.purge.unread', defaultMessage: "Hive couldn't record what the session used, so it is kept.", description: "Purge left a session alone: Hive couldn't save its usage in the usage history, which the totals keep." }))
+        }
+        // Again after the waits above, and the files as listed (`unchanged`): nothing else is awaited before the first removal.
+        await check()
+        await unchanged?.()
+        const backups = listed.backups.length ? this.backupFiles(projectPath, sessionId) : []
+        for (const f of listed.leftovers) if (existsSync(f)) await inUseOnFail(() => remove(f))
+        if (listed.attachments) await attachments()
+        if (listed.lastCopy && backups.length) {
+          await inUseOnFail(() =>
+            trashAllOrNothing(backups, remove, () =>
+              workspace.mutateSessions(projectPath, (f) => {
+                f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+                if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+              })
+            )
+          )
+          return true
+        }
+        for (const b of backups) await inUseOnFail(() => remove(b))
+        if (listed.keptUsage) {
+          await workspace.mutateSessions(projectPath, (f) => {
+            const rec = f.sessions.find((s) => s.id === sessionId)
+            if (rec) delete rec.keptUsage
+          })
+        }
+        return false
+      })
+    )
+    if (deleted) {
+      for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
+        if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
+      }
+    }
+    return { deleted }
+  }
+
+  /**
    * Deletes a session from Hive: its record and Hive's copies of the transcript (to the Recycle Bin). The CLI's
    * own transcript is left alone (Hive doesn't change the CLIs' files), so Hive remembers the id to keep it hidden.
    * Clean Up… passes `expected`, the copies its preview listed (see removeBackups).

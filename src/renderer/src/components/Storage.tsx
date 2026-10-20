@@ -9,6 +9,7 @@ import { cx, timeAgo } from '../util'
 import { BusyButton, Icon, LoadFailed, Modal, useBusy } from './ui'
 import { DataTable, type DataColumn } from './DataTable'
 import { fmt, msg, tr, tRich, type Msg } from '@shared/i18n'
+import { PurgeDialog } from './Purge'
 
 const M = {
   what: msg({ id: 'workspace.storage.what', defaultMessage: 'What', description: "Storage's table: the column of what Hive keeps." }),
@@ -28,6 +29,7 @@ const M = {
   measured: msg({ id: 'workspace.storage.measured', defaultMessage: 'Measured {when}', description: 'Storage: when the sizes were measured ({when}: "4 minutes ago").' }),
   refresh: msg({ id: 'workspace.storage.refresh', defaultMessage: 'Refresh', description: 'Storage: measures again.' }),
   cleanUp: msg({ id: 'workspace.storage.cleanUp', defaultMessage: 'Clean Up…', description: 'Storage: opens the Clean Up dialog.' }),
+  purge: msg({ id: 'workspace.storage.purge', defaultMessage: 'Purge…', description: "Storage: opens the Purge dialog, which removes everything Hive keeps per session (it lists it first)." }),
   kindArchivedAttachments: msg({ id: 'workspace.storage.kindArchivedAttachments', defaultMessage: 'Attachments of archived sessions', description: 'Clean Up, a group of what goes.' }),
   kindOrphanAttachments: msg({ id: 'workspace.storage.kindOrphanAttachments', defaultMessage: 'Attachments of deleted sessions', description: 'Clean Up, a group of what goes; and its choice.' }),
   kindArchivedBackup: msg({ id: 'workspace.storage.kindArchivedBackup', defaultMessage: 'Backups of archived sessions (the CLI still has them)', description: 'Clean Up, a group of what goes.' }),
@@ -134,12 +136,13 @@ export function useStorageRequests(): <T>(start: (request: string) => Promise<T>
   }, [])
 }
 
-/** Project Settings → Storage (and the Assistant's in Settings → Workspace): what Hive keeps, Refresh and Clean Up…. */
+/** Project Settings → Storage (and the Assistant's in Settings → Workspace): what Hive keeps, Refresh, Clean Up… and Purge…. */
 export function StorageView({ path }: { path: string }) {
   const [data, setData] = useState<ProjectStorage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [measuring, setMeasuring] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+  const [purging, setPurging] = useState(false)
   const request = useStorageRequests()
   const load = useCallback(
     (refresh: boolean) => {
@@ -201,7 +204,21 @@ export function StorageView({ path }: { path: string }) {
         <button className="btn small" disabled={!data} onClick={() => setCleaning(true)}>
           <Icon name="trash" /> {tr(M.cleanUp)}
         </button>
+        <button className="btn small" disabled={!data} onClick={() => setPurging(true)}>
+          <Icon name="trash" /> {tr(M.purge)}
+        </button>
       </div>
+      {purging && data && (
+        <PurgeDialog
+          target={{ kind: 'project', projectPath: path }}
+          name={data.assistant ? tr(M.assistant) : data.name}
+          onClose={() => setPurging(false)}
+          onDone={() => {
+            setPurging(false)
+            load(true)
+          }}
+        />
+      )}
       {cleaning && data && (
         <CleanupDialog
           path={path}
@@ -408,13 +425,15 @@ function workspaceColumns(assistantOpen: boolean, toggleAssistant: () => void): 
   ]
 }
 
-/** Settings → Workspace: the workspace's total and its projects, biggest first, each linked to its Storage page. */
+/** Settings → Workspace: the workspace's total and its projects, biggest first, each linked to its Storage page; Purge… for all of it. */
 export function WorkspaceStorageList() {
   const workspace = useStore((s) => s.workspace?.path ?? null)
+  const workspaceName = useStore((s) => s.workspace?.name ?? '')
   const [data, setData] = useState<WorkspaceStorage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [measuring, setMeasuring] = useState(false)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [purging, setPurging] = useState(false)
   const request = useStorageRequests()
   const load = useCallback(
     (refresh: boolean) => {
@@ -469,7 +488,21 @@ export function WorkspaceStorageList() {
         <button className="btn subtle small" disabled={measuring} onClick={() => load(true)}>
           <Icon name="refresh" /> {tr(M.refresh)}
         </button>
+        <button className="btn small" disabled={!data} onClick={() => setPurging(true)}>
+          <Icon name="trash" /> {tr(M.purge)}
+        </button>
       </div>
+      {purging && (
+        <PurgeDialog
+          target={{ kind: 'workspace' }}
+          name={workspaceName}
+          onClose={() => setPurging(false)}
+          onDone={() => {
+            setPurging(false)
+            load(true)
+          }}
+        />
+      )}
       {assistantOpen && assistant && (
         <div className="storage-assistant">
           <div className="agent-dialog-h">{tr(M.assistant)}</div>
