@@ -13,7 +13,7 @@ import { priceUsage } from '../src/shared/usageDays'
 import { newUsageParser } from '../src/main/usageParsers'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
 import { estimateCost } from '../src/shared/prices'
-import type { AppSettings } from '../src/shared/types'
+import type { AppSettings, ProviderId, SessionUsage } from '../src/shared/types'
 import { tempDir } from './tempDir'
 
 const T0 = Date.parse('2026-10-12T10:00:00.000Z')
@@ -292,6 +292,116 @@ describe('the usage worker', () => {
     await t.ingest({ holds: [{ card: 12, role: 'review', parts: [[1, [[T0 + 1500, T0 + 3500]]]] }] })
     const rows = (await call({ type: 'cards', file: t.file, cards: [12] })) as { session: string; agentId?: string; row: { card: number; role: string; outputTokens: number } }[]
     expect(rows.map((r) => [r.session, r.agentId, r.row.role, r.row.outputTokens])).toEqual([['abc', 'a1', 'review', 200]])
+    await t.close()
+  })
+})
+
+// Reads for main (#1147): a running session's footer and context gauge, read here rather than in main's thread.
+describe('the usage worker reading a transcript for main', () => {
+  // A long line: a change before it is outside a saved state's check (the bytes just before its offset).
+  const pad = JSON.stringify({ type: 'user', timestamp: new Date(T0).toISOString(), message: { role: 'user', content: 'x'.repeat(10_000) } }) + '\n'
+  /** Changes the first request's output (same length), where only a read from the start would look again. */
+  const changeRead = (file: string): void => writeFileSync(file, readFileSync(file, 'utf8').replace('"output_tokens":100}', '"output_tokens":900}'))
+  const read = (t: { file: string; transcript: string }, seed = true) => call({ type: 'read', path: t.transcript, session: 'abc', provider: 'claude-code', seed: seed ? { file: t.file, scope: 'p1' } : null }) as Promise<{ usage: SessionUsage; size: number } | null>
+
+  it('reads only what the file added since its last read, and nothing while it is unchanged', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + pad + line(2))
+    const first = (await read(t))!
+    expect(first.usage.outputTokens).toBe(200)
+    expect(first.size).toBe(readFileSync(t.transcript).length)
+    expect(first.usage).not.toHaveProperty('timeline')
+    changeRead(t.transcript)
+    appendFileSync(t.transcript, line(3))
+    // Grown: only the added line is read, so the change before it isn't seen.
+    expect((await read(t))!.usage.outputTokens).toBe(300)
+    appendFileSync(t.transcript, line(4))
+    expect((await read(t))!.usage.outputTokens).toBe(400)
+    await t.close()
+  })
+
+  it("after a restart, takes the session's saved state up: a resumed session's first growth reads only what was added", async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + pad + line(2))
+    // The session ended: what it used recorded, with its parser's state.
+    await t.ingest({ keepState: 'now' })
+    // Hive restarted: nothing read in this run.
+    await call({ type: 'forgetReads' })
+    changeRead(t.transcript)
+    appendFileSync(t.transcript, line(3))
+    expect((await read(t))!.usage.outputTokens).toBe(300)
+    appendFileSync(t.transcript, line(4))
+    expect((await read(t))!.usage.outputTokens).toBe(400)
+    // Without the history to take it from (the check that the change is seen by a read from the start).
+    await call({ type: 'forgetReads' })
+    expect((await read(t, false))!.usage.outputTokens).toBe(1200)
+    await t.close()
+  })
+
+  it("reads from the start when the saved state isn't this file's: rewritten, or shorter than its offset", async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + line(2))
+    await t.ingest({ keepState: 'now' })
+    await call({ type: 'forgetReads' })
+    writeFileSync(t.transcript, prompt(0) + line(1, 300))
+    expect((await read(t))!.usage.outputTokens).toBe(300)
+    // Shrank since the last read: read again.
+    writeFileSync(t.transcript, prompt(0) + line(1, 50))
+    expect((await read(t))!.usage.outputTokens).toBe(50)
+    await t.close()
+  })
+
+  it("an ingest of a running session goes on from the parser the footer's read left, so it is read once", async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1) + pad + line(2))
+    expect((await read(t))!.usage.outputTokens).toBe(200)
+    changeRead(t.transcript)
+    appendFileSync(t.transcript, line(3))
+    expect((await t.ingest({ keepState: 'running' })).status).toBe('written')
+    expect(await t.output()).toBe(300)
+    // And the next read goes on from where the ingest stopped.
+    appendFileSync(t.transcript, line(4))
+    expect((await read(t))!.usage.outputTokens).toBe(400)
+    // The session ended: its parser let go, its state saved: a read after it takes the state up.
+    expect((await t.ingest({ keepState: 'now' })).status).toBe('written')
+    appendFileSync(t.transcript, line(5))
+    expect((await read(t))!.usage.outputTokens).toBe(500)
+    await t.close()
+  })
+
+  it('reads of one file take turns: reads asked for at once each give the whole file, counted once', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + Array.from({ length: 200 }, (_, i) => line(i + 1, 1)).join(''))
+    const all = await Promise.all([read(t), read(t), t.ingest({ keepState: 'running' }), read(t)])
+    expect(all.filter((r): r is { usage: SessionUsage; size: number } => !!r && 'usage' in r).map((r) => r.usage.outputTokens)).toEqual([200, 200, 200])
+    expect(await t.output()).toBe(200)
+    await t.close()
+  })
+
+  it("gives every provider's context fields as its parser does, read in two parts", async () => {
+    const t = await setup()
+    const fixtures: [ProviderId, string][] = [
+      ['claude-code', prompt(0) + line(1) + JSON.stringify({ type: 'assistant', requestId: 'r9', timestamp: new Date(T0 + 9000).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 5, cache_read_input_tokens: 70_000, cache_creation_input_tokens: 2_000, output_tokens: 300 } } }) + '\n'],
+      ['codex', readFileSync(join(__dirname, 'fixtures', 'codex-0.159.jsonl'), 'utf8')],
+      ['copilot', readFileSync(join(__dirname, 'fixtures', 'copilot', 'compaction-1.0.98.jsonl'), 'utf8')]
+    ]
+    for (const [provider, text] of fixtures) {
+      const lines = text.split(/(?<=\n)/)
+      const half = Math.floor(lines.length / 2)
+      const path = join(t.transcript, '..', `${provider}.jsonl`)
+      writeFileSync(path, lines.slice(0, half).join(''))
+      const ask = () => call({ type: 'read', path, session: 'abc', provider, seed: null }) as Promise<{ usage: SessionUsage }>
+      await ask()
+      appendFileSync(path, lines.slice(half).join(''))
+      const got = (await ask()).usage
+      const p = newUsageParser(provider, 'abc')!
+      p.feed(text)
+      const { timeline: _timeline, ...want } = p.result()
+      expect(got, provider).toEqual(want)
+      const context = (u: SessionUsage) => ({ model: u.model, contextTokens: u.contextTokens, contextInputTokens: u.contextInputTokens, lastOutputTokens: u.lastOutputTokens, contextWindow: u.contextWindow, compactions: u.compactions.length })
+      expect(context(got), provider).toEqual(context(want))
+      expect(got.contextTokens, provider).toBeGreaterThan(0)
+    }
     await t.close()
   })
 })
