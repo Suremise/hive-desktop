@@ -56,8 +56,12 @@ export interface ProgressHistory {
 
 export interface ProgressDeps {
   now: () => number
-  /** A workspace's runs changed (newest first): tell its window. Called at most every `emitEveryMs` per workspace. */
-  changed: (workspacePath: string, runs: ProgressRun[]) => void
+  /**
+   * A workspace's runs changed (newest first): tell its window. Called at most every `emitEveryMs` per workspace.
+   * `patch`: the only runs that changed (#1108: a step, a wait, a new run, a run gone stale), or null when the list
+   * itself changed (a run ended, was dismissed or forgotten, the history loaded).
+   */
+  changed: (workspacePath: string, runs: ProgressRun[], patch: ProgressRun[] | null) => void
   /** Whether a run's agent still has a running session (a stopped one's runs go stale). */
   ownerRunning: (run: ProgressRun) => boolean
   /** Whether a reporter's process is still there (#549); without it, a run's pid is never checked. */
@@ -172,6 +176,8 @@ export class ProgressStore {
   private unseenFailure = new Set<string>()
   private pending = new Map<string, NodeJS.Timeout>()
   private lastEmit = new Map<string, number>()
+  /** What changed since the window was last told, per workspace: some runs (by id), or the list itself. */
+  private dirty = new Map<string, Set<string> | 'list'>()
   /** Each workspace's history load, once per opening (forgotten with its runs). */
   private loads = new Map<string, Promise<void>>()
   /** Workspaces whose history has been merged into their runs: their runs are saved as they are. */
@@ -244,15 +250,16 @@ export class ProgressStore {
    * seen (the panel folds it into Recent a few seconds later).
    */
   seen(workspacePath: string): void {
-    let changed = this.unseenFailure.delete(key(workspacePath))
+    const failure = this.unseenFailure.delete(key(workspacePath))
     const now = this.deps.now()
+    const seen: string[] = []
     for (const r of this.runs.get(key(workspacePath)) ?? []) {
       if ((r.state === 'failed' || r.state === 'stale') && r.seenAt === null) {
         r.seenAt = now
-        changed = true
+        seen.push(r.id)
       }
     }
-    if (changed) this.flush(workspacePath)
+    if (failure || seen.length) this.flush(workspacePath, seen)
   }
 
   /** The latest open run of one agent (for its status), if any. */
@@ -317,7 +324,7 @@ export class ProgressStore {
       ...(body.titleFromCommand === true ? { titleFromCommand: true as const } : {})
     }
     this.runs.set(key(caller.workspacePath), [run, ...list])
-    this.flush(caller.workspacePath)
+    this.flush(caller.workspacePath, [run.id])
     return run
   }
 
@@ -362,7 +369,7 @@ export class ProgressStore {
     run.state = 'running'
     run.staleReason = null
     run.seenAt = null
-    this.schedule(run.workspacePath)
+    this.schedule(run.workspacePath, run.id)
     return run
   }
 
@@ -418,7 +425,7 @@ export class ProgressStore {
     const now = this.deps.now()
     const alive = this.deps.processAlive
     for (const list of this.runs.values()) {
-      let changed = false
+      const changed: string[] = []
       let ended = false
       for (const r of list) {
         if (alive && r.pid !== null && isOpenRun(r) && !alive(r.pid)) {
@@ -437,11 +444,11 @@ export class ProgressStore {
           r.state = 'stale'
           r.seenAt = null
           r.staleReason = stopped ? 'agent-stopped' : 'quiet'
-          changed = true
+          changed.push(r.id)
         }
       }
       if (ended && list[0]) this.ended(list[0].workspacePath)
-      else if (changed && list[0]) this.flush(list[0].workspacePath)
+      else if (changed.length && list[0]) this.flush(list[0].workspacePath, changed)
     }
   }
 
@@ -474,7 +481,8 @@ export class ProgressStore {
       this.renamesApplied.delete(k)
       const had = this.runs.delete(k)
       this.unseenFailure.delete(k)
-      if (had) this.deps.changed(p, [])
+      this.dirty.delete(k)
+      if (had) this.deps.changed(p, [], null)
       const t = this.pending.get(k)
       if (t) clearTimeout(t)
       this.pending.delete(k)
@@ -566,24 +574,40 @@ export class ProgressStore {
     return next
   }
 
-  /** Tells the window now, unless it was told very recently (then once that interval has passed). */
-  private schedule(workspacePath: string): void {
+  /** Notes what changed for the window's next telling: these runs, or (no ids) the list itself. */
+  private mark(k: string, ids?: string[]): void {
+    const d = this.dirty.get(k)
+    if (d === 'list') return
+    if (!ids) return void this.dirty.set(k, 'list')
+    const set = d ?? new Set<string>()
+    for (const id of ids) set.add(id)
+    this.dirty.set(k, set)
+  }
+
+  /** Tells the window of a run's change now, unless it was told very recently (then once that interval has passed). */
+  private schedule(workspacePath: string, id: string): void {
     const k = key(workspacePath)
+    this.mark(k, [id])
     if (this.pending.has(k)) return
     const every = this.deps.emitEveryMs ?? 250
     const wait = Math.max(0, (this.lastEmit.get(k) ?? 0) + every - this.deps.now())
-    if (wait === 0) return this.flush(workspacePath)
-    const t = setTimeout(() => this.flush(workspacePath), wait)
+    if (wait === 0) return this.flush(workspacePath, [])
+    const t = setTimeout(() => this.flush(workspacePath, []), wait)
     t.unref?.()
     this.pending.set(k, t)
   }
 
-  private flush(workspacePath: string): void {
+  /** Tells the window now, of these runs' changes and any waiting (#1108), or (no ids) of the whole list. */
+  private flush(workspacePath: string, ids?: string[]): void {
     const k = key(workspacePath)
     const t = this.pending.get(k)
     if (t) clearTimeout(t)
     this.pending.delete(k)
     this.lastEmit.set(k, this.deps.now())
-    this.deps.changed(workspacePath, this.list(workspacePath))
+    this.mark(k, ids)
+    const d = this.dirty.get(k)
+    this.dirty.delete(k)
+    const runs = this.list(workspacePath)
+    this.deps.changed(workspacePath, runs, d === 'list' ? null : runs.filter((r) => d?.has(r.id)))
   }
 }

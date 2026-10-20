@@ -377,15 +377,18 @@ interface HiveMessageValues {
   'assistant.skills.revertTip': undefined
   'assistant.skills.revertTitle': undefined
   'assistant.skills.reverted': { name: string | number }
+  'assistant.skills.shipped.boardHygiene': undefined
   'assistant.skills.shipped.cardLoop': undefined
   'assistant.skills.shipped.coordinateAgents': undefined
   'assistant.skills.shipped.handover': undefined
   'assistant.skills.shipped.journal': undefined
+  'assistant.skills.shipped.licenceAudit': undefined
   'assistant.skills.shipped.mergeReady': undefined
   'assistant.skills.shipped.pickUp': undefined
   'assistant.skills.shipped.reviewAgentWork': undefined
   'assistant.skills.shipped.runLanes': undefined
   'assistant.skills.shipped.splitWork': undefined
+  'assistant.skills.shipped.triageReport': undefined
   'assistant.skills.shipped.tuneSettings': undefined
   'assistant.skills.shipped.useHiveApi': undefined
   'assistant.skills.shipped.workOnCard': undefined

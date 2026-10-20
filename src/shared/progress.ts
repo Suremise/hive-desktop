@@ -1,4 +1,4 @@
-import type { MergeSlotInfo, ProgressRun } from './types'
+import type { MergeSlotInfo, ProgressRun, ProgressSnapshot, ProgressTelling } from './types'
 import { formatDateTime } from './dates'
 import { msg } from './i18n/msg'
 import { providerName } from './providers'
@@ -200,6 +200,100 @@ export function shortDuration(ms: number): string {
   if (min < 60) return `${min} min`
   const h = Math.floor(min / 60)
   return `${h} h${min % 60 ? ` ${min % 60} min` : ''}`
+}
+
+/**
+ * A window's runs with the runs that changed put in place by id (#1108), newest first: a new one by when it started. The
+ * runs that didn't change stay the same objects, so what shows them needn't draw them again.
+ */
+export function applyRunsPatch(runs: readonly ProgressRun[], patch: readonly ProgressRun[]): ProgressRun[] {
+  const changed = new Map(patch.map((r) => [r.id, r]))
+  const out = runs.map((r) => {
+    const next = changed.get(r.id)
+    if (!next) return r
+    changed.delete(r.id)
+    return next
+  })
+  for (const r of changed.values()) {
+    const at = out.findIndex((x) => x.startedAt <= r.startedAt)
+    out.splice(at < 0 ? out.length : at, 0, r)
+  }
+  return out
+}
+
+/**
+ * Keeps a window's runs in step with main's tellings (#1108). A telling of the whole list replaces it; one of some runs
+ * is put in place only when it follows the last applied (its seq one more), else the list is read again. A read
+ * (`reload`: at first, when the window's workspace changes, after a telling was missed) gets the list with the number of
+ * the last telling sent before it; tellings that arrive meanwhile wait, and those after that number are applied on top
+ * of it, in order. A read whose answer is for another workspace, or that a newer read replaced, is dropped. One that
+ * fails takes the newest whole telling that waited as its base and applies the rest on it the same way; with none, and
+ * tellings waiting, it reads again.
+ */
+export class ProgressSync {
+  private seq: number | null = null
+  private reading: { id: number; workspace: string; waiting: ProgressTelling[] } | null = null
+  private reads = 0
+
+  constructor(
+    private d: {
+      workspace: () => string | null
+      runs: () => ProgressRun[]
+      set: (runs: ProgressRun[]) => void
+      load: () => Promise<ProgressSnapshot>
+    }
+  ) {}
+
+  /** Reads the window's workspace's list afresh. */
+  reload(): void {
+    const ws = this.d.workspace()?.toLowerCase()
+    this.seq = null
+    if (!ws) return void (this.reading = null)
+    const id = ++this.reads
+    const reading = { id, workspace: ws, waiting: [] as ProgressTelling[] }
+    this.reading = reading
+    const mine = (): boolean => this.reading?.id === id && this.d.workspace()?.toLowerCase() === ws
+    this.d.load().then(
+      (snap) => {
+        if (!mine()) return
+        this.reading = null
+        if (snap.workspacePath.toLowerCase() !== ws) return
+        this.seq = snap.seq
+        this.d.set(snap.runs)
+        this.replay(reading.waiting.filter((e) => e.seq > snap.seq))
+      },
+      () => {
+        if (!mine()) return
+        this.reading = null
+        // The newest whole telling that waited is a base, and what came after it is applied on it as after a read. With
+        // none, what waited can't be placed: read again, once per failed read that had tellings waiting (it never spins).
+        const base = reading.waiting.findLastIndex((e) => e.whole)
+        if (base >= 0) this.replay(reading.waiting.slice(base))
+        else if (reading.waiting.length) this.reload()
+      }
+    )
+  }
+
+  /** Tellings that waited for a read, applied in order as if just told (one missed reads again, as ever). */
+  private replay(tellings: ProgressTelling[]): void {
+    for (const e of tellings) this.told(e)
+  }
+
+  /** A telling from main: for the window's workspace only. */
+  told(e: ProgressTelling): void {
+    const ws = this.d.workspace()?.toLowerCase()
+    if (!ws || e.workspacePath.toLowerCase() !== ws) return
+    // A read of the workspace shown before: this one's starts (and this telling waits for it).
+    if (this.reading && this.reading.workspace !== ws) this.reload()
+    if (this.reading) return void this.reading.waiting.push(e)
+    if (e.whole) {
+      this.seq = e.seq
+      return this.d.set(e.runs)
+    }
+    if (this.seq === null || e.seq !== this.seq + 1) return this.reload()
+    this.seq = e.seq
+    this.d.set(applyRunsPatch(this.d.runs(), e.runs))
+  }
 }
 
 /** An agent's newest open run (running or stale), for what it is doing elsewhere (the Assistant's overview, #311). */

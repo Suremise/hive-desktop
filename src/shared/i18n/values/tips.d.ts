@@ -71,6 +71,8 @@ interface HiveMessageValues {
   'tips.boardExport.title': undefined
   'tips.boardFold.text': undefined
   'tips.boardFold.title': undefined
+  'tips.boardHygiene.text': undefined
+  'tips.boardHygiene.title': undefined
   'tips.boardOrder.text': undefined
   'tips.boardOrder.title': undefined
   'tips.boardReview.text': undefined
@@ -156,6 +158,8 @@ interface HiveMessageValues {
   'tips.language.title': undefined
   'tips.leftoverProcesses.text': undefined
   'tips.leftoverProcesses.title': undefined
+  'tips.licenceAudit.text': undefined
+  'tips.licenceAudit.title': undefined
   'tips.loopDefaults.text': { rounds: number; hours: number }
   'tips.loopDefaults.title': undefined
   'tips.loopLanes.text': undefined
@@ -274,6 +278,8 @@ interface HiveMessageValues {
   'tips.tileStrip.title': undefined
   'tips.tilesView.text': undefined
   'tips.tilesView.title': undefined
+  'tips.triageReport.text': undefined
+  'tips.triageReport.title': undefined
   'tips.twoProviders.text': undefined
   'tips.twoProviders.title': undefined
   'tips.ui.close': undefined
