@@ -102,6 +102,7 @@ export const SUITES = [
   { name: 'hivevcs' },
   { name: 'hwaccel' },
   { name: 'i18nlive' },
+  { name: 'i18nreport' },
   { name: 'i18nshots' },
   { name: 'icons' },
   { name: 'idlestatus' },

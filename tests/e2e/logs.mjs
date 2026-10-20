@@ -107,7 +107,8 @@ export const PROTECTED_FILE = /^(?:\.credentials\.json|auth\.json)$/i
  * run's logs, whatever later runs do to the lane. Never its other folders, and never a profile, workspace, CLI home or
  * sign-in file at any depth, inside a screenshot folder too (PROTECTED_DIR, PROTECTED_FILE). Never through a link: a
  * suite folder with a link anywhere on its path is not read at all, and a junction or symlink inside it is left out,
- * not followed. Left out too: a file over maxBytes, and whatever would go past maxFiles or maxTotal. Returns
+ * not followed. Left out too: a file over maxBytes, and whatever would go past maxFiles or maxTotal; a folder's files
+ * are copied before its folders, so a report beside folders of screenshots is kept when they run past a limit. Returns
  * { copied, omitted: [{ path, why }] }, paths relative to the suite folder ('.' for the folder itself).
  */
 export function keepSuiteFiles(suiteDir, runDir, name, { maxBytes = 20 * 1024 * 1024, maxFiles = 500, maxTotal = 200 * 1024 * 1024 } = {}) {
@@ -127,6 +128,8 @@ export function keepSuiteFiles(suiteDir, runDir, name, { maxBytes = 20 * 1024 * 
     } catch {
       return
     }
+    // Files first (a stable sort: by name within each).
+    entries.sort((a, b) => Number(a.isDirectory()) - Number(b.isDirectory()))
     for (const e of entries) {
       const r = rel ? join(rel, e.name) : e.name
       if (e.isSymbolicLink()) {

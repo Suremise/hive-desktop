@@ -14,7 +14,7 @@ import { AREAS, DOCS_ONLY, EVERYTHING, REAL_TIER, UNIT_ONLY, affectedSuites, und
 // @ts-expect-error: plain .mjs modules without types
 import { fingerprint } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
-import { isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
+import { isRealCli, keepLimits, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, recordStatus, repeatStatus, selectSuites, suiteOutcome } from './e2e/runner.mjs'
 // @ts-expect-error: plain .mjs modules without types
 import { recordJson, recordMarkdown, selectionLine, selectionOf } from './e2e/record.mjs'
 // @ts-expect-error: plain .mjs modules without types
@@ -52,7 +52,7 @@ describe('the e2e suite list', () => {
 
   it('names suites that exist, and every suite file is listed', () => {
     for (const n of names) expect(existsSync(join(dir, `${n}.cjs`)), n).toBe(true)
-    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics', 'folderProcesses', 'storeDocs', 'windowsExits']
+    const helpers = ['lib', 'fake-bridge', 'fake-copilot-api', 'runContext', 'evidence', 'codexDiagnostics', 'folderProcesses', 'storeDocs', 'windowsExits', 'layoutReport']
     const files = execFileSync('git', ['ls-files', 'tests/e2e/*.cjs'], { cwd: root, encoding: 'utf8' })
       .split(/\r?\n/)
       .filter(Boolean)
@@ -800,6 +800,30 @@ describe("each run's own log folder (logs.mjs)", () => {
     } finally {
       rmSync(shared, { recursive: true, force: true })
     }
+  })
+
+  it("keeps a folder's files before its folders, and a --lang run's every language (#899)", () => {
+    const runsDir = tempDir('hive-keeplang-')
+    try {
+      // The i18nshots route's shots: a folder per language, its reports beside them.
+      const shots = join(runsDir, 'lane', 'i18nshots', 'i18nshots-shots')
+      for (const lang of ['en-XA', 'pl']) {
+        mkdirSync(join(shots, lang), { recursive: true })
+        for (let i = 0; i < 3; i++) writeFileSync(join(shots, lang, `core-${i}-dark.png`), 'png')
+      }
+      for (const f of ['reached.json', 'report.json', 'report.txt']) writeFileSync(join(shots, f), '{}')
+      const run = newRunDir(join(runsDir, 'logs'), new Date(2026, 9, 20, 1, 0, 0))
+      // Past the limit, the reports are kept and the screenshots cut.
+      const kept = keepSuiteFiles(join(runsDir, 'lane', 'i18nshots'), run, 'i18nshots', { maxFiles: 4 })
+      expect(kept.copied).toBe(4)
+      expect(readdirSync(join(run, 'i18nshots', 'i18nshots-shots')).sort()).toEqual(['en-XA', 'reached.json', 'report.json', 'report.txt'])
+    } finally {
+      rmSync(runsDir, { recursive: true, force: true })
+    }
+    // Room for each language a --lang run photographs; any other run, or suite, keeps the defaults.
+    expect(keepLimits('i18nshots', ['en-XA', 'pl', 'de', 'es', 'fr', 'ja', 'pt-BR', 'zh-CN'])).toEqual({ maxFiles: 3700, maxTotal: 500 * 1024 * 1024 })
+    expect(keepLimits('i18nshots', [])).toEqual({})
+    expect(keepLimits('board', ['pl'])).toEqual({})
   })
 
   it('a failed run survives ten newer passing runs for a day, with its failed suites’ screenshots, then goes (#223)', () => {

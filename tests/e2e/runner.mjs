@@ -10,6 +10,11 @@ const PLAIN_FLAGS = ['--all', '--real', '--only-real', '--record', '--fingerprin
 
 /** The suite --lang runs (#769): the i18n screenshot route, the one suite that isn't pinned to English. */
 export const LANG_SUITE = 'i18nshots'
+/**
+ * What a run keeps of a suite's files (logs.mjs keepSuiteFiles' limits): its defaults, but room for every language a
+ * --lang run photographed (#899: about 370 screenshots and 35 MB each, with the reports beside them).
+ */
+export const keepLimits = (name, lang = []) => (name === LANG_SUITE && lang.length ? { maxFiles: 100 + 450 * lang.length, maxTotal: (20 + 60 * lang.length) * 1024 * 1024 } : {})
 /** A language tag as --lang takes it (pl, pt-BR, en-XA); whether Hive has the language, the suite checks by starting it. */
 const LANG_TAG = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i
 

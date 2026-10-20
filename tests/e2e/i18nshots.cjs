@@ -18,6 +18,10 @@
 // Written to the suite folder's i18nshots-shots: <lang>/<area>-<screen>-<theme>.png, a language's notify.log when it
 // would have shown a Windows notification, and reached.json (per language and screen: its screenshots, or why it wasn't
 // reached). The runner keeps them after a pass with --keep-files, which --lang implies.
+//
+// With them, a text report of what each screen's layout does to its text (#899, layoutReport.cjs: text cut off,
+// wrapped, squeezed or overlapping, and English left in a translated run): report.txt (a line per issue, naming the
+// screenshot to open) and report.json. Read it first and open only the images it flags; it never fails the run.
 const fs = require('fs')
 const path = require('path')
 
@@ -74,6 +78,7 @@ module.exports = { languagesFrom, loadCases, LANG_TAG }
 // Loaded by tests/i18nshots.test.ts for the two helpers above; run, it is the suite.
 if (require.main === module) {
   const lib = require('./lib.cjs')
+  const layout = require('./layoutReport.cjs')
   const { _electron } = require('playwright-core')
   const shots = path.join(lib.WORK, 'i18nshots-shots')
   let failed = 0
@@ -85,7 +90,7 @@ if (require.main === module) {
 
   /** One language: its own test copy, every case's screens in both themes. Returns what it reached. */
   async function photograph(lang, cases) {
-    const result = { language: null, translations: 0, screens: {}, errors: [] }
+    const result = { language: null, translations: 0, screens: {}, errors: [], report: {} }
     const dir = path.join(shots, lang)
     const userData = path.join(lib.WORK, `i18nshots-${lang}-profile`)
     const ws = path.join(lib.WORK, `i18nshots-${lang}-ws`)
@@ -121,6 +126,8 @@ if (require.main === module) {
       const shows = info.code.toLowerCase() === lang.toLowerCase()
       check(`${lang}: Hive shows it (${result.translations} translations)`, shows, `Hive shows ${info.code}${info.forced ? `, started with ${info.forced}` : ''}: is ${lang} one of its languages?`)
       if (!shows) return result
+      // English left is looked for in a translated run only: in English, every message is its English text.
+      const english = /^en(?:-(?!XA)|$)/i.test(info.code) ? null : layout.englishLeft(layout.englishCatalogue(), info.messages ?? {})
 
       await lib.openWorkspace(inv, page, ws)
       await lib.waitForProvider(inv)
@@ -178,6 +185,14 @@ if (require.main === module) {
               else await page.screenshot({ path: file, timeout: HUNG_MS })
               if (!(fs.statSync(file).size > 0)) throw new Error(`its ${t} screenshot is empty`)
               got[t] = path.relative(shots, file)
+              // The layout is the same in both themes: it is read once, in the first.
+              if (t === THEMES[0]) {
+                // A screen is a locator, the whole window (null), or another window (a page: the developer console).
+                const isLocator = typeof target?.elementHandle === 'function'
+                const root = isLocator ? await target.elementHandle({ timeout: HUNG_MS }) : null
+                const issues = await (isLocator ? target.page() : (target ?? page)).evaluate(layout.inspectLayout, [root, english])
+                result.report[key] = { image: got[t].replace(/\\/g, '/'), issues }
+              }
             }
             got.reached = true
           } catch (e) {
@@ -215,13 +230,20 @@ if (require.main === module) {
     console.log(`Cases: ${cases.map((c) => `${c.area} (${c.screens.map((s) => s.name).join(', ')})`).join('; ')}`)
     const reached = {}
     if (!bad.length) for (const lang of langs) reached[lang] = await photograph(lang, cases)
-    fs.writeFileSync(path.join(shots, 'reached.json'), JSON.stringify(reached, null, 2))
+    fs.writeFileSync(path.join(shots, 'reached.json'), JSON.stringify(Object.fromEntries(Object.entries(reached).map(([l, r]) => [l, { ...r, report: undefined }])), null, 2))
+    const report = Object.fromEntries(Object.entries(reached).map(([l, r]) => [l, r.report]))
+    fs.writeFileSync(path.join(shots, 'report.json'), JSON.stringify(report, null, 2))
+    const summary = layout.summarize(report)
+    fs.writeFileSync(path.join(shots, 'report.txt'), summary)
     for (const [lang, r] of Object.entries(reached)) {
       const missed = Object.entries(r.screens).filter(([, s]) => !s.reached)
       const n = Object.keys(r.screens).length - missed.length
       console.log(`${lang}: reached ${n} of ${screens} screens in both themes${missed.length ? `; not reached: ${missed.map(([k, s]) => `${k} (${s.why})`).join('; ')}` : ''}`)
       if (r.errors.length) console.log(`${lang}: noted (not failed): ${r.errors.slice(0, 5).join(' | ')}`)
     }
+    // Each language's count; the issues themselves are in report.txt.
+    for (const line of summary.split('\n').filter((l) => l && !l.startsWith(' '))) console.log(`Layout report: ${line}`)
+    console.log(`Layout report: ${path.join(shots, 'report.txt')} (read it before opening any screenshot)`)
     console.log(`Screenshots: ${shots} (after a pass, the runner keeps a copy with --lang or --keep-files)`)
     process.exit(failed ? 1 : 0)
   })()
