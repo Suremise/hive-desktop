@@ -36,6 +36,19 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## Tagging cards: fake, Claude Code (haiku), Codex (its default model), fixtures v66, 20 October 2026
+
+#1131: `hive_update_task(s)` and the Agent API take `addLabels` and `removeLabels` (labels added or taken off, the
+others kept); `labels` still replaces them, and its description now points to the new two for tagging. One new
+scenario, **tag-cards**: three cards with labels of their own, and the prompt "Tag cards #a, #b and #c with the label
+0.9.4". Checks: each has 0.9.4 and kept its own, every change used `addLabels` and never `labels`, in one
+`hive_update_tasks` call, and no card moved.
+- **Fakes**: the whole set before and after the description change (baseline `hb2-1131-before` against
+  `2026-10-20T01-08-41-fake`): 398 pass both times, check for check; the tool list +600 bytes (20,351 → 20,951). The new
+  scenario passes with the fake Claude Code (`2026-10-20T01-43-11-fake`).
+- **Codex**: 2 of 2 (`2026-10-20T01-44-06-codex`): one `hive_update_tasks` with `addLabels`, every card's own labels kept.
+- **Claude Code (haiku)**: 2 of 2 (`2026-10-20T01-46-16-claude-code`): the same.
+
 ## A card's reference that no longer resolves: fake, Claude Code (haiku), Codex (its default model), fixtures v63–v64 (v65 once merged with main, which also reached v64), 19 October 2026
 
 #819: the start prompt names a reference that doesn't resolve, why and the closest headings ("This reference no

@@ -104,6 +104,22 @@ describe('batch card changes (hive_update_tasks)', () => {
     expect(await change({ labels: ['only'] })).toMatchObject({ labels: ['only'], said: ['Labels: only'] })
   })
 
+  // #1131 round 1: labels were cut to 40 characters after repeats were removed, so two alike in their first 40 were kept
+  // twice, and a card with 11 labels was refused one more.
+  it('counts labels alike once they are cut to 40 characters as one, for labels, addLabels and removeLabels (#1131)', async () => {
+    const x = 'x'.repeat(40)
+    expect(tasks.labelChange(['keep'], [`${x}a`, `${x}b`], [])?.labels).toEqual(['keep', x])
+    expect(tasks.labelChange(['keep'], [`${x}a  `, ` ${'y'.repeat(39)} z`], [])?.labels).toEqual(['keep', x, 'y'.repeat(39)])
+    const eleven = Array.from({ length: 11 }, (_, i) => `own-${i}`)
+    const c = await run(() => tasks.createTask({ title: 'Eleven labels', project: 'batch', labels: eleven }, user))
+    const added = await run(() => tasks.updateTask(c.number, { addLabels: [`${x}a`, `${x}b`] }, user))
+    expect(added.labels).toEqual([...eleven, x])
+    expect(added.history.at(-1)?.what).toBe(`Labels: added ${x}`)
+    // Taken off by a label that is the same once cut.
+    expect((await run(() => tasks.updateTask(c.number, { removeLabels: [`${x}zzz`] }, user))).labels).toEqual(eleven)
+    expect((await run(() => tasks.updateTask(c.number, { labels: [`${x}a`, `${x}b`, 'keep'] }, user))).labels).toEqual([x, 'keep'])
+  })
+
   it('refuses labels with addLabels or removeLabels, a label both added and removed, and more labels than a card has room for (#1131)', async () => {
     const c = await run(() => tasks.createTask({ title: 'Refusals', project: 'batch', labels: ['keep'] }, user))
     await expect(run(() => tasks.updateTask(c.number, { labels: ['a'], addLabels: ['b'] }, user))).rejects.toThrow(/labels replaces a card's labels/)

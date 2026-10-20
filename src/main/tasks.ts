@@ -600,18 +600,26 @@ function contextOf(v: unknown): string[] {
 const LABELS_MIXED = msg({ id: 'tasks.error.labelsMixed', defaultMessage: "labels replaces a card's labels: give it alone, or addLabels and removeLabels to change only those.", description: 'An error: the call gave the card\'s labels in full (labels, which replaces them) and also labels to add or take off. "labels", "addLabels" and "removeLabels" are the names of the call\'s fields: keep them as they are.' })
 const TOO_MANY_LABELS = msg({ id: 'tasks.error.tooManyLabels', defaultMessage: 'A card can have up to {max} labels.', description: 'An error: a card was given more labels than it may have ({max}, a number).' })
 
+/**
+ * Labels as a card keeps them: each cut to 40 characters and trimmed, empty ones dropped, then each once (#1131 round 1:
+ * cut after removing repeats, two labels alike in their first 40 characters were kept twice).
+ */
+function normalLabels(v: readonly unknown[]): string[] {
+  return [...new Set(v.map((x) => String(x).trim().slice(0, 40).trim()).filter(Boolean))]
+}
+
 function labelsOf(v: unknown): string[] {
   if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelsList', defaultMessage: 'labels must be a list', description: 'An error: the call gave the card\'s labels as something other than a list. "labels" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
-  const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))].map((l) => l.slice(0, 40))
+  const out = normalLabels(v)
   if (out.length > MAX_LABELS) throw hiveError(TOO_MANY_LABELS, { max: MAX_LABELS }, { kind: 'invalid' })
   return out
 }
 
-/** addLabels or removeLabels, read as labels is (trimmed, each once, cut to 40 characters). */
+/** addLabels or removeLabels, read as labels is (normalLabels). */
 function someLabels(v: unknown, field: 'addLabels' | 'removeLabels'): string[] {
   if (v === undefined) return []
   if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelFieldList', defaultMessage: '{field} must be a list', description: 'An error: the call gave the labels to add or remove as something other than a list. {field} is the name of the call\'s field ("addLabels" or "removeLabels"): keep it as it is.' }), { field }, { kind: 'invalid' })
-  return [...new Set(v.map((x) => String(x).trim()).filter(Boolean))].map((l) => l.slice(0, 40))
+  return normalLabels(v)
 }
 
 /**
