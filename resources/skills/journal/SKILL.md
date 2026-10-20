@@ -13,7 +13,7 @@ Your journal is your memory across sessions and compactions: a small database in
 
 Write an entry (`hive_journal_write`) when something happens that a later you would need, not at the end of the day:
 
-- **decision**: what the user decided, in their own words (quote them), and why. Link the cards it is about.
+- **decision**: what the user decided, in their own words (quote them), and why. Link the cards it is about. A decision about a card goes on the card first, as its decision (`hive_update_task` with `decision`: coordinate-agents): agents check their work against the card's, never your journal's.
 - **plan**: what you or the user mean to do next, and what it waits for ("when #975 is Done, start #976").
 - **incident**: something that went wrong (a crash, a failed merge, an agent stuck), what you did, and whether it is settled.
 - **insight**: something learned that changes how you work here (a test that is slow under load, an agent that needs a nudge).
