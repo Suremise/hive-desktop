@@ -5,7 +5,9 @@
 // real SessionManager with hand-made live states.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { whyNoLine } from '../src/main/lineWriter'
+import { advanced } from '../src/main/advanced'
 import { sessions } from '../src/main/sessions'
+import { tempDir } from './tempDir'
 
 const project = 'C:/fake-ws/alpha'
 const id = 'b1'
@@ -104,6 +106,36 @@ describe("no line of Hive's before a launch's hive tools have connected (#865)",
     expect(settled).toBe(true)
     live.delete(key)
     await expect(sessions.hiveToolsSettled(project, id)).resolves.toBeUndefined()
+  })
+
+  it('the bound lowered in Settings → Advanced while a task waits: the wait ends with the gate, not at the old bound (round 4)', async () => {
+    const dir = tempDir('hive-tools-bound')
+    advanced.load(dir)
+    try {
+      launched()
+      let settled = false
+      const wait = sessions.hiveToolsSettled(project, id).then(() => (settled = true))
+      await advanced.set('hive.mcp.connectSeconds', 1)
+      // Ready under a second ago: the gate still holds, and the wait with it.
+      expect(sessions.hiveToolsWaiting(project, id)).toBe(true)
+      expect(settled).toBe(false)
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 5_000 })
+      expect(sessions.hiveToolsWaiting(project, id)).toBe(false)
+      await wait
+    } finally {
+      await advanced.set('hive.mcp.connectSeconds', 30)
+      advanced.stop()
+    }
+  })
+
+  it('its launch ending lets the wait go at once', async () => {
+    launched()
+    let settled = false
+    const wait = sessions.hiveToolsSettled(project, id).then(() => (settled = true))
+    live.delete(key)
+    ;(sessions as unknown as { recheckTools(k: string): void }).recheckTools(key)
+    await wait
+    expect(settled).toBe(true)
   })
 
   it('never connected (its server failed, MCP off in its CLI): at most 30 s from when it first became ready', () => {

@@ -99,9 +99,8 @@ const check = (name, ok, extra = '') => {
     await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
     check('it is resumed and ready', !!(await until(() => idle(builder.id), HUNG_MS)))
     const m1 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (resumed).' })
-    check('a message is queued, not told', m1.status === 200 && m1.body?.typed !== true && delivery(m1.body.id)?.state === 'queued', JSON.stringify(m1))
-    // Hive has had its chance to offer it (a delivery tick offers what waits every 5 s): still queued, no doorbell.
-    await lib.sleep(6000) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
+    // Leaving it offered it before the reply (leaveMessage awaits its offer): typed false is that offer held by the gate.
+    check('a message is queued, not told', m1.status === 200 && m1.body?.typed === false && delivery(m1.body.id)?.state === 'queued', JSON.stringify(m1))
     check('no doorbell while held', bells().length === bellsFresh && delivery(m1.body.id)?.state === 'queued', `${bells().length} bells, ${delivery(m1.body.id)?.state}`)
     go()
     check('once connected, the message is read', !!(await until(() => ['received', 'acked'].includes(delivery(m1.body.id)?.state), HUNG_MS)), delivery(m1.body.id)?.state)
