@@ -86,10 +86,10 @@ export function useFolds(row: { current: HTMLElement | null }, width: number, co
 }
 
 /**
- * Whether an element's text is cut short (an ellipsis, #886), so its tooltip can give it in full. Follows the element's
- * size and its text.
+ * Whether an element's text is cut short (an ellipsis, #886; or its last line, with `lines`: a line clamp, #1145), so its
+ * tooltip can give it in full. Follows the element's size and its text.
  */
-export function useClipped<T extends HTMLElement>(): [(el: T | null) => void, boolean] {
+export function useClipped<T extends HTMLElement>(lines = false): [(el: T | null) => void, boolean] {
   const [clipped, setClipped] = useState(false)
   const observers = useRef<{ ro: ResizeObserver; mo: MutationObserver } | null>(null)
   const ref = useCallback((el: T | null) => {
@@ -97,14 +97,14 @@ export function useClipped<T extends HTMLElement>(): [(el: T | null) => void, bo
     observers.current?.mo.disconnect()
     observers.current = null
     if (!el) return
-    const update = (): void => setClipped(el.scrollWidth > el.clientWidth + 1)
+    const update = (): void => setClipped(el.scrollWidth > el.clientWidth + 1 || (lines && el.scrollHeight > el.clientHeight + 1))
     const ro = new ResizeObserver(update)
     ro.observe(el)
     const mo = new MutationObserver(update)
     mo.observe(el, { childList: true, characterData: true, subtree: true })
     observers.current = { ro, mo }
     update()
-  }, [])
+  }, [lines])
   return [ref, clipped]
 }
 

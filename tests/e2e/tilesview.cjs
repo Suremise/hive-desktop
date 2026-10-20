@@ -80,6 +80,26 @@ const check = (name, ok, extra = '') => {
     check("…in the accessibility tree too", !!(await page.getByRole('button', { name: 'Tile page 2, 1 agent waiting for you or stalled', exact: true }).count()))
     await page.screenshot({ path: path.join(lib.WORK, 'tilesview-grid.png') })
 
+    // --- One height for every tile (#1145), whatever each shows: a reply (A), work (B), nothing (C…); and it stays while a
+    // progress run starts on A (its progress line and bar) and ends. A's reply first runs to its two lines.
+    const longReply = 'a reply long enough to fill both of the lines a tile gives it, and more after that, so it is cut short'
+    await prompts('A').type(longReply)
+    await lib.until(async () => (await live(ids.A))?.replyStart?.includes('long enough') && ['ready', 'finished'].includes((await live(ids.A))?.status), HUNG_MS)
+    const heights = () => page.locator('.agent-tile').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height * 10) / 10))
+    const before = await heights()
+    check('every tile is the same height', before.length === 12 && new Set(before).size === 1, before.join())
+    const runDone = path.join(lib.WORK, 'tilesview-run-done')
+    await prompts('A').type(`shell: hive-progress --title tiles-run -- node -e "setInterval(() => require('fs').existsSync(process.argv[1]) && process.exit(0), 100)" ${runDone}`)
+    const progressShown = () => tile('A').evaluate((el) => el.querySelector('.tile-progress-text')?.textContent ?? '')
+    check("A's tile shows its progress run", !!(await lib.until(async () => (await progressShown()).startsWith('tiles-run'), HUNG_MS)), await progressShown())
+    const during = await heights()
+    check('…and no tile changed height', during.length === 12 && during.every((h) => h === before[0]), `${before[0]} → ${during.join()}`)
+    await page.screenshot({ path: path.join(lib.WORK, 'tilesview-grid-run.png') })
+    fs.writeFileSync(runDone, '')
+    check('the run ends and A is idle again', !!(await lib.until(async () => (await progressShown()) === '' && ['ready', 'finished'].includes((await live(ids.A))?.status), HUNG_MS)))
+    const after = await heights()
+    check('…every tile still the same height', after.every((h) => h === before[0]), after.join())
+
     // --- Page 2: M, highlighted where it is.
     await page.locator('.session-toolbar .tile-pages button').nth(1).click()
     check('page 2: M alone, highlighted (waiting)', !!(await lib.until(async () => (await tileNames()).join() === 'M', HUNG_MS)) && (await tile('M').evaluate((el) => el.classList.contains('urgent') && el.classList.contains('waiting'))), (await tileNames()).join())

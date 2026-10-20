@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { AgentState } from '@shared/agentState'
 import { agentDoingCards, agentReviewCards, columnName } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
@@ -255,40 +255,54 @@ function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { projec
         <span className="tile-name">{a.name}</span>
         <span className="tile-provider">{providerName(agentProviderOf(project, a))}</span>
       </span>
-      <span className="tile-status">{status}</span>
-      {doing.length > 0 && <span className="tile-card">{cardsText(doing)}</span>}
-      {reviewing.length > 0 && <span className="tile-card">{tr(msg({ id: 'panes.tiles.reviewing', defaultMessage: 'Reviewing {card}', description: 'On an agent\'s tile: the card it reviews ({card}: "#12 Its title").' }), { card: cardsText(reviewing) })}</span>}
-      {run && (
-        <span className="tile-progress">
-          <span className="tile-progress-text">
-            {run.title} · {runStatusLine(run, now, tr)}
+      {/* Every row keeps its place, shown or not (#1145): a tile is always the same height, so tiles don't move. */}
+      <TileText className="tile-status">{status}</TileText>
+      <TileText className="tile-card">{doing.length > 0 ? cardsText(doing) : reviewing.length > 0 ? tr(msg({ id: 'panes.tiles.reviewing', defaultMessage: 'Reviewing {card}', description: 'On an agent\'s tile: the card it reviews ({card}: "#12 Its title").' }), { card: cardsText(reviewing) }) : ''}</TileText>
+      <span className="tile-progress">
+        {run && (
+          <>
+            <TileText className="tile-progress-text">
+              {run.title} · {runStatusLine(run, now, tr)}
+            </TileText>
+            <span className={cx('tile-bar', done === null && 'moving')} role="progressbar" aria-label={run.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={done === null ? undefined : Math.round(done * 100)}>
+              <i style={done === null ? undefined : { width: `${Math.round(done * 100)}%` }} />
+            </span>
+          </>
+        )}
+      </span>
+      <TileText className="tile-reply" lines>
+        {live?.replyStart ?? ''}
+      </TileText>
+      <span className="tile-badges">
+        {tasksRunning > 0 && (
+          <span className="tile-badge">
+            <Icon name="server-process" /> {tr(msg({ id: 'panes.tiles.background', defaultMessage: '{n, plural, one {# background task} other {# background tasks}}', description: "A badge on an agent's tile: background tasks it started that still run." }), { n: tasksRunning })}
           </span>
-          <span className={cx('tile-bar', done === null && 'moving')} role="progressbar" aria-label={run.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={done === null ? undefined : Math.round(done * 100)}>
-            <i style={done === null ? undefined : { width: `${Math.round(done * 100)}%` }} />
+        )}
+        {ctxOver && (
+          <span className="tile-badge warn">
+            <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.context', defaultMessage: 'Context {tokens}', description: 'A warning badge on an agent\'s tile: its context is past the Compact threshold ({tokens}: "210K").' }), { tokens: formatTokens(usage?.contextTokens ?? 0) })}
           </span>
-        </span>
-      )}
-      {live?.replyStart && <span className="tile-reply">{live.replyStart}</span>}
-      {(tasksRunning > 0 || ctxOver || longTranscript) && (
-        <span className="tile-badges">
-          {tasksRunning > 0 && (
-            <span className="tile-badge">
-              <Icon name="server-process" /> {tr(msg({ id: 'panes.tiles.background', defaultMessage: '{n, plural, one {# background task} other {# background tasks}}', description: "A badge on an agent's tile: background tasks it started that still run." }), { n: tasksRunning })}
-            </span>
-          )}
-          {ctxOver && (
-            <span className="tile-badge warn">
-              <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.context', defaultMessage: 'Context {tokens}', description: 'A warning badge on an agent\'s tile: its context is past the Compact threshold ({tokens}: "210K").' }), { tokens: formatTokens(usage?.contextTokens ?? 0) })}
-            </span>
-          )}
-          {longTranscript && (
-            <span className="tile-badge warn">
-              <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.transcript', defaultMessage: 'Transcript {size}', description: 'A warning badge on an agent\'s tile: its transcript is past the size Hive flags ({size}: "24 MB").' }), { size: formatSize(live!.transcriptBytes!) })}
-            </span>
-          )}
-        </span>
-      )}
+        )}
+        {longTranscript && (
+          <span className="tile-badge warn">
+            <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.transcript', defaultMessage: 'Transcript {size}', description: 'A warning badge on an agent\'s tile: its transcript is past the size Hive flags ({size}: "24 MB").' }), { size: formatSize(live!.transcriptBytes!) })}
+          </span>
+        )}
+      </span>
     </button>
+  )
+}
+
+/** A tile's row of text in its fixed place (#1145): cut short at its line (`lines`: its last line), in full on hover then. */
+function TileText({ className, lines = false, children }: { className: string; lines?: boolean; children: ReactNode }) {
+  const [ref, clipped] = useClipped<HTMLSpanElement>(lines)
+  return (
+    <Tooltip content={clipped ? children : null} block>
+      <span ref={ref} className={className}>
+        {children}
+      </span>
+    </Tooltip>
   )
 }
 
