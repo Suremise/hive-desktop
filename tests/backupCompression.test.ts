@@ -153,7 +153,9 @@ describe('compressed transcript backups', () => {
 
   it('a compressed backup replaced by another of the same size is read again: view, search, export and polling', async () => {
     const id = await session()
-    const gzOf = (word: string): Buffer => gzipSync(transcript(id) + JSON.stringify({ type: 'user', sessionId: id, timestamp: at, message: { role: 'user', content: `Last word ${word}` } }) + '\n')
+    // Stored, not deflated (#1156): the content has the time and the session id in it, which deflate compressed a byte
+    // apart for some of them; stored, the size is the content's, so the two always match.
+    const gzOf = (word: string): Buffer => gzipSync(transcript(id) + JSON.stringify({ type: 'user', sessionId: id, timestamp: at, message: { role: 'user', content: `Last word ${word}` } }) + '\n', { level: 0 })
     const [a, b] = [gzOf('AAAA'), gzOf('BBBB')]
     expect(a.length).toBe(b.length)
     rmSync(backup(id))

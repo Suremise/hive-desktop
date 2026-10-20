@@ -5175,7 +5175,9 @@ body.pane-resizing .monaco-editor {
 .menu-item .menu-state {
   margin: 0 4px 0 3px;
 }
-/* The Tiles view (#976): in the panes' place, under the toolbar; 12 tiles a page fit a 1440p window in three rows. */
+/* The Tiles view (#976): in the panes' place, under the toolbar; 12 tiles a page fit a 1440p window in three rows. Every
+   tile is the same height (#1145): each row has its fixed place, shown or not (status, card, progress, two lines of the
+   reply, the badges), so a run starting or a reply coming moves no tile. */
 .agent-tiles {
   position: absolute;
   inset: 32px 0 0 0;
@@ -5193,8 +5195,9 @@ body.pane-resizing .monaco-editor {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  min-height: 112px;
   padding: 8px 10px;
+  overflow: hidden;
+  line-height: 16px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-panel);
@@ -5238,9 +5241,34 @@ body.pane-resizing .monaco-editor {
 }
 .tile-head {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 7px;
   min-width: 0;
+  height: 18px;
+}
+/* A row of text (TileText): the row has the tile's width; inside it the line, and the tooltip's wrapper around the line
+   while it is cut short, fill it whole either way, so the line's width never depends on its tooltip. */
+.tile-row {
+  display: block;
+  flex: none;
+  min-width: 0;
+  height: 16px;
+  overflow: hidden;
+}
+.tile-row > .tip-wrap {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+.tile-line {
+  display: block;
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tile-name {
   font-weight: 600;
@@ -5255,13 +5283,6 @@ body.pane-resizing .monaco-editor {
   color: var(--fg-faint);
   font-size: 11px;
 }
-.tile-status,
-.tile-card,
-.tile-progress-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .agent-tile.waiting .tile-status {
   color: var(--state-waiting);
 }
@@ -5274,10 +5295,13 @@ body.pane-resizing .monaco-editor {
 }
 .tile-progress {
   display: flex;
+  flex: none;
   flex-direction: column;
   gap: 2px;
+  height: 21px;
 }
 .tile-bar {
+  flex: none;
   height: 3px;
   border-radius: 2px;
   background: var(--border);
@@ -5304,36 +5328,69 @@ body.pane-resizing .monaco-editor {
     opacity: 0.5;
   }
 }
-/* Two lines of the latest reply. */
-.tile-reply {
+/* Two lines of the latest reply, room for two always. */
+.tile-row.tile-reply {
+  height: 32px;
   color: var(--fg-faint);
   font-family: var(--font-mono);
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 16px;
+}
+.tile-reply .tile-line {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden;
+  height: 100%;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
-.tile-badges {
+/* One line of badges (TileBadges): each gives way to the others, cut short with an ellipsis, and all are in full on hover
+   then. */
+.tile-row.tile-badges {
+  height: 18px;
+}
+.tile-badge-list {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1 1 100%;
   gap: 4px;
-  margin-top: auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
 }
 .tile-badge {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
+  min-width: 0;
+  line-height: 18px;
+  white-space: nowrap;
   gap: 3px;
-  padding: 0 6px;
+  padding: 0 5px;
   border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--fg-muted);
   font-size: 11px;
 }
+/* The background tasks' badge gives way first (down to its icon), so the warnings keep their amounts while they fit. */
+.tile-badge:not(.warn) {
+  flex-shrink: 1000;
+  min-width: 21px;
+}
 .tile-badge .codicon {
+  flex: none;
   font-size: 11px;
+}
+.tile-badge-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The badges in full, in their tooltip: one a line. */
+.tile-badges-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
 }
 .tile-badge.warn {
   color: var(--warning);
@@ -6306,6 +6363,13 @@ body.pane-resizing .monaco-editor {
 }
 .cleanup-preview .table td {
   padding: 4px 10px;
+}
+/* Purge… (#1138): the note of running sessions left alone, and a backup that is its session's last copy. */
+.purge-running {
+  margin: 6px 0;
+}
+.purge-last-copy {
+  margin-left: 6px;
 }
 .conflict-list {
   margin: 4px 0 10px;

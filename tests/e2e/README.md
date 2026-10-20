@@ -161,7 +161,7 @@ through a junction, removed afterwards), one in each worktree with an agent shel
 `HIVE_PROGRESS_WRAPPED`, a token…) and one with a plain one. It checks that every run passes in a lane, folders, ports
 and logs folder of its own, and that each worktree is built once and stamped. After that (alone with `--lane-wait`),
 an e2e run and a scenario run wait for a lane of a pool of their own (`HIVE_TEST_LANES_DIR`) while a source file is
-added: both must build and test the changed source, and the record name it (#735). Run it after changing the runner,
+added: both must build and test the changed source, and the record name it (#735); meanwhile it holds machine lanes 0 and 1 with a suite folder in each, which their housekeeping as they end must leave (#1133). Run it after changing the runner,
 `lib.cjs`, `runContext.cjs`, `lanes.mjs`, `build.mjs` or the scenario harness. Two checkers can run at once, from two
 worktrees (#207): each keeps what it makes (its worktrees, decoy, heavy-run pool) in a folder of its own,
 `%LOCALAPPDATA%\hive-test\concurrency\run-<pid>-<time>` (`tempWorktrees.mjs`), and removes only that. A setup that
@@ -513,7 +513,7 @@ What the tests leave in `%LOCALAPPDATA%\hive-test` is removed once it is no long
 runner and the scenario runner do it when they finish (at most a minute; what is left goes next time), and
 **`npm run test:clean`** does it on demand and prints each area's size (`--dry-run` lists what would go, and what is
 kept and why, without removing anything; `--days N` sets the age, default 3).
-- **Goes:** in a lane no runner holds (the clean-up claims it meanwhile, so no runner starts there), every suite
+- **Goes:** in a lane no runner holds (by the machine pool's claims, whatever pool the runner that cleans up uses, #1133; the clean-up claims it meanwhile, so no runner starts there), every suite
   folder no run's logs claim, whatever its age (a failed suite's is claimed until its run is pruned: below), and
   anything left from before suites had folders of their own; in scenario lanes, numbered copies (`<scenario>-2`…) and
   folders older than the age; in `e2e`, anything but `lanes` and `logs` older than the age (suites run on their own,

@@ -53,6 +53,33 @@ function callHiveTool(server, tool, args, timeoutMs = 30000) {
 }
 
 /**
+ * Connects the launch's hive MCP server as a CLI does when it starts (#865): initialize and notifications/initialized,
+ * which the server tells Hive of (POST /v1/launch/connected), then end of input (it exits once that is sent). `held`:
+ * a promise to wait for first (a test holding the connection back, as a resumed Claude Code connects after its
+ * SessionStart). Resolves once the server has exited; never fails.
+ */
+async function connectHive(server, held) {
+  if (!server) return
+  if (held) await held
+  await new Promise((resolve) => {
+    const p = spawn(server.command, server.args ?? [], { env: { ...process.env, ...server.env }, stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+    const timer = setTimeout(() => p.kill(), 30000)
+    p.on('exit', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    p.on('error', () => {
+      clearTimeout(timer)
+      resolve()
+    })
+    const send = (m) => p.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n')
+    send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '1' } } })
+    send({ method: 'notifications/initialized' })
+    p.stdin.end()
+  })
+}
+
+/**
  * A Codex inline table as Hive writes it (`-c mcp_servers.hive={command="…",args=["…"],env={K="…"}}`: strings are JSON
  * strings, keys bare or JSON strings) as an object.
  */
@@ -122,4 +149,4 @@ function inboxRows(reply) {
   return rows
 }
 
-module.exports = { callHiveTool, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows }
+module.exports = { callHiveTool, connectHive, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows }

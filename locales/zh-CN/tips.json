@@ -270,6 +270,8 @@
   "tips.startNewAll.title": "为每个智能体开启新会话",
   "tips.storageCleanup.text": "“项目设置”→“存储”显示项目的备份、归档、附件和工作树占用了多少空间。“清理…”会把旧附件和备份移到回收站，并先准确列出要移走的内容。",
   "tips.storageCleanup.title": "查看 Hive 保存了什么，并进行清理",
+  "tips.storagePurge.text": "在“项目设置”→“存储”中使用“彻底清除…”，或在会话上使用“彻底清除 Hive 的文件…”，可删除 Hive 为会话保留的内容：备份、附件和残留。它会先列出每个文件；智能体自己的文件和你的用量总数保持不变。",
+  "tips.storagePurge.title": "彻底清除 Hive 保留的内容",
   "tips.taskbarBadge.text": "Hive 的任务栏按钮会显示有多少个智能体需要你；Hive 在后台时，若有智能体向你提问，按钮会闪烁。",
   "tips.taskbarBadge.title": "看一眼任务栏",
   "tips.templateNames.text": "智能体名称在整个工作区内唯一。从其他项目加载模板时，在模板自带名称旁边的列表中为其智能体取新名称：“加载模板”会等到没有名称被占用时才可用。",

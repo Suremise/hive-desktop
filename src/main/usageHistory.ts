@@ -430,6 +430,15 @@ class UsageHistory {
     return true
   }
 
+  /**
+   * Records a deleted session's kept usage (deletedUsage) now, before Purge… removes it (#1138): whether it's done (the
+   * history then counts it, as much as or more than the kept usage did).
+   */
+  async recordKept(projectPath: string, k: KeptUsage): Promise<boolean> {
+    const r = await this.importKept(projectPath, k, 0)
+    return !!r && r.status !== 'busy' && r.status !== 'failed'
+  }
+
   /** The hosts of a workspace whose history counts: its projects, hidden ones too, and the Assistant. */
   private async hosts(ws: WorkspaceService): Promise<string[]> {
     const out = [...(await ws.listProjectPaths()), ...(await ws.listProjectPaths({ hidden: true }))]

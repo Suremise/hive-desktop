@@ -66,7 +66,10 @@ afterAll(async () => {
   s.live.clear()
   await disposeWorkspaceService(w)
 })
-beforeEach(() => {
+// Counted from a quiet workspace (#1143): the refreshes opening it and each test's own writes scheduled (250 ms later,
+// so under load in the next test) have run first, and only the reads a test makes itself are counted.
+beforeEach(async () => {
+  await w.refreshesSettled()
   calls.hiveSkills = calls.listMcp = calls.revisionOf = 0
 })
 
@@ -99,6 +102,76 @@ describe("a refresh's running agents share the workspace's reads (#1002)", () =>
     writeFileSync(join(wsPath, '.hive', 'skills', 'handover', 'extra.md'), 'More.\n')
     info = await run(() => workspace.refresh())
     expect(changed(info, projects[1])).toEqual([true, true, true])
+  })
+
+  it('refreshesSettled waits for the refresh scheduleRefresh has waiting (two asks, one refresh)', async () => {
+    w.scheduleRefresh()
+    w.scheduleRefresh()
+    expect(calls.hiveSkills).toBe(0)
+    await w.refreshesSettled()
+    expect(calls.hiveSkills).toBe(1)
+    await w.refreshesSettled()
+    expect(calls.hiveSkills).toBe(1)
+  })
+
+  /** Holds w's refreshes as they start, until released: { started (each start's count), release() }. */
+  function heldRefreshes() {
+    const real = w.refresh.bind(w)
+    let started = 0
+    let open: () => void = () => undefined
+    let gate = new Promise<void>((r) => (open = r))
+    const spy = vi.spyOn(w, 'refresh').mockImplementation(async () => {
+      started++
+      await gate
+      return real()
+    })
+    return {
+      started: () => started,
+      release: () => {
+        open()
+        gate = Promise.resolve()
+      },
+      restore: () => spy.mockRestore()
+    }
+  }
+  const pending = async (p: Promise<unknown>): Promise<boolean> => {
+    let done = false
+    void p.then(() => (done = true))
+    // Long enough for a promise that could resolve to have: a few turns of the event loop.
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r))
+    return !done
+  }
+
+  it('refreshesSettled, called while a scheduled refresh is running, waits for it to finish (round 2)', async () => {
+    const held = heldRefreshes()
+    try {
+      w.scheduleRefresh()
+      await vi.waitFor(() => expect(held.started()).toBe(1), { timeout: 10_000 })
+      const settled = w.refreshesSettled()
+      expect(await pending(settled)).toBe(true)
+      held.release()
+      await settled
+    } finally {
+      held.release()
+      held.restore()
+    }
+  })
+
+  it('…and for a refresh scheduled while that one runs', async () => {
+    const held = heldRefreshes()
+    try {
+      w.scheduleRefresh()
+      await vi.waitFor(() => expect(held.started()).toBe(1), { timeout: 10_000 })
+      const settled = w.refreshesSettled()
+      w.scheduleRefresh()
+      held.release()
+      await settled
+      expect(held.started()).toBe(2)
+      expect(await pending(w.refreshesSettled())).toBe(false)
+    } finally {
+      held.release()
+      held.restore()
+    }
   })
 
   it('a project read on its own (not in a refresh) reads them once for its agents too', async () => {

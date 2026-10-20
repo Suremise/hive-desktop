@@ -914,9 +914,13 @@ async function handle(msg: { id?: unknown; method?: string; params?: any }): Pro
         serverInfo: { name: 'hive', version: VERSION },
         instructions: await instructions()
       })
+    case 'notifications/initialized':
+      return sayConnected()
     case 'ping':
       return reply(id, {})
     case 'tools/list': {
+      // A client that lists the tools without saying it is initialized has connected them all the same.
+      sayConnected()
       const list = offered.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
       reply(id, { tools: list })
       // Its size as the CLI got it (the tools array's JSON), once a session.
@@ -961,6 +965,30 @@ async function handle(msg: { id?: unknown; method?: string; params?: any }): Pro
 }
 
 let listed = false
+
+/**
+ * Tells Hive once that the CLI has connected these tools (#865): Hive types no line into the session before (a doorbell
+ * then is a turn that can't call hive_inbox), or until its own bound passes. With the session's own token, which names
+ * its launch; on a short deadline of its own, and never a reason not to answer the CLI.
+ */
+let connected = false
+function sayConnected(): void {
+  if (connected) return
+  connected = true
+  const stop = new AbortController()
+  const deadline = setTimeout(() => stop.abort(), REPORT_TIMEOUT_MS)
+  deadline.unref?.()
+  void fetch(API + '/v1/launch/connected', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...(WORKSPACE ? { 'X-Hive-Workspace': encodeURIComponent(WORKSPACE) } : {}) },
+    body: '{}',
+    signal: stop.signal
+  })
+    .then((res) => res.arrayBuffer())
+    // Hive didn't take it: it offers the session its lines once its own bound passes instead.
+    .catch(() => undefined)
+    .finally(() => clearTimeout(deadline))
+}
 
 createInterface({ input: process.stdin }).on('close', inputEnded).on('line', (line) => {
   if (!line.trim()) return

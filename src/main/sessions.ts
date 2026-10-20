@@ -282,6 +282,14 @@ interface LiveSession {
   /** When such a launch first became ready (or watching), in ms: its task is pending at most PENDING_MS from then (#721). */
   launchReadyAt?: number
   /**
+   * This launch was given Hive's tools (the hive MCP server, #865): `connecting` until its server says the CLI has
+   * connected (POST /v1/launch/connected), and no line of Hive's is typed meanwhile, at most hive.mcp.connectSeconds
+   * from when it first became ready (readyAt), for a CLI that never connects it.
+   */
+  hiveTools?: 'connecting' | 'connected'
+  /** When this launch first became ready (or watching, or finished), in ms (#865). */
+  readyAt?: number
+  /**
    * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
    * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
    */
@@ -791,6 +799,75 @@ class SessionManager {
   launchTaskWaiting(projectPath: string, agentId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     return !!l && launchPending(l)
+  }
+
+  /**
+   * Whether an agent's launch was given Hive's tools and its CLI hasn't connected them yet (#865): a resumed Claude Code
+   * is ready at its SessionStart before its hive server has connected, and a doorbell typed then is a turn that can't
+   * call hive_inbox. At most hive.mcp.connectSeconds from when it first became ready, for a CLI that never connects it
+   * (its server failed to start, or MCP is off in it).
+   */
+  hiveToolsWaiting(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (l?.hiveTools !== 'connecting') return false
+    return l.readyAt === undefined || Date.now() - l.readyAt < advanced.number('hive.mcp.connectSeconds') * 1000
+  }
+
+  /**
+   * The hive server of an agent's launch `runId` says its CLI has connected (#865): Hive's lines may go to it now, and
+   * what waited is offered at once (its status is sent again, which deliveries follow). Whether it was that launch's.
+   */
+  /** Who waits for a launch's hive tools (hiveToolsSettled), by agent: each looks at the gate again when told. */
+  private toolsWaiters = new Map<string, Set<() => void>>()
+  /** The waits look again when Settings → Advanced changes (the bound applies at once), once one has waited. */
+  private toolsSettingsHook: (() => void) | null = null
+
+  /** The waits for an agent's hive tools look at the gate again (it connected, its launch changed or ended). */
+  private recheckTools(key: string): void {
+    for (const look of [...(this.toolsWaiters.get(key) ?? [])]) look()
+  }
+
+  /**
+   * Resolves once an agent's hive tools no longer hold its lines (#865 rounds 3 and 4): once hiveToolsWaiting, the gate
+   * itself, is false. It is looked at again when the tools connect, the launch's state changes or it ends, the bound is
+   * changed in Settings → Advanced, and when what is left of the bound from its ready runs out; never a frozen deadline.
+   */
+  hiveToolsSettled(projectPath: string, agentId: string): Promise<void> {
+    if (!this.hiveToolsWaiting(projectPath, agentId)) return Promise.resolve()
+    const key = liveId(projectPath, agentId)
+    this.toolsSettingsHook ??= advanced.onChange(() => {
+      for (const k of [...this.toolsWaiters.keys()]) this.recheckTools(k)
+    })
+    return new Promise((settle) => {
+      const waiters = this.toolsWaiters.get(key) ?? new Set<() => void>()
+      this.toolsWaiters.set(key, waiters)
+      let timer: NodeJS.Timeout | undefined
+      const look = (): void => {
+        clearTimeout(timer)
+        if (this.hiveToolsWaiting(projectPath, agentId)) {
+          const l = this.live.get(key)!
+          const bound = advanced.number('hive.mcp.connectSeconds') * 1000
+          timer = setTimeout(look, (l.readyAt === undefined ? bound : Math.max(0, bound - (Date.now() - l.readyAt))) + 50)
+          return
+        }
+        waiters.delete(look)
+        if (!waiters.size && this.toolsWaiters.get(key) === waiters) this.toolsWaiters.delete(key)
+        settle()
+      }
+      waiters.add(look)
+      look()
+    })
+  }
+
+  hiveToolsConnected(projectPath: string, agentId: string, runId?: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || (runId !== undefined && l.state.runId !== runId)) return false
+    if (l.hiveTools !== 'connecting') return true
+    l.hiveTools = 'connected'
+    this.recheckTools(liveId(projectPath, agentId))
+    log.info(`${userText(agentId)}'s hive tools connected${l.readyAt === undefined ? '' : ` ${Date.now() - l.readyAt} ms after it became ready`}`)
+    this.emitState(l.state)
+    return true
   }
 
   /**
@@ -1318,6 +1395,7 @@ class SessionManager {
     else if (l) endAgentToken(l.state.projectPath, l.state.agentId, l.state.runId)
     if (l) this.launchEnded(l.state.projectPath, l.state.agentId, l.state.runId)
     this.live.delete(id)
+    this.recheckTools(id)
     // A start given up before its process spawned has no exit to wait for.
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
@@ -1409,6 +1487,8 @@ class SessionManager {
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
     l.launchMode = mode
     state.permissionMode = mode ?? undefined
+    // Given Hive's tools, it takes no line of Hive's until they have connected (#865).
+    l.hiveTools = eff.mcpServers.hive ? 'connecting' : undefined
     // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
@@ -2652,6 +2732,7 @@ class SessionManager {
       // Its CLI has exited: its transcript is finished (archiving it at once is fine, inUse).
       this.noteExit(l.state.sessionId)
       this.live.delete(id)
+      this.recheckTools(id)
     }
     this.runs.delete(runId)
     // Its hook token ends with it: hooks of an ended launch were ignored anyway (findLaunch).
@@ -3283,6 +3364,11 @@ class SessionManager {
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
     // A launch with its task on its command line: when it first became ready, before a watch shows that as watching (#721).
     if (l?.state === state && l.launchTask && l.launchReadyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) l.launchReadyAt = Date.now()
+    // And any launch: its hive tools' bound runs from then (#865), which a wait for them looks at again.
+    if (l?.state === state && l.readyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) {
+      l.readyAt = Date.now()
+      this.recheckTools(liveId(state.projectPath, state.agentId))
+    }
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)
@@ -4618,12 +4704,12 @@ class SessionManager {
   }
 
   /**
-   * A session's usage. From the usage history (#1106), priced now; a running one's asked for alone (its usage: the
-   * session's details, the Agent API) from its transcript as it grows, read here a piece at a time, while a list (`ctx`
-   * with the history's sessions: the Sessions tab, the project Overview) takes it from the history too, its last turn's
-   * end or tick, so no transcript is read for it. One the history doesn't have yet (its import under way, a session
-   * adopted since the last sweep) is read from its transcript as before and queued for the history; with no transcript
-   * left, its kept usage, until the history has imported it.
+   * A session's usage. From the usage history (#1106), priced now; a running one's from its transcript as it grows, read
+   * by the usage worker a piece at a time (#1147), in a list too (`ctx` with the history's sessions: the Sessions tab,
+   * the project Overview; #1157: the history has it only from its last turn's end or tick, which missed a CLI /rename),
+   * so main reads no transcript for either. One the history doesn't have yet (its import under way, a session adopted
+   * since the last sweep) is read from its transcript as before and queued for the history; with no transcript left,
+   * its kept usage, until the history has imported it.
    */
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
@@ -4631,7 +4717,12 @@ class SessionManager {
     const rec = records.find((s) => s.id === sessionId)
     const running = this.projectStates(projectPath).some((s) => s.sessionId === sessionId)
     let usage: SessionUsage | null = null
-    if (!running || ctx?.stored) {
+    if (running && ctx?.stored) {
+      // As its pane has it; unchanged since the last read, the worker isn't asked at all (usageFor).
+      const p = await this.anyTranscript(projectPath, sessionId, ctx)
+      if (p) usage = await this.usageFor(projectPath, p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    }
+    if (!usage && (!running || ctx?.stored)) {
       const stored = (ctx?.stored ?? (await usageHistory.storedUsage(projectPath).catch(() => null)))?.get(sessionId)
       if (stored) usage = this.titled(stored.usage)
     }
@@ -5123,6 +5214,72 @@ class SessionManager {
       })
     )
     log.info(`Clean Up: removed the backups of session ${sessionId} in ${userText(projectPath)}`)
+  }
+
+  /**
+   * Purge… (#1138): removes what Hive keeps of one of its sessions as the preview listed it (`listed`: its backups,
+   * leftovers of them, its attachments folder, the old usage on its record). The session is reserved (nothing resumes it
+   * meanwhile) with its backups locked, and checked again just before anything goes: not running or starting, its
+   * transcript not being read by Hive (nor shown, when its last copy goes), and its copies exactly those listed. What it used is recorded in the usage
+   * history first, so totals don't change. Backups that are its last copy (`lastCopy`: the CLI no longer has its
+   * transcript, checked again) go with its record, all or nothing, as Delete does. `remove` removes a file (to the
+   * Recycle Bin, or for good); `attachments` its listed attachments; `unchanged` throws when a listed file changed since. The CLI's own files are never touched.
+   */
+  async purge(projectPath: string, sessionId: string, listed: { backups: string[]; leftovers: string[]; attachments: boolean; keptUsage: boolean; lastCopy: boolean }, remove: (file: string) => Promise<void>, attachments: () => Promise<void>, unchanged?: () => Promise<void>): Promise<{ deleted: boolean }> {
+    assertSessionId(sessionId)
+    const check = async (): Promise<void> => {
+      if (this.liveAnywhere(sessionId)) throw new SessionInUse('live', msg({ id: 'session.purge.running', defaultMessage: 'It is running.', description: 'Purge left a session alone: it is running (or starting) now.' }))
+      if (beingRead(projectPath, sessionId)) throw new SessionInUse('reading', msg({ id: 'session.purge.reading', defaultMessage: 'Hive is reading its transcript (an export or a search). Try again in a moment.', description: 'Purge left a session alone for a moment: Hive is reading its transcript.' }))
+      // A view reads the CLI's transcript while the CLI has it: only a last copy going takes what it shows.
+      if (listed.lastCopy && viewingWindows(projectPath, sessionId).length) throw new SessionInUse('open', msg({ id: 'session.purge.open', defaultMessage: 'Its transcript is open in Hive. Close it, then try again.', description: "Purge left a session alone: its transcript is open in Hive's Sessions tab." }))
+      const rec = (await workspace.sessionsFile(projectPath)).sessions.find((s) => s.id === sessionId)
+      if (!rec) throw hiveError(msg({ id: 'session.purge.gone', defaultMessage: 'The session is no longer in Hive.', description: 'Purge left a session alone: it was deleted since the preview.' }))
+      const want = new Set(listed.backups.map((b) => b.toLowerCase()))
+      const has = this.backupFiles(projectPath, sessionId).map((b) => b.toLowerCase())
+      if (want.size && (has.length !== want.size || !has.every((b) => want.has(b)))) throw hiveError(msg({ id: 'session.purge.changed', defaultMessage: "The session's copies changed since the preview.", description: "Purge left a session alone: Hive's copies of its transcript changed since the preview." }))
+    }
+    const deleted = await this.whileCleaning(projectPath, sessionId, () =>
+      this.withBackupsLocked(projectPath, sessionId, async () => {
+        await check()
+        if (listed.backups.length && !!(await this.providerTranscript(projectPath, sessionId).catch(() => null)) === listed.lastCopy) {
+          throw hiveError(listed.lastCopy ? msg({ id: 'session.purge.cliBack', defaultMessage: "The CLI has this session's transcript again.", description: "Purge left a session alone: the coding agent's own transcript is back since the preview, so Hive's backups are no longer its last copy." }) : msg({ id: 'session.purge.cliGone', defaultMessage: "The CLI no longer has this session's transcript.", description: "Purge left a session alone: the coding agent's own transcript went since the preview, so Hive's backups are now its last copy." }))
+        }
+        if ((listed.backups.length || listed.keptUsage) && !(await usageHistory.recordNow(projectPath, sessionId).catch(() => false))) {
+          throw hiveError(msg({ id: 'session.purge.unread', defaultMessage: "Hive couldn't record what the session used, so it is kept.", description: "Purge left a session alone: Hive couldn't save its usage in the usage history, which the totals keep." }))
+        }
+        // Again after the waits above, and the files as listed (`unchanged`): nothing else is awaited before the first removal.
+        await check()
+        await unchanged?.()
+        const backups = listed.backups.length ? this.backupFiles(projectPath, sessionId) : []
+        for (const f of listed.leftovers) if (existsSync(f)) await inUseOnFail(() => remove(f))
+        if (listed.attachments) await attachments()
+        if (listed.lastCopy && backups.length) {
+          await inUseOnFail(() =>
+            trashAllOrNothing(backups, remove, () =>
+              workspace.mutateSessions(projectPath, (f) => {
+                f.sessions = f.sessions.filter((s) => s.id !== sessionId)
+                if (!f.deleted?.includes(sessionId)) f.deleted = [...(f.deleted ?? []), sessionId]
+              })
+            )
+          )
+          return true
+        }
+        for (const b of backups) await inUseOnFail(() => remove(b))
+        if (listed.keptUsage) {
+          await workspace.mutateSessions(projectPath, (f) => {
+            const rec = f.sessions.find((s) => s.id === sessionId)
+            if (rec) delete rec.keptUsage
+          })
+        }
+        return false
+      })
+    )
+    if (deleted) {
+      for (const a of projectAgents(await workspace.projectConfig(projectPath))) {
+        if (a.lastSessionId === sessionId) await workspace.updateAgent(projectPath, a.id, { lastSessionId: undefined }).catch(() => undefined)
+      }
+    }
+    return { deleted }
   }
 
   /**

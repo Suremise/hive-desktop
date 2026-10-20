@@ -103,6 +103,7 @@
   "sessions.marker.orphan": "The session that started it isn't listed (deleted, or not from this project).",
   "sessions.menu.copyId": "Copy Session ID",
   "sessions.menu.delete": "{kind, select, conversation {Delete Conversation…} other {Delete Session…}}",
+  "sessions.menu.purge": "Purge Hive's Files…",
   "sessions.menu.rename": "Rename…",
   "sessions.menu.showAgent": "Show {agent}",
   "sessions.menu.showAssistant": "Show the Assistant",

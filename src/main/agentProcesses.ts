@@ -1152,6 +1152,15 @@ export async function trackingReady(): Promise<boolean> {
   return process.platform === 'win32' && (await host.ensure())
 }
 
+/**
+ * Starts the job host in the background (#1155: Hive reopening a workspace, or one opening with agents), so the first launch after Hive
+ * starts doesn't wait the half second its PowerShell takes to get going; launches still start it themselves if it
+ * isn't running (trackingReady). Says nothing: a host that can't start is said by the launch that finds it so.
+ */
+export function warmProcessTracking(): void {
+  if (process.platform === 'win32') void host.ensure()
+}
+
 /** Why agents' processes aren't being tracked, for Diagnostics (in English); null when they are. */
 export function trackingProblem(): string | null {
   return process.platform !== 'win32' || problem === null ? null : englishText(problem)
@@ -1177,6 +1186,12 @@ export function closeProcessTracking(): Promise<void> {
  * host (started by the next request) lists and ends exactly it, as after a restart; the rest can't be, and go.
  */
 function jobsLost(why: string): void {
+  // It held nothing (started early, #1155, or every launch long settled): nothing is lost, and the next request starts
+  // a new one.
+  if (!running.size && ![...left.values()].some((l) => !l.restored)) {
+    log.warn(`the process job host ended (${why}) holding no launch`)
+    return
+  }
   const launches = running.size
   running.clear()
   let listed = 0

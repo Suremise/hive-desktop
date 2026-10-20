@@ -1,15 +1,21 @@
 // Project Settings → Storage: what Hive keeps per project (backups, archive, attachments, worktrees), measured in the
-// background, and Clean Up…, which moves what its preview listed to the Recycle Bin.
-import { basename, join, resolve, sep } from 'path'
-import { lstat, opendir, readdir } from 'original-fs/promises'
+// background; Clean Up…, which moves what its preview listed to the Recycle Bin; and Purge… (#1138), which removes
+// everything Hive keeps per session, for a session, a project or the workspace, as its preview listed it.
+import { randomUUID } from 'crypto'
+import { basename, dirname, join, resolve, sep } from 'path'
+import { lstat, opendir, readdir, rm, rmdir } from 'original-fs/promises'
 import { ASSISTANT_NAME } from '../shared/assistant'
-import { HIVE_DIR, projectAgents } from '../shared/defaults'
-import { msg, tr } from '../shared/i18n'
-import { planCleanup, type CleanupFacts, type CleanupSession } from '../shared/storage'
-import type { CleanupItem, CleanupOptions, CleanupResult, ProjectStorage, WorkspaceStorage } from '../shared/types'
+import { HIVE_DIR, assertSessionId, isSessionId, projectAgents } from '../shared/defaults'
+import { msg, tr, type Msg } from '../shared/i18n'
+import { planCleanup, planPurge, type CleanupFacts, type CleanupSession, type PurgeFacts, type PurgeFile, type PurgeSession } from '../shared/storage'
+import { utf8Bytes } from '../shared/metrics'
+import type { CleanupItem, CleanupOptions, CleanupResult, ProjectStorage, PurgeItem, PurgePreview, PurgeResult, PurgeTarget, WorkspaceStorage } from '../shared/types'
 import { createLogger, userText } from './logger'
 import { sessions, type ListContext } from './sessions'
-import { workspace } from './workspace'
+import { workspace, workspaceOf } from './workspace'
+import { usageHistory } from './usageHistory'
+import { hiveError, shownError } from './hiveError'
+import { insideReal } from './fsutil'
 import { unusedWorktreeFolders } from './unusedWorktrees'
 import { trash } from './trash'
 import { attachmentsDir } from './attachmentsFolder'
@@ -351,6 +357,287 @@ export async function cleanup(projectPath: string, opts: CleanupOptions, listed:
   log.info(`Clean Up in ${userText(projectPath)}: ${removed} item(s), ${bytes} bytes${skipped.length ? `, ${skipped.length} skipped` : ''}`)
   results.delete(projectPath.toLowerCase())
   return { removed, bytes, skipped }
+}
+
+/**
+ * The files of .hive/sessions and .hive/archive that are Hive's per session: a backup (`<id>.jsonl`, compressed or not)
+ * and what is left of one: a spare (`.spare`, trashAllOrNothing), a half-made copy (`.<pid>-<time>.tmp`, compressing)
+ * and the names an archive sets aside (`.archiving`, `.previous`, `.archived`). Group 3 is empty for a backup.
+ */
+const BACKUP_FILE = /^([\w-]{1,100})\.jsonl((?:\.gz)?)((?:\.(?:spare|archiving|previous|archived|\d+-\d+\.tmp))*)$/i
+
+/** The hosts a purge covers: the session's or project's own, or the window's workspace's projects and the Assistant. */
+async function purgeHosts(target: PurgeTarget): Promise<string[]> {
+  // i18n-ignore: refusals no person sees (the window sends only these)
+  if (!target || typeof target !== 'object') throw new Error('target: a purge target')
+  if (target.kind === 'workspace') return [...(await workspace.listProjectPaths()), workspace.assistantHome].map((p) => workspace.assertSessionHost(p))
+  if (target.kind === 'session') assertSessionId(target.sessionId)
+  else if (target.kind !== 'project') throw new Error(`Unknown purge target: ${String((target as { kind: unknown }).kind)}`) // i18n-ignore: a refusal no person sees
+  return [workspace.assertSessionHost(target.projectPath)]
+}
+
+/** A plain file as it is now (its size and modified time), or null: gone, or not a plain file (a link, a folder). */
+async function fileNow(path: string): Promise<PurgeFile | null> {
+  const st = await lstat(path).catch(() => null)
+  return st?.isFile() ? { path, bytes: st.size, mtimeMs: st.mtimeMs } : null
+}
+
+/** A listed file is as the preview saw it. */
+const unchanged = (i: PurgeItem, now: PurgeFile | null): boolean => !!now && now.bytes === i.bytes && now.mtimeMs === i.mtimeMs
+
+/** What Purge… needs to know of a host (#1138): its sessions, Hive's files of them, and old kept usage. */
+async function purgeFacts(host: string): Promise<PurgeFacts> {
+  const file = await workspace.sessionsFile(host)
+  const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(host) }
+  const liveNames = new Set(sessions.projectStates(host).flatMap((s) => [s.sessionId, `run-${s.runId}`]).filter(Boolean).map((n) => n.toLowerCase()))
+  const files: PurgeFacts['files'] = []
+  for (const folder of ['sessions', 'archive'] as const) {
+    const dir = join(host, HIVE_DIR, folder)
+    for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const m = e.isFile() ? BACKUP_FILE.exec(e.name) : null
+      const now = m ? await fileNow(join(dir, e.name)) : null
+      if (m && now) files.push({ ...now, id: m[1], folder, backup: !m[3] })
+    }
+  }
+  const withFiles = new Set(files.map((f) => f.id.toLowerCase()))
+  const list: PurgeSession[] = []
+  for (const rec of file.sessions) {
+    const busy = sessions.liveAnywhere(rec.id)
+    // Only a session with files here is asked about: whether they are its last copy.
+    const inCli = withFiles.has(rec.id.toLowerCase()) && !busy ? !!(await sessions.providerTranscript(host, rec.id, ctx).catch(() => null)) : true
+    list.push({ id: rec.id, name: rec.name, running: busy, inCli, keptUsageBytes: rec.keptUsage ? utf8Bytes(JSON.stringify(rec.keptUsage)) : null })
+  }
+  const attachmentFolders: PurgeFacts['attachmentFolders'] = []
+  const dir = await attachmentsDir(host)
+  for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    // Only real folders named as Hive names them, and in them only plain files: anything else isn't Hive's.
+    if (!e.isDirectory() || !isSessionId(e.name)) continue
+    const path = join(dir, e.name)
+    const inside: PurgeFile[] = []
+    for (const f of await readdir(path, { withFileTypes: true }).catch(() => [])) {
+      const now = f.isFile() ? await fileNow(join(path, f.name)) : null
+      if (now) inside.push(now)
+    }
+    attachmentFolders.push({ name: e.name, path, files: inside })
+  }
+  const deletedUsage = (file.deletedUsage ?? []).map((k) => ({ id: k.id, name: k.name, bytes: utf8Bytes(JSON.stringify(k)) }))
+  const assistant = workspace.isAssistantHome(host)
+  return { host, hostName: assistant ? ASSISTANT_NAME : basename(host), ...(assistant ? { assistant: true } : {}), sessions: list, files, attachmentFolders, deletedUsage, liveNames }
+}
+
+/**
+ * Previews kept for their apply (storage:purge), by id: what each listed, as it saw it. Applying one uses it up; the
+ * newest PREVIEWS_KEPT are kept, each for PREVIEW_MS, and one older is refused (#1158).
+ */
+const previews = new Map<string, { target: PurgeTarget; items: PurgeItem[]; at: number }>()
+const PREVIEWS_KEPT = 20
+export const PREVIEW_MS = 60 * 60_000
+
+/** Forgets the previews older than PREVIEW_MS. */
+function pruneExpiredPreviews(now: number): void {
+  for (const [k, p] of previews) if (now - p.at > PREVIEW_MS) previews.delete(k)
+}
+
+/** What Purge… would remove (nothing is changed): every file and record of Hive's it covers, with its size. Kept for its apply. */
+export async function purgePreview(target: PurgeTarget): Promise<PurgePreview> {
+  const hosts = await purgeHosts(target)
+  const only = target.kind === 'session' ? target.sessionId : undefined
+  const out: PurgePreview = { id: randomUUID(), items: [], running: 0, recoverable: 0 }
+  for (const host of hosts) {
+    const r = planPurge(await purgeFacts(host), only)
+    out.items.push(...r.items)
+    out.running += r.running
+    out.recoverable += r.recoverable
+  }
+  const now = Date.now()
+  pruneExpiredPreviews(now)
+  previews.set(out.id, { target: structuredClone(target), items: out.items.map((i) => ({ ...i })), at: now })
+  while (previews.size > PREVIEWS_KEPT) previews.delete(previews.keys().next().value!)
+  return out
+}
+
+const M_PURGE = {
+  notKept: msg({ id: 'main.storage.purgeNotKept', defaultMessage: "The folder isn't one Hive keeps attachments in, so it is left alone.", description: "Purge skipped a session's attachments: their folder isn't a real folder in the project's attachments folder (a link, say)." }),
+  changed: msg({ id: 'main.storage.purgeChanged', defaultMessage: 'It changed since the preview.', description: 'Purge skipped a file the preview listed: it was changed (written to) since.' }),
+  sessionChanged: msg({ id: 'main.storage.purgeSessionChanged', defaultMessage: "One of the session's backups changed since the preview, so nothing of it goes.", description: "Purge left a session alone: one of Hive's copies of its transcript changed since the preview (it was resumed, say)." }),
+  lastCopy: msg({ id: 'main.storage.purgeLastCopy', defaultMessage: "Whether Hive's backup is the session's last copy changed since the preview.", description: "Purge left a session alone: its coding agent's own transcript went or came back since the preview, so what the purge would do to the session changed." }),
+  noLonger: msg({ id: 'main.storage.purgeNoLonger', defaultMessage: 'It no longer qualifies (it changed since the preview).', description: 'Purge skipped an item the preview listed: it changed since (a session resumed, a file gone).' }),
+  expired: msg({ id: 'main.storage.purgeExpired', defaultMessage: 'This preview is out of date. Open Purge again to see what goes now.', description: 'Purge refused: the preview it was asked to apply was already applied, or is too old.' })
+}
+
+/**
+ * Removes attachments of one folder as the preview listed them: each a plain file directly in a real folder of the
+ * host's attachments folder, and unchanged since (its size and modified time); one that changed is left, and returned.
+ * When they are all the folder holds it goes whole (one item in the Recycle Bin); else each file goes, and the folder
+ * too once empty. Nothing added since the preview goes.
+ */
+async function removeAttachments(host: string, dir: string, listed: PurgeItem[], permanent: boolean): Promise<PurgeItem[]> {
+  const root = await attachmentsDir(host)
+  const st = await lstat(dir).catch(() => null)
+  if (!st?.isDirectory() || st.isSymbolicLink() || resolve(dirname(dir)).toLowerCase() !== resolve(root).toLowerCase() || !insideReal(dir, [root])) throw hiveError(M_PURGE.notKept)
+  const same: PurgeItem[] = []
+  const changed: PurgeItem[] = []
+  for (const i of listed) (resolve(dirname(i.path!)).toLowerCase() === resolve(dir).toLowerCase() && unchanged(i, await fileNow(i.path!)) ? same : changed).push(i)
+  const entries = await readdir(dir)
+  if (!permanent && !changed.length && entries.length === same.length) await trash(dir)
+  else {
+    for (const i of same) await (permanent ? rm(i.path!) : trash(i.path!))
+    await rmdir(dir).catch(() => undefined)
+  }
+  return changed
+}
+
+/**
+ * Purge… (#1138): removes what a preview (`previewId`) listed, those of its keys in `listed`, to the Recycle Bin or
+ * (`permanent`) for good. Each is checked against what the preview saw, not what it would list now: still listed by a
+ * fresh plan, of the same kind, its file unchanged (size and modified time), and for a backup whether it is the
+ * session's last copy as the preview said; what changed is skipped and reported, and nothing it didn't list goes (an
+ * attachment added since stays). A session's things go together, checked again with it reserved and its backups locked
+ * (sessions.purge), what it used recorded first, and only with every listed backup unchanged; one whose last copy goes is
+ * deleted from Hive, as Delete Session does. What is left of sessions Hive no longer has goes with that id reserved,
+ * once no session has it; old kept usage goes once the usage history has it. Running sessions, the usage history and the
+ * CLIs' own files are never touched. A preview is applied once, and only within PREVIEW_MS of making it.
+ */
+export async function purge(previewId: string, listed: string[], permanent: boolean): Promise<PurgeResult> {
+  if (typeof previewId !== 'string' || !Array.isArray(listed)) throw new Error('previewId and listed: a preview and its keys') // i18n-ignore: a refusal no person sees (the window sends these)
+  pruneExpiredPreviews(Date.now())
+  const preview = previews.get(previewId)
+  if (!preview) throw hiveError(M_PURGE.expired)
+  previews.delete(previewId)
+  const { target } = preview
+  const only = target.kind === 'session' ? target.sessionId : undefined
+  const remove = (p: string): Promise<void> => (permanent ? rm(p) : trash(p))
+  const want = new Set(listed.map((k) => String(k).toLowerCase()))
+  const chosen = preview.items.filter((i) => want.has(i.key.toLowerCase()))
+  const result: PurgeResult = { removed: 0, bytes: 0, deleted: 0, skipped: [] }
+  const done = (i: PurgeItem): void => {
+    result.removed++
+    result.bytes += i.bytes
+  }
+  const skip = (i: PurgeItem, e: unknown): void => {
+    result.skipped.push({ key: i.key, reason: shownError(e) })
+  }
+  const skipFor = (i: PurgeItem, m: Msg): void => {
+    result.skipped.push({ key: i.key, reason: tr(m) })
+  }
+  for (const host of await purgeHosts(target)) {
+    const mine = chosen.filter((i) => i.host.toLowerCase() === host.toLowerCase())
+    if (!mine.length) continue
+    const facts = await purgeFacts(host)
+    const fresh = new Map(planPurge(facts, only).items.map((i) => [i.key.toLowerCase(), i]))
+    // Each as the preview saw it, or skipped; a session with a backup skipped keeps everything.
+    const ok: PurgeItem[] = []
+    const keepsAll = new Set<string>()
+    for (const i of mine) {
+      const now = fresh.get(i.key.toLowerCase())
+      const why = !now ? M_PURGE.noLonger : !!now.lastCopy !== !!i.lastCopy ? M_PURGE.lastCopy : i.path && (now.bytes !== i.bytes || now.mtimeMs !== i.mtimeMs) ? M_PURGE.changed : null
+      if (!why) ok.push(i)
+      else {
+        skipFor(i, why)
+        if (i.kind === 'backup' && i.sessionId) keepsAll.add(i.sessionId.toLowerCase())
+      }
+    }
+    const recorded = new Map(facts.sessions.map((s) => [s.id.toLowerCase(), s.id]))
+    const bySession = new Map<string, PurgeItem[]>()
+    const rest: PurgeItem[] = []
+    for (const i of ok) {
+      const id = i.sessionId && i.kind !== 'deleted-usage' && i.kind !== 'orphan-attachments' ? recorded.get(i.sessionId.toLowerCase()) : undefined
+      if (id) bySession.set(id, [...(bySession.get(id) ?? []), i])
+      else rest.push(i)
+    }
+    for (const [id, group] of bySession) {
+      if (keepsAll.has(id.toLowerCase())) {
+        group.forEach((i) => skipFor(i, M_PURGE.sessionChanged))
+        continue
+      }
+      const backups = group.filter((i) => i.kind === 'backup')
+      const leftovers = group.filter((i) => i.kind === 'leftover-backup')
+      const attached = group.filter((i) => i.kind === 'attachments')
+      let attachedChanged: PurgeItem[] = []
+      try {
+        const r = await sessions.purge(
+          host,
+          id,
+          { backups: backups.map((i) => i.path!), leftovers: leftovers.map((i) => i.path!), attachments: attached.length > 0, keptUsage: group.some((i) => i.kind === 'kept-usage'), lastCopy: backups.some((i) => i.lastCopy) },
+          remove,
+          async () => {
+            attachedChanged = await removeAttachments(host, dirname(attached[0].path!), attached, permanent)
+          },
+          // With the session reserved and its backups locked, just before anything goes.
+          async () => {
+            for (const i of backups) if (!unchanged(i, await fileNow(i.path!))) throw hiveError(M_PURGE.sessionChanged)
+            // A leftover gone since is fine (sessions.purge passes over it); one written to isn't what was listed.
+            for (const i of leftovers) {
+              const now = await fileNow(i.path!)
+              if (now && !unchanged(i, now)) throw hiveError(M_PURGE.sessionChanged)
+            }
+          }
+        )
+        group.filter((i) => !attachedChanged.includes(i)).forEach(done)
+        attachedChanged.forEach((i) => skipFor(i, M_PURGE.changed))
+        if (r.deleted) result.deleted++
+      } catch (e) {
+        group.forEach((i) => skip(i, e))
+      }
+    }
+    // What is left of sessions Hive no longer has: a deleted session's old usage, its backups' files, its attachments (a folder at a time).
+    const folders = new Map<string, PurgeItem[]>()
+    for (const i of rest) {
+      if (i.kind === 'orphan-attachments') {
+        folders.set(dirname(i.path!), [...(folders.get(dirname(i.path!)) ?? []), i])
+        continue
+      }
+      try {
+        if (i.kind === 'deleted-usage') await purgeDeletedUsage(host, i.sessionId!)
+        else await whileUnclaimed(host, i.sessionId!, async () => {
+          if (!unchanged(i, await fileNow(i.path!))) throw hiveError(M_PURGE.changed)
+          await remove(i.path!)
+        })
+        done(i)
+      } catch (e) {
+        skip(i, e)
+      }
+    }
+    for (const [dir, list] of folders) {
+      try {
+        const changed = await whileUnclaimed(host, basename(dir), () => removeAttachments(host, dir, list, permanent))
+        list.filter((i) => !changed.includes(i)).forEach(done)
+        changed.forEach((i) => skipFor(i, M_PURGE.changed))
+      } catch (e) {
+        list.forEach((i) => skip(i, e))
+      }
+    }
+    forgetStorage(host)
+    workspaceOf(host).scheduleRefresh()
+  }
+  const found = new Set(chosen.map((i) => i.key.toLowerCase()))
+  for (const k of listed) if (!found.has(String(k).toLowerCase())) result.skipped.push({ key: String(k), reason: tr(M_PURGE.noLonger) })
+  log.info(`Purge (${target.kind}${permanent ? ', permanently' : ''}): ${result.removed} item(s), ${result.bytes} bytes, ${result.deleted} session(s) deleted${result.skipped.length ? `, ${result.skipped.length} skipped` : ''}`)
+  return result
+}
+
+/**
+ * Runs fn on what is left of a session Hive no longer has (`name`: its id, or run-<launch>), with that name reserved so
+ * no session starts under it meanwhile, once no record or launch has it now.
+ */
+async function whileUnclaimed<T>(host: string, name: string, fn: () => Promise<T>): Promise<T> {
+  return sessions.whileCleaning(host, name, async () => {
+    const lower = name.toLowerCase()
+    if ((await workspace.sessionsFile(host)).sessions.some((s) => s.id.toLowerCase() === lower)) throw hiveError(msg({ id: 'main.storage.purgeClaimed', defaultMessage: 'It belongs to a session again.', description: 'Purge skipped a file or folder of a session Hive no longer had: it has one again.' }))
+    // After the read above: nothing is awaited between this check and fn's first look at the files.
+    if (sessions.liveAnywhere(name) || sessions.projectStates(host).some((s) => `run-${s.runId}`.toLowerCase() === lower)) throw hiveError(msg({ id: 'main.storage.purgeRunning', defaultMessage: 'Its session is running.', description: 'Purge skipped a file or folder: its session is running now.' }))
+    return fn()
+  })
+}
+
+/** A deleted session's old kept usage (deletedUsage): recorded in the usage history now, then dropped from the host's records. */
+async function purgeDeletedUsage(host: string, id: string): Promise<void> {
+  const k = (await workspace.sessionsFile(host)).deletedUsage?.find((x) => x.id === id)
+  if (!k) return
+  if (!(await usageHistory.recordKept(host, k).catch(() => false))) throw hiveError(msg({ id: 'main.storage.purgeUnrecorded', defaultMessage: "Hive couldn't record it in the usage history, so it is kept.", description: "Purge kept a deleted session's old usage: Hive couldn't save it in the usage history, which the totals keep." }))
+  await workspace.mutateSessions(host, (f) => {
+    if (f.deletedUsage?.some((x) => x.id === id)) f.deletedUsage = f.deletedUsage.filter((x) => x.id !== id)
+  })
 }
 
 /** Forgets a project's last measurement (a worktree was removed, #353): the next look measures again. */

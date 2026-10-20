@@ -272,6 +272,8 @@ interface HiveMessageValues {
   'tips.startNewAll.title': undefined
   'tips.storageCleanup.text': undefined
   'tips.storageCleanup.title': undefined
+  'tips.storagePurge.text': undefined
+  'tips.storagePurge.title': undefined
   'tips.taskbarBadge.text': undefined
   'tips.taskbarBadge.title': undefined
   'tips.templateNames.text': undefined
