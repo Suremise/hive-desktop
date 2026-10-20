@@ -111,15 +111,19 @@ describe("no line of Hive's before a launch's hive tools have connected (#865)",
   it('the bound lowered in Settings → Advanced while a task waits: the wait ends with the gate, not at the old bound (round 4)', async () => {
     const dir = tempDir('hive-tools-bound')
     advanced.load(dir)
+    // The clock stands still until the test moves it (the setting's own write is real, however long it takes).
+    vi.useFakeTimers({ toFake: ['Date'] })
     try {
       launched()
       let settled = false
       const wait = sessions.hiveToolsSettled(project, id).then(() => (settled = true))
       await advanced.set('hive.mcp.connectSeconds', 1)
-      // Ready under a second ago: the gate still holds, and the wait with it.
+      // Ready no time ago on this clock: the gate still holds, and the wait with it.
       expect(sessions.hiveToolsWaiting(project, id)).toBe(true)
       expect(settled).toBe(false)
-      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 5_000 })
+      // Past the lowered bound (not the old 30 s): the wait, looking again when its timer for what was left fires, ends.
+      vi.setSystemTime(Date.now() + 1_100)
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 10_000 })
       expect(sessions.hiveToolsWaiting(project, id)).toBe(false)
       await wait
     } finally {
