@@ -955,6 +955,146 @@
     "defaultMessage": "{count, number} without a price",
     "description": "Under a coding agent's API-equivalent cost: sessions whose model has no known price."
   },
+  "workspace.purge.assistant": {
+    "defaultMessage": "Hive Assistant",
+    "description": "The Purge dialog's tables: the Assistant, in the column of projects. Hive's name stays as it is."
+  },
+  "workspace.purge.button": {
+    "defaultMessage": "Purge",
+    "description": "The Purge dialog's button with nothing to remove."
+  },
+  "workspace.purge.cancel": {
+    "defaultMessage": "Cancel",
+    "description": "The Purge dialog's button that closes it."
+  },
+  "workspace.purge.deleteItems": {
+    "defaultMessage": "Delete {count, plural, one {# item} other {# items}} ({size}) permanently",
+    "description": "The Purge dialog's button with Delete permanently chosen ({size}: \"12 MB\")."
+  },
+  "workspace.purge.deleted": {
+    "defaultMessage": "Deleted {count, plural, one {# item} other {# items}} ({size}) permanently",
+    "description": "A notice after Purge with Delete permanently ({size}: \"12 MB\")."
+  },
+  "workspace.purge.deleting": {
+    "defaultMessage": "Deleting…",
+    "description": "The Purge dialog's button while it deletes permanently."
+  },
+  "workspace.purge.groupCount": {
+    "defaultMessage": "{count, plural, one {# item} other {# items}}, {size}",
+    "description": "The Purge dialog, beside a group: how many and how big ({size}: \"12 MB\")."
+  },
+  "workspace.purge.intro": {
+    "defaultMessage": "Removes what Hive keeps: its backups of the transcripts (the archive's too), attachments, and what is left of deleted sessions. The coding agents' own files (in ~/.claude, ~/.codex and ~/.copilot) are never touched, and running sessions are left alone. What the sessions used stays in the usage history, so the totals don't change.",
+    "description": "The Purge dialog, at the top. Keep the paths as they are."
+  },
+  "workspace.purge.introSession": {
+    "defaultMessage": "Removes what Hive keeps of this session: its backups of the transcript (the archive's too) and its attachments. The coding agent's own files (in ~/.claude, ~/.codex or ~/.copilot) are never touched. What the session used stays in the usage history, so the totals don't change.",
+    "description": "The Purge dialog for one session, at the top. Keep the paths as they are."
+  },
+  "workspace.purge.kindAttachments": {
+    "defaultMessage": "Attachments",
+    "description": "The Purge dialog, a group: files pasted or dropped into sessions (.hive/attachments)."
+  },
+  "workspace.purge.kindBackup": {
+    "defaultMessage": "Transcript backups",
+    "description": "The Purge dialog, a group: Hive's copies of the sessions' transcripts (.hive/sessions, .hive/archive)."
+  },
+  "workspace.purge.kindDeletedUsage": {
+    "defaultMessage": "Old usage of deleted sessions",
+    "description": "The Purge dialog, a group: usage figures kept for deleted sessions from before the usage history (it has them now)."
+  },
+  "workspace.purge.kindKept": {
+    "defaultMessage": "Old usage on session records",
+    "description": "The Purge dialog, a group: usage figures kept on sessions' records from before the usage history (it has them now)."
+  },
+  "workspace.purge.kindLeftover": {
+    "defaultMessage": "Leftover backup files",
+    "description": "The Purge dialog, a group: files left of Hive's backups (of deleted sessions, or half made when Hive stopped)."
+  },
+  "workspace.purge.kindOrphan": {
+    "defaultMessage": "Attachments of deleted sessions",
+    "description": "The Purge dialog, a group: attachments whose session Hive no longer has."
+  },
+  "workspace.purge.lastCopies": {
+    "defaultMessage": "{count, plural, one {# session has no other copy: its CLI no longer has the transcript. It is deleted from Hive, as Delete Session does, and can't be resumed or read afterwards.} other {# sessions have no other copy: their CLI no longer has the transcripts. They are deleted from Hive, as Delete Session does, and can't be resumed or read afterwards.}} What they used still counts in the totals.",
+    "description": "The Purge dialog's warning when Hive's backup is a session's last copy. Delete Session is the Sessions tab's command."
+  },
+  "workspace.purge.lastCopy": {
+    "defaultMessage": "last copy",
+    "description": "The Purge dialog, a tag beside a backup that is its session's last copy (the session is deleted with it)."
+  },
+  "workspace.purge.looking": {
+    "defaultMessage": "Looking…",
+    "description": "The Purge dialog while it finds the files."
+  },
+  "workspace.purge.moveItems": {
+    "defaultMessage": "Move {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin",
+    "description": "The Purge dialog's button ({size}: \"12 MB\")."
+  },
+  "workspace.purge.moved": {
+    "defaultMessage": "Moved {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin",
+    "description": "A notice after Purge ({size}: \"12 MB\")."
+  },
+  "workspace.purge.moving": {
+    "defaultMessage": "Moving to the Recycle Bin…",
+    "description": "The Purge dialog's button while it works."
+  },
+  "workspace.purge.nothing": {
+    "defaultMessage": "Hive keeps nothing here that Purge removes.",
+    "description": "The Purge dialog when there is nothing to remove."
+  },
+  "workspace.purge.nothingRemoved": {
+    "defaultMessage": "Nothing was removed",
+    "description": "A notice after Purge when nothing went."
+  },
+  "workspace.purge.permanent": {
+    "defaultMessage": "Delete permanently",
+    "description": "A Purge choice: delete instead of moving to the Recycle Bin."
+  },
+  "workspace.purge.permanentDesc": {
+    "defaultMessage": "Skip the Recycle Bin: what goes can't be restored.",
+    "description": "Under the Purge choice \"Delete permanently\"."
+  },
+  "workspace.purge.project": {
+    "defaultMessage": "Project",
+    "description": "The Purge dialog's tables for the workspace: the column of projects."
+  },
+  "workspace.purge.record": {
+    "defaultMessage": "in its record",
+    "description": "The Purge dialog, beside old usage kept in a session's record (not a file)."
+  },
+  "workspace.purge.running": {
+    "defaultMessage": "{count, plural, one {# running session is left alone.} other {# running sessions are left alone.}}",
+    "description": "The Purge dialog: sessions running now, whose files are not listed."
+  },
+  "workspace.purge.sessionsDeleted": {
+    "defaultMessage": "{count, plural, one {# session whose last copy went was deleted from Hive.} other {# sessions whose last copy went were deleted from Hive.}}",
+    "description": "Under the notice after Purge: sessions deleted because their last copy went."
+  },
+  "workspace.purge.size": {
+    "defaultMessage": "Size",
+    "description": "The Purge dialog's tables: the column of sizes."
+  },
+  "workspace.purge.skipped": {
+    "defaultMessage": "{count, plural, one {# item skipped:} other {# items skipped:}}",
+    "description": "Under the notice after Purge: items left alone (each follows on a line, with why)."
+  },
+  "workspace.purge.skippedItem": {
+    "defaultMessage": "{what}: {reason}",
+    "description": "Under the notice after Purge, an item left alone ({what}: like \"Transcript backups · fix-login\") and why ({reason}: a sentence)."
+  },
+  "workspace.purge.title": {
+    "defaultMessage": "{scope, select, session {Purge Hive's Files of \"{name}\"} project {Purge What Hive Keeps for {name}} other {Purge What Hive Keeps in {name}}}",
+    "description": "The Purge dialog's title: for a session ({name}: its name), a project ({name}: its name) or the workspace ({name}: its folder's name)."
+  },
+  "workspace.purge.what": {
+    "defaultMessage": "What",
+    "description": "The Purge dialog's tables: the column of what goes."
+  },
+  "workspace.purge.whatGoes": {
+    "defaultMessage": "What goes",
+    "description": "The Purge dialog's heading over the files."
+  },
   "workspace.removal.back": {
     "defaultMessage": "{name} is back",
     "description": "A notice after Restore."
@@ -1462,6 +1602,10 @@
   "workspace.storage.project": {
     "defaultMessage": "Project",
     "description": "Settings → Workspace's storage table: the column of projects."
+  },
+  "workspace.storage.purge": {
+    "defaultMessage": "Purge…",
+    "description": "Storage: opens the Purge dialog, which removes everything Hive keeps per session (it lists it first)."
   },
   "workspace.storage.refresh": {
     "defaultMessage": "Refresh",

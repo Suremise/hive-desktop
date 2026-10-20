@@ -103,6 +103,7 @@
   "sessions.marker.orphan": "启动它的会话不在列表中（已删除，或不属于此项目）。",
   "sessions.menu.copyId": "复制会话 ID",
   "sessions.menu.delete": "{kind, select, conversation {删除对话…} other {删除会话…}}",
+  "sessions.menu.purge": "彻底清除 Hive 的文件…",
   "sessions.menu.rename": "重命名…",
   "sessions.menu.showAgent": "显示 {agent}",
   "sessions.menu.showAssistant": "显示助手",

@@ -1,5 +1,5 @@
-// What Hive keeps per project (Project Settings → Storage) and which of it Clean Up… may remove.
-import type { CleanupItem, CleanupOptions } from './types'
+// What Hive keeps per project (Project Settings → Storage), which of it Clean Up… may remove, and what Purge… removes.
+import type { CleanupItem, CleanupOptions, PurgeItem } from './types'
 import { tr } from './i18n'
 import { msg } from './i18n/msg'
 
@@ -60,4 +60,86 @@ export function planCleanup(facts: CleanupFacts, opts: CleanupOptions): CleanupI
     } else if (opts.goneBackups) for (const b of s.backups) items.push({ kind: 'gone-backup', path: b.path, bytes: b.bytes, sessionId: s.id, label: label(s) })
   }
   return items
+}
+
+/** One of a host's sessions, as Purge… sees it (#1138). */
+export interface PurgeSession {
+  id: string
+  name: string
+  /** Running or starting now (never touched). */
+  running: boolean
+  /** The CLI still has its transcript: Hive's backups aren't its last copy. */
+  inCli: boolean
+  /** The size of old usage kept on its record (keptUsage, from before the usage history), or null: none. */
+  keptUsageBytes: number | null
+}
+
+export interface PurgeFacts {
+  host: string
+  hostName: string
+  assistant?: boolean
+  sessions: PurgeSession[]
+  /**
+   * The files of .hive/sessions and .hive/archive named for a session: its backups (`backup`: an active or archived copy,
+   * compressed or not) and what is left of one (a spare or a half-made copy). Nothing else there is Hive's per session.
+   */
+  files: { path: string; bytes: number; id: string; backup: boolean }[]
+  /** The folders in .hive/attachments: a session id, or run-<launch> for a launch that had no id yet. */
+  attachmentFolders: { name: string; path: string; bytes: number }[]
+  /** Old usage kept for deleted sessions (deletedUsage, from before the usage history), with its size. */
+  deletedUsage: { id: string; name: string; bytes: number }[]
+  /** Session ids and run-<launch> names of what is running or starting now. */
+  liveNames: Set<string>
+}
+
+/**
+ * An item's key: its kind and its file's path, or the record's host and session id. With the kind in it, a thing that
+ * changed kind since the preview (a deleted session's folder that belongs to a session again) no longer matches it.
+ */
+export const purgeKey = (kind: PurgeItem['kind'], where: string, id?: string): string => `${kind}:${where.toLowerCase()}${id ? `|${id.toLowerCase()}` : ''}`
+
+/**
+ * What Purge… removes of a host (#1138): everything Hive keeps per session — each session's backups, leftovers of them
+ * and attachments, and old usage on its record — and what is left of sessions Hive no longer has (their files,
+ * attachments and kept usage). With `only`, that session's alone. Running sessions are left out, and counted. The usage
+ * history and the CLIs' own files are never in it.
+ */
+export function planPurge(facts: PurgeFacts, only?: string): { items: PurgeItem[]; running: number } {
+  const items: PurgeItem[] = []
+  const at = { host: facts.host, hostName: facts.hostName, ...(facts.assistant ? { assistant: true } : {}) }
+  const want = (id: string): boolean => only === undefined || id.toLowerCase() === only.toLowerCase()
+  const byId = new Map(facts.sessions.map((s) => [s.id.toLowerCase(), s]))
+  const live = (id: string): boolean => facts.liveNames.has(id.toLowerCase()) || !!byId.get(id.toLowerCase())?.running
+  const label = (s: PurgeSession): string => s.name || s.id.slice(0, 8)
+  const gone = (name: string): string => (/^run-/i.test(name) ? tr(M.neverStarted) : tr(M.deletedSession, { id: name.slice(0, 8) }))
+  const running = new Set<string>()
+  for (const f of facts.files) {
+    if (!want(f.id)) continue
+    if (live(f.id)) {
+      running.add(f.id.toLowerCase())
+      continue
+    }
+    const s = byId.get(f.id.toLowerCase())
+    if (s && f.backup) items.push({ kind: 'backup', key: purgeKey('backup', f.path), ...at, path: f.path, bytes: f.bytes, sessionId: s.id, label: label(s), ...(s.inCli ? {} : { lastCopy: true }) })
+    else items.push({ kind: 'leftover-backup', key: purgeKey('leftover-backup', f.path), ...at, path: f.path, bytes: f.bytes, sessionId: s?.id ?? f.id, label: s ? label(s) : gone(f.id) })
+  }
+  for (const d of facts.attachmentFolders) {
+    if (!want(d.name)) continue
+    if (live(d.name)) {
+      running.add(d.name.toLowerCase())
+      continue
+    }
+    const s = byId.get(d.name.toLowerCase())
+    items.push(s ? { kind: 'attachments', key: purgeKey('attachments', d.path), ...at, path: d.path, bytes: d.bytes, sessionId: s.id, label: label(s) } : { kind: 'orphan-attachments', key: purgeKey('orphan-attachments', d.path), ...at, path: d.path, bytes: d.bytes, label: gone(d.name) })
+  }
+  for (const s of facts.sessions) {
+    if (!want(s.id) || s.keptUsageBytes === null) continue
+    if (live(s.id)) running.add(s.id.toLowerCase())
+    else items.push({ kind: 'kept-usage', key: purgeKey('kept-usage', facts.host, s.id), ...at, bytes: s.keptUsageBytes, sessionId: s.id, label: label(s) })
+  }
+  for (const k of facts.deletedUsage) {
+    if (only !== undefined || byId.has(k.id.toLowerCase())) continue
+    items.push({ kind: 'deleted-usage', key: purgeKey('deleted-usage', facts.host, k.id), ...at, bytes: k.bytes, sessionId: k.id, label: k.name || tr(M.deletedSession, { id: k.id.slice(0, 8) }) })
+  }
+  return { items, running: running.size }
 }

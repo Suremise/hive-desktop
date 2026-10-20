@@ -1083,6 +1083,14 @@
     "defaultMessage": "See what Hive keeps, and clean up",
     "description": "A tip's title."
   },
+  "tips.storagePurge.text": {
+    "defaultMessage": "Purge… in Project Settings → Storage, or Purge Hive's Files… on a session, removes everything Hive keeps for sessions: backups, attachments and leftovers. It lists every file first; the coding agents' own files and your usage totals stay.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.storagePurge.title": {
+    "defaultMessage": "Purge what Hive keeps",
+    "description": "A tip's title."
+  },
   "tips.taskbarBadge.text": {
     "defaultMessage": "Hive's taskbar button shows how many agents need you, and flashes when one asks you something while Hive is in the background.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."

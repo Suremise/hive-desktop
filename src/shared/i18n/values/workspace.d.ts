@@ -240,6 +240,41 @@ interface HiveMessageValues {
   'workspace.overview.updated': { when: string | number }
   'workspace.overview.withoutPrice': { count: number }
   'workspace.overview.withoutPriceShort': { count: number }
+  'workspace.purge.assistant': undefined
+  'workspace.purge.button': undefined
+  'workspace.purge.cancel': undefined
+  'workspace.purge.deleteItems': { count: number; size: string | number }
+  'workspace.purge.deleted': { count: number; size: string | number }
+  'workspace.purge.deleting': undefined
+  'workspace.purge.groupCount': { count: number; size: string | number }
+  'workspace.purge.intro': undefined
+  'workspace.purge.introSession': undefined
+  'workspace.purge.kindAttachments': undefined
+  'workspace.purge.kindBackup': undefined
+  'workspace.purge.kindDeletedUsage': undefined
+  'workspace.purge.kindKept': undefined
+  'workspace.purge.kindLeftover': undefined
+  'workspace.purge.kindOrphan': undefined
+  'workspace.purge.lastCopies': { count: number }
+  'workspace.purge.lastCopy': undefined
+  'workspace.purge.looking': undefined
+  'workspace.purge.moveItems': { count: number; size: string | number }
+  'workspace.purge.moved': { count: number; size: string | number }
+  'workspace.purge.moving': undefined
+  'workspace.purge.nothing': undefined
+  'workspace.purge.nothingRemoved': undefined
+  'workspace.purge.permanent': undefined
+  'workspace.purge.permanentDesc': undefined
+  'workspace.purge.project': undefined
+  'workspace.purge.record': undefined
+  'workspace.purge.running': { count: number }
+  'workspace.purge.sessionsDeleted': { count: number }
+  'workspace.purge.size': undefined
+  'workspace.purge.skipped': { count: number }
+  'workspace.purge.skippedItem': { what: string | number; reason: string | number }
+  'workspace.purge.title': { scope: string; name: string | number }
+  'workspace.purge.what': undefined
+  'workspace.purge.whatGoes': undefined
   'workspace.removal.back': { name: string | number }
   'workspace.removal.banner': { what: string | number; when: string | number }
   'workspace.removal.blocked': { agents: string | number; unchecked: string }
@@ -367,6 +402,7 @@ interface HiveMessageValues {
   'workspace.storage.oldBackupsDesc': undefined
   'workspace.storage.orphansDesc': undefined
   'workspace.storage.project': undefined
+  'workspace.storage.purge': undefined
   'workspace.storage.refresh': undefined
   'workspace.storage.reviewInChanges': undefined
   'workspace.storage.size': undefined

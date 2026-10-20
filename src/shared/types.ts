@@ -1912,6 +1912,48 @@ export interface CleanupResult {
   skipped: string[]
 }
 
+/** What Purge… (#1138) clears: one session's, a project's (or the Assistant's), or the whole workspace's. */
+export type PurgeTarget = { kind: 'session'; projectPath: string; sessionId: string } | { kind: 'project'; projectPath: string } | { kind: 'workspace' }
+
+/**
+ * One thing Purge… removes, of Hive's only: a session's backup (an active or archived copy), its attachments folder, a
+ * leftover file of a backup (a deleted session's, or half made: .spare, .tmp), the attachments of a session Hive no longer
+ * has, or old usage kept on a session's record (keptUsage) or for a deleted one (deletedUsage), from before the usage
+ * history (#1106): those are records, not files (no path).
+ */
+export interface PurgeItem {
+  kind: 'backup' | 'attachments' | 'leftover-backup' | 'orphan-attachments' | 'kept-usage' | 'deleted-usage'
+  /** What the apply call lists: its kind with its file or folder's path, or with the record's host and session id (purgeKey). */
+  key: string
+  /** The project folder (or the Assistant's home) it belongs to. */
+  host: string
+  /** The project's name, for the workspace's preview. */
+  hostName: string
+  /** The host is the Hive Assistant's home. */
+  assistant?: boolean
+  path?: string
+  bytes: number
+  sessionId?: string
+  label: string
+  /** A backup that is its session's last copy (the CLI no longer has its transcript): the session is deleted from Hive with it. */
+  lastCopy?: boolean
+}
+
+export interface PurgePreview {
+  items: PurgeItem[]
+  /** Sessions left alone because they are running or starting (whose things aren't listed). */
+  running: number
+}
+
+export interface PurgeResult {
+  removed: number
+  bytes: number
+  /** Sessions deleted from Hive because their last copy went. */
+  deleted: number
+  /** Listed items (their keys) that no longer qualified or couldn't be removed, with why. */
+  skipped: { key: string; reason: string }[]
+}
+
 export interface SessionListItem extends Partial<SessionRecord> {
   id: string
   provider: ProviderId

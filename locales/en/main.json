@@ -563,6 +563,26 @@
     "defaultMessage": "{path}: no longer qualifies",
     "description": "What Clean Up (Settings → Storage) skipped: it changed since the preview listed it. {path} is the file or folder."
   },
+  "main.storage.purgeClaimed": {
+    "defaultMessage": "It belongs to a session again.",
+    "description": "Purge skipped a file or folder of a session Hive no longer had: it has one again."
+  },
+  "main.storage.purgeNoLonger": {
+    "defaultMessage": "It no longer qualifies (it changed since the preview).",
+    "description": "Purge skipped an item the preview listed: it changed since (a session resumed, a file gone)."
+  },
+  "main.storage.purgeNotKept": {
+    "defaultMessage": "The folder holds something Hive didn't put there, so it is left alone.",
+    "description": "Purge skipped a session's attachments folder: it isn't only Hive's files (a link, a folder inside)."
+  },
+  "main.storage.purgeRunning": {
+    "defaultMessage": "Its session is running.",
+    "description": "Purge skipped a file or folder: its session is running now."
+  },
+  "main.storage.purgeUnrecorded": {
+    "defaultMessage": "Hive couldn't record it in the usage history, so it is kept.",
+    "description": "Purge kept a deleted session's old usage: Hive couldn't save it in the usage history, which the totals keep."
+  },
   "main.storage.running": {
     "defaultMessage": "The session is running.",
     "description": "Why Clean Up (Settings → Storage) skipped a session's attachments folder."

@@ -461,6 +461,13 @@ Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of
 
 The dialog lists every file that will go, with its size and the total, before anything happens; **Move … to the Recycle Bin** removes exactly those. Running sessions and sessions that aren't archived are never touched, also when one is resumed or unarchived while the dialog is open: it's skipped and listed in the result. What the cleaned-up sessions used still counts in the Overview and the Workspace Overview.
 
+**Purge…** removes everything Hive keeps for sessions, not only old files: Hive's backups of their transcripts (the archive's too), their attachments, and what is left of sessions you deleted. It's on the same page, for the project, and in **Settings → Workspace → Storage** for the whole workspace; for one session, right-click it in the Sessions tab and choose **Purge Hive's Files…**. Before anything goes, the dialog lists every file with its size and the total, and **Move … to the Recycle Bin** removes exactly those; tick **Delete permanently** to skip the Recycle Bin. A few things to know:
+
+- The coding agents' own files (in `~/.claude`, `~/.codex` and `~/.copilot`) are never touched, and running sessions are left alone (the dialog says how many). A session the coding agent still has stays in the Sessions tab: you can still open and resume it from the agent's own transcript.
+- A session whose only copy is Hive's backup (its coding agent no longer has the transcript) is deleted, as **Delete Session** does; the dialog tags those backups *last copy* and warns you.
+- What the sessions used always stays in your usage totals: Purge never clears the usage history.
+- Anything that changes while the dialog is open (a session resumed, a new copy, a transcript opened) is left alone and listed in the result.
+
 ### Antivirus scanning
 
 On Windows, Microsoft Defender's real-time protection scans every file as it is created or opened, and Hive's work creates and opens a great many: installs, builds, tests, git, worktrees, transcripts. With several agents at once that adds up. **Settings → Workspace → Antivirus scanning** (or **Antivirus Scanning of the Workspace** in the command palette) shows how Defender treats the workspace:

@@ -4,7 +4,7 @@ import { existsSync } from 'original-fs'
 import { stat } from 'original-fs/promises'
 import { createHash } from 'crypto'
 import { basename, join } from 'path'
-import type { KeptUsage, ProviderId, SessionRecord, TaskCard, UsageHistoryProgress } from '../shared/types'
+import type { KeptUsage, ProviderId, SessionRecord, UsageHistoryProgress } from '../shared/types'
 import { projectAgents } from '../shared/defaults'
 import { sessionHolds, usageFromRows, type SessionHold } from '../shared/usageLedger'
 import type { UsageSummary } from '../shared/usageLedger'
@@ -428,6 +428,15 @@ class UsageHistory {
       if (!k || k.status === 'busy' || k.status === 'failed') return false
     }
     return true
+  }
+
+  /**
+   * Records a deleted session's kept usage (deletedUsage) now, before Purge… removes it (#1138): whether it's done (the
+   * history then counts it, as much as or more than the kept usage did).
+   */
+  async recordKept(projectPath: string, k: KeptUsage): Promise<boolean> {
+    const r = await this.importKept(projectPath, k, 0)
+    return !!r && r.status !== 'busy' && r.status !== 'failed'
   }
 
   /** The hosts of a workspace whose history counts: its projects, hidden ones too, and the Assistant. */
