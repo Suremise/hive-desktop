@@ -1826,18 +1826,13 @@ class SessionManager {
   /**
    * A compaction the CLI began by itself while the agent was idle (#1115): Claude Code precomputes one in the background,
    * idle too, sending PreCompact at once and PostCompact only once it uses it, so it may never say this one is over.
-   * Watched as Hive's own from now (begun): over at PostCompact or a prompt, a compaction more in the transcript than
-   * when it began, or LIMIT_MS.
+   * Watched as Hive's own from now (begun): over at PostCompact or a prompt, a compaction recorded in the transcript
+   * since its PreCompact (the CLI writes it once the model has summarised, well after the hook), or LIMIT_MS.
    */
   private watchAutoCompaction(id: string, l: LiveSession): void {
-    const c: Compaction = new Compaction(Infinity, null, () => this.compactionDone(id, l, c))
+    const c: Compaction = new Compaction({ since: Date.now() }, null, () => this.compactionDone(id, l, c))
     l.compacting = c
     c.begin()
-    void (async () => {
-      const src = await this.liveTranscript(l)
-      const u = src ? await this.usageFor(src, l.state.sessionId, l.state.provider) : null
-      if (l.compacting === c) c.counted(u?.compactions.length ?? 0)
-    })().catch((e) => log.warn(`${userText(this.label(l.state))}: could not count its compactions: ${userText(String(e))}`))
   }
 
   /**
@@ -2904,7 +2899,7 @@ class SessionManager {
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
       const u = await this.usageFor(src, sessionId, l.state.provider)
-      if (u) l.compacting?.transcript(u.compactions.length)
+      if (u) l.compacting?.transcript(u.compactions)
     }
     if (l.defaultModel) {
       const usage = await this.usageFor(src, sessionId, l.state.provider)

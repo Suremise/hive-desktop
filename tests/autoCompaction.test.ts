@@ -32,14 +32,15 @@ const s = sessions as unknown as {
 let w: ReturnType<typeof createWorkspaceService>
 const run = <T>(fn: () => Promise<T> | T): Promise<T> => inWorkspace(w, async () => fn())
 
-const line = (o: Record<string, unknown>): string => JSON.stringify({ timestamp: new Date().toISOString(), ...o }) + '\n'
+const line = (o: Record<string, unknown>, at = Date.now()): string => JSON.stringify({ timestamp: new Date(at).toISOString(), ...o }) + '\n'
 const prompt = (text: string): string => line({ type: 'user', message: { role: 'user', content: text } })
-const boundary = (): string => line({ type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 150_000 } })
+/** A compaction recorded in the transcript, now or (`at`) earlier. */
+const boundary = (at = Date.now()): string => line({ type: 'system', subtype: 'compact_boundary', compactMetadata: { trigger: 'auto', preTokens: 150_000 } }, at)
 
-/** An idle Claude Code agent whose transcript has had one compaction already. */
+/** An idle Claude Code agent whose transcript has had one compaction already, a minute ago. */
 function agent(agentId: string): { st: State; l: Launch; transcript: string } {
   const transcript = join(base, `${agentId}.jsonl`)
-  writeFileSync(transcript, prompt('go') + boundary() + prompt('carry on'))
+  writeFileSync(transcript, prompt('go') + boundary(Date.now() - 60_000) + prompt('carry on'))
   const st = { provider: 'claude-code', runId: `run-${agentId}`, projectPath: p, agentId, cwd: p, sessionId: `0000000${agentId}-0000-4000-8000-000000000000`, status: 'ready', startedAt: new Date(Date.now() - 60_000).toISOString(), launchSignature: '', unseen: false }
   const l = { state: st, adapter: claudeCode, transcriptMtime: '', transcriptPath: transcript, defaultModel: false, modeTail: '', launchMode: null, configuredMode: null }
   s.live.set(`${p.toLowerCase()}#${agentId}`, l as never)
@@ -83,13 +84,32 @@ describe('a compaction Claude Code began by itself while idle (#1115)', () => {
     await hook(st, preCompact)
     expect([st.status, st.statusMessage, !!l.compacting]).toEqual(['working', COMPACTING_MESSAGE, true])
     await quiet()
-    // The transcript grows, its compactions as many as when it began: still compacting.
+    // The transcript grows with nothing recorded since it began: still compacting.
     appendFileSync(transcript, line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } }))
     await run(() => s.backup(p, st.agentId, true))
     expect([st.status, !!l.compacting]).toEqual(['working', true])
     // A compaction more: over, idle again with nothing left watching.
     appendFileSync(transcript, boundary())
     await run(() => s.backup(p, st.agentId, true))
+    expect([st.status, st.statusMessage, l.compacting]).toEqual(['ready', undefined, undefined])
+  })
+
+  it('its compaction written while Hive is still reading the transcript ends it: it is no earlier compaction (round 2)', async () => {
+    const { st, l, transcript } = agent('slowread')
+    // The first look at the transcript after PreCompact is held until the compaction is recorded.
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const lookup = vi.spyOn(sessions as unknown as { liveTranscript: () => Promise<string | null> }, 'liveTranscript').mockImplementationOnce(async () => {
+      await gate
+      return transcript
+    })
+    await hook(st, preCompact)
+    appendFileSync(transcript, boundary())
+    const held = run(() => s.backup(p, st.agentId, true))
+    release()
+    await held
+    await run(() => s.backup(p, st.agentId, true))
+    lookup.mockRestore()
     expect([st.status, st.statusMessage, l.compacting]).toEqual(['ready', undefined, undefined])
   })
 

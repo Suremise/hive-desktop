@@ -17,6 +17,9 @@ vi.mock('../src/main/ptyHost', async (original) => ({ ...(await original<object>
 
 const claudeFailure = async (): Promise<RegExp | null> => (await import('../src/main/providers/claude/adapter')).claudeCode.compactFailure
 
+/** A transcript's n compactions (their times don't count for Hive's own Compact). */
+const times = (n: number) => Array.from({ length: n }, () => ({ timestamp: '' }))
+
 /**
  * An agent compacting as SessionManager.compact leaves it once its /compact is submitted, whose compaction ends as
  * its `over` callback does.
@@ -64,20 +67,21 @@ describe('a compaction Hive asked for', () => {
     expect(over).toHaveBeenCalledTimes(1)
   })
 
-  it('one the CLI began by itself (#1115): no transcript count ends it until its own is counted, then one more does; else its limit', () => {
+  it('one the CLI began by itself (#1115): only a compaction recorded since it began ends it, however many came before; else its limit', () => {
+    const since = Date.parse('2026-10-20T00:00:00Z')
+    const at = (ms: number) => ({ timestamp: new Date(since + ms).toISOString() })
     const st: { status: SessionStatus; statusMessage?: string } = { status: 'working', statusMessage: COMPACTING_MESSAGE }
     const over = vi.fn(() => applyStep(st, compactionOver(st)))
-    const c = new Compaction(Infinity, null, over)
+    const c = new Compaction({ since }, null, over)
     c.begin()
-    c.transcript(5)
-    c.counted(2)
-    c.transcript(2)
+    // Earlier ones, and one with no time: history.
+    c.transcript([at(-60_000), at(-1), { timestamp: '' }])
     expect(over).not.toHaveBeenCalled()
-    c.transcript(3)
+    c.transcript([at(-60_000), at(-1), at(4_000)])
     expect([over.mock.calls.length, st.status]).toEqual([1, 'ready'])
-    const unsaid = compacting(Infinity, null, false)
-    unsaid.c.begin()
-    unsaid.c.counted(2)
+    const unsaid = compacting(0, null, false)
+    const quiet = new Compaction({ since }, null, unsaid.over)
+    quiet.begin()
     vi.advanceTimersByTime(LIMIT_MS)
     expect([unsaid.over.mock.calls.length, unsaid.st.status]).toEqual([1, 'ready'])
   })
@@ -85,10 +89,10 @@ describe('a compaction Hive asked for', () => {
   it('the transcript shows one more compaction than before: over, once; the same count is not', () => {
     const { c, over, st } = compacting(2)
     c.begin()
-    c.transcript(2)
+    c.transcript(times(2))
     expect(over).not.toHaveBeenCalled()
-    c.transcript(3)
-    c.transcript(4)
+    c.transcript(times(3))
+    c.transcript(times(4))
     vi.advanceTimersByTime(LIMIT_MS)
     expect(over).toHaveBeenCalledTimes(1)
     expect(st.status).toBe('ready')
@@ -118,7 +122,7 @@ describe('a compaction Hive asked for', () => {
     c.begin()
     c.end()
     expect(vi.getTimerCount()).toBe(0)
-    c.transcript(5)
+    c.transcript(times(5))
     c.terminal('Not enough messages to compact.')
     c.begin()
     expect(vi.getTimerCount()).toBe(0)
@@ -135,7 +139,7 @@ describe('a compaction Hive asked for', () => {
     expect(st).toEqual({ status: 'working', statusMessage: undefined })
     expect(step.actions).toContain('compactEnded')
     // Had the session carried on without the hook's end (say, ended by the transcript just after the prompt):
-    c.transcript(3)
+    c.transcript(times(3))
     expect(over).toHaveBeenCalledTimes(1)
     expect(st).toEqual({ status: 'working', statusMessage: undefined })
   })

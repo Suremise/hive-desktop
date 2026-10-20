@@ -19,8 +19,12 @@ export class Compaction {
   private done = false
 
   constructor(
-    /** Compactions in the transcript before this one (Infinity until counted, for one the CLI began by itself). */
-    private before: number,
+    /**
+     * What came before it in the transcript: how many compactions (Hive's own Compact counts them before typing it), or
+     * when it began (one the CLI began by itself, #1115: counted after its PreCompact, a compaction written meanwhile
+     * would pass for an earlier one), so only a compaction recorded since then is this one.
+     */
+    private readonly before: number | { since: number },
     /** What the CLI prints when it refuses or fails a compaction (ProviderAdapter.compactFailure). */
     private readonly failure: RegExp | null,
     private readonly over: () => void
@@ -41,14 +45,10 @@ export class Compaction {
     this.timer = setTimeout(() => this.finish(), LIMIT_MS)
   }
 
-  /** The compactions in the transcript before this one, counted once it had begun (one the CLI began by itself, #1115). */
-  counted(before: number): void {
-    this.before = before
-  }
-
-  /** The transcript has `count` compactions: one more than before means it is done. */
-  transcript(count: number): void {
-    if (count > this.before) this.finish()
+  /** The transcript's compactions: one more than before, or one recorded since it began, means it is done. */
+  transcript(compactions: readonly { timestamp: string }[]): void {
+    const b = this.before
+    if (typeof b === 'number' ? compactions.length > b : compactions.some((c) => Date.parse(c.timestamp) >= b.since)) this.finish()
   }
 
   /** Terminal output while it runs. */
