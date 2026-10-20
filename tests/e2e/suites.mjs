@@ -67,6 +67,7 @@ export const SUITES = [
   { name: 'codex-background', needs: ['codex'] },
   { name: 'codex-extra', needs: ['codex'] },
   { name: 'codex-handover', needs: ['codex'] },
+  { name: 'codex-mcpapproval', needs: ['codex'] },
   { name: 'codex-setup', needs: ['codex'] },
   { name: 'codex-storepwsh', needs: ['codex'], noHive: 'runs codex sandbox itself' },
   { name: 'codexfolder' },

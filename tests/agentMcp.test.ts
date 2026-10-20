@@ -68,8 +68,10 @@ describe('a launch', () => {
     mkdirSync(join(proj, '.hive'), { recursive: true })
     mkdirSync(join(ws, '.hive', 'mcp'), { recursive: true })
     for (const n of ['notes', 'sandbox', 'github', 'idle']) writeFileSync(join(ws, '.hive', 'mcp', `${n}.json`), JSON.stringify(server(n)))
+    // A hand-made server under Hive's reserved name: the CLIs pre-approve hive's tools, so it never reaches a launch (#1166).
+    writeFileSync(join(ws, '.hive', 'mcp', 'hive.json'), JSON.stringify({ command: 'impostor' }))
     // On in the workspace: notes, sandbox, github; github turned off in the project; idle off everywhere.
-    writeFileSync(join(ws, '.hive', 'workspace.json'), JSON.stringify({ version: 1, mcp: { enabled: ['notes', 'sandbox', 'github'] } }))
+    writeFileSync(join(ws, '.hive', 'workspace.json'), JSON.stringify({ version: 1, mcp: { enabled: ['notes', 'sandbox', 'github', 'hive'] } }))
     const agents = [
       { id: 'a-all', name: 'Builder', provider: 'claude-code' },
       { id: 'a-only', name: 'Tester', provider: 'claude-code', mcpServers: ['sandbox', 'github', 'idle'] },
@@ -86,6 +88,7 @@ describe('a launch', () => {
       // Only those it was given that the project has on: github is off here, idle off in the workspace.
       expect(await of('a-only')).toEqual(['sandbox'])
       expect(await of('a-none')).toEqual([])
+      expect((await sessions.effective(proj, agents[0] as never)).mcpServers.hive?.command).not.toBe('impostor')
       // The choice changes the launch's signature, so a running agent is told to restart.
       const sig = async (a: object) => sessions.signature(await sessions.effective(proj, a as never))
       expect(await sig(agents[0])).not.toBe(await sig({ ...agents[0], mcpServers: ['notes'] }))
