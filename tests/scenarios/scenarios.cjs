@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 66
+const FIXTURES_VERSION = 67
 
 /**
  * long-doc-section's design document (#817): about 40,000 characters in 36 sections, one of which (Retry policy) holds
@@ -3210,4 +3210,82 @@ module.exports.SCENARIOS.push({
   fakeSkips: ["asked the user whether the agent's account is theirs"]
 })
 
-module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto }
+// #899: a review of a language's screens. A check photographed every screen and wrote a text report naming the few
+// screenshots worth opening; the reviewer reads it first and opens only those and the screens the change touched.
+const SHOT_SCREENS = ['board-board', 'board-archive', 'files-tree', 'git-branches', 'git-status', 'project-header', 'sessions-list', 'settings-advanced', 'settings-general', 'settings-keys', 'shell-about', 'tips-list']
+const SHOT_REPORT = [
+  'pl: 12 screens checked, 2 flagged (1 clipped, 1 wraps)',
+  '  settings/advanced (pl): clipped by 14 px "Pokaż funkcje dla deweloperów" [div.s-text > div.s-label] → pl/settings-advanced-dark.png',
+  '  git/branches (pl): wraps "To repozytorium" [thead > tr > th, 2 lines] → pl/git-branches-dark.png',
+  ''
+].join('\n')
+/** A screenshot's name in text (`settings-advanced-dark.png`, or without .png where a script adds it: `${name}.png`). */
+const SHOT = /[\w.-]+-(?:dark|light)(?:\.png)?(?![\w-])/g
+/**
+ * Each screenshot a session opened, in order, with where: { name, tool (its call's index), pos (where in its input) }.
+ * Opened is named in a file-viewing tool's input (Claude Code's Read, Copilot's view, Codex's view_image), or anywhere
+ * in a Codex script that calls view_image (it may list the paths first, or build them); never in a command that only
+ * lists them or a comment that names one.
+ */
+const shotEvents = (o) => {
+  const out = []
+  o.tools.forEach((t, tool) => {
+    if (!/^(read|view|view_image)$/i.test(t.name) && !/view_image/.test(t.input)) return
+    for (const m of t.input.matchAll(SHOT)) out.push({ name: m[0].endsWith('.png') ? m[0] : `${m[0]}.png`, tool, pos: m.index })
+  })
+  return out
+}
+const shotsOpened = (o) => [...new Set(shotEvents(o).map((e) => e.name))]
+/** Where the session first read the report ({ tool, pos }, as shotEvents), or null. */
+const reportRead = (o) => {
+  const tool = o.tools.findIndex((t) => !/^mcp__hive__|^hive_/.test(t.name) && /report\.txt/.test(t.input))
+  return tool < 0 ? null : { tool, pos: o.tools[tool].input.indexOf('report.txt') }
+}
+const before = (a, b) => a.tool < b.tool || (a.tool === b.tool && a.pos < b.pos)
+module.exports.SCENARIOS.push({
+  id: 'review-screenshot-report',
+  title: "Review a language's screens (#899): the reviewer reads the screenshots' text report first, and opens only the images it flags and those of the screen the card changed",
+  files: {
+    'README.md': '# alpha\n\nA small app with a settings window.\n\n## Screenshots\n\n`npm run shots -- --lang <code>` photographs every screen in a language and both themes into `shots/<lang>/<screen>-<theme>.png`, and writes `shots/report.txt`: a line per text cut off, wrapped or overlapping, naming its screenshot.\n',
+    'advanced.pl.json': '{\n  "settings.advanced.showDeveloper": "Pokaż funkcje dla deweloperów",\n  "settings.advanced.reset": "Przywróć domyślne"\n}\n'
+  },
+  async setup(c) {
+    const fs = require('fs')
+    const path = require('path')
+    const png = require('../e2e/lib.cjs').samplePng()
+    fs.mkdirSync(path.join(c.alpha, 'shots', 'pl'), { recursive: true })
+    for (const s of SHOT_SCREENS) for (const t of ['dark', 'light']) fs.writeFileSync(path.join(c.alpha, 'shots', 'pl', `${s}-${t}.png`), png)
+    c.write('shots/report.txt', SHOT_REPORT)
+    c.git('add', '-A')
+    c.git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'Polish screenshots')
+    await c.card('p', {
+      title: 'Settings → Advanced in Polish',
+      description: 'Translate Settings → Advanced into Polish (advanced.pl.json), and check the screen in Polish.',
+      column: 'review',
+      agent: 'implementer',
+      // The comment doesn't name the report: the project's notes (README) say the check writes one.
+      comments: ['Round 1 ready: advanced.pl.json translates Settings → Advanced. Every screen in Polish, both themes, is in shots/pl (npm run shots -- --lang pl).']
+    })
+  },
+  prompt: (c) => `Review card #${c.cards.p}.`,
+  fake: (c) => `skill review-agent-work boardreview ${c.cards.p} start then boardreview ${c.cards.p} passed passed`,
+  expect: (o) => {
+    const opened = shotsOpened(o)
+    // The changed screen's may be opened anyway; any other only once the report has named it.
+    const changed = ['settings-advanced-dark.png', 'settings-advanced-light.png']
+    const allowed = [...changed, 'git-branches-dark.png']
+    const report = reportRead(o)
+    const early = shotEvents(o).filter((e) => !changed.includes(e.name) && !(report && before(report, e)))
+    return [
+      ['read the review-agent-work skill', read(o, 'review-agent-work'), o.skillsRead.join(',')],
+      ["read the screenshots' text report", !!report, o.tools.map((t) => t.name).join(',')],
+      ["read it before opening any screenshot but the changed screen's", !!report && !early.length, early.map((e) => `${e.name} at call ${e.tool}`).join(', ') + ` (report at ${report ? `call ${report.tool}` : 'none'})`],
+      ['opened only the screenshots it flags and those of the screen the card changed', opened.every((s) => allowed.includes(s)), opened.join(', ') || 'none'],
+      ['gave a verdict (passed or failed)', history(o.cards.p).some((h) => /^Review (passed|failed)$/.test(h)), history(o.cards.p).join(' | ')],
+      ['changed no files (a review only reads)', o.gitStatus.trim() === '', o.gitStatus]
+    ]
+  },
+  fakeSkips: ["read the screenshots' text report", "read it before opening any screenshot but the changed screen's", 'opened only the screenshots it flags and those of the screen the card changed']
+})
+
+module.exports.helpers = { called, ran, asksTheUser, read, moved, history, field, movedInto, runs, commandsOf, testRunsIn, verdictOf, LANES_RUNNING_TAIL, checkRunsOf, mergedInto, shotsOpened }

@@ -15,7 +15,7 @@ The loop runs itself: the builder builds each card and sends it to Review, the r
 
 ## Plan lanes by files
 
-- Split the cards so that agents sharing a folder never edit the same files: group them by the files they touch. A builder working beside others is best in its own worktree (add one only if the user agrees); a reviewer needs none.
+- Split the cards so that agents sharing a folder never edit the same files: group them by the files they touch. A builder working beside others is best in its own worktree (add one only if the user agrees; a team setup they chose with worktrees, such as a template, counts); a reviewer needs none.
 - Cards that depend on each other go in the same lane, in order. Name overlaps between lanes in both briefs ("lane 2 also edits the settings view: merge main before each card and keep to your sections").
 - A follow-up card belongs to the lane that owns its files: add it to that builder's list (below), or put it in Todo saying which lane should take it.
 
@@ -31,7 +31,7 @@ Lane end: claim the merge slot, use merge-ready, merge your branch into main, mo
 Follow-ups go to Todo as new cards.
 ```
 
-Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane. Write them in now: anything you add later reaches a busy agent only as a message (`hive_message_agent`), read from its inbox at its next tool call or turn's end. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
+Then what this lane needs: test homes or other safety rules, risky areas, overlaps with other lanes, a merge point mid-lane, and the project's own conventions agents can't know otherwise, such as the user OK-ing a visible change from before and after screenshots before the merge (then the brief says who takes them, when, and that the last card waits, blocked, for the OK). Write them in now: anything you add later reaches a busy agent only as a message (`hive_message_agent`), read from its inbox at its next tool call or turn's end. A reviewer's brief: `Use card-loop as the reviewer. Cards, in order: #12, #15. Your builder is B1, in <folder>.`, with what to look at closely on risky cards.
 
 - Give rounds and a wait only when the user did; otherwise the lane takes the project's card-loop settings.
 - Agents working in the project folder, with no worktree, have nothing to merge: their brief says to commit, and to move a passed card to Done.
@@ -51,7 +51,7 @@ Nothing wakes you but the user and a watch you started, so never leave lanes on 
 ## Changing a running lane
 
 - A decision you record on a lane's card in Review, or a block you clear from one, wakes neither side: follow it with `hive_message_agent` to the builder (with `card`), and to the reviewer when it changes what they check (coordinate-agents, Plan as cards).
-- A comment on a card doesn't reach a builder's loop. To add or reorder cards, wait until the builder is idle, prompt it with the new list, and start the lane again with it (`hive_lane` `start`).
+- A comment on a card doesn't reach a builder's loop, and neither does a card added to its lane while it runs. A lane's list changes only between cards: wait until the builder is idle, prompt it with the new list, and start the lane again with it (`hive_lane` `start`); otherwise start a new lane.
 - To move a card to another lane, reassign it (`hive_update_task` with `agent`): Hive ends the old pair's watches on it and tells them. Then prompt the new lane's builder once it is idle.
 
 ## Verify, don't trust

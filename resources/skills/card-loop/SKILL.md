@@ -29,7 +29,7 @@ Hive keeps a record of the loop, its **lane**, and shows it to the user. Registe
 
 Its reply gives the lane's rounds and wait: use them where your request gave none. Without a lane, 10 rounds and 6 hours.
 
-Hive follows the board from there and ends the lane when its cards are Done. If the cards change mid-loop (one added, the order changed), the builder starts it again with the new list. If the user calls the loop off, end the lane with `action: "end"`, `abandoned: true`; stopping to ask the user leaves it as it is. The lane is only a record: if the tool is missing or a call fails, carry on with the loop.
+Hive follows the board from there and ends the lane when its cards are Done. A lane's cards change only between cards: given a new list (a card added, the order changed) once it's idle, the builder starts the lane again with it, and carries on from there. A running loop never sees a card added to the lane meanwhile, so for anything else a new lane is started. If the user calls the loop off, end the lane with `action: "end"`, `abandoned: true`; stopping to ask the user leaves it as it is. The lane is only a record: if the tool is missing or a call fails, carry on with the loop.
 
 ## Waiting
 

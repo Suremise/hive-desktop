@@ -229,7 +229,8 @@ For a card in the builder/reviewer loop (the `card-loop` skill), so a round does
 same code while every required check still runs:
 
 - **The builder** runs the suites the card names and moves the card to Review with a **run record**
-  (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes), each suite's result and time,
+  (`--build --record`): the code's fingerprint (HEAD, plus a hash of any uncommitted changes; in a card loop the builder
+  commits first, so it is the commit the round names), each suite's result and time,
   and the logs folder. Paste the printed block into the card comment. When real suites ran, the record also names the
   real CLIs' versions as the suites' test copies of Hive selected them ("Real CLIs (as Hive selected them): Claude Code
   2.1.292, Codex 0.160.1"; each Hive notes its choice in the suite's `hive-clis.jsonl`, `HIVE_TEST_CLI_LOG`), and
@@ -339,6 +340,25 @@ npm run e2e -- i18nshots                 # as part of a run (the full set, or --
   language's screens with the screenshots taken or why one wasn't. `--lang` takes codes separated by commas (or the
   option again), runs the route alone (with another suite, `--all` or `--affected`, the runner refuses) and keeps its
   screenshots; without it the route photographs `en-XA`.
+- **Its text report** (#899, `layoutReport.cjs`): `report.txt` beside the screenshots, and `report.json`, list what each
+  screen does to its text, a line each, naming the screenshot to open: `board/board (pl): wraps "DO ZROBIENIA" [div.col-head > h3, 2 lines] → pl/board-board-dark.png`.
+  Kinds: `ellipsis` (cut off with "…", unless a tooltip shows it whole, or it's a long description cut to a line: a
+  label is reported however much is cut), `clipped` (cut off by its own box), `cut-off` (by a box around it: at a
+  side, or a line cut in half or hidden at its top or bottom), `outside` (past the window's edge), `wraps` (a short label on two lines or more), `mid-word` (a
+  word broken across lines; paths, addresses and ids may break anywhere), `squeezed` (many short lines in a narrow
+  column), `overlaps` (text over nearby text; sticky and fixed layers float on purpose), `sideways` (a box that scrolls
+  sideways: one line for what is out of its view) and `english` (a message the language translates, shown in English;
+  not in a document Hive renders, such as a skill or a note, whose words are its author's).
+  Only text that shows counts: text for screen readers, or scrolled away (a list's rows), doesn't. The same
+  issue on several screens (the status bar, a sidebar) is one line, saying on how many others. The layout is read once
+  per screen, in the dark theme. The run's log gives each language's count; the report never fails it. The
+  `i18nreport` suite seeds each kind (the layouts #886, #887, #890 and #892 fixed) on a page of its own and checks
+  they're reported and a clean part isn't.
+- **Read the report, not the route.** Each screenshot an agent views costs many times its text: read `report.txt` and
+  open only the images it flags, a card names or your change touches (a language run is ~170 screens in two themes).
+  The screenshots are kept for people to browse. Check a flag before acting on it: a deliberate layout (a tab strip
+  that scrolls, a long path cut with "…") is flagged too.
+- **A full language run is heavy**: run one at a time on the machine, with load capped (AGENTS.md).
 
 ### The installer on a clean machine: the Sandbox checks
 

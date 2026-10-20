@@ -93,5 +93,53 @@ describe('the i18nshots route (#769)', () => {
     expect(pick('locales/de/board.json')).toEqual({ suites: ['i18nshots'], why: ['locales/de/board.json: i18nshots'] })
     // The i18n tooling and each area's unit tests are npm test's (#768): no suite.
     for (const f of ['scripts/i18nExtract.mjs', 'scripts/i18nValues.mjs', 'scripts/i18nCheck.mjs', 'scripts/i18nCoverage.mjs', 'scripts/i18nGuard.mjs', 'i18n/allow/src/renderer/src/components/Board.tsx.json', 'tests/i18n/language.test.ts']) expect(pick(f), f).toEqual({ suites: [], why: [] })
+    // Its text report's layout check (#899): the route and the suite that seeds it.
+    expect(pick('tests/e2e/layoutReport.cjs').suites).toEqual(expect.arrayContaining(['i18nreport', 'i18nshots']))
+  })
+})
+
+// #899: the route's text report, so agents read text and open only the screenshots it flags.
+const report = req('./e2e/layoutReport.cjs') as {
+  englishCatalogue: () => Record<string, string>
+  englishLeft: (english: Record<string, string>, translations: Record<string, string>) => { exact: string[]; patterns: { id: string; source: string }[] }
+  summarize: (r: Record<string, Record<string, { image: string; issues: { kind: string; text: string; where: string; px?: number; detail?: string }[] }>>) => string
+}
+
+describe("the i18nshots route's text report (#899)", () => {
+  it('looks for English left only where the language translates it into other words', () => {
+    const english = { a: 'Not running', b: 'To do', c: 'OK', d: 'Cancel', e: 'Cancel', f: 'Hive', g: '{agent} (removed)', h: '{n, plural, one {# card} other {# cards}}', i: '<b>{name}</b> is ready', j: '{name}', k: 'Hive {version}' }
+    const pl = { a: 'Nie działa', c: 'OK', d: 'Anuluj', e: 'Cancel', f: 'Pszczoła', g: '{agent} (usunięty)', h: '{n, plural, one {# karta} other {# kart}}', i: '<b>{name}</b> jest gotowy', j: '{name}', k: 'Hive {version}', z: 'Hive' }
+    const left = report.englishLeft(english, pl)
+    // b isn't translated (shown in English on purpose), c translates to itself, d's English is also e's translation,
+    // and f's English is another message's translation (z): seeing any of them is no sign of a miss.
+    expect(left.exact).toEqual(['Not running'])
+    // Plain placeholders become a pattern; plurals, markup and a message with too few letters of its own don't.
+    expect(left.patterns.map((p) => p.id)).toEqual(['g'])
+    const re = new RegExp(left.patterns[0].source, 'u')
+    expect(re.test('Alice (removed)')).toBe(true)
+    expect(re.test('Alice (usunięty)')).toBe(false)
+  })
+
+  it('reads every English catalogue', () => {
+    const en = report.englishCatalogue()
+    expect(Object.keys(en).length).toBeGreaterThan(1000)
+    expect(Object.values(en).every((v) => typeof v === 'string')).toBe(true)
+  })
+
+  it('says per language how many screens were flagged, then a line per issue naming the screenshot to open', () => {
+    const text = report.summarize({
+      pl: {
+        'board/board': { image: 'pl/board-board-dark.png', issues: [{ kind: 'wraps', text: 'DO ZROBIENIA', where: 'div.col-head > h3', detail: '2 lines' }, { kind: 'english', text: 'Not running', where: 'span' }] },
+        'core/window': { image: 'pl/core-window-dark.png', issues: [] },
+        'settings/advanced': { image: 'pl/settings-advanced-dark.png', issues: [{ kind: 'clipped', text: 'hive.showDeveloperFeatures', where: 'div.s-label', px: 14 }] }
+      }
+    })
+    expect(text.split('\n')).toEqual([
+      'pl: 3 screens checked, 2 flagged (1 wraps, 1 english, 1 clipped)',
+      '  board/board (pl): wraps "DO ZROBIENIA" [div.col-head > h3, 2 lines] → pl/board-board-dark.png',
+      '  board/board (pl): english "Not running" [span] → pl/board-board-dark.png',
+      '  settings/advanced (pl): clipped by 14 px "hive.showDeveloperFeatures" [div.s-label] → pl/settings-advanced-dark.png',
+      ''
+    ])
   })
 })

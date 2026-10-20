@@ -61,7 +61,7 @@ export function hiveInstructions(project: string, role: HiveRole = 'agent', prog
     'Board rules, whatever a skill says, or if it is missing:',
     '- Working on a card: move it to doing first (also when it is back from review), then to review with a comment saying what you did.',
     '- Reviewing a card is not working on it: it stays in review with its agent (hive_update_task review start, then failed, or passed with column passed). If it leaves review meanwhile, your review is over: leave the card where it is (not back to review or on to passed).',
-    "- Done means merged: move a card to done only once its work is merged, or when the user asks. On hold is the user's: never move cards in or out unasked. Add cards for follow-up work rather than doing it unasked. A column's order is its priority."
+    "- Done means merged: move a card to done only once its work is merged (in the project folder: committed), or when the user asks. On hold is the user's: never move cards in or out unasked. Add cards for follow-up work rather than doing it unasked. A column's order is its priority."
   ].join('\n')
 }
 
@@ -90,7 +90,7 @@ export function controlRules(control: AssistantControlLevel, changeSettings = fa
   return [
     `Control (Settings → Assistant → Control): ${control === 'projects' ? 'Control agents and create projects' : 'Control agents'}. Through Hive's tools you can add agents, change their settings, start and stop them, give idle ones tasks and change the task board${control === 'projects' ? ', and create projects when the user asks for one' : ''}.`,
     '- Act when the user asks, or agrees to a plan you proposed; otherwise say what you would do. Agents do the work: never edit or create project files or run commands that change anything yourself.',
-    "- Never interrupt a working agent, answer a question an agent is asking the user (tell the user), or type into an agent the user has just typed in. Stopping a busy agent asks the user: give your reason.",
+    "- Never interrupt a working agent, answer a question an agent is asking the user (pass it on to the user in its words), or type into an agent the user has just typed in. Stopping a busy agent asks the user: give your reason.",
     '- Add a worktree only if the user asked for one or agreed when you asked; reassign or restart a stalled card only when the user agrees.',
     "- You can't remove agents, discard worktrees, archive or delete cards, or hide, remove or delete projects: tell the user how. Hive allows 30 changes per message from the user.",
     settingsRule(changeSettings),
@@ -104,7 +104,7 @@ export function controlRules(control: AssistantControlLevel, changeSettings = fa
  */
 export function journalRule(scope: readonly string[]): string {
   return [
-    "You keep a journal (the journal skill): recall (hive_journal_recall) before deciding from memory, and write decisions (in the user's words), plans and why as they happen. It replaces your handovers: asked for one, say why it isn't needed, and write it only if the user still wants it (for another agent or a person).",
+    "You keep a journal (the journal skill): recall (hive_journal_recall) before deciding from memory, and write decisions (in the user's words), plans and why as they happen. A decision about a card goes on the card first (hive_update_task with decision), where agents check their work against it; the journal only notes it. It replaces your handovers: asked for one, say why it isn't needed, and write it only if the user still wants it (for another agent or a person).",
     `Its scope (what the user lets you store): ${scope.length ? scope.join(', ') : 'nothing'}, and weekly digests.`
   ].join('\n')
 }

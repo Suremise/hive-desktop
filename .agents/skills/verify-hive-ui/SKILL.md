@@ -29,6 +29,7 @@ Start from an existing suite and its `lib.cjs` helpers (`launch`, `fitWindow`, `
 
 - **Click what the user clicks.** Use Playwright's own clicks, which check hit-testing: an element covered by an overlay, a dialog or a tip fails the click, as it would for the user. `elementFromPoint` at the target's centre tells you what's on top.
 - **Look at screenshots** (`page.screenshot`), and read them; don't only save them. Check light and dark themes, a narrow window and zoom when layout changed, and nested overlays (a dialog over a panel over a pane).
+- **Open only the screenshots you need**: each one costs far more to read than text. Look at the screens your change touches, and for a set of them read its text first. The i18nshots route's `report.txt` lists text cut off, wrapped, squeezed, overlapping or left in English, each with its screenshot (tests/e2e/README.md). Open what it flags, never the whole route: the rest are for people to browse.
 - **Drag and drop**: Playwright drops only on a mouse-up straight after a move, and sends few dragover events, so move in small steps.
 
 ## Cleaning up

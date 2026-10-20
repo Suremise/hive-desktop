@@ -45,7 +45,7 @@ import { e2eProgress, slotWaitProgress } from '../progressReport.mts'
 import { SUITES } from './suites.mjs'
 import { affectedSuites, changedFiles, mergeBase } from './affected.mjs'
 import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, recordJson, recordMarkdown, selectionOf } from './record.mjs'
-import { LANG_SUITE, isRealCli, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
+import { LANG_SUITE, isRealCli, keepLimits, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
 import { LANES, describeHolder, laneWaitLine, lanesFirst, laneWork, waitForLane } from './lanes.mjs'
@@ -298,7 +298,7 @@ const run = (name, port) =>
       // --keep-files: a passed suite's own files (screenshots, reports) go into the run's log folder before its folder
       // does, as a failed one's do at the end (#304): a new place every run, pruned with the logs.
       if (opts.keepFiles && dir && outcome.ok) {
-        const files = keepSuiteFiles(dir, runLogDir, name)
+        const files = keepSuiteFiles(dir, runLogDir, name, keepLimits(name, opts.lang))
         if (files.copied) filesKept.push(name)
         if (files.omitted.length) filesLeftOut.push(`${name}: ${omittedLine(files.omitted)}`)
       }
@@ -464,7 +464,7 @@ async function runOnce(k) {
     markRunFailed(logDir, failed.map((r) => r.name).join(', '))
     const copied = []
     for (const r of failed.filter((x) => x.dir)) {
-      const files = keepSuiteFiles(r.dir, logDir, r.name)
+      const files = keepSuiteFiles(r.dir, logDir, r.name, keepLimits(r.name, opts.lang))
       if (files.copied) copied.push(r.name)
       if (files.omitted.length) filesLeftOut.push(`${r.name}: ${omittedLine(files.omitted)}`)
     }

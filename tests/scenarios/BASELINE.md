@@ -36,6 +36,71 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## One answer per workflow rule (Phase 0 tidy): fakes, Claude Code and Codex (their default models), fixtures v67, 20 October 2026
+
+#1129: the board rule says Done in the project folder is committed; merge-ready says who merges (a lane's builder at
+its end, otherwise the user or an agent asked); a lane's cards change only between cards (card-loop, run-lanes, the
+`hive_lane` descriptions); run-lanes counts a team setup the user chose as agreeing to worktrees, and its brief names
+the project's own conventions (such as the user OK-ing screenshots); review-agent-work checks a convention the brief
+names; merge-ready's timer line points to work-on-card. Repo docs (AGENTS.md, RELEASING.md, tests/e2e/README.md) too.
+- **Fakes**: every scenario passes the same checks before (`hb5-1136-after`, the branch before #1129) and after
+  (`hb5-1129-after`); progress-long-command timed out once under load and passes alone. Agents' guidance +35
+  characters, delivered skills about +490 bytes.
+- **Codex, before and after** (assistant-new-lane, card-loop-lane, merged-to-done, merge-main-moved, review-card, 2
+  each: `2026-10-20T04-38-23-codex`, `04-31-16-codex`): all pass both ways but merge-main-moved.
+- **merge-main-moved on Codex**, a known weak spot: before 5 of 10 (`04-38-23`, `04-50-29`, `04-57-25`); after, with
+  merge-ready's "who merges" line first naming `--no-ff` and the slot, 3 of 10 (`04-31-16`, `04-47-06`, `04-53-41`): every
+  sample that read the skill passed before (5 of 5), 3 of 5 after, the two others merging with `--no-commit` on the base
+  and checking the combined tree (the same path seen before #1129). With that line pointing to the section instead, 5 of
+  8 (`05-00-39`, `05-03-11`; read 6 times, passed 5). Not reading merge-ready (about half the runs, both ways) is the
+  main failure; #1162 settles the `--no-commit` path.
+- **Claude Code** (CLI 2.1.304), after (`2026-10-20T07-34-17-claude-code`, 2 each): review-card and card-loop-lane pass
+  (card-loop-lane once ended its turn not watching); merge-main-moved 0 of 2 (merge-ready not read; one merged the
+  branch without merging the moved base first); merged-to-done 0 of 2 and assistant-new-lane's skill check 0 of 2,
+  both fixtures (#1169: the repo has no merge to find, so it rightly leaves the card; it reads run-lanes, which the
+  check doesn't count). Before, on the branch before #1129 (`07-42-36-claude-code`, those three): the same, and
+  merge-main-moved worse (1 of 8 checks each).
+
+## A decision about a card goes on the card: fakes, Claude Code and Codex (their default models), fixtures v65, 20 October 2026
+
+#1136: with the journal on, its always-present rule said to write decisions as they happen, and nothing always-present
+said a decision about a card belongs on the card (coordinate-agents does, but a wake doesn't load it): Claude Code's
+Assistant wrote a journal entry instead (assistant-reply-decision 0 of 3 on 19 Oct). The journal rule now says a
+decision about a card goes on the card first, the journal only noting it; the Control rule says to pass an agent's
+question on in its words; the journal and coordinate-agents skills match.
+- **Fakes**: every scenario passes the same checks before (`hb5-1136-before`) and after (`hb5-1136-after`);
+  worktree-isolation timed out once before, under load. The Assistant's guidance +172 bytes with the journal on.
+Samples the harness lost before the model acted (a typed prompt not taken: #1168) are counted apart, as neither.
+- **Claude Code (CLI 2.1.304), before**: on 97fc8adf, the branch before the change (`2026-10-20T07-52-16-claude-code`,
+  3 each): assistant-reply-decision 1 of 2 (the other read the card and Coder's activity and recorded nothing), 1
+  lost; coordinator-wake-question 2 of 2, 1 lost. On main at 1cd25924 (`2026-10-19T22-48-31-claude-code`): 0 of 2 and
+  1 of 2 (its reply didn't quote the question). In all: 1 of 4 and 3 of 4.
+- **Claude Code, after**: assistant-reply-decision 3 of 3 (`2026-10-20T07-22-24-claude-code`); coordinator-wake-question
+  5 of 5 (`07-22-24`, `07-26-01`, `07-32-19`), 4 lost.
+- **Codex (its default model)**: both 3 of 3 before, on 97fc8adf (`2026-10-20T07-59-00-codex`; an earlier 2 of 2,
+  `03-04-44-codex`, was pruned), and 3 of 3 after (`03-42-10-codex`, `07-51-45-codex`).
+
+## Screenshots read through their report: fakes, Claude Code (its default model), Codex (its default model), fixtures v65, 20 October 2026
+
+#899: i18nshots writes a text report naming the screenshots worth opening, and review-agent-work gains a general line:
+read a check's text report of its screenshots first, then open only the images it flags and those of the screens the
+change touches. New scenario **review-screenshot-report**: a card translating one screen, 24 screenshots of 12 screens,
+and a report flagging two (one of them the changed screen's); the project's README says the check writes the report.
+- **Fakes**: all 99 earlier scenarios pass the same checks before (`hb5-899-before`, review-agent-work as on main) and
+  after (`hb5-899-after`); delivered skills +338 bytes. The new scenario passes (its model checks skipped).
+- **Claude Code, before** (main's review-agent-work, the scenario copied in): 3 of 3, with the comment naming the report
+  (`2026-10-20T02-13-46-claude-code`) and 3 of 3 with only the README naming it (`2026-10-20T02-16-12-claude-code`).
+  Each sample read the report, then opened one screenshot (the changed screen's).
+- **Claude Code, after**: 3 of 3 both ways (`2026-10-20T02-00-54-claude-code`, `2026-10-20T02-20-42-claude-code`). It
+  opened the changed screen's and, in some samples, the flagged one.
+- **Codex, after**, with the comment naming the report: 3 of 3 (`2026-10-20T02-09-30-codex`). It read the report, then
+  opened the changed screen's two and the flagged one, or none. Its first trial found two gaps in the check, now fixed:
+  a script listing or building the paths it views, and the changed screen's image opened in the same script as the
+  report read.
+- **So**: on a 24-image fixture both models are already frugal, and the line doesn't change what they do. It's a
+  safeguard for Hive's own language runs (about 370 screenshots a language), where builders and reviewers opened every
+  image (#899). It costs nothing measurable in the fakes.
+
 ## Tagging cards: fake, Claude Code (haiku), Codex (its default model), fixtures v66, 20 October 2026
 
 #1131: `hive_update_task(s)` and the Agent API take `addLabels` and `removeLabels` (labels added or taken off, the
