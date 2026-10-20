@@ -13,7 +13,7 @@ import type { ArchiveBatch, ArchiveRequest, ArchiveResult, ContextProblem, SetAs
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
-import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
+import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, holdDocs, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
 import { config } from './config'
 import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
@@ -224,7 +224,7 @@ export async function allTasks(ws: WorkspaceService = workspace, q: CardQuery = 
   if (!ws.path) return []
   const docs = cardDocs(ws, q)
   // References to cards that are gone are left out: every number the board has, when only some cards were read.
-  const numbers = q.archived === undefined && !q.numbers && !q.agents ? new Set(docs.map((d) => d.number)) : cardNumbers(ws)
+  const numbers = q.archived === undefined && !q.numbers && !q.agents && !q.reviewers ? new Set(docs.map((d) => d.number)) : cardNumbers(ws)
   return sortCards(docs.map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x))))
 }
 
@@ -240,6 +240,23 @@ export async function windowTasks(ws: WorkspaceService = workspace, full = false
   const live = cardDocs(ws, { archived: false }).map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x)))
   const short = archivedSummaryDocs(ws).map((d): TaskCard => ({ ...clean(d.doc, d.number, ids), summary: true }))
   return sortCards([...live, ...short])
+}
+
+/** A card's holds, project, agent and reviewer, for costs; its history only when it keeps no holds (holdsFromHistory). */
+export type CardHolds = Pick<TaskCard, 'number' | 'project' | 'held' | 'history' | 'agent' | 'agentName' | 'review'>
+
+/**
+ * Every card's holds (archived ones too), for costs (#602): only those fields of each document, made in the query
+ * (#1107), so a card's comments are never parsed for it.
+ */
+export async function cardHolds(ws: WorkspaceService): Promise<CardHolds[]> {
+  if (!ws.path) return []
+  const ids = await ws.projectIds()
+  if (!ws.path) return []
+  return holdDocs(ws).map(({ number, doc }) => {
+    const c = clean(doc as Partial<TaskCard> & { projectId?: unknown }, number, ids)
+    return { number, project: c.project, held: c.held, history: c.history, agent: c.agent, agentName: c.agentName, review: c.review }
+  })
 }
 
 /** A card's place on the board: all that placing another card needs of it (#458). */
@@ -730,7 +747,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
   }
   log.info(`${W} put in order by ${userText(by)}: ${nums.map((x) => `#${x}`).join(', ')}`)
   changed(ws)
-  return (await allTasks(ws)).filter((c) => c.column === column && !c.archived && inScope(c, scope))
+  return (await allTasks(ws, { archived: false })).filter((c) => c.column === column && inScope(c, scope))
 }
 
 /** Words quoted in a history line, cut short. */
@@ -1148,7 +1165,7 @@ export function endReviews(project: string, agentId: string, why: ReviewEnd, ws:
 }
 
 async function endReviewsUnbatched(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService): Promise<number[]> {
-  const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
+  const mine = (await allTasks(ws, { reviewers: [agentId] })).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
   const out: number[] = []
   for (const c of mine) {
     const ended = await (async () => {
@@ -1516,8 +1533,8 @@ async function archiveOldDoneUnbatched(ws: WorkspaceService, now: number): Promi
   if (!ws.path || days <= 0) return []
   const cutoff = now - days * 86_400_000
   const out: number[] = []
-  for (const c of await allTasks(ws)) {
-    if (c.archived || c.column !== 'done' || doneSince(c) > cutoff) continue
+  for (const c of await allTasks(ws, { archived: false })) {
+    if (c.column !== 'done' || doneSince(c) > cutoff) continue
     await (async () => {
       // As it is now: moved out of Done or archived meanwhile, it stays.
       const fresh = await getTask(c.number, ws).catch(() => null)
