@@ -388,7 +388,7 @@
   "workspace.storage.moved": "Se {count, plural, one {movió # elemento} many {movieron # elementos} other {movieron # elementos}} ({size}) a la Papelera de reciclaje",
   "workspace.storage.movingBusy": "Moviendo a la Papelera de reciclaje…",
   "workspace.storage.neverStarted": "Un inicio que nunca llegó a ser una sesión",
-  "workspace.storage.neverTouched": "Nunca se tocan las sesiones en ejecución ni las que no están archivadas, ni las transcripciones propias de los agentes de programación (en ~/.claude y ~/.codex). Lo que usaron las sesiones sigue contando en los totales.",
+  "workspace.storage.neverTouched": "Nunca se tocan las sesiones en ejecución ni las que no están archivadas, ni las transcripciones propias de los agentes de programación (en ~/.claude, ~/.codex y ~/.copilot). Lo que usaron las sesiones sigue contando en los totales.",
   "workspace.storage.noProjects": "No hay proyectos.",
   "workspace.storage.noWorkspace": "Abre un espacio de trabajo para ver lo que Hive guarda para él.",
   "workspace.storage.nothing": "Nada.",

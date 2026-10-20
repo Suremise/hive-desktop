@@ -388,7 +388,7 @@
   "workspace.storage.moved": "已将 {count, plural, other {# 项}}（{size}）移到回收站",
   "workspace.storage.movingBusy": "正在移到回收站…",
   "workspace.storage.neverStarted": "未产生会话的启动",
-  "workspace.storage.neverTouched": "正在运行的会话和未归档的会话不会被改动，编程智能体自己的会话记录（位于 ~/.claude 和 ~/.codex）也不会。会话的用量仍计入总数。",
+  "workspace.storage.neverTouched": "正在运行的会话和未归档的会话不会被改动，编程智能体自己的会话记录（位于 ~/.claude、~/.codex 和 ~/.copilot）也不会。会话的用量仍计入总数。",
   "workspace.storage.noProjects": "没有项目。",
   "workspace.storage.noWorkspace": "打开一个工作区以查看 Hive 为它保存了什么。",
   "workspace.storage.nothing": "无。",

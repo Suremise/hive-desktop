@@ -388,7 +388,7 @@
   "workspace.storage.moved": "{count, plural, one {# Element} other {# Elemente}} ({size}) in den Papierkorb verschoben",
   "workspace.storage.movingBusy": "Wird in den Papierkorb verschoben…",
   "workspace.storage.neverStarted": "Ein Start, aus dem nie eine Sitzung wurde",
-  "workspace.storage.neverTouched": "Laufende und nicht archivierte Sitzungen werden nie angerührt, ebenso wenig die eigenen Transkripte der Coding-Agenten (in ~/.claude und ~/.codex). Die Nutzung der Sitzungen zählt weiter in den Summen.",
+  "workspace.storage.neverTouched": "Laufende und nicht archivierte Sitzungen werden nie angerührt, ebenso wenig die eigenen Transkripte der Coding-Agenten (in ~/.claude, ~/.codex und ~/.copilot). Die Nutzung der Sitzungen zählt weiter in den Summen.",
   "workspace.storage.noProjects": "Keine Projekte.",
   "workspace.storage.noWorkspace": "Öffne einen Arbeitsbereich, um zu sehen, was Hive dafür aufbewahrt.",
   "workspace.storage.nothing": "Nichts.",

@@ -602,7 +602,7 @@
   "settings.project.metadata.title": "Fichier des paramètres",
   "settings.project.reset.desc": "Tout ce qui est sur cette page revient à Hériter. Les agents, et les compétences et serveurs MCP désactivés, sont conservés.",
   "settings.project.reset.title": "Réinitialiser les paramètres du projet",
-  "settings.project.storage.desc": "Mesuré en arrière-plan ; Actualiser mesure à nouveau. Les transcriptions propres aux agents de code (dans ~/.claude et ~/.codex) ne sont pas comptées, et Nettoyer… n’y touche jamais.",
+  "settings.project.storage.desc": "Mesuré en arrière-plan ; Actualiser mesure à nouveau. Les transcriptions propres aux agents de code (dans ~/.claude, ~/.codex et ~/.copilot) ne sont pas comptées, et ni Nettoyer… ni Purger… n’y touchent jamais.",
   "settings.project.storage.title": "Ce que Hive conserve",
   "settings.project.transcriptWarnMB.desc": "Taille, en Mo, à partir de laquelle la transcription d’une conversation en cours est signalée pour ce projet. Vide : hérite de Paramètres → Sessions → Avertir quand une transcription dépasse.",
   "settings.project.transcriptWarnMB.off": "Jamais",
@@ -640,7 +640,7 @@
   "settings.projectSection.provider.desc": "Modèle, effort et autorisations des agents {provider} de ce projet. Chaque agent peut les remplacer pour lui-même.",
   "settings.projectSection.sessions.desc": "Compactage et notifications de ce projet.",
   "settings.projectSection.sessions.label": "Sessions",
-  "settings.projectSection.storage.desc": "Ce que Hive conserve pour ce projet : sauvegardes de transcriptions, sessions archivées, pièces jointes et worktrees des agents. Nettoyer… place les anciennes sauvegardes et pièces jointes dans la Corbeille.",
+  "settings.projectSection.storage.desc": "Ce que Hive conserve pour ce projet : sauvegardes de transcriptions, sessions archivées, pièces jointes et worktrees des agents. Nettoyer… place les anciennes sauvegardes et pièces jointes dans la Corbeille ; Purger… retire tout ce que Hive conserve pour ses sessions.",
   "settings.projectSection.storage.label": "Stockage",
   "settings.provider.allowBackgroundSessions.desc": "Permettre à {provider} de déplacer une session, depuis sa vue des agents, dans son propre service en arrière-plan. S’applique aux sessions démarrées ensuite.",
   "settings.provider.allowBackgroundSessions.tip": "Désactivé par défaut. Dans {provider}, appuyer sur ← dans la zone de saisie vide (facile à faire en se déplaçant dans le texte) ouvre sa vue des agents et met la session en arrière-plan. Hive ne peut alors plus la voir ni l’arrêter : Arrêter ferme seulement le terminal, la session continue de tourner, et la reprendre échoue tant qu’elle n’a pas été arrêtée avec « {cli} stop ».",
@@ -872,7 +872,7 @@
   "settings.workspace.loopWaitHours.desc": "Combien d’heures un agent d’une boucle de cartes attend sans changement avant de te prévenir, quand tu ne le précises pas. Chaque projet peut définir la sienne.",
   "settings.workspace.loopWaitHours.tip": "Dire « attente de 2 h » quand tu lances une boucle reste prioritaire. Jusqu’à un jour. Les agents lisent ce paramètre quand ils enregistrent la boucle (son couloir), donc une modification s’applique aux boucles lancées ensuite.",
   "settings.workspace.loopWaitHours.title": "Attente des boucles de cartes",
-  "settings.workspace.storage.desc": "Ce que Hive conserve pour chacun des projets de l’espace de travail (les plus gros d’abord) et pour le Hive Assistant : sauvegardes de transcriptions, sessions archivées, pièces jointes et worktrees. Stockage ouvre la page d’un projet, avec Nettoyer… pour faire le ménage.",
-  "settings.workspace.storage.tip": "Mesuré en arrière-plan, un projet à la fois. Les transcriptions propres aux agents de code (dans ~/.claude et ~/.codex) ne sont pas comptées. Les projets masqués ne sont pas inclus.",
+  "settings.workspace.storage.desc": "Ce que Hive conserve pour chacun des projets de l’espace de travail (les plus gros d’abord) et pour le Hive Assistant : sauvegardes de transcriptions, sessions archivées, pièces jointes et worktrees. Stockage ouvre la page d’un projet, avec Nettoyer… et Purger… ; ici, Purger… retire tout ce que Hive conserve pour les sessions de tout l’espace de travail.",
+  "settings.workspace.storage.tip": "Mesuré en arrière-plan, un projet à la fois. Les transcriptions propres aux agents de code (dans ~/.claude, ~/.codex et ~/.copilot) ne sont pas comptées. Les projets masqués ne sont pas inclus.",
   "settings.workspace.storage.title": "Stockage"
 }

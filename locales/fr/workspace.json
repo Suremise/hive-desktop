@@ -388,7 +388,7 @@
   "workspace.storage.moved": "{count, plural, one {# élément placé} many {# éléments placés} other {# éléments placés}} ({size}) dans la Corbeille",
   "workspace.storage.movingBusy": "Placement dans la Corbeille…",
   "workspace.storage.neverStarted": "Un lancement qui n’a jamais donné de session",
-  "workspace.storage.neverTouched": "Les sessions en cours et les sessions non archivées ne sont jamais touchées, ni les transcriptions propres aux agents de code (dans ~/.claude et ~/.codex). Ce que les sessions ont utilisé compte toujours dans les totaux.",
+  "workspace.storage.neverTouched": "Les sessions en cours et les sessions non archivées ne sont jamais touchées, ni les transcriptions propres aux agents de code (dans ~/.claude, ~/.codex et ~/.copilot). Ce que les sessions ont utilisé compte toujours dans les totaux.",
   "workspace.storage.noProjects": "Aucun projet.",
   "workspace.storage.noWorkspace": "Ouvre un espace de travail pour voir ce que Hive conserve pour lui.",
   "workspace.storage.nothing": "Rien.",

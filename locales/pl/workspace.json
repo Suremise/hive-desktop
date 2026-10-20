@@ -388,7 +388,7 @@
   "workspace.storage.moved": "Przeniesiono do Kosza: {count, plural, one {# element} few {# elementy} many {# elementów} other {# elementu}} ({size})",
   "workspace.storage.movingBusy": "Przenoszenie do Kosza…",
   "workspace.storage.neverStarted": "Uruchomienie, z którego nie powstała sesja",
-  "workspace.storage.neverTouched": "Działające sesje i sesje niezarchiwizowane nigdy nie są ruszane, podobnie jak własne transkrypcje agentów (w ~/.claude i ~/.codex). To, co zużyły sesje, nadal liczy się do sum.",
+  "workspace.storage.neverTouched": "Działające sesje i sesje niezarchiwizowane nigdy nie są ruszane, podobnie jak własne transkrypcje agentów (w ~/.claude, ~/.codex i ~/.copilot). To, co zużyły sesje, nadal liczy się do sum.",
   "workspace.storage.noProjects": "Brak projektów.",
   "workspace.storage.noWorkspace": "Otwórz obszar roboczy, aby zobaczyć, co Hive dla niego przechowuje.",
   "workspace.storage.nothing": "Nic.",
