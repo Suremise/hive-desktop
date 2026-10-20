@@ -94,6 +94,9 @@ if (role === 'cli') process.stdin.once('data', () => { start('child'); setTimeou
 // What the Store's PowerShell does (#543): its children start outside every job. Stood in for by starting the child
 // before this CLI joins its job: the child's parent is in the job, the child in none.
 else if (role === 'escaper') { start('child'); process.stdin.once('data', () => process.exit(0)) }
+// A CLI that keeps running and, on each line "<n>", starts n more lingering processes (leaf0, leaf1, …), as an agent
+// starting commands after its turn does (#1134).
+else if (role === 'spawner') { let k = 0; process.stdin.on('data', (d) => { for (let i = Number(String(d).trim()); i > 0; i--) start('leaf' + k++) }); setTimeout(() => process.exit(0), 120000) }
 // The real Store PowerShell (where it is installed), as Codex runs a background command: on "go", it runs a process
 // that keeps running (the shell's id said too), and this CLI exits once that has started.
 else if (role === 'storepwsh') process.stdin.once('data', () => {
@@ -180,6 +183,47 @@ else {
     await endHeld(cli)
     await launchEnded('mem1')
     expect(await agentsMemory()).toBeNull()
+  }, 60000)
+
+  it('tells when a process joins a running launch (#1134), once until its processes are listed again', async () => {
+    const { launchEnded, onLaunchProcessJoined, runningProcesses, settleLeftovers, trackLaunch } = await import('../src/main/agentProcesses')
+    // As the running marker does: each notice lists the running launches' processes (one listing at a time here too).
+    let joined = 0
+    let relist = true
+    const seen = new Set<number>()
+    let listing: Promise<void> = Promise.resolve()
+    const stop = onLaunchProcessJoined(() => {
+      joined++
+      if (!relist) return
+      listing = listing.then(async () => {
+        for (const l of await runningProcesses()) for (const p of l.processes) seen.add(p.pid)
+      })
+    })
+    const out = join(dir, 'joins.txt')
+    const cli = spawn(process.execPath, [script, 'spawner', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+    try {
+      expect(await trackLaunch({ runId: 'joins1', projectPath: dir, agentId: 'j1', agentName: 'Busy' }, cli.pid!)).toEqual({ tracked: true })
+      // The CLI joining its job as the launch starts is told, and so is a process it starts later, each found by the
+      // listing its notice leads to: nothing here lists on a timer.
+      expect(await until(() => seen.has(cli.pid!), 10000)).toBe(true)
+      cli.stdin!.write('1\n')
+      expect(await until(() => !!pidsIn(out).leaf0 && seen.has(pidsIn(out).leaf0), 10000)).toBe(true)
+      // With no listing, told at most once however many processes start (other processes joining included: a console
+      // host taken in, #543).
+      relist = false
+      await listing
+      const told = joined
+      cli.stdin!.write('20\n')
+      expect(await until(() => Object.keys(pidsIn(out)).length === 21, 20000)).toBe(true)
+      expect(joined - told).toBeLessThanOrEqual(1)
+      const all = (await runningProcesses()).flatMap((l) => l.processes).map((p) => p.pid)
+      expect(Object.values(pidsIn(out)).every((pid) => all.includes(pid))).toBe(true)
+    } finally {
+      stop()
+      await endHeld(cli)
+      await launchEnded('joins1')
+      await settleLeftovers(dir, 'j1', 'end')
+    }
   }, 60000)
 
   it('keeps them running when asked, and stops listing them', async () => {

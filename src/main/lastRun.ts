@@ -7,7 +7,7 @@ import { ASSISTANT_AGENT_ID } from '../shared/assistant'
 import { fmt, msg, tr } from '../shared/i18n'
 import { HEARTBEAT_MS, RUN_MARKER, parseRunMarker, LeftoverStops, resumeFailedLine, unexpectedCloseText, type LaunchProcesses, type LeftMerge, type ResumeReport, type RunMarker, type RunningAgent } from '../shared/unexpectedClose'
 import type { ToastAction } from '../shared/types'
-import { endProcessesExactly, endTreesExactly, runningProcesses, stillRunningOf } from './agentProcesses'
+import { endProcessesExactly, endTreesExactly, onLaunchProcessJoined, runningProcesses, stillRunningOf } from './agentProcesses'
 import { assistantHome } from './assistantControl'
 import { config } from './config'
 import { createDelivery } from './deliveries'
@@ -178,21 +178,29 @@ async function writeMarkerNow(processes: LaunchProcesses[]): Promise<void> {
   await writeMarkerFile(markerFile(), marker, () => !ended)
 }
 
-/** This run's marker: written now, every minute, and soon after an agent starts or stops. Once, after checkLastRun(). */
+/** A marker write two seconds from now, unless one is due already: the changes in between go in one write. */
+function writeSoon(): void {
+  if (soon || ended) return
+  soon = setTimeout(() => {
+    soon = null
+    writeMarker()
+  }, 2000)
+  soon.unref()
+}
+
+/**
+ * This run's marker: written now, every minute, and soon after an agent starts or stops, or a process joins a running
+ * launch (#1134: one the agent started after its turn's write). Once, after checkLastRun().
+ */
 export function startRunMarker(): void {
   startedAt = new Date().toISOString()
   writeMarker()
   timer = setInterval(writeMarker, HEARTBEAT_MS)
   timer.unref()
   onHiveEvent((e) => {
-    if (e.type !== 'session-exit' && e.type !== 'session-status' && e.type !== 'workspace-changed') return
-    if (soon) return
-    soon = setTimeout(() => {
-      soon = null
-      writeMarker()
-    }, 2000)
-    soon.unref()
+    if (e.type === 'session-exit' || e.type === 'session-status' || e.type === 'workspace-changed') writeSoon()
   })
+  onLaunchProcessJoined(writeSoon)
   // Windows ending the session is a clean end too: Hive may be ended without quitting after it.
   const watch = (w: BrowserWindow): void => void w.on('session-end', () => endRunMarker('Windows is ending the session')) // i18n-ignore: why, for hive.log
   for (const w of BrowserWindow.getAllWindows()) watch(w)
