@@ -575,6 +575,10 @@
     "defaultMessage": "Show MCP Servers",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
   },
+  "shell.command.view.modes": {
+    "defaultMessage": "Show Assistant Modes",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
+  },
   "shell.command.view.notes": {
     "defaultMessage": "Show Shared Notes",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
@@ -589,10 +593,6 @@
   },
   "shell.command.view.performance": {
     "defaultMessage": "Show Performance",
-    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
-  },
-  "shell.command.view.personas": {
-    "defaultMessage": "Show Assistant Modes",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the View category."
   },
   "shell.command.view.projects": {

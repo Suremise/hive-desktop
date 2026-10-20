@@ -2,13 +2,13 @@ import { JournalSettingsPanel } from '../components/JournalSettings'
 import { useEffect, useMemo, useState } from 'react'
 import type { AppSettings, ChimeSound, EffortLevel, EffortOption, FallbackModel, ModelPrice, PermissionMode, ProviderId, TaskColumn, WorkspaceConfig } from '@shared/types'
 import { DEFAULT_COLUMN_COLORS, TASK_COLUMNS, columnColor, columnName } from '@shared/tasks'
-import { DEFAULT_PERSONA } from '@shared/assistant'
+import { DEFAULT_MODE } from '@shared/assistant'
 import { PRICES_CHECKED, SHIPPED_PRICES, listedPriceModels, priceRows } from '@shared/prices'
 import { APP_SETTINGS_CATALOG, SETTINGS_SECTIONS, providerSection, settingDefault, settingPatch, settingValue, SETTINGS_TEXT, shownSetting, type SettingEntry, type SettingsSection, type SettingsSectionInfo } from '@shared/settingsCatalog'
 import { cliDefaultEffort, effortName, fallbackEfforts, fallbackModels, modelCaps, modelSource, modelSourceText, runsAsName } from '@shared/models'
 import type { SettingsPatch } from '@shared/api'
 import { AUTO_PROVIDER, PROVIDERS, defaultProviderLabel, enabledProviders, isProviderEnabled, installSourceText, offeredModes, permissionLabel, providerDescriptor, providerSettings, shownText as providerText } from '@shared/providers'
-import { personaName, usePersonas } from '../components/Assistant'
+import { modeName, useModes } from '../components/Assistant'
 import { ModeCaveat } from '../components/AgentDialogs'
 import { EffortPicker, ModelPicker } from '../components/ModelPicker'
 import { NumberField } from '../components/NumberField'
@@ -57,7 +57,7 @@ const CONTROLS: Record<string, () => React.ReactNode> = {
   'workspace.antivirus': () => <AntivirusPanel />,
   'board.colors': () => <ColumnColors />,
   'assistant.provider': () => <AssistantProviderPicker />,
-  'assistant.persona': () => <AssistantPersonaPicker />,
+  'assistant.mode': () => <AssistantModePicker />,
   'assistant.journal': () => <JournalSettingsPanel />,
   ...Object.fromEntries(PROVIDERS.map((p) => [`assistant.provider:${p.id}`, () => <AssistantProviderDefaults provider={p.id} />])),
   'agentApi.status': () => <ApiStatus />,
@@ -569,25 +569,25 @@ function AssistantProviderPicker() {
   )
 }
 
-/** Hive's personas, for choosing a default before a workspace is open. */
-const SHIPPED_PERSONAS = [
-  { id: 'coordinator', name: 'Coordinator', icon: '🧭', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
-  { id: 'planner', name: 'Planner', icon: '🗺️', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
-  { id: 'qa-triager', name: 'QA triager', icon: '🔍', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
-  { id: 'release-manager', name: 'Release manager', icon: '📦', bundled: 'same' as const } // i18n-ignore: the shipped modes' names, as their files name them (personaName shows them translated)
+/** Hive's modes, for choosing a default before a workspace is open. */
+const SHIPPED_MODES = [
+  { id: 'coordinator', name: 'Coordinator', icon: '🧭', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (modeName shows them translated)
+  { id: 'planner', name: 'Planner', icon: '🗺️', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (modeName shows them translated)
+  { id: 'qa-triager', name: 'QA triager', icon: '🔍', bundled: 'same' as const }, // i18n-ignore: the shipped modes' names, as their files name them (modeName shows them translated)
+  { id: 'release-manager', name: 'Release manager', icon: '📦', bundled: 'same' as const } // i18n-ignore: the shipped modes' names, as their files name them (modeName shows them translated)
 ]
 
-function AssistantPersonaPicker() {
-  const current = useStore((s) => s.settings?.assistant.persona) || DEFAULT_PERSONA
-  const own = usePersonas().filter((p) => p.bundled !== 'missing')
-  const list = own.length ? own : SHIPPED_PERSONAS
+function AssistantModePicker() {
+  const current = useStore((s) => s.settings?.assistant.mode) || DEFAULT_MODE
+  const own = useModes().filter((p) => p.bundled !== 'missing')
+  const list = own.length ? own : SHIPPED_MODES
   return (
-    <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { persona: e.target.value } })}>
+    <select className="select" value={current} onChange={(e) => void saveSettings({ assistant: { mode: e.target.value } })}>
       {!list.some((p) => p.id === current) && <option value={current}>{current}</option>}
       {list.map((p) => (
         <option key={p.id} value={p.id}>
           {p.icon ? `${p.icon} ` : ''}
-          {personaName(p)}
+          {modeName(p)}
         </option>
       ))}
     </select>

@@ -101,7 +101,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   // The agents' model and effort (empty): a lighter choice saves tokens but makes the Assistant careless.
   assistant: {
     provider: '',
-    persona: 'coordinator',
+    mode: 'coordinator',
     control: 'projects',
     changeSettings: false,
     typingPause: 15,
@@ -597,11 +597,12 @@ export function migrateConfig(cfg: AppConfig, raw?: Record<string, any>): AppCon
     // showed while you used Hive. Now notices show in Hive instead, and everyone starts there, whatever it was.
     cfg.settings.notifications.whileFocused = 'inApp'
   }
+  migratePersonaNames(cfg, raw)
   if (raw && (raw.version ?? 1) < 7) {
     // Up to 0.3.x Hive shipped character personas; working modes replaced them (#259): a default persona that went
     // becomes the closest mode.
-    const was = cfg.settings.assistant.persona
-    if (RETIRED_PERSONAS[was]) cfg.settings.assistant.persona = RETIRED_PERSONAS[was]
+    const was = cfg.settings.assistant.mode
+    if (RETIRED_PERSONAS[was]) cfg.settings.assistant.mode = RETIRED_PERSONAS[was]
   }
   if (raw && (raw.version ?? 1) < 8 && cfg.settings.defaultProvider === CLAUDE_CODE) {
     // Claude Code was the default up to 0.4.x (saved into every config), so nobody could tell it from a choice: it
@@ -637,6 +638,29 @@ export function withLegacySettings(cfg: AppConfig): AppConfig & { settings: AppS
         checkUpdatesOnLaunch: c.checkUpdatesOnLaunch
       }
     }
+  }
+}
+
+/**
+ * Until 0.9.3 the Assistant's modes were called personas (#1084): its default mode was `assistant.persona`, and the
+ * command and tip that show them were `view.personas` and `personas`. Their new names take over what the old ones had
+ * (a shortcut given to the command, a tip seen), unless the new ones already have something.
+ */
+function migratePersonaNames(cfg: AppConfig, raw: Record<string, any> | undefined): void {
+  const a = cfg.settings.assistant as AppSettings['assistant'] & { persona?: unknown }
+  const was = raw?.settings?.assistant?.persona
+  if (typeof was === 'string' && was && raw?.settings?.assistant?.mode === undefined) a.mode = was
+  delete a.persona
+  const keys = cfg.settings.keybindings
+  if (keys && 'view.personas' in keys) {
+    if (!('view.modes' in keys)) keys['view.modes'] = keys['view.personas']
+    delete keys['view.personas']
+  }
+  const tips = cfg.ui?.tips as { seen?: unknown; used?: unknown } | undefined
+  const rename = (list: unknown, from: string, to: string): unknown => (Array.isArray(list) && list.includes(from) ? [...new Set(list.map((x) => (x === from ? to : x)))] : list)
+  if (tips && typeof tips === 'object') {
+    tips.seen = rename(tips.seen, 'personas', 'modes')
+    tips.used = rename(tips.used, 'view.personas', 'view.modes')
   }
 }
 
@@ -678,7 +702,17 @@ export function migrateProjectConfig(raw: Record<string, any>): Record<string, a
     out = rest
   }
   if (!isLayout(out.layout)) out = { ...out, layout: 'auto' }
+  if (Array.isArray(out.agents) && out.agents.some((a: unknown) => !!a && typeof a === 'object' && 'persona' in a)) {
+    // Until 0.9.3 the Hive Assistant's mode was its persona (#1084).
+    out = { ...out, agents: out.agents.map((a: unknown) => (a && typeof a === 'object' && 'persona' in a ? withMode(a as Record<string, unknown>) : a)) }
+  }
   return out
+}
+
+/** A record from before 0.9.3 (an agent, a session) with its `persona` as its `mode` (#1084). */
+export function withMode<T extends Record<string, unknown>>(rec: T): T {
+  const { persona, ...rest } = rec
+  return (typeof persona === 'string' && rest.mode === undefined ? { ...rest, mode: persona } : rest) as unknown as T
 }
 
 /** project.json as written: Claude Code's project settings are also kept in 0.1.x's flat fields. */

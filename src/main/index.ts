@@ -18,8 +18,8 @@ import { providerService } from './providerService'
 import { checkGit } from './gitTool'
 import { handoverSession, hiveInstructions, withJournal, withLatestHandover, wrapsLongCommands } from '../shared/hiveGuidance'
 import { handoversFor } from './notes'
-import { assistantInstructions } from './personas'
-import { ASSISTANT_NAME, assistantPersona } from '../shared/assistant'
+import { assistantInstructions } from './modes'
+import { ASSISTANT_NAME, assistantModeId } from '../shared/assistant'
 import { MARKED_LOG } from '../shared/redact'
 import { APP_NAME, DEV_APP_NAME, appName, profileFolder } from '../shared/appName'
 import { PROVIDERS, dangerModes, labelList, projectProviderConfig, providerSettings } from '../shared/providers'
@@ -936,8 +936,8 @@ app.whenReady().then(async () => {
     const ws = resolve(projectPath, '..', '..')
     if (assistantHome(ws).toLowerCase() === resolve(projectPath).toLowerCase()) endAssistant(ws)
   }
-  // The Assistant's role and persona (its workspace's choice, else Settings → Assistant's), for its launches.
-  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantPersona(agent, config.settings), config.settings.assistant?.control ?? 'projects', config.settings.assistant?.changeSettings === true))
+  // The Assistant's role and mode (its workspace's choice, else Settings → Assistant's), for its launches.
+  sessions.assistantInstructions = (projectPath, agent) => inWorkspace(workspaceOf(projectPath), () => assistantInstructions(assistantModeId(agent, config.settings), config.settings.assistant?.control ?? 'projects', config.settings.assistant?.changeSettings === true))
   // A project's notifications and focus checks use the window showing it.
   sessions.setWindowProvider((projectPath) => (projectPath ? windowForPath(projectPath)?.win : null) ?? lastFocused()?.win ?? null)
   // The window the user is using, for in-app banners (#157): visible, not minimised, focused.

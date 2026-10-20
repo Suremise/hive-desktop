@@ -38,7 +38,7 @@ import type {
   PurgePreview,
   PurgeResult,
   PurgeTarget,
-  PersonaInfo,
+  ModeInfo,
   RecentWorkspace,
   AgentInstallInfo,
   AppConfig,
@@ -398,7 +398,7 @@ export interface HiveRequests {
   /** What more agents would cost (#562): the memory the running agents take now (null: can't be told) and the computer's. */
   'agents:memory': () => { running: { agents: number; bytes: number } | null; total: number; free: number }
   /** Changing provider clears the agent's model, effort and mode, and its session to resume (conversations can't move between providers). */
-  /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (persona too). */
+  /** Changes an agent's name and settings; for the Hive Assistant's home, its settings for this workspace (mode too). */
   'agents:update': (projectPath: string, agentId: string, patch: AgentPatch) => AgentDef
   /**
    * Removes an agent (its session must be stopped). deleteWorktree also removes its worktree and branch; 'merged-clean'
@@ -539,15 +539,15 @@ export interface HiveRequests {
   'notes:delete': (path: string) => void
   'notes:rename': (path: string, newName: string) => string
 
-  /** The Hive Assistant's personas: the workspace's, then Hive's that it doesn't have (bundled: 'missing'). */
+  /** The Hive Assistant's modes: the workspace's, then Hive's that it doesn't have (bundled: 'missing'). */
   /** The Hive Assistant's actions in this window's workspace, oldest first, and the questions it waits on. */
   'assistant:actions': () => AssistantAction[]
   'assistant:questions': () => AssistantQuestion[]
   'assistant:answer': (id: string, yes: boolean) => void
   /** Revert on a setting the Assistant changed (its activity list): sets it back, and lists that too (#186). */
   'assistant:revertSetting': (actionId: string) => void
-  /** Switches this workspace's Assistant to a mode (a persona file): told at once if it runs, else when it starts (#259). */
-  'assistant:switchMode': (personaId: string, save?: boolean) => 'told' | 'later' | 'saved'
+  /** Switches this workspace's Assistant to a mode (a file in .hive/modes): told at once if it runs, else when it starts (#259). */
+  'assistant:switchMode': (modeId: string, save?: boolean) => 'told' | 'later' | 'saved'
   /** This window's workspace's merge slots: those held or waited for (#350). */
   'mergeSlots:list': () => MergeSlotInfo[]
   /** The user releases the hold they confirmed (its id) of a project's merge slot; refused if the slot changed hands since. Returns who held it. */
@@ -603,12 +603,12 @@ export interface HiveRequests {
   'console:showRecording': (name: string) => void
   /** The flight recorder's captures (#698), newest first: each one's trigger, agent and when. */
   'console:captures': () => ConsoleRecordingInfo[]
-  'personas:list': () => PersonaInfo[]
-  'personas:create': (name: string) => PersonaInfo
-  /** Moves the persona's file to the Recycle Bin. */
-  'personas:delete': (id: string) => void
-  /** Puts back one of Hive's personas as this version ships it (the workspace's copy goes to the Recycle Bin). */
-  'personas:restore': (id: string) => PersonaInfo
+  'modes:list': () => ModeInfo[]
+  'modes:create': (name: string) => ModeInfo
+  /** Moves the mode's file to the Recycle Bin. */
+  'modes:delete': (id: string) => void
+  /** Puts back one of Hive's modes as this version ships it (the workspace's copy goes to the Recycle Bin). */
+  'modes:restore': (id: string) => ModeInfo
 
   'file:read': (path: string) => string
   /** With `expected` (the text as read), refuses with CONFLICT if the file has changed on disk since (a missing file reads as ''). */

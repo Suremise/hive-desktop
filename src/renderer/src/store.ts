@@ -225,12 +225,12 @@ interface State {
   /** A Hive skill to open for editing (not preview) when the Skills view shows it: from a project's Edit in workspace. */
   skillEdit: string | null
   selectedMcp: string | null
-  /** The persona open in the Personas view (its file). */
-  selectedPersona: string | null
-  /** What the Assistant view's main area shows: its conversations or the selected persona. */
+  /** The mode open in the Modes view (its file). */
+  selectedMode: string | null
+  /** What the Assistant view's main area shows: its conversations or the selected mode. */
   /** 'images' is its Attachments (#387; the id from before, kept). */
-  /** The Assistant view's main area: its conversations, a persona, its attachments, its journal or the journal's weekly digests (#1033). */
-  assistantSection: 'conversations' | 'personas' | 'images' | 'journal' | 'digests'
+  /** The Assistant view's main area: its conversations, a mode, its attachments, its journal or the journal's weekly digests (#1033). */
+  assistantSection: 'conversations' | 'modes' | 'images' | 'journal' | 'digests'
   /** Bumped when this window's workspace's Assistant journal changes (#1033): its browser reads it again. */
   journalVersion: number
   /** The Hive Assistant's panel is shown (per workspace, saved in the pane sizes as assistant-open:<path>). */
@@ -257,7 +257,7 @@ interface State {
   assistantQuestions: AssistantQuestion[]
   /** Agents the Assistant added that the user hasn't looked at yet, by project path (their page's button shows a dot). */
   newAgents: Record<string, string[]>
-  personasVersion: number
+  modesVersion: number
   docsPage: string
   /** A heading of the shown doc to scroll to (Learn more on a tip), cleared once there. */
   docsAnchor: string | null
@@ -448,7 +448,7 @@ export const useStore = create<State>(() => ({
   templateFilter: 'all',
   skillEdit: null,
   selectedMcp: null,
-  selectedPersona: null,
+  selectedMode: null,
   assistantSection: 'conversations',
   journalVersion: 0,
   assistantOpen: false,
@@ -462,7 +462,7 @@ export const useStore = create<State>(() => ({
   assistantActions: [],
   assistantQuestions: [],
   newAgents: {},
-  personasVersion: 0,
+  modesVersion: 0,
   docsPage: 'guide',
   docsAnchor: null,
   settingsSection: 'general',
@@ -938,8 +938,8 @@ export function showView(a: Exclude<Activity, 'docs' | 'settings'>): void {
   set({ activity: a, lastSideActivity: a, sidebarVisible: true })
 }
 
-/** Shows the Hive Assistant view (activity bar) on its conversations, its personas, its attachments ('images') or its journal. */
-export function showAssistantView(section: 'conversations' | 'personas' | 'images' | 'journal' | 'digests'): void {
+/** Shows the Hive Assistant view (activity bar) on its conversations, its modes, its attachments ('images') or its journal. */
+export function showAssistantView(section: 'conversations' | 'modes' | 'images' | 'journal' | 'digests'): void {
   set({ assistantSection: section })
   showView('assistant')
 }

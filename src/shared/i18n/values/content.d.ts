@@ -31,7 +31,11 @@ interface HiveMessageValues {
   'content.mcp.zipTooMany': { max: number }
   'content.mcp.zipUnreadable': undefined
   'content.mcp.zipUnsafe': { path: string | number }
+  'content.mode.badName': undefined
+  'content.mode.exists': { mode: string | number }
+  'content.mode.invalid': undefined
   'content.mode.noAssistant': undefined
+  'content.mode.notBundled': { mode: string | number }
   'content.mode.unknown': { mode: string | number }
   'content.notes.badName': undefined
   'content.notes.closed': undefined
@@ -41,10 +45,6 @@ interface HiveMessageValues {
   'content.notes.nameRequired': undefined
   'content.notes.openHandover': undefined
   'content.notes.outside': undefined
-  'content.persona.badName': undefined
-  'content.persona.exists': { mode: string | number }
-  'content.persona.invalid': undefined
-  'content.persona.notBundled': { mode: string | number }
   'content.skill.audience': { kind: string; audience: string | number; type: string | number }
   'content.skill.badName': undefined
   'content.skill.cantCopyName': { name: string | number }

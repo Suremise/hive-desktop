@@ -100,7 +100,7 @@ const MENUS: MenuDef[] = [
   {
     id: 'view',
     label: msg({ id: 'shell.menu.view', defaultMessage: 'View', description: "A menu of the title bar's menu bar." }),
-    items: ['palette.show', '-', 'view.projects', 'view.overview', 'view.board', 'view.notes', 'view.skills', 'view.mcp', 'view.personas', '-', 'assistant.toggle', 'assistant.settings', 'assistant.moveSide', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen', 'view.alwaysOnTop']
+    items: ['palette.show', '-', 'view.projects', 'view.overview', 'view.board', 'view.notes', 'view.skills', 'view.mcp', 'view.modes', '-', 'assistant.toggle', 'assistant.settings', 'assistant.moveSide', 'view.toggleSidebar', 'view.notifications', '-', 'view.zoomIn', 'view.zoomOut', 'view.zoomReset', 'view.fullScreen', 'view.alwaysOnTop']
   },
   {
     id: 'project',

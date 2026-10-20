@@ -298,14 +298,14 @@ interface HiveMessageValues {
   'settings.assistant.journal.desc': undefined
   'settings.assistant.journal.tip': undefined
   'settings.assistant.journal.title': undefined
+  'settings.assistant.mode.desc': undefined
+  'settings.assistant.mode.tip': undefined
+  'settings.assistant.mode.title': undefined
   'settings.assistant.panelSide.desc': undefined
   'settings.assistant.panelSide.option.left': undefined
   'settings.assistant.panelSide.option.right': undefined
   'settings.assistant.panelSide.tip': undefined
   'settings.assistant.panelSide.title': undefined
-  'settings.assistant.persona.desc': undefined
-  'settings.assistant.persona.tip': undefined
-  'settings.assistant.persona.title': undefined
   'settings.assistant.provider.desc': undefined
   'settings.assistant.provider.tip': undefined
   'settings.assistant.provider.title': undefined

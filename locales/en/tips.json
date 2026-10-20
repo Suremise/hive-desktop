@@ -731,6 +731,14 @@
     "defaultMessage": "New models without a Hive update",
     "description": "A tip's title."
   },
+  "tips.modes.text": {
+    "defaultMessage": "Coordinator runs the agents, Planner shapes work, QA triager turns reports into cards, Release manager takes a release through its checklist. Switch mode from the panel at once, keeping the conversation, or write your own.",
+    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
+  },
+  "tips.modes.title": {
+    "defaultMessage": "Modes for the Assistant",
+    "description": "A tip's title."
+  },
   "tips.moreAgents.text": {
     "defaultMessage": "Need more than {usual, plural, one {# agent} other {# agents}} in a project? Raise Agents per project in Settings → Advanced, up to {most, number}, for every workspace or just this one. Above {usual, number} it shows what they cost on your computer: the memory your running agents take, and how much is free.",
     "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them. {usual} is how many agents a project can have by default (12), {most} the most it can be raised to (24)."
@@ -825,14 +833,6 @@
   },
   "tips.permissionMode.title": {
     "defaultMessage": "Switch permission mode",
-    "description": "A tip's title."
-  },
-  "tips.personas.text": {
-    "defaultMessage": "Coordinator runs the agents, Planner shapes work, QA triager turns reports into cards, Release manager takes a release through its checklist. Switch mode from the panel at once, keeping the conversation, or write your own.",
-    "description": "A tip. Names of Hive's menus, views, settings and commands: keep them as Hive shows them."
-  },
-  "tips.personas.title": {
-    "defaultMessage": "Modes for the Assistant",
     "description": "A tip's title."
   },
   "tips.progressCommand.text": {

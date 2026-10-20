@@ -227,12 +227,35 @@ describe('providers migration', () => {
     expect(DEFAULT_APP_CONFIG.version).toBe(8)
   })
   it('moves a default persona that went to its working mode, once (#259)', () => {
-    expect(load({ version: 6, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.persona).toBe('coordinator')
-    expect(load({ version: 6, settings: { assistant: { persona: 'reviewer' } } }).settings.assistant.persona).toBe('qa-triager')
-    expect(load({ version: 6, settings: { assistant: { persona: 'my-own' } } }).settings.assistant.persona).toBe('my-own')
-    // Saved since (version 7): a persona of the user's named like an old one stays.
-    expect(load({ version: 7, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.persona).toBe('overseer')
-    expect(DEFAULT_SETTINGS.assistant.persona).toBe('coordinator')
+    // Saved before 0.9.3, as `persona` (#1084).
+    expect(load({ version: 6, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.mode).toBe('coordinator')
+    expect(load({ version: 6, settings: { assistant: { persona: 'reviewer' } } }).settings.assistant.mode).toBe('qa-triager')
+    expect(load({ version: 6, settings: { assistant: { persona: 'my-own' } } }).settings.assistant.mode).toBe('my-own')
+    // Saved since (version 7): a mode of the user's named like an old one stays.
+    expect(load({ version: 7, settings: { assistant: { persona: 'overseer' } } }).settings.assistant.mode).toBe('overseer')
+    expect(load({ version: 8, settings: { assistant: { mode: 'overseer' } } }).settings.assistant.mode).toBe('overseer')
+    expect(DEFAULT_SETTINGS.assistant.mode).toBe('coordinator')
+  })
+  it("carries what the persona names had over to the mode names (#1084): the default mode, the command's shortcut, the tip", () => {
+    const c = load({ version: 8, settings: { assistant: { persona: 'planner' }, keybindings: { 'view.personas': 'Ctrl+Alt+M' } }, ui: { tips: { seen: ['agentMenu', 'personas'], used: ['view.personas'], moments: [] } } })
+    expect(c.settings.assistant.mode).toBe('planner')
+    expect(c.settings.assistant).not.toHaveProperty('persona')
+    expect(c.settings.keybindings).toEqual({ 'view.modes': 'Ctrl+Alt+M' })
+    expect(c.ui.tips).toMatchObject({ seen: ['agentMenu', 'modes'], used: ['view.modes'] })
+    // What the new names already have stays: a newer Hive saved both.
+    const both = load({ version: 8, settings: { assistant: { persona: 'planner', mode: 'qa-triager' }, keybindings: { 'view.personas': 'Ctrl+Alt+M', 'view.modes': '' } }, ui: { tips: { seen: ['personas', 'modes'], used: [], moments: [] } } })
+    expect(both.settings.assistant.mode).toBe('qa-triager')
+    expect(both.settings.keybindings).toEqual({ 'view.modes': '' })
+    expect(both.ui.tips?.seen).toEqual(['modes'])
+    // None saved: the default.
+    expect(load({ version: 8, settings: {} }).settings.assistant.mode).toBe('coordinator')
+  })
+  it("gives the Hive Assistant's agent its mode from its persona of before 0.9.3 (#1084)", async () => {
+    const { migrateProjectConfig } = await import('../src/shared/defaults')
+    const m = migrateProjectConfig({ version: 2, providers: {}, layout: 'auto', agents: [{ id: 'assistant', name: 'Assistant', persona: 'planner' }, { id: 'a1', name: 'Builder' }] })
+    expect(m.agents).toEqual([{ id: 'assistant', name: 'Assistant', mode: 'planner' }, { id: 'a1', name: 'Builder' }])
+    // Saved by a newer Hive with both: its mode stays.
+    expect(migrateProjectConfig({ version: 2, providers: {}, layout: 'auto', agents: [{ id: 'assistant', name: 'Assistant', persona: 'planner', mode: 'coordinator' }] }).agents).toEqual([{ id: 'assistant', name: 'Assistant', mode: 'coordinator' }])
   })
   it('moves 0.1 Claude Code settings over and keeps Claude Code on', () => {
     const c = load(v1)

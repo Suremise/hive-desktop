@@ -201,7 +201,7 @@ describe('recording off', () => {
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
     config.settings.sessions.recordPerformance = false
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
-    metrics.recordLaunch(metrics.metricsHandle(w), 'alpha', { provider: 'claude-code', role: 'agent', guidanceBytes: 1, guidanceChars: 1, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
+    metrics.recordLaunch(metrics.metricsHandle(w), 'alpha', { provider: 'claude-code', role: 'agent', guidanceBytes: 1, guidanceChars: 1, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
     const r = metrics.queryMetrics(w, { scope: { kind: 'workspace' } })
     expect(r.recording).toBe(false)
     expect(sumApi(Object.values(r.projects)).count).toBe(1)
@@ -214,7 +214,7 @@ describe('saving', () => {
   it('saved in the workspace database (git-ignored with it), read back when the workspace opens again, and cleared by reset', async () => {
     const { w, path } = await open()
     metrics.recordApi(metrics.metricsHandle(w), 'alpha', api())
-    metrics.recordLaunch(metrics.metricsHandle(w), 'alpha', { provider: 'codex', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: 1, skillsUnmeasured: 0 })
+    metrics.recordLaunch(metrics.metricsHandle(w), 'alpha', { provider: 'codex', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: 1, skillsUnmeasured: 0 })
     await w.close()
     await metrics.flushMetrics()
     expect(metricsSaved(path)).not.toBeNull()
@@ -415,6 +415,26 @@ describe('the saved file is untrusted', () => {
     await disposeWorkspaceService(w)
   })
 
+  it("a launch saved before 0.9.3 counts its persona's size as its mode's (#1084)", async () => {
+    const { w, path } = await open()
+    await w.close()
+    const guidance = { provider: 'claude-code', role: 'assistant', launches: 1, guidanceBytes: 100, guidanceChars: 100, customBytes: 0, customChars: 0, roleBytes: 40, roleChars: 40, personaBytes: 70, personaChars: 60, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 }
+    write(path, { version: 1, buckets: [{ start: hourOf(T0) - HOUR, span: 'hour', workspace: { guidance: { g: guidance } } }] })
+    await w.open(path)
+    const r = metrics.queryMetrics(w, { scope: { kind: 'workspace' }, from: new Date(T0 - 2 * HOUR).toISOString() })
+    expect(r.workspace!.guidance).toMatchObject([{ role: 'assistant', modeBytes: 70, modeChars: 60 }])
+    expect(r.workspace!.guidance[0]).not.toHaveProperty('personaBytes')
+    await disposeWorkspaceService(w)
+  })
+
+  it('/v1/metrics also gives each guidance series its persona names of before 0.9.3, in 0.9.3 (#1084)', async () => {
+    const { withPersonaAliases } = await import('../src/main/servers')
+    const g = { provider: 'claude-code', role: 'assistant' as const, launches: 1, guidanceBytes: 100, guidanceChars: 100, customBytes: 0, customChars: 0, roleBytes: 40, roleChars: 40, modeBytes: 70, modeChars: 60, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 }
+    const part = { api: [], mcp: [], guidance: [g], catalog: [] }
+    const r = withPersonaAliases({ projects: { alpha: part }, workspace: part } as unknown as Parameters<typeof withPersonaAliases>[0])
+    for (const p of [r.projects.alpha, r.workspace!]) expect(p.guidance[0]).toMatchObject({ modeBytes: 70, modeChars: 60, personaBytes: 70, personaChars: 60 })
+  })
+
   it('a file over the size cap is not read at all; one that is not JSON is ignored', async () => {
     // Each found at a workspace's first metrics load (the move in, #1019): one found after it isn't read at all.
     const { w, path } = await open()
@@ -548,7 +568,7 @@ describe('moved into the workspace database (#1019)', () => {
         metrics.recordMcp(handle, 'alpha', 'agent', { tool: 'hive_list_tasks', mode: 'compact', ok: true, chars: 50 * h, bytes: 60 * h, ms: 3 })
         metrics.recordMcp(handle, null, 'assistant', { tool: 'hive_read_task', mode: 'detail', ok: d % 2 === 0, chars: 500, bytes: 520, ms: 12 })
         metrics.recordCatalog(handle, 'beta', 'agent', { tools: 30, toolsBytes: 9000 + d })
-        metrics.recordLaunch(handle, d % 2 ? 'alpha' : 'beta', { provider: d % 2 ? 'codex' : 'claude-code', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 10 * d, customChars: 10 * d, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: d % 2, skillsUnmeasured: 0 })
+        metrics.recordLaunch(handle, d % 2 ? 'alpha' : 'beta', { provider: d % 2 ? 'codex' : 'claude-code', role: 'agent', guidanceBytes: 1234, guidanceChars: 1200, customBytes: 10 * d, customChars: 10 * d, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 7, skillCatalogBytes: 900, skillBytes: 40000, skillsNotDelivered: d % 2, skillsUnmeasured: 0 })
         metrics.recordSkills(handle, { hits: 2, misses: 1, scanMs: 4, files: 3, bytes: 900 })
       }
     }
@@ -892,7 +912,7 @@ describe('round 6: long project names, drop-only saves', () => {
       await metrics.flushMetrics()
       metrics.recordMcp(metrics.metricsHandle(w), 'beta', 'agent', { tool: 'hive_list_tasks', mode: 'compact', ok: true, chars: 1, bytes: 1, ms: 1 })
       metrics.recordCatalog(metrics.metricsHandle(w), 'gamma', 'agent', { tools: 1, toolsBytes: 10 })
-      metrics.recordLaunch(metrics.metricsHandle(w), 'delta', { provider: 'codex', role: 'agent', guidanceBytes: 1, guidanceChars: 1, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
+      metrics.recordLaunch(metrics.metricsHandle(w), 'delta', { provider: 'codex', role: 'agent', guidanceBytes: 1, guidanceChars: 1, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
       await w.close()
       await metrics.flushMetrics()
       await w.open(path)
@@ -990,8 +1010,8 @@ describe('trend, the Performance view and export', () => {
     metrics.recordApi(metrics.metricsHandle(w), null, api('/v1/tasks', { role: 'api' }))
     metrics.recordMcp(metrics.metricsHandle(w), 'Alpha', 'agent', { tool: 'hive_list_tasks', mode: 'compact', ok: true, chars: 50, bytes: 60, ms: 3 })
     metrics.recordMcp(metrics.metricsHandle(w), 'Alpha', 'agent', { tool: 'hive_read_task', mode: 'detail', ok: false, chars: 500, bytes: 500, ms: 3 })
-    metrics.recordLaunch(metrics.metricsHandle(w), 'Alpha', { provider: 'claude-code', role: 'agent', guidanceBytes: 1000, guidanceChars: 1000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 4, skillCatalogBytes: 400, skillBytes: 9000, skillsNotDelivered: 1, skillsUnmeasured: 0 })
-    metrics.recordLaunch(metrics.metricsHandle(w), 'beta', { provider: 'codex', role: 'agent', guidanceBytes: 2000, guidanceChars: 2000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 2, skillCatalogBytes: 200, skillBytes: 1000, skillsNotDelivered: 0, skillsUnmeasured: 1 })
+    metrics.recordLaunch(metrics.metricsHandle(w), 'Alpha', { provider: 'claude-code', role: 'agent', guidanceBytes: 1000, guidanceChars: 1000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 4, skillCatalogBytes: 400, skillBytes: 9000, skillsNotDelivered: 1, skillsUnmeasured: 0 })
+    metrics.recordLaunch(metrics.metricsHandle(w), 'beta', { provider: 'codex', role: 'agent', guidanceBytes: 2000, guidanceChars: 2000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 2, skillCatalogBytes: 200, skillBytes: 1000, skillsNotDelivered: 0, skillsUnmeasured: 1 })
     const r = report(metrics.queryMetrics(w, { scope: { kind: 'workspace' } }), [usage('claude-code', 1), usage('codex', 2)])
 
     const all = totals(select(r, DEFAULT_PERF_FILTERS))
@@ -1047,7 +1067,7 @@ describe('trend, the Performance view and export', () => {
 })
 
 describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance parts', () => {
-  const launch = (extra: Partial<Parameters<typeof metrics.recordLaunch>[2]> = {}) => ({ provider: 'claude-code', role: 'agent' as const, guidanceBytes: 100, guidanceChars: 100, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 1, skillCatalogBytes: 10, skillBytes: 20, skillsNotDelivered: 0, skillsUnmeasured: 0, ...extra })
+  const launch = (extra: Partial<Parameters<typeof metrics.recordLaunch>[2]> = {}) => ({ provider: 'claude-code', role: 'agent' as const, guidanceBytes: 100, guidanceChars: 100, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 1, skillCatalogBytes: 10, skillBytes: 20, skillsNotDelivered: 0, skillsUnmeasured: 0, ...extra })
 
   it("filters narrow every part, the trend and the totals alike, and say what they can't narrow", async () => {
     const { w } = await open()
@@ -1189,22 +1209,22 @@ describe('#116 round 1: filters, coverage, attribution, unknown usage, guidance 
     }
   })
 
-  it("a launch's guidance in parts: core, the project's additions, the Assistant's role and persona", async () => {
+  it("a launch's guidance in parts: core, the project's additions, the Assistant's role and mode", async () => {
     const { launchParts } = await import('../src/main/guidance')
     const { hiveInstructions, withLatestHandover } = await import('../src/shared/hiveGuidance')
     const core = hiveInstructions('alpha')
     const withHandover = withLatestHandover(core, 'handovers/alpha/one.md')
     const agent = launchParts(withHandover, 'agent', 'alpha', null)
-    expect([agent.guidanceBytes, agent.customBytes, agent.roleBytes, agent.personaBytes]).toEqual([utf8Bytes(core), utf8Bytes(withHandover) - utf8Bytes(core), 0, 0])
+    expect([agent.guidanceBytes, agent.customBytes, agent.roleBytes, agent.modeBytes]).toEqual([utf8Bytes(core), utf8Bytes(withHandover) - utf8Bytes(core), 0, 0])
     expect(agent.customChars).toBeGreaterThan(0)
-    const persona = '# Your persona: Bee\n\nBuzz. Ünïcödé.'
-    const text = `You are the Hive Assistant…\n\n${persona}`
-    const assistant = launchParts(hiveInstructions('', 'assistant'), 'assistant', 'assistant', { text, personaText: persona })
-    expect([assistant.customBytes, assistant.roleBytes, assistant.personaBytes]).toEqual([0, utf8Bytes(text) - utf8Bytes(persona), utf8Bytes(persona)])
+    const mode = '# Your mode: Bee\n\nBuzz. Ünïcödé.'
+    const text = `You are the Hive Assistant…\n\n${mode}`
+    const assistant = launchParts(hiveInstructions('', 'assistant'), 'assistant', 'assistant', { text, modeText: mode })
+    expect([assistant.customBytes, assistant.roleBytes, assistant.modeBytes]).toEqual([0, utf8Bytes(text) - utf8Bytes(mode), utf8Bytes(mode)])
     // Text that isn't as expected is counted whole, never split by guesswork.
     expect(launchParts('something else', 'agent', 'alpha', null)).toMatchObject({ guidanceBytes: 14, customBytes: 0 })
     expect(launchParts('', 'agent', 'alpha', null)).toMatchObject({ guidanceBytes: 0, customBytes: 0 })
-    expect(launchParts('', 'assistant', 'x', { text, personaText: 'not at the end' })).toMatchObject({ roleBytes: utf8Bytes(text), personaBytes: 0 })
+    expect(launchParts('', 'assistant', 'x', { text, modeText: 'not at the end' })).toMatchObject({ roleBytes: utf8Bytes(text), modeBytes: 0 })
   })
 
   it('an export holds the filters, coverage and range it was made with', async () => {

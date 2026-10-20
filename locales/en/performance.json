@@ -1149,7 +1149,7 @@
   },
   "performance.guidance.mode": {
     "defaultMessage": "Mode",
-    "description": "Column header of the Guidance at launch table: the size of the Assistant's mode (persona), per launch."
+    "description": "Column header of the Guidance at launch table: the size of the Assistant's mode, per launch."
   },
   "performance.guidance.notGiven": {
     "defaultMessage": "Not given",

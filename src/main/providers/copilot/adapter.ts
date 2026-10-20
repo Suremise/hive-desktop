@@ -215,7 +215,7 @@ export class CopilotAdapter implements ProviderAdapter {
     }
     // The servers' own env and headers may hold secrets: the launch's private folder, never the project (#345).
     await writeJsonAtomic(join(ctx.privateDir, 'mcp.json'), { mcpServers: servers })
-    // The Hive Assistant's role and persona. Hive's guidance itself comes with the hive MCP server's instructions, which
+    // The Hive Assistant's role and mode. Hive's guidance itself comes with the hive MCP server's instructions, which
     // Copilot shows with --allow-all-mcp-server-instructions.
     if (ctx.instructions?.trim()) {
       const dir = join(this.instructionsDir(ctx), '.github', 'instructions')

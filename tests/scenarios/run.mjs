@@ -254,7 +254,7 @@ const benchmarkFile = join(out, 'benchmark.json')
 writeFileSync(benchmarkFile, JSON.stringify(benchmarkOf(meta, results, appVersion), null, 2))
 if (baselineName) console.log(`Baseline "${baselineName}": ${saveBaseline(join(lib.WORK, '..', 'scenarios', 'baselines'), baselineName, benchmarkFile, spare)}`)
 /** What Hive's own parts cost in the scenario (its measures): tool reply characters, requests, guidance at launch. */
-const hiveCost = (m) => (m ? `${m.toolChars.toLocaleString('en')} chars in ${m.toolCalls} tool calls; ${m.apiRequests} requests; ${(m.coreBytes + m.customBytes + m.roleBytes + m.personaBytes + m.catalogBytes).toLocaleString('en')} B guidance` : 'not measured')
+const hiveCost = (m) => (m ? `${m.toolChars.toLocaleString('en')} chars in ${m.toolCalls} tool calls; ${m.apiRequests} requests; ${(m.coreBytes + m.customBytes + m.roleBytes + m.modeBytes + m.catalogBytes).toLocaleString('en')} B guidance` : 'not measured')
 const row = (r) => {
   if (r.skipped) return `| ${r.scenario} | skipped: ${r.skipped} | | | | | |`
   const passed = r.checks.filter((c) => c.ok === true).length

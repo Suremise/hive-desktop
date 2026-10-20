@@ -121,11 +121,11 @@ export interface PerfTotals {
   toolBytes: number
   detailCalls: number
   launches: number
-  /** Per launch, on average: core contract, project additions, the Assistant's role and mode (personaBytes), the skills' catalog and bytes. */
+  /** Per launch, on average: core contract, project additions, the Assistant's role and mode (modeBytes), the skills' catalog and bytes. */
   avgGuidanceBytes: number
   avgCustomBytes: number
   avgRoleBytes: number
-  avgPersonaBytes: number
+  avgModeBytes: number
   avgSkillCatalogBytes: number
   avgSkillBytes: number
   avgSkills: number
@@ -168,7 +168,7 @@ export function totals(s: PerfSelection): PerfTotals {
     avgGuidanceBytes: per(sum(s.guidance, (g) => g.guidanceBytes)),
     avgCustomBytes: per(sum(s.guidance, (g) => g.customBytes)),
     avgRoleBytes: per(sum(s.guidance, (g) => g.roleBytes)),
-    avgPersonaBytes: per(sum(s.guidance, (g) => g.personaBytes)),
+    avgModeBytes: per(sum(s.guidance, (g) => g.modeBytes)),
     avgSkillCatalogBytes: per(sum(s.guidance, (g) => g.skillCatalogBytes)),
     avgSkillBytes: per(sum(s.guidance, (g) => g.skillBytes)),
     avgSkills: per(sum(s.guidance, (g) => g.skills)),

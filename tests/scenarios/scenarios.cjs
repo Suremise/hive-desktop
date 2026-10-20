@@ -2592,7 +2592,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode with four agents asked to run two lanes (#402): reads run-lanes, briefs all four completely, watches both lanes to their end',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await team(c)
       await c.card('a', { title: 'greet() says Hi', description: 'src/greet.js: greet(name) returns "Hi, <name>".' })
@@ -2633,7 +2633,7 @@ module.exports.SCENARIOS.push(
     title: "Coordinator mode woken by a failed review in a lane (#402): reads it, sweeps the board, watches again, and leaves the review to the loop",
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c, { aColumn: 'review' })
       await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: "Round 1: FAILED. 1. greet.js doesn't trim the name before greeting." })
@@ -2660,7 +2660,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode woken by a third failed review finding new edge cases in the same mechanism (#1075): brings the user a simpler option instead of letting the loop run on',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c, { aColumn: 'review' })
       for (const text of [
@@ -2690,7 +2690,7 @@ module.exports.SCENARIOS.push(
     title: "Coordinator mode told the user's OK for an agent's push and release (#1075): asks the user to give it in the agent's own pane, and doesn't relay it",
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await c.card('a', { title: 'Release 1.2.0', description: 'Version, notes, then push main and run npm run release (a draft), with the user\'s OK for each.', agent: 'coder', column: 'doing', comments: ['Version commit made. Ready to push main and run `npm run release`: waiting for the OK.'] })
     },
@@ -2710,7 +2710,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode woken by an agent asking the user something in a lane (#402): passes the question on, never answers it, watches again',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c, { aColumn: 'doing' })
       await c.api('POST', `/v1/tasks/${c.cards.a}/comments`, { text: 'Question for the user: should greet() throw on an empty name (A) or return "Hi" (B)?' })
@@ -2739,7 +2739,7 @@ module.exports.SCENARIOS.push(
     title: "Coordinator mode asked to move a card between running lanes (#402): reassigns it, its new lane has it, and the watch covers it",
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c, { d: true })
     },
@@ -2769,7 +2769,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode given a follow-up found in review (#402, #325): writes a complete card and puts it in the lane that owns its files',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c)
     },
@@ -2796,7 +2796,7 @@ module.exports.SCENARIOS.push(
     title: "Coordinator mode following two running lanes to their end (#402): Hive's real wakes as each lane finishes; it sweeps, watches what is left, and says when both are done",
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       // Running as in life: each builder works on its lane's current card in Doing (a model checks they are running).
       await twoLanes(c, { aColumn: 'doing' })
@@ -2908,7 +2908,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode woken as the last lanes end, nothing else running (#1082): says so and suggests starting fresh, once, and restarts nothing itself',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c)
       for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
@@ -2929,7 +2929,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode woken as one lane ends while another still runs (#1082): no fresh-start suggestion yet; it watches the running lane again',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c)
       for (const k of ['a', 'b']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
@@ -2955,7 +2955,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode woken as the last lanes end while an agent waits for the user (#1082): passes the question on, never answers it, and no fresh-start suggestion yet',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c)
       for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
@@ -2999,7 +2999,7 @@ module.exports.SCENARIOS.push(
     title: 'Coordinator mode, the lanes done, told of a half-formed idea that is in no card (#1082, journal): writes it to its journal before suggesting a fresh start',
     role: 'assistant',
     control: 'agents',
-    persona: 'coordinator',
+    mode: 'coordinator',
     async setup(c) {
       await twoLanes(c)
       for (const k of ['a', 'b', 'c']) await c.api('PATCH', `/v1/tasks/${c.cards[k]}`, { column: 'done' })
@@ -3027,7 +3027,7 @@ for (const [id, name] of MODES) {
     title: `${name} mode, asked to plan: plans as cards (with questions where the design is open), starts nothing`,
     role: 'assistant',
     control: 'projects',
-    persona: id,
+    mode: id,
     prompt: 'Plan a small "export the board to CSV" feature for alpha as two or three cards on the board, but do not start any of them. If something about the design is open, ask me.',
     fake: 'skill split-work',
     expect: (o, c) => [
@@ -3045,7 +3045,7 @@ for (const [id, name] of MODES) {
     title: `${name} mode, asked to run a card: starts it on the agent and follows it`,
     role: 'assistant',
     control: 'agents',
-    persona: id,
+    mode: id,
     waitForAgents: true,
     async setup(c) {
       await c.card('m', { title: 'Add a LICENSE note', description: 'Add NOTICE.txt with the line "Example notice."' })
@@ -3073,7 +3073,7 @@ module.exports.SCENARIOS.push(
     title: 'QA triager mode given a report with a screenshot (#408): finds the cause in the code, then files a card with it and its evidence, in Todo',
     role: 'assistant',
     control: 'agents',
-    persona: 'qa-triager',
+    mode: 'qa-triager',
     files: { 'banner.js': BANNER_JS },
     prompt: `In alpha: ${BANNER_REPORT}`,
     fake: `skill triage-report then hive hive_create_task {"project":"alpha","title":"Save banner says \\"Saved 0 card\\"","description":"**What the user saw:** \\"Saved 0 card\\" after saving an empty board.\\n**Likely cause:** banner.js:2, plural() only adds an s for n > 1, so 0 gets none.\\n**Evidence:** read banner.js.\\n**Fix direction:** plural for n !== 1.\\n**Done when:** 0 cards reads \\"Saved 0 cards\\"; a test for 0, 1 and 2."}`,
@@ -3098,7 +3098,7 @@ module.exports.SCENARIOS.push(
     title: 'QA triager mode given a report whose fix is already in Passed, not merged (#408): adds the evidence to that card instead of filing a twin',
     role: 'assistant',
     control: 'agents',
-    persona: 'qa-triager',
+    mode: 'qa-triager',
     files: { 'banner.js': BANNER_JS },
     async setup(c) {
       await c.card('p', { title: 'Save banner: plural for 0 cards', description: 'banner.js: plural() gives "card" for 0; use "cards" for every n but 1.', column: 'passed', agent: 'coder', comments: ['Done: plural() is n === 1 ? "" : "s" now, on branch hive/coder (not merged yet). Ready for review.', 'Review round 1: PASSED.'] })
@@ -3167,7 +3167,7 @@ module.exports.SCENARIOS.push({
   title: "The Assistant asked to tidy a messy board (#409): links the duplicates, records the user's own answer as a decision but not an agent's account of one, raises the stale block, touches nothing else",
   role: 'assistant',
   control: 'agents',
-  persona: 'coordinator',
+  mode: 'coordinator',
   async setup(c) {
     await c.card('d1', { title: 'Flaky: sync.test.js "retries three times" fails under load', description: 'sync.test.js "retries three times" failed 2 of 10 runs under load (runs 41, 44): the retry delay is real time.', labels: ['flaky'] })
     await c.card('d2', { title: 'sync test fails sometimes', description: 'The sync retry test failed once in CI.' })

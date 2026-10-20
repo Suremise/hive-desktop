@@ -1,5 +1,5 @@
 // The Hive Assistant: its home and modes (#259) in a workspace, the side panel (remembered per workspace), switching
-// mode, Assistant Settings over Settings → Assistant, the Personas view, and one launch (no prompt is sent)
+// mode, Assistant Settings over Settings → Assistant, the Modes view, and one launch (no prompt is sent)
 // that runs in the workspace folder, in Auto mode, named "Assistant" in the quit dialog. The Assistant runs the fake
 // Claude Code (fake-claude/, #195); that the real Claude Code takes its launch (and falls back from Auto with Haiku) is
 // claude-real's. Dev build, throwaway profile and workspaces.
@@ -37,12 +37,12 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   const inv = (ch, ...a) => page.evaluate(([c, x]) => window.hive.invoke(c, ...x), [ch, a])
   await lib.openWorkspace(inv, page, ws)
 
-  // The workspace gets the Assistant's home and Hive's personas; the home is not a project.
+  // The workspace gets the Assistant's home and Hive's modes; the home is not a project.
   const info = await inv('workspace:get')
   check('the Assistant has its home and one agent', info.assistant?.path.toLowerCase() === home.toLowerCase() && info.assistant.agents.length === 1)
   check('its home is not listed as a project', info.projects.map((p) => p.name).sort().join(',') === 'api,web')
   check("its sessions are kept out of git", fs.readFileSync(path.join(home, '.gitignore'), 'utf8').includes('*'))
-  check('Hive\'s four modes are in the workspace', fs.readdirSync(path.join(ws, '.hive', 'personas')).sort().join(',') === 'coordinator.md,planner.md,qa-triager.md,release-manager.md')
+  check('Hive\'s four modes are in the workspace', fs.readdirSync(path.join(ws, '.hive', 'modes')).sort().join(',') === 'coordinator.md,planner.md,qa-triager.md,release-manager.md')
   check("it defaults to the agents' model and effort, and Auto mode", JSON.stringify(info.assistant.config.providers['claude-code']) === JSON.stringify({ model: 'inherit', effort: 'inherit', permissionMode: 'auto', extraArgs: '', use200kContext: 'inherit' }), JSON.stringify(info.assistant.config.providers['claude-code']))
 
   // The panel: hidden at first, Ctrl+Alt+I shows it, and each workspace remembers it.
@@ -88,11 +88,11 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   check('coming back shows it again', (await page.locator('.assistant-panel').count()) === 1)
 
   // Switching mode (not running): saved for this workspace.
-  await page.locator('.assistant-persona').click()
+  await page.locator('.assistant-mode').click()
   await page.locator('.context-menu .menu-item, .menu .menu-item', { hasText: 'Planner' }).first().click()
-  check('choosing a mode saves it for the workspace', !!(await lib.until(() => agentFile().persona === 'planner', 10000)), JSON.stringify(agentFile()))
+  check('choosing a mode saves it for the workspace', !!(await lib.until(() => agentFile().mode === 'planner', 10000)), JSON.stringify(agentFile()))
   // The header follows once the workspace is refreshed, which can be after the file is saved.
-  check('the header shows it', !!(await lib.until(async () => (await page.locator('.assistant-persona').innerText()).includes('Planner'), 10000)))
+  check('the header shows it', !!(await lib.until(async () => (await page.locator('.assistant-mode').innerText()).includes('Planner'), 10000)))
 
   // Assistant Settings: this workspace's effort, over the default.
   // Saved by the time agents:update returns; the footer follows when the workspace's change reaches the window.
@@ -117,25 +117,25 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   await page.keyboard.press('Control+Shift+E')
   await lib.sleep(300)
 
-  // The Personas view: create, delete and restore.
-  await inv('personas:create', 'Night Watch')
-  check('a new persona is a file', fs.existsSync(path.join(ws, '.hive', 'personas', 'night-watch.md')))
-  await inv('personas:delete', 'qa-triager')
-  const listed = await inv('personas:list')
-  check('a deleted bundled persona is offered for restoring', listed.find((p) => p.id === 'qa-triager')?.bundled === 'missing')
-  await inv('personas:restore', 'qa-triager')
-  check('and restores', (await inv('personas:list')).find((p) => p.id === 'qa-triager')?.bundled === 'same')
-  // The Hive Assistant view: a summary, its conversations and its personas.
+  // The Modes view: create, delete and restore.
+  await inv('modes:create', 'Night Watch')
+  check('a new mode is a file', fs.existsSync(path.join(ws, '.hive', 'modes', 'night-watch.md')))
+  await inv('modes:delete', 'qa-triager')
+  const listed = await inv('modes:list')
+  check('a deleted bundled mode is offered for restoring', listed.find((p) => p.id === 'qa-triager')?.bundled === 'missing')
+  await inv('modes:restore', 'qa-triager')
+  check('and restores', (await inv('modes:list')).find((p) => p.id === 'qa-triager')?.bundled === 'same')
+  // The Hive Assistant view: a summary, its conversations and its modes.
   await page.locator('.activity-btn[aria-label="Hive Assistant"]').click()
   check('the Assistant view has a summary', await becomes(async () => (await page.locator('.assistant-summary .assistant-stat').count()) === 4))
   // The summary's stats are drawn at once (showing "…" until its conversations are read), the list once they are: so
   // the list is waited for, not read once after the stats (#710: it failed under load).
   const conversations = page.locator('.sessions-list')
   check('it opens on the conversations', await becomes(async () => (await conversations.locator('.pane-header', { hasText: 'Conversations' }).count()) === 1 && (await page.locator('.sessions-list', { hasText: 'No conversations yet' }).count()) === 1), JSON.stringify(await conversations.allInnerTexts()))
-  // The personas load after the view opens: wait for them (read once, it failed under load, #648's runs).
-  check('it lists the modes', await becomes(async () => (await page.locator('.persona-row').count()) === 5), String(await page.locator('.persona-row').count()))
-  await page.locator('.persona-row', { hasText: 'QA triager' }).click()
-  check('a persona opens in the editor', await becomes(async () => (await page.locator('.split-main .editor-toolbar', { hasText: 'QA triager' }).count()) === 1))
+  // The modes load after the view opens: wait for them (read once, it failed under load, #648's runs).
+  check('it lists the modes', await becomes(async () => (await page.locator('.mode-row').count()) === 5), String(await page.locator('.mode-row').count()))
+  await page.locator('.mode-row', { hasText: 'QA triager' }).click()
+  check('a mode opens in the editor', await becomes(async () => (await page.locator('.split-main .editor-toolbar', { hasText: 'QA triager' }).count()) === 1))
   check('its toolbar can delete it', (await page.locator('.split-main .editor-toolbar [aria-label="Delete mode"]').count()) === 1)
 
   // One launch (no prompt): in the workspace folder, asking for Auto, with Hive's reading tools allowed.

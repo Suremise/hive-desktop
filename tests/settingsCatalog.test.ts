@@ -29,9 +29,8 @@ describe('the settings catalog', () => {
       ...SETTINGS_CATALOG.flatMap((e) => [e.title, e.desc, e.tip, e.helps, e.readOnly, e.docs, ...(e.options ?? []).map((o) => o.label)]),
       ...[...SETTINGS_SECTIONS, ...PROJECT_SETTINGS_SECTIONS].flatMap((x) => [x.label, x.desc])
     ].filter((t): t is string => !!t)
-    // The folder keeps its name (.hive/personas): a path, not what the setting is called.
-    expect(shown.filter((t) => /persona/i.test(t.replace(/\.hive[\\/]personas/g, '')))).toEqual([])
-    expect(settingEntry('assistant.persona')?.readOnly).toContain('working mode')
+    expect(shown.filter((t) => /persona/i.test(t))).toEqual([])
+    expect(settingEntry('assistant.mode')?.readOnly).toContain('working mode')
   })
 
   it("a tip giving a setting's range takes it from the setting, as values, not written into the words (#911)", () => {

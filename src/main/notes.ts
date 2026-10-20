@@ -72,7 +72,7 @@ export async function createNote(relPath: string, isDir: boolean): Promise<strin
 export async function deleteNote(p: string): Promise<void> {
   const abs = assertInShared(p)
   if (abs === resolve(workspace.sharedDir)) throw hiveError(msg({ id: 'content.notes.deleteRoot', defaultMessage: 'Cannot delete the shared folder itself', description: "An error: the shared notes folder itself (.hive/shared) can't be deleted, only what is in it." }))
-  // To the Recycle Bin, like files, skills, personas and sessions.
+  // To the Recycle Bin, like files, skills, modes and sessions.
   if (existsSync(abs)) await trash(abs)
 }
 

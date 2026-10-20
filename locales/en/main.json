@@ -303,6 +303,14 @@
     "defaultMessage": "{agent} was merging when Hive closed",
     "description": "A notice's title as a workspace opens: the agent {agent} (its name) held the merge slot when Hive last closed, so its merge may be half done."
   },
+  "main.modes.retiredBody": {
+    "defaultMessage": "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.",
+    "description": "The notice that personas became working modes. The four names are the modes' own names: keep them. {moved} lists which persona became which mode (\"Pirate → Coordinator\")."
+  },
+  "main.modes.retiredTitle": {
+    "defaultMessage": "The Assistant's personas are now working modes",
+    "description": "A notice once, after an update: the Assistant's character personas became working modes."
+  },
   "main.move.adoptFailed": {
     "defaultMessage": "The handovers and kept comparisons saved under a project's earlier name couldn't all be given to it ({why}). Repair tries again.",
     "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner). {why} is the system's message. Kept comparisons are benchmarks kept in Performance → Compare."
@@ -430,14 +438,6 @@
   "main.move.workingRenamed": {
     "defaultMessage": "{n, plural, one {Working on: {projects}, as before its rename.} other {Working on: {projects}, as before their rename.}}",
     "description": "A line of Repair's report, after a workspace or project moved to another folder (the moved-workspace banner): renamed projects stay Working on. Working on is how the sidebar marks projects: use its name as shown. {projects} lists them; {n} is how many."
-  },
-  "main.personas.retiredBody": {
-    "defaultMessage": "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.",
-    "description": "The notice that personas became working modes. The four names are the modes' own names: keep them. {moved} lists which persona became which mode (\"Pirate → Coordinator\")."
-  },
-  "main.personas.retiredTitle": {
-    "defaultMessage": "The Assistant's personas are now working modes",
-    "description": "A notice once, after an update: the Assistant's character personas became working modes."
   },
   "main.plan.close": {
     "defaultMessage": "You are getting close to the limit.",

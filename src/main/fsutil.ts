@@ -862,12 +862,12 @@ export async function readDirBounded(path: string, max: number, signal?: AbortSi
 }
 
 /**
- * The most contentHash and treeSignature take on, for a skill or persona: entries (files, folders and links), folder
+ * The most contentHash and treeSignature take on, for a skill or mode: entries (files, folders and links), folder
  * depth, and bytes actually read. Past one they stop with ContentTooLarge rather than read on.
  */
 export const HASH_LIMITS = { entries: 2000, depth: 12, bytes: 64 * 1024 * 1024 }
 
-/** A skill or persona over HASH_LIMITS: it has no revision. */
+/** A skill or mode over HASH_LIMITS: it has no revision. */
 export class ContentTooLarge extends Error {}
 
 /** ContentTooLarge's reason for content over the byte limit (the same whether a stat or the read found it). */
@@ -922,7 +922,7 @@ async function treeEntries(path: string, o: HashOptions): Promise<TreeEntry[]> {
 
 /**
  * A hash of a file's or folder's content that ignores line endings (a git checkout's CRLF is the same skill), for
- * telling Hive's shipped versions of a skill or persona apart. Paths are compared as written, in code-point order.
+ * telling Hive's shipped versions of a skill or mode apart. Paths are compared as written, in code-point order.
  * A link (symlink or junction) is never followed: it counts by its name and where it points, so a copy with a link
  * the user added never hashes the same as a version Hive shipped (Hive ships none). Files are read in chunks, and
  * no more than HASH_LIMITS allow (ContentTooLarge): what it read, not what a stat said, counts.

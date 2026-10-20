@@ -184,6 +184,8 @@ interface HiveMessageValues {
   'tips.messageReceipts.title': undefined
   'tips.modelFallbacks.text': undefined
   'tips.modelFallbacks.title': undefined
+  'tips.modes.text': undefined
+  'tips.modes.title': undefined
   'tips.moreAgents.text': { usual: number; most: number }
   'tips.moreAgents.title': { usual: number }
   'tips.myPrices.text': undefined
@@ -208,8 +210,6 @@ interface HiveMessageValues {
   'tips.performance.title': undefined
   'tips.permissionMode.text': { key: string | number }
   'tips.permissionMode.title': undefined
-  'tips.personas.text': undefined
-  'tips.personas.title': undefined
   'tips.progressCommand.text': undefined
   'tips.progressCommand.title': undefined
   'tips.progressDetails.text': undefined

@@ -54,7 +54,7 @@ import { revertSetting } from './settingsTools'
 import { advanced, updateSettingsChecked } from './advanced'
 import type { AdvancedState } from '../shared/advanced'
 import { switchMode } from './assistantMode'
-import * as personas from './personas'
+import * as modes from './modes'
 import { syncBundled } from './bundled'
 import { checkMoved, finishPending, movePlan, repairMove } from './workspaceMove'
 import { missingWorktree, recreateWorktree, unlinkMissingWorktree } from './agentWorktree'
@@ -274,9 +274,9 @@ function moveOptions(o: unknown): MoveOptions {
 }
 
 export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info']>, quitControl: QuitControl): void {
-  // Each time a workspace opens: Hive's bundled skills and personas it hasn't got, or has untouched older copies of.
+  // Each time a workspace opens: Hive's bundled skills and modes it hasn't got, or has untouched older copies of.
   WorkspaceService.onOpened = async (fresh) => {
-    await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and personas", e))
+    await syncBundled({ fresh }).catch((e) => log.warn("updating the workspace's bundled skills and modes", e))
     const ws = workspace
     // Its usage history imports the sessions it had, the first time (#1106), in the background.
     void usageHistory.opened(contextWorkspace()!)
@@ -961,7 +961,7 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'assistant:actions': () => (workspace.path ? assistantControl.actions(workspace.path) : []),
     'assistant:questions': () => (workspace.path ? assistantControl.questions(workspace.path) : []),
     'assistant:answer': (id, yes) => assistantControl.answer(id, yes),
-    'assistant:switchMode': (personaId, save) => switchMode(String(personaId), save !== false),
+    'assistant:switchMode': (modeId, save) => switchMode(String(modeId), save !== false),
     'assistant:revertSetting': async (actionId) => {
       if (!workspace.path) throw hiveError(M.noWorkspace, undefined, { kind: 'conflict' })
       await revertSetting(workspace.path, String(actionId))
@@ -1079,19 +1079,19 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
       if (typeof name !== 'string' || !isRecordingName(name)) throw hiveError(M.notRecording, undefined, { kind: 'invalid' })
       shell.showItemInFolder(join(recordingsDir(), name))
     },
-    'personas:list': () => personas.listPersonas(),
-    'personas:create': async (name) => {
-      const p = await personas.createPersona(name)
-      workspace.emit({ type: 'personas-changed' })
+    'modes:list': () => modes.listModes(),
+    'modes:create': async (name) => {
+      const p = await modes.createMode(name)
+      workspace.emit({ type: 'modes-changed' })
       return p
     },
-    'personas:delete': async (id) => {
-      await personas.deletePersona(id)
-      workspace.emit({ type: 'personas-changed' })
+    'modes:delete': async (id) => {
+      await modes.deleteMode(id)
+      workspace.emit({ type: 'modes-changed' })
     },
-    'personas:restore': async (id) => {
-      const p = await personas.restorePersona(id)
-      workspace.emit({ type: 'personas-changed' })
+    'modes:restore': async (id) => {
+      const p = await modes.restoreMode(id)
+      workspace.emit({ type: 'modes-changed' })
       return p
     },
 

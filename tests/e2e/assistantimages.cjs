@@ -86,7 +86,7 @@ const stamp = (d, name) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.
     await lib.sleep(500) // on purpose: a dialog opened again by the same key press would be on screen by now
   }
   await newMode('Enter Test')
-  check('Enter in New Mode… makes the mode', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'personas', 'enter-test.md')), 5000)))
+  check('Enter in New Mode… makes the mode', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'modes', 'enter-test.md')), 5000)))
   check('…and leaves no dialog open', (await page.locator('.dialog').count()) === 0, String(await page.locator('.dialog').count()))
   await newMode('Enter Test')
   check('Enter with a name already used shows why', !!(await lib.until(async () => (await page.getByText('There is already a mode called').count()) > 0, 5000)))
@@ -97,7 +97,7 @@ const stamp = (d, name) => `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.
   await lib.until(async () => (await page.locator('.dialog input.input').count()) === 1 && (await page.locator('.dialog input.input').evaluate((el) => el === document.activeElement)), 5000)
   await page.keyboard.type('Blur Test')
   await page.keyboard.down('Enter')
-  check('Enter held down makes the mode, with no dialog left open', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'personas', 'blur-test.md')) && (await page.locator('.dialog').count()) === 0, 5000)))
+  check('Enter held down makes the mode, with no dialog left open', !!(await lib.until(async () => fs.existsSync(path.join(ws, '.hive', 'modes', 'blur-test.md')) && (await page.locator('.dialog').count()) === 0, 5000)))
   await page.evaluate(() => window.dispatchEvent(new Event('blur')))
   await page.evaluate(() => {
     const t = document.createElement('textarea')

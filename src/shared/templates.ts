@@ -1,6 +1,6 @@
 // Agent templates (#126): a project's agents and layout saved under a name, to load into any project (replacing its
 // agents) or to add one agent from. What a template holds and what it leaves out (sessions, worktree paths and branches,
-// setup state, the Assistant's persona: those belong to the project), checked as untrusted input when read. #127 adds
+// setup state, the Assistant's mode: those belong to the project), checked as untrusted input when read. #127 adds
 // the places to manage them (the Templates view, a project's Templates tab) and sharing them as files (export, import).
 import { AGENT_LIMIT_MAX, ROLE_MAX, SESSION_LAYOUTS, projectAgents } from './defaults'
 import { isKnownProvider } from './providers'

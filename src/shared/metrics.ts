@@ -54,7 +54,7 @@ export interface GuidanceSeries {
    * - core: Hive's session contract, the same text for every session of a role;
    * - custom: what Hive adds for this project or workspace (the latest handover's pointer);
    * - role: the Assistant's role (who it is, the workspace, what Control lets it do), none for project agents;
-   * - persona: the Assistant's persona, as the workspace has it, none for project agents.
+   * - mode: the Assistant's mode, as the workspace has it, none for project agents.
    */
   guidanceBytes: number
   guidanceChars: number
@@ -62,8 +62,8 @@ export interface GuidanceSeries {
   customChars: number
   roleBytes: number
   roleChars: number
-  personaBytes: number
-  personaChars: number
+  modeBytes: number
+  modeChars: number
   /**
    * Skills the session got, measured on the copies it reads (not their sources): how many, the bytes of their names
    * and descriptions (the catalog a CLI shows), and their bytes on disk. A model reads a skill's body only when it uses

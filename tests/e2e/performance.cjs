@@ -29,7 +29,7 @@ const timed = (count, ms) => {
 }
 const apiSeries = (route, role, outcome, count, ms = 8) => ({ route, method: route.includes(':n') ? 'GET' : 'GET', role, outcome, ...timed(count, ms), requestBytes: count * 20, responseBytes: count * 900 })
 const mcpSeries = (tool, count, chars) => ({ tool, role: 'agent', mode: 'compact', outcome: 'ok', ...timed(count, 4), chars: count * chars, bytes: count * chars })
-const launch = (provider, launches) => ({ provider, role: 'agent', launches, guidanceBytes: launches * 3000, guidanceChars: launches * 3000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: launches * 6, skillCatalogBytes: launches * 1200, skillBytes: launches * 40000, skillsNotDelivered: 0, skillsUnmeasured: 0 })
+const launch = (provider, launches) => ({ provider, role: 'agent', launches, guidanceBytes: launches * 3000, guidanceChars: launches * 3000, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: launches * 6, skillCatalogBytes: launches * 1200, skillBytes: launches * 40000, skillsNotDelivered: 0, skillsUnmeasured: 0 })
 const part = (api = [], mcp = [], guidance = []) => ({ api: Object.fromEntries(api.map((s, i) => [String(i), s])), mcp: Object.fromEntries(mcp.map((s, i) => [String(i), s])), guidance: Object.fromEntries(guidance.map((s, i) => [String(i), s])), catalog: {} })
 const now = Date.now()
 const hourStart = (t) => Math.floor(t / HOUR) * HOUR

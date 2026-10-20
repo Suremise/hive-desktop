@@ -119,13 +119,29 @@
     "defaultMessage": "The .zip has a file with an unsafe path: {path}",
     "description": "An error adding an MCP server from a .zip: a file's path ({path}) would land outside its folder, or Windows can't have it."
   },
+  "content.mode.badName": {
+    "defaultMessage": "Give the mode a name with letters or numbers.",
+    "description": "An error making a new mode for the Hive Assistant: its name has no letters or numbers to name its file after."
+  },
+  "content.mode.exists": {
+    "defaultMessage": "There is already a mode called \"{mode}\".",
+    "description": "An error making a new mode for the Hive Assistant: the workspace already has one called {mode}."
+  },
+  "content.mode.invalid": {
+    "defaultMessage": "Invalid mode",
+    "description": "An error deleting a mode of the Hive Assistant: its id isn't one Hive could have made."
+  },
   "content.mode.noAssistant": {
     "defaultMessage": "The Assistant has no settings in this workspace.",
     "description": "An error switching the Hive Assistant's mode: the workspace's Assistant settings are missing."
   },
+  "content.mode.notBundled": {
+    "defaultMessage": "\"{mode}\" isn't one of Hive's modes.",
+    "description": "An error restoring a mode Hive ships: Hive ships no mode called {mode}."
+  },
   "content.mode.unknown": {
     "defaultMessage": "There is no mode \"{mode}\" in this workspace.",
-    "description": "An error switching the Hive Assistant's mode: the workspace has no mode (a persona file) called {mode}."
+    "description": "An error switching the Hive Assistant's mode: the workspace has no mode (a file in .hive/modes) called {mode}."
   },
   "content.notes.badName": {
     "defaultMessage": "Invalid name",
@@ -158,22 +174,6 @@
   "content.notes.outside": {
     "defaultMessage": "Path is outside the shared notes folder",
     "description": "An error: a shared note's path leads out of the workspace's shared notes folder (.hive/shared)."
-  },
-  "content.persona.badName": {
-    "defaultMessage": "Give the mode a name with letters or numbers.",
-    "description": "An error making a new mode for the Hive Assistant: its name has no letters or numbers to name its file after."
-  },
-  "content.persona.exists": {
-    "defaultMessage": "There is already a mode called \"{mode}\".",
-    "description": "An error making a new mode for the Hive Assistant: the workspace already has one called {mode}."
-  },
-  "content.persona.invalid": {
-    "defaultMessage": "Invalid mode",
-    "description": "An error deleting a mode of the Hive Assistant: its id isn't one Hive could have made."
-  },
-  "content.persona.notBundled": {
-    "defaultMessage": "\"{mode}\" isn't one of Hive's modes.",
-    "description": "An error restoring a mode Hive ships: Hive ships no mode called {mode}."
   },
   "content.skill.audience": {
     "defaultMessage": "{kind, select, text {its audience is \"{audience}\", not agents, assistant or all} empty {its audience is empty, not agents, assistant or all} list {its audience is a list, not agents, assistant or all} other {its audience is a {type}, not agents, assistant or all}}",
