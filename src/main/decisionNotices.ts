@@ -32,7 +32,8 @@ export function noteCardRead(agent: { projectPath: string; agentId: string }, n:
 const readSeq = new Map<string, number>()
 export const cardReadsBy = (agent: { projectPath: string; agentId: string }): number => readSeq.get(keyOf(agent)) ?? 0
 
-// The board as last read, per workspace, until it changes: an agent's every board call shouldn't read every card file.
+// The board's live cards as last read, per workspace, until it changes: an agent's every board call shouldn't read every
+// card, and never the archived ones (#1107: 945 of them, 13 MB, on a busy board), which have no decisions to tell.
 const boards = new Map<string, Promise<TaskCard[]>>()
 let changes = 0
 let listening = false
@@ -49,7 +50,7 @@ function board(ws: WorkspaceService): Promise<TaskCard[]> {
   let p = boards.get(key)
   if (!p) {
     const at = changes
-    p = allTasks(ws)
+    p = allTasks(ws, { archived: false })
     boards.set(key, p)
     // A read the board changed under isn't kept for the next call.
     void p.then(
@@ -103,7 +104,7 @@ export async function newDecisionsOn(ws: WorkspaceService, agent: { projectPath:
   const seen = reads.get(keyOf(agent))
   const t = (iso: string | undefined): number => Date.parse(iso ?? '') || 0
   for (const c of await board(ws)) {
-    if (c.archived || !c.decisions?.length || c.project.toLowerCase() !== project) continue
+    if (!c.decisions?.length || c.project.toLowerCase() !== project) continue
     const base = baseline(c, agent.agentId, self, seen?.get(c.number))
     if (base === null) continue
     const since = Math.max(base, told?.get(c.number) ?? 0)

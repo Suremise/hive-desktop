@@ -94,6 +94,9 @@ if (role === 'cli') process.stdin.once('data', () => { start('child'); setTimeou
 // What the Store's PowerShell does (#543): its children start outside every job. Stood in for by starting the child
 // before this CLI joins its job: the child's parent is in the job, the child in none.
 else if (role === 'escaper') { start('child'); process.stdin.once('data', () => process.exit(0)) }
+// A CLI that keeps running and, on each line "<n>", starts n more lingering processes (leaf0, leaf1, …), as an agent
+// starting commands after its turn does (#1134).
+else if (role === 'spawner') { let k = 0; process.stdin.on('data', (d) => { for (let i = Number(String(d).trim()); i > 0; i--) start('leaf' + k++) }); setTimeout(() => process.exit(0), 120000) }
 // The real Store PowerShell (where it is installed), as Codex runs a background command: on "go", it runs a process
 // that keeps running (the shell's id said too), and this CLI exits once that has started.
 else if (role === 'storepwsh') process.stdin.once('data', () => {
@@ -180,6 +183,47 @@ else {
     await endHeld(cli)
     await launchEnded('mem1')
     expect(await agentsMemory()).toBeNull()
+  }, 60000)
+
+  it('tells when a process joins a running launch (#1134), once until its processes are listed again', async () => {
+    const { launchEnded, onLaunchProcessJoined, runningProcesses, settleLeftovers, trackLaunch } = await import('../src/main/agentProcesses')
+    // As the running marker does: each notice lists the running launches' processes (one listing at a time here too).
+    let joined = 0
+    let relist = true
+    const seen = new Set<number>()
+    let listing: Promise<void> = Promise.resolve()
+    const stop = onLaunchProcessJoined(() => {
+      joined++
+      if (!relist) return
+      listing = listing.then(async () => {
+        for (const l of await runningProcesses()) for (const p of l.processes) seen.add(p.pid)
+      })
+    })
+    const out = join(dir, 'joins.txt')
+    const cli = spawn(process.execPath, [script, 'spawner', out], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+    try {
+      expect(await trackLaunch({ runId: 'joins1', projectPath: dir, agentId: 'j1', agentName: 'Busy' }, cli.pid!)).toEqual({ tracked: true })
+      // The CLI joining its job as the launch starts is told, and so is a process it starts later, each found by the
+      // listing its notice leads to: nothing here lists on a timer.
+      expect(await until(() => seen.has(cli.pid!), 10000)).toBe(true)
+      cli.stdin!.write('1\n')
+      expect(await until(() => !!pidsIn(out).leaf0 && seen.has(pidsIn(out).leaf0), 10000)).toBe(true)
+      // With no listing, told at most once however many processes start (other processes joining included: a console
+      // host taken in, #543).
+      relist = false
+      await listing
+      const told = joined
+      cli.stdin!.write('20\n')
+      expect(await until(() => Object.keys(pidsIn(out)).length === 21, 20000)).toBe(true)
+      expect(joined - told).toBeLessThanOrEqual(1)
+      const all = (await runningProcesses()).flatMap((l) => l.processes).map((p) => p.pid)
+      expect(Object.values(pidsIn(out)).every((pid) => all.includes(pid))).toBe(true)
+    } finally {
+      stop()
+      await endHeld(cli)
+      await launchEnded('joins1')
+      await settleLeftovers(dir, 'j1', 'end')
+    }
   }, 60000)
 
   it('keeps them running when asked, and stops listing them', async () => {
@@ -601,6 +645,45 @@ $r | ConvertTo-Json -Compress
     const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src, process.execPath], { windowsHide: true, timeout: 120000 })
     const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
     expect(r).toEqual({ added: 'ok', heldOld: 'old', runningKept: 'old', forgotten: null, addedNew: 'ok', heldNew: 'new', exited: true, newKept: 'new', letGo: null })
+  }, 150000)
+
+  // Joins and listings in an order of the test's own (#1134, round 1): a notice due for one launch's process is never
+  // taken back by listing another launch (the port's thread had told it, the input thread listed B before the notice was
+  // written); each launch is told once until it is listed again, however many processes join it.
+  it('tells each launch once until it is listed again, and listing one never takes back the notice due for another (#1134)', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host-notices.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'notices.ps1')
+    writeFileSync(
+      probe,
+      `param($src)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+$w = [System.IO.StringWriter]::new()
+[HiveJobs]::Notices = $w
+$told = { ($w.ToString() -split "\`n" | Where-Object { $_.Trim() -eq 'new' }).Count }
+$r = [ordered]@{}
+# A joins; B is listed before the notice is written.
+[HiveJobs]::Joined('a'); $null = [HiveJobs]::Describe('b', 5); [HiveJobs]::Tell()
+$r.otherListed = & $told
+# A again, not listed since: nothing more.
+[HiveJobs]::Joined('a'); [HiveJobs]::Tell()
+$r.again = & $told
+# B joins: told on its own.
+[HiveJobs]::Joined('b'); [HiveJobs]::Tell()
+$r.otherJob = & $told
+# A listed, then many join it: told once.
+$null = [HiveJobs]::Describe('a', 5)
+for ($i = 0; $i -lt 20; $i++) { [HiveJobs]::Joined('a') }
+[HiveJobs]::Tell(); [HiveJobs]::Tell()
+$r.afterListing = & $told
+$r | ConvertTo-Json -Compress
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src], { windowsHide: true, timeout: 120000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
+    expect(r).toEqual({ otherListed: 1, again: 1, otherJob: 2, afterListing: 3 })
   }, 150000)
 
   it('lists nothing for a launch that left nothing running, nor for one it never tracked', async () => {

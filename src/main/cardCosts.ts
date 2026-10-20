@@ -1,6 +1,6 @@
 import { basename } from 'path'
 import { config } from './config'
-import { allTasks } from './tasks'
+import { allTasks, cardHolds } from './tasks'
 import { listLanes } from './lanes'
 import { usageHistory } from './usageHistory'
 import { inWorkspace, type WorkspaceService } from './workspace'
@@ -119,9 +119,10 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
   return inWorkspace(ws, async () => {
     const now = Date.now()
     const want = o.numbers ? new Set(o.numbers) : null
-    const all = await allTasks(ws)
-    const cards = all.filter((c) => (want ? want.has(c.number) : !o.project || c.project.toLowerCase() === o.project.toLowerCase()))
-    const held = cards.filter((c) => {
+    // Every card's holds (#1107: not the cards in full), then only the cards wanted read in full.
+    const all = await cardHolds(ws)
+    const held = all.filter((c) => {
+      if (want ? !want.has(c.number) : o.project && c.project.toLowerCase() !== o.project.toLowerCase()) return false
       const holds = holdsOfCard(c)
       if (!holds.length) return false
       if (want || (o.from === undefined && o.to === undefined)) return true
@@ -138,9 +139,13 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
       list.push({ provider: r.provider, session: `${r.scope}\0${r.session}`, row: r.row })
       rows.set(r.row.card, list)
     }
+    const cards = await allTasks(ws, { numbers: held.map((c) => c.number) })
     const read = await sessionReader(ws)
     const out: CardCost[] = []
-    for (const c of held) out.push(costOf(c, rows.get(c.number) ?? [], c.project ? await read(c.project) : null, now))
+    for (const c of cards) {
+      if (!holdsOfCard(c).length) continue
+      out.push(costOf(c, rows.get(c.number) ?? [], c.project ? await read(c.project) : null, now))
+    }
     return out
   })
 }
@@ -164,7 +169,7 @@ export async function laneCosts(ws: WorkspaceService, ids?: string[]): Promise<L
     const now = Date.now()
     const lanes = (await listLanes(ws, { all: !!ids })).filter((l) => !ids || ids.includes(l.id))
     if (!lanes.length) return []
-    const cards = await allTasks(ws)
+    const cards = await cardHolds(ws)
     await usageHistory.freshen(ws)
     const read = await sessionReader(ws)
     const out: LaneCost[] = []

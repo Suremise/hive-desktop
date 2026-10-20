@@ -14,7 +14,7 @@ import { config } from './config'
 import { emit, onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
 import { recordProvider, sessions } from './sessions'
-import { allTasks } from './tasks'
+import { cardHolds, type CardHolds } from './tasks'
 import { usageFile, type SessionId, type SessionMeta, type StoredSession } from './usageDb'
 import type { IngestJob, IngestResult, KeptJob, WorkerReply, WorkerRequest } from './usageWorker'
 import { openWorkspaces, workspaceFor, WorkspaceService } from './workspace'
@@ -77,7 +77,7 @@ class UsageHistory {
   private stopped = false
   private progress = new Map<string, UsageHistoryProgress>()
   private backfills = new Map<string, Promise<void>>()
-  private cards = new Map<string, { at: number; cards: Promise<TaskCard[]> }>()
+  private cards = new Map<string, { at: number; cards: Promise<CardHolds[]> }>()
 
   /** Starts the tick (Hive is ready). */
   start(): void {
@@ -358,7 +358,8 @@ class UsageHistory {
     const key = wsKey(ws.path)
     let c = this.cards.get(key)
     if (!c || Date.now() - c.at > CARDS_MS) {
-      c = { at: Date.now(), cards: allTasks(ws).catch(() => []) }
+      // Only the cards' holds (#1107: never their comments).
+      c = { at: Date.now(), cards: cardHolds(ws).catch(() => []) }
       this.cards.set(key, c)
     }
     const project = basename(projectPath).toLowerCase()

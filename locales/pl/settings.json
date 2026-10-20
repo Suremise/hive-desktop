@@ -351,7 +351,7 @@
   "settings.fallback.level": "Poziom",
   "settings.fallback.levelPlaceholder": "np. xhigh",
   "settings.fallback.levelsPerModel": "{source}: każdy model oferuje własne poziomy; ta lista je nazywa i jest używana dla modeli, których nie opisuje źródło.",
-  "settings.fallback.levelsUsed": "Używana teraz: {provider} nie zgłosił poziomów dla poszczególnych modeli.",
+  "settings.fallback.levelsUsed": "Używana teraz: {provider} nie podaje poziomów dla poszczególnych modeli.",
   "settings.fallback.modelId": "ID modelu",
   "settings.fallback.modelsNow": "Modele teraz: {source}",
   "settings.fallback.name": "Nazwa",

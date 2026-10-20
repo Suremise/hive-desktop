@@ -7,7 +7,7 @@
 // commands: those runs check the harness, the board rules and Hive's own costs (benchmarks) for free. The real CLIs are the model trials (opt-in, see README.md).
 //
 // Fixture version: bump when a scenario's setup or checks change, so results can be compared across versions.
-const FIXTURES_VERSION = 65
+const FIXTURES_VERSION = 66
 
 /**
  * long-doc-section's design document (#817): about 40,000 characters in 36 sections, one of which (Retry policy) holds
@@ -1201,6 +1201,30 @@ module.exports.SCENARIOS = [
       ]
     },
     fakeSkips: ['used the board to order it', 'the two bugs are on top']
+  },
+  {
+    // #1131: tagging cards with labels, which replaces them, wiped the cards' other labels (the Assistant, 19 Oct).
+    id: 'tag-cards',
+    title: "Tagging cards (#1131): a label added to several cards keeps each card's own labels, in one call",
+    async setup(c) {
+      await c.card('t1', { title: 'Polish the footer', labels: ['polish'] })
+      await c.card('t2', { title: 'Crash on empty name', labels: ['bug', 'p1'] })
+      await c.card('t3', { title: 'Write the changelog', labels: ['docs'] })
+    },
+    prompt: (c) => `Tag cards #${c.cards.t1}, #${c.cards.t2} and #${c.cards.t3} with the label 0.9.4.`,
+    fake: (c) => `hive hive_update_tasks {"numbers":[${c.cards.t1},${c.cards.t2},${c.cards.t3}],"addLabels":["0.9.4"]}`,
+    expect: (o, c) => {
+      const labels = (k) => o.cards[k]?.labels ?? []
+      const own = { t1: ['polish'], t2: ['bug', 'p1'], t3: ['docs'] }
+      const changes = [...ran(o, 'hive_update_task'), ...ran(o, 'hive_update_tasks')]
+      return [
+        ['each card has 0.9.4', Object.keys(own).every((k) => labels(k).includes('0.9.4')), Object.keys(own).map((k) => `#${c.cards[k]}: ${labels(k).join(',')}`).join(' | ')],
+        ["each card kept its own labels", Object.entries(own).every(([k, l]) => l.every((x) => labels(k).includes(x)))],
+        ['added the label without replacing (addLabels, never labels)', changes.length > 0 && changes.every((x) => Array.isArray(argsOf(x).addLabels) && argsOf(x).labels === undefined), changes.map((x) => JSON.stringify(argsOf(x))).join(' | ')],
+        ['in one call (hive_update_tasks)', ran(o, 'hive_update_tasks').length === 1 && ran(o, 'hive_update_task').length === 0, `${ran(o, 'hive_update_tasks').length} batch, ${ran(o, 'hive_update_task').length} single`],
+        ['moved no card', Object.keys(own).every((k) => o.cards[k]?.column === 'todo')]
+      ]
+    }
   },
   {
     id: 'pick-up-latest',

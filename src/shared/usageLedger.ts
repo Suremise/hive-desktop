@@ -569,7 +569,10 @@ export interface SessionWho {
 }
 
 /** A card's holds: kept on it, or (a card no change has saved since #602) from its history. */
-export const holdsOfCard = (c: TaskCard): TaskHold[] => c.held ?? holdsFromHistory(c)
+/** What of a card its holds are worked out from (#1107: the board reads only these for costs). */
+export type CardHoldFields = Pick<TaskCard, 'number' | 'project' | 'held' | 'history' | 'agent' | 'agentName' | 'review'>
+
+export const holdsOfCard = (c: Omit<CardHoldFields, 'number' | 'project'>): TaskHold[] => c.held ?? holdsFromHistory(c)
 
 const ms = (iso: string | undefined | null, fallback: number): number => {
   const t = iso ? Date.parse(iso) : NaN
@@ -591,7 +594,7 @@ export function holdIsSessions(h: Pick<TaskHold, 'agent' | 'name'>, s: SessionWh
  * many cards it held at each time (by the holds' agent name, as cost per card has always shared them): what it used
  * while holding k cards is 1/k each's.
  */
-export function sessionHolds(cards: TaskCard[], s: SessionWho, named: (name: string) => string[], now: number): SessionHold[] {
+export function sessionHolds(cards: CardHoldFields[], s: SessionWho, named: (name: string) => string[], now: number): SessionHold[] {
   const byName = new Map<string, Map<number, Span[]>>()
   for (const c of cards) {
     for (const h of holdsOfCard(c)) {

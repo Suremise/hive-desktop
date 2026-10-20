@@ -30,6 +30,7 @@
 //   through the session's hive-progress shim, as a Codex agent once did (#542): cmd → hive-progress → a lingering node
 //   (linger.cjs; its pid in fake-progress-linger.jsonl in its home), and ends its turn once that node runs (#1100: as
 //   an agent's command has started by then; fake-progress-delay-ms.txt in its home (N) starts it N ms late, as under load).
+//   "progress-linger nowait" ends its turn at once, the command still to start (#1134).
 //   "devapp" leaves a dev copy of an Electron app running, as an agent's dev launch of Hive did (#614): Electron's
 //   executable with Playwright's --inspect=0 --remote-debugging-port=0 and a copy of devapp in its home (a hidden window; quits after two
 //   minutes, in case), started through a detached node that exits at once (linger.cjs); its pid in fake-devapp.jsonl.
@@ -537,7 +538,7 @@ async function runPrompt(text, enter = null) {
   if (background) await startBackgroundTask(Number(background[1]))
   const linger = /(?<!-)\blinger\s+(\d+)/i.exec(text)
   if (linger) leaveRunning(Number(linger[1]))
-  if (/\bprogress-linger\b/i.test(text)) await leaveProgressRunning()
+  if (/\bprogress-linger\b/i.test(text)) await leaveProgressRunning(!/\bnowait\b/i.test(text))
   if (/\bdevapp\b/i.test(text)) leaveAppRunning()
   const secs = Number(/\bwork\s+(\d+)/i.exec(text)?.[1] ?? 1)
   await sleep(secs * 1000)
@@ -981,8 +982,9 @@ function leaveAppRunning() {
  * there when its turn ends, so the running marker written after the turn's status has it (#1100: under load the three
  * processes took longer to start than the turn, and the marker, written two seconds after the turn ended and then only
  * each minute, missed them). fake-progress-delay-ms.txt (N) starts the command N ms late, as a machine under load does.
+ * wait false ("progress-linger nowait"): the turn ends at once, the command still to start, as a real agent's may be (#1134).
  */
-async function leaveProgressRunning() {
+async function leaveProgressRunning(wait = true) {
   const q = (x) => `"${x}"`
   const pids = path.join(home, 'fake-progress-linger.jsonl')
   const had = fs.existsSync(pids) ? fs.readFileSync(pids, 'utf8').length : 0
@@ -993,6 +995,7 @@ async function leaveProgressRunning() {
   // Started late on its own, while the turn goes on, as a command that is slow to start.
   if (delay) setTimeout(start, delay)
   else start()
+  if (!wait) return
   for (const end = Date.now() + 120_000; Date.now() < end && !(fs.existsSync(pids) && fs.readFileSync(pids, 'utf8').length > had); ) await sleep(100)
 }
 
