@@ -115,6 +115,8 @@ export class WorkspaceService {
   private watcher: FSWatcher | null = null
   private rootWatcher: RootWatcher | null = null
   private refreshTimer: NodeJS.Timeout | null = null
+  /** The refresh scheduleRefresh has waiting, told once it has run (or was dropped): refreshesSettled waits for it. */
+  private scheduled: { done: Promise<void>; tell: () => void } | null = null
   private static liveProvider: LiveProvider = async (_p, cfg) => ({ live: null, restartNeeded: false, agents: projectAgents(cfg).map((a) => ({ ...a, live: null, restartNeeded: false, resume: null })) })
   /** Called each time a workspace opens, in its context; `fresh` when Hive set the folder up just now (it had no .hive). */
   static onOpened: ((fresh: boolean) => Promise<unknown>) | null = null
@@ -302,6 +304,8 @@ export class WorkspaceService {
     }
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     this.refreshTimer = null
+    this.scheduled?.tell()
+    this.scheduled = null
     if (this.idsTimer) clearTimeout(this.idsTimer)
     this.idsTimer = null
     if (this.rootRetry) clearTimeout(this.rootRetry)
@@ -540,8 +544,26 @@ export class WorkspaceService {
 
   scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
+    if (!this.scheduled) {
+      let tell = (): void => undefined
+      const done = new Promise<void>((r) => (tell = r))
+      this.scheduled = { done, tell }
+    }
+    const scheduled = this.scheduled
     // A window closed meanwhile (its agents stopping afterwards) has nothing to refresh.
-    this.refreshTimer = setTimeout(() => void (this.path ? this.refresh().catch((e) => log.warn('refresh failed', e)) : undefined), 250)
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null
+      if (this.scheduled === scheduled) this.scheduled = null
+      void (this.path ? this.refresh().catch((e) => log.warn('refresh failed', e)) : Promise.resolve()).finally(scheduled.tell)
+    }, 250)
+  }
+
+  /**
+   * Resolves once no refresh is scheduled: the one scheduleRefresh has waiting, and any scheduled while that ran, have
+   * run (#1143: a test counting what one refresh reads waits for the ones its own writes scheduled, and opening's).
+   */
+  async refreshesSettled(): Promise<void> {
+    while (this.scheduled) await this.scheduled.done
   }
 
   /** The workspace's project folders, without the ones hidden or removed from Hive (hidden: true lists only those). */

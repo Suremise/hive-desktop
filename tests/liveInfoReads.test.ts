@@ -66,7 +66,10 @@ afterAll(async () => {
   s.live.clear()
   await disposeWorkspaceService(w)
 })
-beforeEach(() => {
+// Counted from a quiet workspace (#1143): the refreshes opening it and each test's own writes scheduled (250 ms later,
+// so under load in the next test) have run first, and only the reads a test makes itself are counted.
+beforeEach(async () => {
+  await w.refreshesSettled()
   calls.hiveSkills = calls.listMcp = calls.revisionOf = 0
 })
 
@@ -99,6 +102,16 @@ describe("a refresh's running agents share the workspace's reads (#1002)", () =>
     writeFileSync(join(wsPath, '.hive', 'skills', 'handover', 'extra.md'), 'More.\n')
     info = await run(() => workspace.refresh())
     expect(changed(info, projects[1])).toEqual([true, true, true])
+  })
+
+  it('refreshesSettled waits for the refresh scheduleRefresh has waiting (two asks, one refresh)', async () => {
+    w.scheduleRefresh()
+    w.scheduleRefresh()
+    expect(calls.hiveSkills).toBe(0)
+    await w.refreshesSettled()
+    expect(calls.hiveSkills).toBe(1)
+    await w.refreshesSettled()
+    expect(calls.hiveSkills).toBe(1)
   })
 
   it('a project read on its own (not in a refresh) reads them once for its agents too', async () => {
