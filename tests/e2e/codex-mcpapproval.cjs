@@ -15,6 +15,12 @@ const stampLog = path.join(ws, '.hive', 'mcp', 'stamp', 'calls.log')
 const small = { provider: 'codex', model: 'gpt-6-luna', effort: 'low' }
 const MODES = ['read-only', 'ask', 'approve-for-me', 'full-access']
 const TURN_MS = 180000
+// The terminal catching up with what a hook or the stamp log said already: a bound for a hung run.
+const SHOWN_MS = 30000
+// Codex 0.163 calls MCP tools from one script (Hive's transcript: "Script"), whose result waits for every call in it:
+// its screen says each call done, with its reply ("Called", redrawn over "Calling" as its last letters).
+const LISTED = /ed hive\.hive_list_projects\s*└\s*demo \(on/
+const CREATED = /ed hive\.hive_create_task\s*└\s*#\d+ created in Todo/
 const record = {}
 let failed = 0
 const check = (name, ok, extra = '') => {
@@ -107,20 +113,24 @@ const stamped = (text) => (fs.existsSync(stampLog) ? fs.readFileSync(stampLog, '
           }, TURN_MS, 1000)
           if (end === 'turn ended') console.log(`INFO ${mode}: attempt ${attempt} ended without stamp's call: ${JSON.stringify((await screen(key)).slice(-300))}`)
         }
+        // Hive's reply on screen, which can come after the hook or the log write that ended the wait above; Codex asking
+        // about a Hive tool instead ends it too, and fails below.
+        const hive = await lib.until(async () => {
+          const w = await live(proj, def.id)
+          if (w?.status === 'waiting' && /hive/.test(w.statusMessage ?? '')) return 'asked'
+          return LISTED.test(await screen(key)) ? 'shown' : null
+        }, SHOWN_MS, 500)
         const l = await live(proj, def.id)
-        // Codex 0.163 calls MCP tools from one script (Hive's transcript: "Script"), whose result waits for every call in
-        // it: its screen says each call done, with its reply ("Called", redrawn over "Calling" as its last letters).
-        const hive = /ed hive\.hive_list_projects\s*└\s*demo \(on/.test(await screen(key))
         out.stampCall = end ?? 'no outcome'
         out.stampRan = stamped(mode)
-        out.hiveCall = hive ? 'called, with its reply' : null
+        out.hiveCall = hive === 'shown' ? 'called, with its reply' : hive === 'asked' ? `Codex asked: ${l?.statusMessage}` : null
         out.waitingMessage = l?.status === 'waiting' ? (l.statusMessage ?? '') : null
         // Codex's automatic reviewer looked at the call (Approve for me).
         out.reviewed = /Reviewing approval request/.test(await screen(key))
         out.screenEnd = (await screen(key)).slice(-1500)
         fs.writeFileSync(path.join(scratch, `mcpapproval-${mode}.txt`), (await screen(key)).slice(-6000))
         await page.screenshot({ path: path.join(scratch, `mcpapproval-${mode}.png`) })
-        check(`${mode}: Hive's tool ran without Codex asking`, hive, out.screenEnd.slice(-400))
+        check(`${mode}: Hive's tool ran without Codex asking`, hive === 'shown', out.hiveCall ?? out.screenEnd.slice(-400))
         check(`${mode}: stamp's call came to an outcome`, !!end, out.screenEnd.slice(-400))
         if (end === 'asked') {
           check(`${mode}: Codex asks about stamp's tool, not Hive's`, /mcp__stamp__stamp/.test(out.waitingMessage) && !/hive/.test(out.waitingMessage), out.waitingMessage)
@@ -153,7 +163,10 @@ const stamped = (text) => (fs.existsSync(stampLog) ? fs.readFileSync(stampLog, '
       const done = await lib.until(async () => {
         const l = await live(home, 'assistant')
         if (l?.status === 'waiting') asked = true
-        return asked || ((l?.status === 'finished' || l?.status === 'ready') && /ed hive\.hive_create_task/.test(await screen(akey)))
+        if (asked) return true
+        // The turn over and both replies on screen (the terminal can follow the Stop hook).
+        const shown = await screen(akey)
+        return (l?.status === 'finished' || l?.status === 'ready') && LISTED.test(shown) && CREATED.test(shown)
       }, TURN_MS, 1000)
       const l = await live(home, 'assistant')
       const shown = await screen(akey)
@@ -162,8 +175,8 @@ const stamped = (text) => (fs.existsSync(stampLog) ? fs.readFileSync(stampLog, '
       await page.screenshot({ path: path.join(scratch, 'mcpapproval-assistant.png') })
       check('Assistant: its turn ended', !!done, record.assistant.screenEnd.slice(-400))
       check('Assistant: never asked about a Hive tool', !asked, l?.statusMessage ?? '')
-      check('Assistant: hive_list_projects ran', /ed hive\.hive_list_projects\s*└\s*demo \(on/.test(shown), record.assistant.screenEnd.slice(-400))
-      check('Assistant: hive_create_task ran', /ed hive\.hive_create_task\s*└\s*#\d+ created in Todo/.test(shown), record.assistant.screenEnd.slice(-400))
+      check('Assistant: hive_list_projects ran', LISTED.test(shown), record.assistant.screenEnd.slice(-400))
+      check('Assistant: hive_create_task ran', CREATED.test(shown), record.assistant.screenEnd.slice(-400))
       const card = (await inv('tasks:list')).find((t) => t.title === 'MCP approval check')
       record.assistant.cardMade = card ? { number: card.number, project: card.project } : null
       check('Assistant: the card is on the board, in demo', card?.project === 'demo', JSON.stringify(record.assistant.cardMade))
