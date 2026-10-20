@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { join } from 'path'
 import { HIVE_DIR } from '../shared/defaults'
 import type { CompactionEvent, ProviderId } from '../shared/types'
-import type { LedgerRow, UsageSummary } from '../shared/usageLedger'
+import type { BaselineDay, LedgerRow, UsageSummary } from '../shared/usageLedger'
 import type { UsageRow, UsageTimeline } from '../shared/usageTimeline'
 import { transaction, type Migration } from './db'
 
@@ -27,6 +27,9 @@ import { transaction, type Migration } from './db'
  * - `usage_timeline`, `usage_charges`: its use over time (shared/usageTimeline.ts: a row a second or step, with the
  *   charge covering it and its model) and the provider's charges, for spans of time no card row has (a lane's cost) and
  *   to share a session's cards out again when their holds change.
+ * - `usage_baseline`: what was counted for a session before, by day (a kept usage imported from before the history, or
+ *   what its rows had when a later read didn't match them): its rows never go below it (shared/usageLedger.ts
+ *   applyBaseline), so nothing once counted is lost to a snapshot that counted less of something.
  * - `usage_meta`: per scope, or '' for the workspace (the backfill's record).
  */
 
@@ -146,6 +149,22 @@ export const USAGE_MIGRATIONS: Migration[] = [
           usd            REAL NOT NULL,
           PRIMARY KEY (scope, session, seq)
         ) STRICT, WITHOUT ROWID;
+        CREATE TABLE usage_baseline (
+          scope          TEXT NOT NULL,
+          session        TEXT NOT NULL,
+          day            TEXT NOT NULL,
+          model          TEXT NOT NULL,
+          input          INTEGER NOT NULL,
+          output         INTEGER NOT NULL,
+          cache_write    INTEGER NOT NULL,
+          cache_read     INTEGER NOT NULL,
+          requests       INTEGER NOT NULL,
+          prompts        INTEGER NOT NULL,
+          compactions    INTEGER NOT NULL,
+          cost_usd       REAL,
+          cost_estimated INTEGER NOT NULL,
+          PRIMARY KEY (scope, session, day)
+        ) STRICT, WITHOUT ROWID;
         CREATE TABLE usage_meta (
           scope TEXT NOT NULL,
           key   TEXT NOT NULL,
@@ -158,6 +177,8 @@ export const USAGE_MIGRATIONS: Migration[] = [
 
 /** The tables a session has rows in besides usage_sessions (each cleared and written with it). */
 const CHILD_TABLES = ['usage_rows', 'usage_compactions', 'usage_safeguards', 'usage_timeline', 'usage_charges'] as const
+/** A session's tables a write replaces only when it brings them (kept across reads of its file). */
+const BASELINE = 'usage_baseline'
 
 /** Where a session was read: what an ingest compares the file with, and the state it takes up. */
 export interface Cursor {
@@ -230,6 +251,8 @@ export interface SessionWrite extends SessionMeta {
   summary: UsageSummary
   timeline: UsageTimeline | null
   rows: LedgerRow[]
+  /** Its baseline, when it changed (null: as it is). */
+  baseline: BaselineDay[] | null
 }
 
 /**
@@ -246,6 +269,7 @@ export function writeSession(db: DatabaseSync, w: SessionWrite, expect: { offset
     putRows(db, w.scope, w.session, w.rows)
     putSummary(db, w.scope, w.session, w.summary)
     if (w.timeline) putTimeline(db, w.scope, w.session, w.timeline)
+    if (w.baseline) putBaseline(db, w.scope, w.session, w.baseline)
     const s = w.summary
     const at = new Date().toISOString()
     db.prepare(
@@ -298,6 +322,30 @@ function putTimeline(db: DatabaseSync, scope: string, session: string, t: UsageT
   t.reports.forEach((usd, i) => charge.run(scope, session, i, usd))
 }
 
+/** A session's baseline replaced. */
+function putBaseline(db: DatabaseSync, scope: string, session: string, days: BaselineDay[]): void {
+  db.prepare(`DELETE FROM ${BASELINE} WHERE scope = ? AND session = ?`).run(scope, session) // i18n-ignore: SQL
+  const put = db.prepare(`INSERT INTO ${BASELINE} (scope, session, day, model, input, output, cache_write, cache_read, requests, prompts, compactions, cost_usd, cost_estimated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`) // i18n-ignore: SQL
+  for (const d of days) put.run(scope, session, d.day, d.model, d.inputTokens, d.outputTokens, d.cacheWriteTokens, d.cacheReadTokens, d.requests, d.prompts, d.compactions, d.costUsd, d.costEstimated ? 1 : 0)
+}
+
+/** A session's baseline (none: []). */
+export function baselineOf(db: DatabaseSync, scope: string, session: string): BaselineDay[] {
+  return (db.prepare(`SELECT * FROM ${BASELINE} WHERE scope = ? AND session = ? ORDER BY day`).all(scope, session) as Rec[]).map((r) => ({ // i18n-ignore: SQL
+    day: r.day as string,
+    model: r.model as string,
+    inputTokens: r.input as number,
+    outputTokens: r.output as number,
+    cacheWriteTokens: r.cache_write as number,
+    cacheReadTokens: r.cache_read as number,
+    requests: r.requests as number,
+    prompts: r.prompts as number,
+    compactions: r.compactions as number,
+    costUsd: (r.cost_usd as number | null) ?? null,
+    costEstimated: r.cost_estimated === 1
+  }))
+}
+
 /**
  * Notes a session's file as read with nothing it keeps (its size and time), so the next tick doesn't read it again; the
  * parser's state, made from what it read before, goes (it would be taken up for this file's bytes).
@@ -314,11 +362,12 @@ function clearState(db: DatabaseSync, scope: string, session: string): void {
   db.prepare('UPDATE usage_sessions SET state = NULL, state_offset = NULL, state_shape = NULL, state_version = NULL, state_check = NULL, state_at = NULL WHERE scope = ? AND session = ?').run(scope, session) // i18n-ignore: SQL
 }
 
-/** A session's rows replaced (its holds changed), with the holds they were made by; everything else as it was. */
-export function replaceRows(db: DatabaseSync, scope: string, session: string, rows: LedgerRow[], holdsKey: string | null): void {
+/** A session's rows replaced (its holds changed, or its baseline), with the holds they were made by; everything else as it was. */
+export function replaceRows(db: DatabaseSync, scope: string, session: string, rows: LedgerRow[], holdsKey: string | null, baseline: BaselineDay[] | null = null): void {
   transaction(db, () => {
     db.prepare('DELETE FROM usage_rows WHERE scope = ? AND session = ?').run(scope, session) // i18n-ignore: SQL
     putRows(db, scope, session, rows)
+    if (baseline) putBaseline(db, scope, session, baseline)
     db.prepare('UPDATE usage_sessions SET holds_key = ? WHERE scope = ? AND session = ?').run(holdsKey, scope, session) // i18n-ignore: SQL
   })
 }
@@ -504,7 +553,28 @@ export function storedTimelines(db: DatabaseSync, scope: string): (SessionMeta &
   })
 }
 
-/** Which sessions of a scope the history has (and whether each was read from a transcript). */
-export function sessionIds(db: DatabaseSync, scope: string): { session: string; source: string; path: string | null; size: number; mtime: number }[] {
-  return db.prepare('SELECT session, source, path, size, mtime FROM usage_sessions WHERE scope = ?').all(scope) as { session: string; source: string; path: string | null; size: number; mtime: number }[] // i18n-ignore: SQL
+/** A session of a scope as a sweep and the card attribution see it: where it was read, whose it was, the holds its rows were shared out by. */
+export interface SessionId {
+  session: string
+  source: string
+  path: string | null
+  size: number
+  mtime: number
+  agentId: string | null
+  agentName: string | null
+  holdsKey: string | null
+}
+
+/** Which sessions of a scope the history has. */
+export function sessionIds(db: DatabaseSync, scope: string): SessionId[] {
+  return (db.prepare('SELECT session, source, path, size, mtime, agent_id, agent_name, holds_key FROM usage_sessions WHERE scope = ?').all(scope) as Rec[]).map((r) => ({ // i18n-ignore: SQL
+    session: r.session as string,
+    source: r.source as string,
+    path: (r.path as string | null) ?? null,
+    size: r.size as number,
+    mtime: r.mtime as number,
+    agentId: (r.agent_id as string | null) ?? null,
+    agentName: (r.agent_name as string | null) ?? null,
+    holdsKey: (r.holds_key as string | null) ?? null
+  }))
 }

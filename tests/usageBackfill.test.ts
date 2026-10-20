@@ -3,6 +3,7 @@
 // backup that counted less; a session deleted before the import reached it, or whose use can't be recorded, keeps what
 // it used; the Overview reads a running session from the history, not its transcript.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { spawn, type ChildProcess } from 'child_process'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import * as electron from 'electron'
@@ -43,6 +44,24 @@ const keptUsage = (sid: string, outputs: number[]): SessionUsage => {
 }
 const outputOf = (items: SessionListItem[], id: string): number | undefined => items.find((i) => i.id === id)?.usage?.outputTokens
 const cliLookup = vi.spyOn(sessions, 'providerTranscript')
+
+/** Holds a file open the way an editor or a virus scanner can: no sharing, so it can't be read (as sessionInUse.test.ts does). */
+async function hold(file: string): Promise<ChildProcess> {
+  const ps = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const script = `$f = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); [Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 60`
+  const child = spawn(ps, ['-NoProfile', '-NonInteractive', '-Command', script], { env: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('the file was not held in time')), 20000)
+    child.stdout!.on('data', (d) => {
+      if (String(d).includes('held')) {
+        clearTimeout(t)
+        resolve()
+      }
+    })
+    child.on('exit', () => reject(new Error('the holder exited')))
+  })
+  return child
+}
 const cache = join(base, 'profile', 'usage-cache.json')
 
 describe("the usage history's import", () => {
@@ -124,6 +143,41 @@ describe("the usage history's import", () => {
     expect(String(err)).toMatch(/couldn't read what the session used/)
     expect(existsSync(backup(id))).toBe(true)
     expect((await run(() => workspace.sessionsFile(p))).sessions.some((s) => s.id === id)).toBe(true)
+  })
+
+  it.runIf(process.platform === 'win32')("a session whose file can't be read to its end isn't deleted (what is recorded isn't all of it)", async () => {
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'unread tail', lastActiveAt: at }))
+    write(backup(id), transcript(id, [20]))
+    await usageHistory.ingest(p, id, { priority: 1, keepState: 'no' })
+    // More written since it was recorded, and the file held open by another program when Delete asks.
+    writeFileSync(backup(id), transcript(id, [20, 30]))
+    const holder = await hold(backup(id))
+    try {
+      const err = await run(() => sessions.delete(p, id)).catch((e) => e)
+      expect(String(err)).toMatch(/couldn't read what the session used/)
+    } finally {
+      holder.kill()
+    }
+    expect(existsSync(backup(id))).toBe(true)
+    expect((await run(() => workspace.sessionsFile(p))).sessions.some((s) => s.id === id)).toBe(true)
+  })
+
+  it("lists a running session from the history: the Sessions tab and project Overview read no transcript for it", async () => {
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'running listed', lastActiveAt: at }))
+    write(backup(id), transcript(id, [25]))
+    await usageHistory.ingest(p, id, { priority: 1, keepState: 'running' })
+    const s = sessions as unknown as { live: Map<string, unknown> }
+    s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-l', projectPath: p, agentId: 'c1', sessionId: id, status: 'working' } })
+    const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')
+    try {
+      expect(outputOf(await run(() => sessions.list(p)), id)).toBe(25)
+      expect(usageFor.mock.calls.filter((c) => (c as unknown[])[1] === id)).toEqual([])
+    } finally {
+      usageFor.mockRestore()
+      s.live.clear()
+    }
   })
 
   it("reads a running session from the history: its transcript isn't read for the Overview", async () => {

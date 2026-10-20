@@ -2,12 +2,13 @@
 // parser's state), never makes a session's totals smaller, keeps a kept usage only for a session it doesn't have, and
 // leaves a session another writer recorded meanwhile as that writer wrote it.
 import { appendFileSync, readFileSync, writeFileSync } from 'fs'
+import { spawn, type ChildProcess } from 'child_process'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { handleRequest, type IngestJob, type IngestResult } from '../src/main/usageWorker'
 import { cursorOf, writeSession, type StoredSession } from '../src/main/usageDb'
-import { summaryOf } from '../src/shared/usageLedger'
+import { summaryOf, usageFromRows } from '../src/shared/usageLedger'
 import { priceUsage } from '../src/shared/usageDays'
 import { newUsageParser } from '../src/main/usageParsers'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
@@ -18,6 +19,24 @@ const line = (i: number, output = 100): string => JSON.stringify({ type: 'assist
 const prompt = (i: number): string => JSON.stringify({ type: 'user', timestamp: new Date(T0 + i * 1000).toISOString(), message: { role: 'user', content: `go ${i}` } }) + '\n'
 
 let id = 0
+
+/** Holds a file open the way an editor or a virus scanner can: no sharing, so it can't be read (as sessionInUse.test.ts does). */
+async function hold(file: string): Promise<ChildProcess> {
+  const ps = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const script = `$f = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); [Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 60`
+  const child = spawn(ps, ['-NoProfile', '-NonInteractive', '-Command', script], { env: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('the file was not held in time')), 20000)
+    child.stdout!.on('data', (d) => {
+      if (String(d).includes('held')) {
+        clearTimeout(t)
+        resolve()
+      }
+    })
+    child.on('exit', () => reject(new Error('the holder exited')))
+  })
+  return child
+}
 const call = (m: Record<string, unknown>): Promise<unknown> => handleRequest({ id: ++id, ...m } as never)
 
 async function setup() {
@@ -108,7 +127,7 @@ describe('the usage worker', () => {
     writeFileSync(t.transcript, prompt(0) + line(1) + line(2) + line(3))
     await t.ingest()
     writeFileSync(t.transcript, prompt(0) + line(1))
-    expect((await t.ingest()).status).toBe('kept')
+    expect((await t.ingest()).status).toBe('written')
     expect(await t.output()).toBe(300)
     // A file that is gone leaves it too.
     expect((await t.ingest({ path: join(t.transcript, '..', 'gone.jsonl') })).status).toBe('unchanged')
@@ -126,13 +145,57 @@ describe('the usage worker', () => {
     const job = { scope: 'p1', session: 'abc', provider: 'claude-code', usage: kept, holds: [], holdsKey: null }
     expect(((await call({ type: 'kept', file: t.file, job })) as IngestResult).status).toBe('written')
     expect(await t.output()).toBe(500)
-    // The stale backup read again: fewer than recorded, so the kept usage stays.
+    // The stale backup read again: the kept usage stays its baseline.
     appendFileSync(t.transcript, prompt(5))
-    expect((await t.ingest()).status).toBe('kept')
+    expect((await t.ingest()).status).toBe('written')
     expect(await t.output()).toBe(500)
-    p.feed(line(2, 1))
-    expect(((await call({ type: 'kept', file: t.file, job: { ...job, usage: { ...kept, outputTokens: 1, inputTokens: 1 } } })) as IngestResult).status).toBe('unchanged')
+    // A kept usage that counted less of everything changes nothing.
+    const less = newUsageParser('claude-code', 'abc')!
+    less.feed(prompt(0) + line(1, 1))
+    await call({ type: 'kept', file: t.file, job: { ...job, usage: priceUsage(less.result(), DEFAULT_SETTINGS) } })
     expect(await t.output()).toBe(500)
+    await t.close()
+  })
+
+  it('keeps each count and the known cost of both a file and a kept usage that disagree (none wins by a sum)', async () => {
+    const t = await setup()
+    // The transcript: one request, 100 in and 1 out. The kept usage: two requests, 2 in and 20 out, priced at $5.
+    writeFileSync(t.transcript, JSON.stringify({ type: 'assistant', requestId: 'r1', timestamp: new Date(T0).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 100, output_tokens: 1 } } }) + '\n')
+    await t.ingest()
+    const p = newUsageParser('claude-code', 'abc')!
+    p.feed(['a', 'b'].map((rid) => JSON.stringify({ type: 'assistant', requestId: rid, timestamp: new Date(T0).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 1, output_tokens: 10 } } })).join('\n') + '\n')
+    const kept = { ...priceUsage(p.result(), DEFAULT_SETTINGS), costUsd: 5, costEstimated: false }
+    for (const d of Object.values(kept.days ?? {})) Object.assign(d, { costUsd: 5, costEstimated: false })
+    await call({ type: 'kept', file: t.file, job: { scope: 'p1', session: 'abc', provider: 'claude-code', usage: kept, holds: [], holdsKey: null } })
+    const totals = async () => {
+      const s = (await t.stored())!
+      return { input: s.rows.reduce((n, r) => n + r.inputTokens, 0), output: s.rows.reduce((n, r) => n + r.outputTokens, 0), requests: s.rows.reduce((n, r) => n + r.requests, 0), cost: usageFromRows(s.summary, s.rows, DEFAULT_SETTINGS).costUsd! }
+    }
+    let now = await totals()
+    expect([now.input, now.output, now.requests]).toEqual([100, 20, 2])
+    expect(now.cost).toBeGreaterThanOrEqual(5)
+    // The file read again (grown by a prompt): still both.
+    appendFileSync(t.transcript, prompt(1))
+    await t.ingest()
+    now = await totals()
+    expect([now.input, now.output, now.requests]).toEqual([100, 20, 2])
+    expect(now.cost).toBeGreaterThanOrEqual(5)
+    await t.close()
+  })
+
+  it.runIf(process.platform === 'win32')('says a file it could not read failed, not unchanged: a delete must not take what is recorded as all of it', async () => {
+    const t = await setup()
+    writeFileSync(t.transcript, prompt(0) + line(1))
+    await t.ingest()
+    appendFileSync(t.transcript, line(2))
+    // Held open by another program (no sharing), its unread end can't be read: failed, what was recorded left as it was.
+    const holder = await hold(t.transcript)
+    try {
+      expect((await t.ingest()).status).toBe('failed')
+      expect(await t.output()).toBe(100)
+    } finally {
+      holder.kill()
+    }
     await t.close()
   })
 
@@ -145,8 +208,9 @@ describe('the usage worker', () => {
     expect(((await call({ type: 'kept', file: t.file, job: keptJob })) as IngestResult).status).toBe('written')
     expect(await t.output()).toBe(500)
     expect((await t.stored())?.source).toBe('kept')
-    // Another kept usage doesn't replace it; its transcript, read later, does (it has more).
-    expect(((await call({ type: 'kept', file: t.file, job: { ...keptJob, usage: { ...kept, outputTokens: 1 } } })) as IngestResult).status).toBe('unchanged')
+    // Another kept usage that counted less takes nothing away; its transcript, read later, adds what it has more of.
+    await call({ type: 'kept', file: t.file, job: { ...keptJob, usage: { ...kept, outputTokens: 1, days: {} } } })
+    expect(await t.output()).toBe(500)
     writeFileSync(t.transcript, prompt(0) + line(1, 500) + line(2))
     expect((await t.ingest()).status).toBe('written')
     expect(await t.output()).toBe(600)
@@ -163,7 +227,7 @@ describe('the usage worker', () => {
     const was = cursorOf(db, 'p1', 'abc')!
     const p = newUsageParser('claude-code', 'abc')!
     p.feed(prompt(0) + line(1))
-    const w = { scope: 'p1', session: 'abc', provider: 'claude-code' as const, source: 'transcript' as const, path: t.transcript, size: 1, mtime: 1, offset: 1, state: null, summary: summaryOf(p.result()), timeline: null, rows: [], holdsKey: null }
+    const w = { scope: 'p1', session: 'abc', provider: 'claude-code' as const, source: 'transcript' as const, path: t.transcript, size: 1, mtime: 1, offset: 1, state: null, summary: summaryOf(p.result()), timeline: null, rows: [], holdsKey: null, baseline: null }
     // From an older point than what is recorded now: refused, nothing written.
     expect(writeSession(db, w, { offset: was.offset - 1, path: was.path })).toBe(false)
     expect(cursorOf(db, 'p1', 'abc')!.tokens).toBe(was.tokens)

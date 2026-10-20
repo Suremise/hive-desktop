@@ -15,7 +15,7 @@ import { emit, onHiveEvent } from './events'
 import { createLogger, userText } from './logger'
 import { recordProvider, sessions } from './sessions'
 import { allTasks } from './tasks'
-import { usageFile, type SessionMeta, type StoredSession } from './usageDb'
+import { usageFile, type SessionId, type SessionMeta, type StoredSession } from './usageDb'
 import type { IngestJob, IngestResult, KeptJob, WorkerReply, WorkerRequest } from './usageWorker'
 import { openWorkspaces, workspaceFor, WorkspaceService } from './workspace'
 
@@ -104,19 +104,51 @@ class UsageHistory {
     WorkspaceService.closingListeners.add((path) => this.closeWorkspace(path))
   }
 
-  /** Board changes in a workspace, a second apart at most: its running sessions' cards shared out again (when their holds changed). */
+  /** Board changes in a workspace, a second apart at most: every recorded session's cards shared out again where their holds changed. */
   private cardsDue = new Map<string, NodeJS.Timeout>()
   private cardsChanged(workspacePath: string): void {
     const key = wsKey(workspacePath)
     if (this.cardsDue.has(key)) return
     const t = setTimeout(() => {
       this.cardsDue.delete(key)
-      for (const st of sessions.liveStates()) {
-        if (st.sessionId && !st.settingUp && workspaceFor(st.projectPath)?.path?.toLowerCase() === key) this.ingest(st.projectPath, st.sessionId, { priority: 1, keepState: 'running' }).catch(() => undefined)
-      }
+      const ws = openWorkspaces().find((w) => w.path?.toLowerCase() === key)
+      if (ws) void this.attribute(ws).catch((e) => log.warn('sharing usage out between cards again', e))
     }, 1000)
     t.unref?.()
     this.cardsDue.set(key, t)
+  }
+
+  /**
+   * Every recorded session of a workspace (running, stopped or deleted) whose cards' holds changed since its rows were
+   * shared out, shared out again from what is stored, no file read (#1106 round 3): a card moved after its session
+   * stopped, a hold that ended within its last request's second. Holds are worked out once per agent; the worker
+   * compares keys and re-shares only the sessions whose changed. Waits for it (cost per card asks first).
+   */
+  async attribute(ws: WorkspaceService): Promise<void> {
+    if (!ws.path) return
+    const file = usageFile(ws.path)
+    const waits: Promise<unknown>[] = []
+    for (const host of await ws.listProjectPaths().then(async (a) => [...a, ...(await ws.listProjectPaths({ hidden: true }))])) {
+      if (ws.lifetime.aborted) return
+      const { scope } = await ws.sessionScope(host)
+      waits.push(
+        this.enqueue(`attribute|${wsKey(ws.path)}|${scope}`, 1, async () => {
+          const ids = await this.call<SessionId[]>({ type: 'ids', file, scope })
+          const byWho = new Map<string, { holds: SessionHold[]; holdsKey: string | null }>()
+          const list: { session: string; holds: SessionHold[]; holdsKey: string | null }[] = []
+          for (const id of ids) {
+            if (id.source === 'external') continue
+            const who = { ...(id.agentId ? { agentId: id.agentId } : {}), ...(id.agentName ? { agentName: id.agentName } : {}) }
+            const k = `${who.agentId ?? ''}\0${who.agentName ?? ''}`
+            let h = byWho.get(k)
+            if (!h) byWho.set(k, (h = await this.holdsFor(ws, host, who)))
+            if (h.holdsKey !== id.holdsKey) list.push({ session: id.session, ...h })
+          }
+          return list.length ? { type: 'attribute', file, scope, sessions: list } : null
+        })
+      )
+    }
+    await Promise.all(waits.map((p) => p.catch(() => undefined)))
   }
 
   /** Hive quits: what is queued is dropped and the worker ends (each write is a transaction: nothing is left half done). */
@@ -355,7 +387,7 @@ class UsageHistory {
    * for what reads a session's latest use at once (cost per card and per lane; the views that refresh on a tick may lag).
    */
   async freshen(ws: WorkspaceService): Promise<void> {
-    const waits: Promise<unknown>[] = []
+    const waits: Promise<unknown>[] = [this.attribute(ws)]
     for (const st of sessions.liveStates()) {
       if (st.sessionId && !st.settingUp && workspaceFor(st.projectPath) === ws) waits.push(this.ingest(st.projectPath, st.sessionId, { priority: 1, keepState: 'running' }))
     }
@@ -374,10 +406,10 @@ class UsageHistory {
   async recordNow(projectPath: string, sessionId: string): Promise<boolean> {
     const rec = (await workspaceFor(projectPath)?.sessionsFile(projectPath).catch(() => null))?.sessions.find((s) => s.id === sessionId)
     const r = await this.ingest(projectPath, sessionId, { priority: 0, keepState: 'no' })
-    if (!r || r.status === 'busy') return false
+    if (!r || r.status === 'busy' || r.status === 'failed') return false
     if (rec?.keptUsage) {
       const k = await this.importKept(projectPath, { ...rec, provider: recordProvider(rec), usage: rec.keptUsage }, 0)
-      if (!k || k.status === 'busy') return false
+      if (!k || k.status === 'busy' || k.status === 'failed') return false
     }
     return true
   }
@@ -400,7 +432,7 @@ class UsageHistory {
     for (const host of await this.hosts(ws)) {
       if (ws.lifetime.aborted) return
       const { scope } = await ws.sessionScope(host)
-      const known = new Map((await this.call<{ session: string; source: string; path: string | null; size: number; mtime: number }[]>({ type: 'ids', file, scope })).map((s) => [s.session, s]))
+      const known = new Map((await this.call<SessionId[]>({ type: 'ids', file, scope })).map((s) => [s.session, s]))
       for (const rec of (await ws.sessionsFile(host)).sessions) {
         const k = known.get(rec.id)
         if (k?.path) {
@@ -444,8 +476,10 @@ class UsageHistory {
     let run = this.backfills.get(key)
     if (!run) {
       run = this.backfill(ws, path)
-        // Then what changed since it was last open (a session continued outside Hive, one that ended as Hive quit).
+        // Then what changed since it was last open (a session continued outside Hive, one that ended as Hive quit; a card
+        // moved meanwhile, by another Hive or a script).
         .then(() => this.sweep(ws))
+        .then(() => this.attribute(ws))
         .catch((e) => log.warn(`importing the usage history of ${userText(path)}`, e))
         .finally(() => this.backfills.delete(key))
       this.backfills.set(key, run)
@@ -471,7 +505,7 @@ class UsageHistory {
       return
     }
     /** Whether a job did what it was for (null: the workspace closed meanwhile). */
-    const ok = (r: IngestResult | null): boolean => !!r && r.status !== 'busy'
+    const ok = (r: IngestResult | null): boolean => !!r && r.status !== 'busy' && r.status !== 'failed'
     type Item = { at: string; run: () => Promise<boolean> }
     const items: Item[] = []
     for (const host of await this.hosts(ws)) {

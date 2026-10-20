@@ -14,7 +14,8 @@ import { emptyPart, holdsFromHistory, mergeSpans, sharedSpans, type CostPart, ty
  * several, ≈); the rest of the day is card 0. Pure: the usage worker makes rows from a parser's result, main prices them.
  */
 
-export type LedgerRole = '' | 'build' | 'review'
+/** A row's role: on a card (`build`, `review`), on none (''), or what a day's baseline adds (`kept`: counted before, applyBaseline). */
+export type LedgerRole = '' | 'build' | 'review' | 'kept'
 
 export interface LedgerRow {
   day: string
@@ -260,8 +261,11 @@ export function unknownOnCards(usage: Pick<SessionUsage, 'model' | 'firstActivit
  * each day's totals as its rows have them, split by the stored timeline (a kept usage, without one: its days as they
  * are, and its cards' unknown parts again). Its totals never change, only which card each part is on.
  */
-export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | null, rows: LedgerRow[], holds: SessionHold[], settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
-  if (!timeline?.rows.length) return [...rows.filter((r) => r.card === 0), ...unknownOnCards(summary, holds)]
+export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | null, all: LedgerRow[], holds: SessionHold[], settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
+  if (!timeline?.rows.length) return [...all.filter((r) => r.card === 0), ...unknownOnCards(summary, holds)]
+  // What a baseline added stays as it is: it depends on the day's totals, which sharing cards out doesn't change.
+  const added = all.filter((r) => r.role === 'kept')
+  const rows = all.filter((r) => r.role !== 'kept')
   const days: Record<string, DayUsage> = {}
   const usage: SessionUsage = { ...summary, ...ZERO(), requests: 0, costUsd: null, costEstimated: false, days, timeline }
   for (const r of rows) {
@@ -275,7 +279,122 @@ export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | nul
     d.prompts += r.prompts
     d.compactions += r.compactions
   }
-  return ledgerRows(usage, holds, settings)
+  return [...ledgerRows(usage, holds, settings), ...added]
+}
+
+// ---------------------------------------------------------------------------
+// What was counted before: a session's baseline.
+// ---------------------------------------------------------------------------
+
+/**
+ * A day of what was counted for a session before (a kept usage's day, or what its rows had when a later read of its file
+ * didn't match them): a session's rows never go below it, in any of these (#1106 round 3: history is only added to, and
+ * one snapshot never wins over another by a sum). `costUsd`: its known cost then (null: none).
+ */
+export interface BaselineDay {
+  day: string
+  model: string
+  inputTokens: number
+  outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  requests: number
+  prompts: number
+  compactions: number
+  costUsd: number | null
+  costEstimated: boolean
+}
+
+/** What a baseline day holds that rows add up to (cost apart). */
+const COUNTS = ['inputTokens', 'outputTokens', 'cacheWriteTokens', 'cacheReadTokens', 'requests', 'prompts', 'compactions'] as const
+
+/** A kept usage's days as a baseline (its totals on its last day when it has none by day). */
+export function baselineOfUsage(usage: SessionUsage): BaselineDay[] {
+  const model = usage.model ?? ''
+  const days: [string, DayUsage][] = usage.days && Object.keys(usage.days).length ? Object.entries(usage.days) : [[localDay(usage.lastActivity ?? usage.firstActivity), { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheWriteTokens: usage.cacheWriteTokens, cacheReadTokens: usage.cacheReadTokens, requests: usage.requests, prompts: usage.userMessages, compactions: usage.compactions.length, costUsd: usage.costUsd, costEstimated: usage.costEstimated }]]
+  return days.filter(([day]) => !!day).map(([day, d]) => ({ day, model, inputTokens: d.inputTokens, outputTokens: d.outputTokens, cacheWriteTokens: d.cacheWriteTokens, cacheReadTokens: d.cacheReadTokens, requests: d.requests, prompts: d.prompts, compactions: d.compactions, costUsd: d.costUsd, costEstimated: d.costEstimated }))
+}
+
+/** Rows' days as a baseline, their cost priced now (null where none is known). */
+export function baselineOfRows(rows: LedgerRow[], provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): BaselineDay[] {
+  const by = new Map<string, BaselineDay & { most: number }>()
+  for (const r of rows) {
+    let b = by.get(r.day)
+    if (!b) by.set(r.day, (b = { day: r.day, model: r.model, ...ZERO(), requests: 0, prompts: 0, compactions: 0, costUsd: null, costEstimated: false, most: -1 }))
+    for (const k of COUNTS) b[k] += r[k]
+    const c = rowCost(r, provider, settings)
+    if (c.usd !== null) {
+      b.costUsd = (b.costUsd ?? 0) + c.usd
+      if (c.estimated) b.costEstimated = true
+    }
+    // The day's model: the one with the most tokens.
+    if (tokenSum(r) > b.most) {
+      b.most = tokenSum(r)
+      b.model = r.model
+    }
+  }
+  return [...by.values()].map(({ most: _most, ...b }) => b)
+}
+
+/** Two baselines as one: each day the larger of each (its cost too), so neither loses anything it had. */
+export function mergeBaselines(a: BaselineDay[], b: BaselineDay[]): BaselineDay[] {
+  const by = new Map(a.map((d) => [d.day, { ...d }]))
+  for (const d of b) {
+    const was = by.get(d.day)
+    if (!was) {
+      by.set(d.day, { ...d })
+      continue
+    }
+    for (const k of COUNTS) was[k] = Math.max(was[k], d[k])
+    if (d.costUsd !== null && (was.costUsd === null || d.costUsd > was.costUsd)) {
+      was.costUsd = d.costUsd
+      was.costEstimated = d.costEstimated
+    }
+  }
+  return [...by.values()].sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : 0))
+}
+
+/**
+ * Rows with what a baseline counted that they don't (a `kept` row a day, on card 0): each day, each count the rows have
+ * less of, and the known cost they're short of (priced now), so a day never shows less than was counted before. Rows'
+ * own `kept` rows (an earlier baseline's) are replaced.
+ */
+export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
+  const rows = all.filter((r) => r.role !== 'kept')
+  const out = [...rows]
+  for (const b of baseline) {
+    const day = rows.filter((r) => r.day === b.day)
+    const r = emptyRow(b.day, b.model, 0, 'kept')
+    for (const k of COUNTS) r[k] = Math.max(0, b[k] - day.reduce((n, x) => n + x[k], 0))
+    const has = day.reduce((n, x) => n + (rowCost(x, provider, settings).usd ?? 0), 0)
+    if (b.costUsd !== null && b.costUsd > has) {
+      // Its tokens are the baseline's, so its cost is what they were counted at: covered, not estimated again.
+      r.fixedUsd = b.costUsd - has
+      r.fixedEstimated = b.costEstimated
+      r.covered = { inputTokens: r.inputTokens, outputTokens: r.outputTokens, cacheWriteTokens: r.cacheWriteTokens, cacheReadTokens: r.cacheReadTokens }
+    }
+    if (hasUse(r)) out.push(r)
+  }
+  return out
+}
+
+/** Whether rows count at least what other rows did, every day, in each count (what replacing them would keep). */
+export function dominates(rows: LedgerRow[], before: LedgerRow[]): boolean {
+  const sums = (list: LedgerRow[]): Map<string, Record<(typeof COUNTS)[number], number>> => {
+    const m = new Map<string, Record<(typeof COUNTS)[number], number>>()
+    for (const r of list) {
+      const s = m.get(r.day) ?? { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 0, prompts: 0, compactions: 0 }
+      for (const k of COUNTS) s[k] += r[k]
+      m.set(r.day, s)
+    }
+    return m
+  }
+  const now = sums(rows)
+  for (const [day, s] of sums(before)) {
+    const n = now.get(day)
+    if (!n || COUNTS.some((k) => n[k] < s[k])) return false
+  }
+  return true
 }
 
 /** A row's cost with today's prices: its known amount, and Hive's estimate for the tokens it doesn't cover (null: none known). */

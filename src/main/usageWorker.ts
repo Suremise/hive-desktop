@@ -3,11 +3,11 @@ import { createHash } from 'crypto'
 import { open, stat } from 'original-fs/promises'
 import { dirname, join } from 'path'
 import type { AppSettings, SessionUsage } from '../shared/types'
-import { keptRows, ledgerRows, reshareRows, summaryOf, type SessionHold } from '../shared/usageLedger'
+import { applyBaseline, baselineOfRows, baselineOfUsage, dominates, ledgerRows, mergeBaselines, reshareRows, summaryOf, unknownOnCards, type SessionHold } from '../shared/usageLedger'
 import { openDb, type Db } from './db'
 import { readAdvancedFrom, valuesReader } from './advancedValues'
 import type { DatabaseSync } from 'node:sqlite'
-import { cardRows, cursorOf, getMeta, replaceRows, sessionIds, setMeta, storedSession, storedSessions, storedTimelines, touchSession, updateMeta, USAGE_MIGRATIONS, writeSession, type Cursor, type SessionMeta, type SessionWrite } from './usageDb'
+import { baselineOf, cardRows, cursorOf, getMeta, replaceRows, sessionIds, setMeta, storedSession, storedSessions, storedTimelines, updateMeta, USAGE_MIGRATIONS, writeSession, type SessionMeta, type SessionWrite } from './usageDb'
 import { newUsageParser, parserShape, restoreParser, saveParser, type RawUsageParser } from './usageParsers'
 
 /**
@@ -41,7 +41,8 @@ export interface KeptJob extends SessionMeta {
   holdsKey: string | null
 }
 
-export type IngestResult = { status: 'written' | 'unchanged' | 'missing' | 'kept' | 'busy'; requests?: number }
+/** `failed`: the file is there (or that can't be told) but couldn't be read; `busy`: not written (another writer, a read-only file). */
+export type IngestResult = { status: 'written' | 'unchanged' | 'missing' | 'kept' | 'busy' | 'failed'; requests?: number }
 
 export type WorkerRequest = { id: number } & (
   | { type: 'config'; advanced: Record<string, unknown>; providers: AppSettings['providers']; hiveVersion: string }
@@ -53,6 +54,7 @@ export type WorkerRequest = { id: number } & (
   | { type: 'ids'; file: string; scope: string }
   | { type: 'meta'; file: string; scope: string; key: string; value?: string }
   | { type: 'forgetStates'; file: string; before: string }
+  | { type: 'attribute'; file: string; scope: string; sessions: { session: string; holds: SessionHold[]; holdsKey: string | null }[] }
   | { type: 'close'; file: string }
 )
 
@@ -158,15 +160,14 @@ async function bytesBefore(path: string, offset: number): Promise<string | null>
   }
 }
 
-const tokenSum = (u: Pick<SessionUsage, 'inputTokens' | 'outputTokens' | 'cacheWriteTokens' | 'cacheReadTokens'>): number => u.inputTokens + u.outputTokens + u.cacheWriteTokens + u.cacheReadTokens
-
 /**
  * Records what a session used from its file: unchanged since it was read, nothing (its cards re-shared from what is stored
  * when their holds changed); else from where it was left (its parser's saved state, made from this file's bytes), or from
- * the start (no state of this parser's shape and Hive's version, a file that shrank or is another). What it read is
- * recorded unless it would make the session's totals smaller than recorded (usage history is only added to: a backup
- * that lags the transcript it replaced, a rewritten file, a kept usage that counted more), which leaves the rows as
- * they were. A state is only ever kept for the file and bytes it was made from: a read from the start lets it go.
+ * the start (no state of this parser's shape and Hive's version, a file that shrank or is another). Usage history is only
+ * added to (#1106 round 3): what it read replaces the session's rows when it counts at least as much, every day, in each
+ * count; when it doesn't (a backup that lags the transcript it replaced, a rewritten file), what the rows counted becomes
+ * part of the session's baseline, which no write goes below, so both are kept. `failed`: the file couldn't be read (it
+ * is there, or can't be told), so what is recorded may lack its end: a delete waits.
  */
 async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   if (readOnly(file)) return { status: 'busy' }
@@ -181,8 +182,11 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   let st
   try {
     st = await stat(job.path)
-  } catch {
-    return cur ? unchanged() : { status: 'missing' }
+  } catch (e) {
+    // Gone: what is recorded is all there is. Anything else (no permission, held, a disk error): not known.
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return cur ? unchanged() : { status: 'missing' }
+    log('warn', `usage history: couldn't look at a transcript (${(e as Error).message})`, job.path)
+    return { status: 'failed' }
   }
   if (!st.isFile()) return cur ? unchanged() : { status: 'missing' }
   const samePath = !!cur?.path && cur.path.toLowerCase() === job.path.toLowerCase()
@@ -202,16 +206,23 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
     offset = await feed(job.path, parser, from, st.size)
   } catch (e) {
     log('warn', `usage history: couldn't read a transcript (${(e as Error).message})`, job.path)
-    return cur ? unchanged() : { status: 'busy' }
+    return { status: 'failed' }
   }
   const raw = parser.result()
   // Read again after the awaits: what another writer recorded meanwhile is checked in the write.
   const now = cursorOf(db, job.scope, job.session)
-  if (now && (raw.requests < now.requests || tokenSum(raw) < now.tokens)) {
-    touchSession(db, job.scope, job.session, job.path, st.size, st.mtimeMs)
-    reshare(db, job, now)
-    log('info', `usage history: ${job.session} read ${raw.requests} request(s), fewer than recorded (${now.requests}): kept as recorded`, job.path)
-    return { status: 'kept', requests: now.requests }
+  const settings = providers ? { providers } : null
+  const stored = now ? storedSession(db, job.scope, job.session) : null
+  let baseline = now ? baselineOf(db, job.scope, job.session) : []
+  const read = ledgerRows(raw, job.holds, settings)
+  let rows = applyBaseline(read, baseline, job.provider, settings)
+  let grew = false
+  if (stored && !dominates(rows, stored.rows)) {
+    // Less of something than recorded: what was recorded joins the baseline, and neither is lost.
+    baseline = mergeBaselines(baseline, baselineOfRows(stored.rows, job.provider, settings))
+    rows = applyBaseline(read, baseline, job.provider, settings)
+    grew = true
+    log('info', `usage history: ${job.session} read less of something than recorded: what was recorded is kept beside it`, job.path)
   }
   const due = job.keepState === 'now' || (job.keepState === 'running' && (!now?.stateAt || Date.now() - Date.parse(now.stateAt) >= STATE_EVERY_MS))
   const w: SessionWrite = {
@@ -225,37 +236,57 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
     state: due ? { data: saveParser(parser), offset, shape: parserShape(parser), version: hiveVersion, check: (await bytesBefore(job.path, offset)) ?? '' } : from === 0 ? 'clear' : null,
     summary: summaryOf(raw),
     timeline: raw.timeline ?? null,
-    rows: ledgerRows(raw, job.holds, providers ? { providers } : null),
-    holdsKey: job.holdsKey
+    rows,
+    holdsKey: job.holdsKey,
+    baseline: grew ? baseline : null
   }
   const ok = writeSession(db, w, now ? { offset: now.offset, path: now.path } : null)
   return { status: ok ? 'written' : 'busy', requests: raw.requests }
 }
 
 /** A recorded session's cards shared out again from what is stored, when the holds its rows were made by changed. */
-function reshare(db: DatabaseSync, job: { scope: string; session: string; holds: SessionHold[]; holdsKey: string | null }, cur: Cursor | null): void {
-  if (!cur || cur.holdsKey === job.holdsKey) return
+function reshare(db: DatabaseSync, job: { scope: string; session: string; holds: SessionHold[]; holdsKey: string | null }, cur: { holdsKey: string | null } | null): boolean {
+  if (!cur || cur.holdsKey === job.holdsKey) return false
   const s = storedSession(db, job.scope, job.session)
-  if (!s) return
+  if (!s) return false
   replaceRows(db, job.scope, job.session, reshareRows(s.summary, s.timeline, s.rows, job.holds, providers ? { providers } : null), job.holdsKey)
+  return true
 }
 
 /**
- * Records a kept usage (a deleted session's, or a record's whose transcript went): for a session the history doesn't
- * have, or has with less counted (a stale or partial backup read: usage history is never made smaller). One recorded
- * with as much or more stays as it is.
+ * Records a kept usage (a deleted session's, or a record's whose transcript went) as part of the session's baseline: its
+ * rows (from its file, if it was read) never go below it, day by day, in each count, nor its known cost; a session the
+ * history doesn't have yet is recorded from it alone. Nothing either counted is dropped for the other.
  */
 function kept(file: string, job: KeptJob): IngestResult {
   if (readOnly(file)) return { status: 'busy' }
   const db = dbOf(file).writer
   const cur = cursorOf(db, job.scope, job.session)
-  const tokens = tokenSum(job.usage)
-  if (cur && (cur.tokens > tokens || (cur.tokens === tokens && cur.requests >= job.usage.requests))) {
-    reshare(db, job, cur)
-    return { status: 'unchanged', requests: cur.requests }
+  const settings = providers ? { providers } : null
+  const baseline = mergeBaselines(cur ? baselineOf(db, job.scope, job.session) : [], baselineOfUsage(job.usage))
+  if (cur) {
+    const s = storedSession(db, job.scope, job.session)
+    if (!s) return { status: 'busy' }
+    const base = s.rows.filter((r) => r.role !== 'kept')
+    // Without a timeline (kept usage alone), its cards' unknown parts as its holds have them now.
+    const rows = applyBaseline(s.timeline?.rows.length ? base : base.filter((r) => r.card === 0), baseline, job.provider, settings)
+    replaceRows(db, job.scope, job.session, s.timeline?.rows.length ? rows : [...rows, ...unknownOnCards(s.summary, job.holds)], job.holdsKey, baseline)
+    return { status: 'written', requests: job.usage.requests }
   }
-  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: 'clear', summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: keptRows(job.usage, job.holds), holdsKey: job.holdsKey }
-  return { status: writeSession(db, w, cur ? { offset: cur.offset, path: cur.path } : null) ? 'written' : 'busy', requests: job.usage.requests }
+  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: 'clear', summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: [...applyBaseline([], baseline, job.provider, settings), ...unknownOnCards(job.usage, job.holds)], holdsKey: job.holdsKey, baseline }
+  return { status: writeSession(db, w, null) ? 'written' : 'busy', requests: job.usage.requests }
+}
+
+/**
+ * Shares the cards of a scope's recorded sessions out again by their holds now, without reading a file (#1106 round 3):
+ * stopped and deleted sessions too, each whose holds key changed. Main works the holds out per agent.
+ */
+function attribute(file: string, scope: string, sessions: { session: string; holds: SessionHold[]; holdsKey: string | null }[]): number {
+  if (readOnly(file)) return 0
+  const db = dbOf(file).writer
+  let n = 0
+  for (const s of sessions) if (reshare(db, { scope, ...s }, cursorOf(db, scope, s.session))) n++
+  return n
 }
 
 /** Jobs one at a time; queries at once. (Exported for main to run it in its own thread in unit tests: usageHistory.ts.) */
@@ -286,6 +317,11 @@ export async function handleRequest(m: WorkerRequest): Promise<unknown> {
       const db = dbOf(m.file)
       if (m.value !== undefined && !readOnly(m.file)) setMeta(db.writer, m.scope, m.key, m.value)
       return getMeta(db.writer, m.scope, m.key)
+    }
+    case 'attribute': {
+      const run = jobs.then(() => attribute(m.file, m.scope, m.sessions))
+      jobs = run.catch(() => undefined)
+      return run
     }
     case 'forgetStates': {
       if (readOnly(m.file)) return 0

@@ -186,6 +186,37 @@ describe('the usage history of a workspace', () => {
     expect(cost.unmatched).toBe(0)
   })
 
+  it("a stopped session's share on a card follows the card's hold after it stopped (the board change, then the cost asked)", async () => {
+    const tasks = await import('../src/main/tasks')
+    const { cardCosts } = await import('../src/main/cardCosts')
+    const card = await run(() => tasks.createTask({ title: 'Closed later', project: 'proj', agent: 'c1', column: 'doing' }, { kind: 'user' }))
+    const from = Date.parse(card.held![0].from)
+    const id = newId()
+    await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'stopped', lastActiveAt: new Date(from).toISOString() }))
+    // Its last request 2.3 s into the hold; recorded as it stopped, 0.1 s later, the hold still open (cut at that moment).
+    const req = { type: 'assistant', sessionId: id, requestId: 'z1', timestamp: new Date(from + 2300).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1000 } } }
+    write(cliFile(id), JSON.stringify(req) + '\n')
+    // This session's part of the card (the agent's other sessions here may have some too), after its cost is asked for.
+    const onCard = async (): Promise<number> => {
+      await run(() => cardCosts(w, { numbers: [card.number] }))
+      return (await usageHistory.cardRows(wsPath, [card.number])).filter((r) => r.session === id).reduce((sum, r) => sum + r.row.outputTokens, 0)
+    }
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(from + 2400)
+      await usageHistory.ingest(p, id, { priority: 1, keepState: 'now' })
+      expect(await onCard()).toBeLessThan(1000)
+      // Ten seconds on, the card goes to Done: its hold ends after the whole request's second.
+      vi.setSystemTime(from + 10_000)
+      await run(() => tasks.updateTask(card.number, { column: 'done' }, { kind: 'user' }))
+    } finally {
+      vi.useRealTimers()
+    }
+    // The session isn't running: nothing reads its file again; asking for the card's cost shares it out again.
+    await run(() => cardCosts(w, { numbers: [card.number] }))
+    expect(await onCard()).toBe(1000)
+  })
+
   it('the Overview reads no transcript', async () => {
     const reads = vi.spyOn(sessions, 'anyTranscript')
     const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')

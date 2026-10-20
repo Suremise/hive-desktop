@@ -4567,10 +4567,12 @@ class SessionManager {
   }
 
   /**
-   * A session's usage. A running one's from its transcript as it grows (read here a piece at a time: its footer and gauge
-   * follow each turn); any other's from the usage history (#1106), priced now. One the history doesn't have yet (its
-   * import under way, a session adopted since the last sweep) is read from its transcript as before and queued for the
-   * history; with no transcript left, its kept usage, until the history has imported it.
+   * A session's usage. From the usage history (#1106), priced now; a running one's asked for alone (its usage: the
+   * session's details, the Agent API) from its transcript as it grows, read here a piece at a time, while a list (`ctx`
+   * with the history's sessions: the Sessions tab, the project Overview) takes it from the history too, its last turn's
+   * end or tick, so no transcript is read for it. One the history doesn't have yet (its import under way, a session
+   * adopted since the last sweep) is read from its transcript as before and queued for the history; with no transcript
+   * left, its kept usage, until the history has imported it.
    */
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
@@ -4578,7 +4580,7 @@ class SessionManager {
     const rec = records.find((s) => s.id === sessionId)
     const running = this.projectStates(projectPath).some((s) => s.sessionId === sessionId)
     let usage: SessionUsage | null = null
-    if (!running) {
+    if (!running || ctx?.stored) {
       const stored = (ctx?.stored ?? (await usageHistory.storedUsage(projectPath).catch(() => null)))?.get(sessionId)
       if (stored) usage = this.titled(stored.usage)
     }
