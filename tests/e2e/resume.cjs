@@ -144,6 +144,53 @@ const shot = (page, n) => page.screenshot({ path: path.join(scratch, `resume-${n
   await inv('session:stop', proj, A1.id); await lib.until(async () => !(await inv('session:live')).some((l) => l.agentId === A1.id), 15000)
   p = await project()
   check('after stop Agent 1 resume is back', !!a1().resume, JSON.stringify(a1().resume))
+
+  // Compressed backups (#1110): an ended session's backup as Hive keeps it (compressing it is in backupCompression.test.ts).
+  const zlib = require('zlib')
+  const OLDER = '11111111-0000-4000-8000-000000000001'
+  const plainB = path.join(proj, '.hive', 'sessions', `${OLDER}.jsonl`), gzB = plainB + '.gz'
+  const compressed = () => fs.existsSync(gzB) && !fs.existsSync(plainB)
+  if (fs.existsSync(plainB)) {
+    fs.writeFileSync(gzB, zlib.gzipSync(fs.readFileSync(plainB)))
+    fs.rmSync(plainB)
+  }
+  check("an ended session's backup is compressed", compressed())
+  const viewed = await inv('transcript:read', proj, OLDER)
+  check('it is viewed from the compressed backup', !!viewed?.items.some((i) => i.kind === 'user' && /Earlier work/.test(i.text)), JSON.stringify(viewed?.items?.length))
+  const found = await inv('transcript:search', proj, 'Earlier work', OLDER)
+  check('it is searched', found.length > 0, JSON.stringify(found).slice(0, 200))
+  // Export: the save dialog answered in main, to a test path.
+  const out = path.join(scratch, 'resume-export.md')
+  fs.rmSync(out, { force: true })
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: file })
+  }, out)
+  const saved = await inv('transcript:export', proj, OLDER, 'Older work')
+  check('it is exported', saved === out && /Earlier work/.test(fs.readFileSync(out, 'utf8')), String(saved))
+  // The CLI has no transcript of it: a resume puts the backup back, decompressed, where the CLI looks.
+  const cliCopy = () => {
+    const dir = path.join(scratch, 'resume-claude-home', 'projects')
+    for (const d of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+      const f = path.join(dir, d, `${OLDER}.jsonl`)
+      if (fs.existsSync(f)) return f
+    }
+    return null
+  }
+  for (const round of [1, 2]) {
+    check(`round ${round}: the CLI has no copy`, cliCopy() === null)
+    await inv('session:start', proj, { resumeId: OLDER, agentId: A1.id })
+    await lib.acceptClaudeTrust(inv, proj, A1.id)
+    const up = await lib.until(async () => (await inv('session:live')).some((l) => l.agentId === A1.id && l.sessionId === OLDER && l.status !== 'starting'), 30000)
+    check(`round ${round}: resumed from the compressed backup`, !!up)
+    const restored = cliCopy()
+    check(`round ${round}: restored where the CLI looks, decompressed`, !!restored && /Earlier work/.test(fs.readFileSync(restored, 'utf8')), String(restored))
+    await inv('session:stop', proj, A1.id); await lib.until(async () => !(await inv('session:live')).some((l) => l.agentId === A1.id), 15000)
+    // Ended: its backup (written plain while it ran) is compressed again, and still holds the conversation.
+    const again = await lib.until(compressed, 15000)
+    check(`round ${round}: compressed again at its end`, !!again && /Earlier work/.test(zlib.gunzipSync(fs.readFileSync(gzB)).toString('utf8')))
+    // The CLI forgets it again (as Claude Code does after 30 days).
+    fs.rmSync(restored, { force: true })
+  }
   await app.close()
   console.log(`\n${pass} passed, ${fail} failed`)
   process.exit(fail ? 1 : 0)

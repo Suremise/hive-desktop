@@ -44,6 +44,11 @@
       }
     },
     {
+      // Node's worker threads (the usage worker, #1106): their postMessage has no target origin (a browser window's has).
+      "files": ["src/main/usageWorker.ts", "src/main/usageHistory.ts"],
+      "rules": { "unicorn/require-post-message-target-origin": "off" }
+    },
+    {
       "files": ["src/main/mcp/hive-mcp.ts", "src/main/progressReporters/hive-progress.ts", "src/main/progressReporters/wrapper.ts", "src/main/progressReporters/report.mts"],
       "rules": { "no-restricted-imports": "off" }
     }

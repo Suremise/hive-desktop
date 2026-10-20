@@ -7,7 +7,8 @@ import { basename, dirname, join } from 'path'
  * and the Assistant's journal in a file of its own, #989) is opened, set up and migrated here, with Node's built-in
  * `node:sqlite` (no native module to rebuild for each Electron). Nothing else imports `node:sqlite`, so another library
  * would be a change to this file only. Its calls are synchronous: at these sizes a query or a commit takes well under a
- * millisecond on main's thread.
+ * millisecond on main's thread. The usage history (`.hive/usage.db`, #1106) is opened here too, by the usage worker on a
+ * thread of its own (usageWorker.ts): nothing here is tied to main's thread.
  */
 
 /** One step of a database's schema: run once, in its own transaction, in order of `version`. */

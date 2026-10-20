@@ -49,13 +49,16 @@ export const WORKSPACE_STORES: Store[] = [
   { dir: 'metrics', temp: /^metrics\.json$/i, imported: /^metrics\.json$/i },
   { dir: join('metrics', 'benchmarks'), temp: /^[\w-]+\.json$/i },
   { dir: 'assistant', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i, imported: /^(sessions|deliveries)\.json$/i },
-  { dir: join('assistant', 'sessions'), temp: /^[\w-]+\.jsonl$/i }
+  // Transcript backups, plain or compressed (#1110: compressing one, or decompressing one to archive it, writes aside).
+  { dir: join('assistant', 'sessions'), temp: /^[\w-]+\.jsonl(\.gz)?$/i },
+  { dir: join('assistant', 'archive'), temp: /^[\w-]+\.jsonl(\.gz)?$/i }
 ]
 
 /** A project's .hive: its settings, sessions and deliveries, and its transcript backups. */
 export const PROJECT_STORES: Store[] = [
   { dir: '.', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i, imported: /^(sessions|deliveries)\.json$/i },
-  { dir: 'sessions', temp: /^[\w-]+\.jsonl$/i }
+  { dir: 'sessions', temp: /^[\w-]+\.jsonl(\.gz)?$/i },
+  { dir: 'archive', temp: /^[\w-]+\.jsonl(\.gz)?$/i }
 ]
 
 /**

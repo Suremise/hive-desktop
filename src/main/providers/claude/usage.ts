@@ -49,11 +49,12 @@ interface UsageBlock {
   cache_creation?: { ephemeral_1h_input_tokens?: number; ephemeral_5m_input_tokens?: number }
 }
 
-/** A request's usage, the local day it ran on and when (its place in the timeline: usageTimeline.ts). */
+/** A request's usage, the local day it ran on and when (its place in the timeline: usageTimeline.ts), and its model (#1106). */
 interface Request {
   u: UsageBlock
   day: string
   at: string | undefined
+  model: string | null
 }
 
 const tokensOf = (u: UsageBlock): UsageTokens => ({
@@ -143,7 +144,7 @@ export class ClaudeUsageParser {
           if (!u) break
           const key = o.requestId ?? msg.id ?? o.uuid ?? String(this.byRequest.size)
           const known = this.byRequest.get(key)
-          this.byRequest.set(key, { u, day: known?.day || day, at: known?.at ?? (ts || usage.lastActivity || undefined) })
+          this.byRequest.set(key, { u, day: known?.day || day, at: known?.at ?? (ts || usage.lastActivity || undefined), model: known?.model ?? usage.model })
           if (!known) this.uncovered.add(key)
           if (!side) {
             // The output (thinking included) stays in the context: what Claude Code compacts on is input + output.
@@ -224,7 +225,7 @@ export class ClaudeUsageParser {
       const d = dayOf(r.day)
       addTokens(d, t)
       d.requests++
-      timeline.add(r.at, t, 1, reportOf.get(key) ?? -1)
+      timeline.add(r.at, t, 1, reportOf.get(key) ?? -1, 0, r.model)
     }
     usage.timeline = timeline.timeline(charges)
     if (Object.keys(this.safeguards).length) usage.safeguards = { ...this.safeguards }

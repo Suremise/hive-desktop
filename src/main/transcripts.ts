@@ -10,6 +10,7 @@ import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
 import { setViewing, whileReading } from './transcriptReads'
 import { workspace } from './workspace'
+import { isGz, readBytes, readTranscript } from './transcriptFiles'
 
 /** The Sessions tab's refusals, in the window's language (#850). */
 const M = {
@@ -27,8 +28,13 @@ interface Entry {
   provider: ProviderId
   parser: ConversationParserLike
   size: number
+  /** A compressed backup's identity when read (size, modified time, file id): it is replaced whole, never appended to. */
+  stamp: string
   used: number
 }
+
+/** What the viewer passes back to learn nothing changed: a plain file's size read, a compressed one's identity. */
+const versionOf = (e: Entry): string => (isGz(e.path) ? `gz:${e.stamp}` : String(e.size))
 
 const MAX_CACHED = 6
 /** How much of a transcript is read at a time. */
@@ -77,16 +83,29 @@ async function parsed(projectPath: string, sessionId: string): Promise<Entry> {
 async function parseNow(projectPath: string, sessionId: string, key: string): Promise<Entry> {
   const path = await sessions.anyTranscript(projectPath, sessionId)
   if (!path) throw hiveError(msg({ id: 'service.transcripts.none', defaultMessage: 'This session has no transcript yet.', description: "An error in the Sessions tab: the session's CLI hasn't written its conversation's file yet." }), undefined, { kind: 'notFound' })
-  const size = (await stat(path)).size
+  const st = await stat(path)
+  const size = st.size
+  // A compressed backup (#1110) is replaced whole when a resumed session ends, possibly by one of the same size: it is
+  // told apart by its identity, and read whole again when that changes.
+  const stamp = isGz(path) ? `${st.size}:${st.mtimeMs}:${st.ino}` : ''
   let e = cache.get(key)
-  // A different file (the provider deleted it and Hive's backup is used) or a shorter one means start again.
-  if (!e || e.path !== path || size < e.parser.offset) {
+  // A different file (the provider deleted it and Hive's backup is used), a shorter one or another compressed one means
+  // start again.
+  if (!e || e.path !== path || (isGz(path) ? stamp !== e.stamp : size < e.parser.offset)) {
     const id = await sessions.sessionProvider(projectPath, sessionId)
-    e = { path, provider: id, parser: provider(id).conversationParser(projectPath), size: 0, used: 0 }
+    e = { path, provider: id, parser: provider(id).conversationParser(projectPath), size: 0, stamp: '', used: 0 }
     cache.set(key, e)
   }
   e.used = Date.now()
-  if (size !== e.size) {
+  if (isGz(path)) {
+    if (e.stamp !== stamp) {
+      // Decompressed a piece at a time, each handed to the parser as a plain file's would be.
+      const parser = e.parser
+      await readTranscript(path, 0, (piece) => void parser.feed(piece), READ_CHUNK)
+      e.size = size
+      e.stamp = stamp
+    }
+  } else if (size !== e.size) {
     // In pieces, so a long transcript opened for the first time doesn't take its whole size in memory at once.
     let chunk = READ_CHUNK
     while (e.parser.offset < size) {
@@ -123,14 +142,15 @@ function forDisplay(item: TranscriptItem): TranscriptItem {
 export const transcripts = {
   /**
    * The conversation from item `from` on (by default the latest TRANSCRIPT_WINDOW items: the viewer loads
-   * earlier ones as you scroll up), or null when the file hasn't grown since knownSize.
+   * earlier ones as you scroll up), or null when the file hasn't changed since knownVersion.
    */
-  async read(projectPath: string, sessionId: string, opts: { knownSize?: number; from?: number } = {}): Promise<Transcript | null> {
+  async read(projectPath: string, sessionId: string, opts: { knownVersion?: string; from?: number } = {}): Promise<Transcript | null> {
     const e = await parsed(projectPath, sessionId)
-    if (opts.knownSize !== undefined && opts.knownSize === e.size) return null
+    const version = versionOf(e)
+    if (opts.knownVersion !== undefined && opts.knownVersion === version) return null
     const total = e.parser.items.length
     const from = Math.max(0, Math.min(total, opts.from ?? total - TRANSCRIPT_WINDOW))
-    return { sessionId, size: e.size, total, from, items: e.parser.items.slice(from).map(forDisplay) }
+    return { sessionId, size: e.size, version, total, from, items: e.parser.items.slice(from).map(forDisplay) }
   },
 
   async tool(projectPath: string, sessionId: string, itemId: number): Promise<TranscriptTool> {
@@ -148,7 +168,7 @@ export const transcripts = {
     const e = await parsed(projectPath, sessionId)
     const loc = e.parser.images[imageId]
     if (!loc) throw hiveError(msg({ id: 'service.transcripts.noImage', defaultMessage: 'No such image', description: "An error in the Sessions tab: the image asked for isn't in the conversation (any more)." }), undefined, { kind: 'notFound' })
-    const entry = JSON.parse((await readRange(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
+    const entry = JSON.parse((await readBytes(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
     const url = provider(e.provider).imageData(entry, loc)
     if (!url) throw hiveError(msg({ id: 'service.transcripts.imageNotKept', defaultMessage: 'The image is not stored in the transcript', description: "An error in the Sessions tab: the conversation's file mentions the image but doesn't hold it." }), undefined, { kind: 'notFound' })
     return url

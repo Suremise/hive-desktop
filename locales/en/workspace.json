@@ -835,6 +835,14 @@
     "defaultMessage": "{count, plural, one {# hidden or removed project isn't counted} other {# hidden or removed projects aren't counted}} (Settings → Workspace).",
     "description": "Under the table by project."
   },
+  "workspace.overview.importing": {
+    "defaultMessage": "Importing the usage history: {done, number} of {total, plural, one {# session} other {# sessions}}. The figures are partial until it is done.",
+    "description": "The Workspace Overview while Hive records, once, what the workspace's existing sessions used ({done} of {total} so far)."
+  },
+  "workspace.overview.importingStart": {
+    "defaultMessage": "Importing the usage history. The figures are partial until it is done.",
+    "description": "The Workspace Overview while Hive starts recording, once, what the workspace's existing sessions used (before it has counted them)."
+  },
   "workspace.overview.loadTarget": {
     "defaultMessage": "the workspace's usage",
     "description": "What could not be loaded: shown in \"Could not load {what}: {error}\", with Retry."
@@ -1306,6 +1314,10 @@
   "workspace.storage.backups": {
     "defaultMessage": "Transcript backups",
     "description": "Storage: Hive's copies of the sessions' transcripts (.hive/sessions)."
+  },
+  "workspace.storage.beforeCompression": {
+    "defaultMessage": "{size} before compression",
+    "description": "Storage, beside the size of Hive's transcript backups or archive: what they hold uncompressed ({size}: like 1.2 GB). Ended sessions' backups are compressed."
   },
   "workspace.storage.cancel": {
     "defaultMessage": "Cancel",
