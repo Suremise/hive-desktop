@@ -99,16 +99,20 @@ public static class HiveJobs {
   static ulong nextKey = 1;
   /**
    * Where a process joining a job (or taken into one) is told, as a line "new" (#1134: main writes its running marker
-   * again); null tells nothing (the unit tests' own scripts). Told once until the next listing or launch (told), so
-   * a build starting hundreds of processes says it once per marker write; written outside the turn (Tell).
+   * again); null tells nothing (the unit tests' own scripts). Told once per job until that job is listed again or its
+   * launch starts (told), so a build starting hundreds of processes says it once per marker write. A notice due (tell)
+   * is written outside the turn (Tell), and listing never takes one back: listing one job says nothing of another's
+   * process that joined just before (round 1 of #1134).
    */
   public static System.IO.TextWriter Notices;
-  static bool told = false;
+  static HashSet<string> told = new HashSet<string>();
   static bool tell = false;
-  static void Joined() { if (!told) told = tell = true; }
-  /** Clears what was told: what joins after this is told again. Under the turn. */
-  static void Untold() { told = tell = false; }
-  static void Tell() {
+  /** Public for the unit tests, which give joins and listings in an order of their own. Under the turn. */
+  public static void Joined(string id) { if (told.Add(id)) tell = true; }
+  /** What joins job id after this is told again: what joined before is in its listing. Under the turn. */
+  static void Untold(string id) { told.Remove(id); }
+  /** Writes the notice due, if any. Public for the unit tests. */
+  public static void Tell() {
     bool t;
     lock (turn) { t = tell; tell = false; }
     var w = Notices;
@@ -162,7 +166,7 @@ public static class HiveJobs {
           if (owner.ContainsKey(kv.Key) || tried.Contains(kv.Key) || !owner.TryGetValue(kv.Value, out id)) continue;
           tried.Add(kv.Key);
           if (!Take(id, kv.Key, kv.Value, at)) continue;
-          Joined();
+          Joined(id);
           owner[kv.Key] = id;
           int c; adopted.TryGetValue(id, out c); adopted[id] = c + 1;
           n++;
@@ -437,7 +441,7 @@ public static class HiveJobs {
   public static void Notify(string id, uint message, int pid) {
     lock (turn) {
       // JOB_OBJECT_MSG_NEW_PROCESS
-      if (message == 6) { if (Hold(id, pid)) Joined(); return; }
+      if (message == 6) { if (Hold(id, pid)) Joined(id); return; }
       // JOB_OBJECT_MSG_EXIT_PROCESS, JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS
       if (message != 7 && message != 8) return;
       Held h;
@@ -495,8 +499,8 @@ public static class HiveJobs {
   }
   public static string Add(string id, int pid) {
     if (sweeper == null) sweeper = new System.Threading.Timer(_ => { try { Sweep(); Tell(); } catch { } }, null, ${SWEEP_MS}, ${SWEEP_MS});
-    // A new launch: its CLI joining is told, whatever was told before (main may not have listed since).
-    lock (turn) Untold();
+    // A new launch: its CLI joining is told, whatever was told before (main may not have listed it since).
+    lock (turn) Untold(id);
     if (port == IntPtr.Zero) {
       port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
       if (port != IntPtr.Zero) new System.Threading.Thread(Listen) { IsBackground = true }.Start();
@@ -562,6 +566,7 @@ public static class HiveJobs {
     CloseHandle(job);
     jobs.Remove(id);
     adopted.Remove(id);
+    told.Remove(id);
     foreach (var k in new List<ulong>(byKey.Keys)) if (byKey[k] == id) byKey.Remove(k);
     foreach (var pid in new List<int>(held.Keys)) if (held[pid].job == id) { CloseHandle(held[pid].h); held.Remove(pid); }
     foreach (var pid in new List<int>(followed.Keys)) if (followed[pid].job == id) { CloseHandle(followed[pid].h); followed.Remove(pid); }
@@ -587,8 +592,8 @@ public static class HiveJobs {
   }
   public static string Describe(string id, int max) {
     Sweep();
-    // What joins from here on is told again: what joined before is in this listing.
-    lock (turn) Untold();
+    // What joins it from here on is told again: what joined before is in this listing.
+    lock (turn) Untold(id);
     int[] all = Members(id);
     int took; adopted.TryGetValue(id, out took);
     var b = new StringBuilder("{\"total\":" + all.Length + ",\"adopted\":" + took + ",\"processes\":[");
@@ -871,9 +876,9 @@ function processJoined(): void {
 
 /**
  * Calls fn when a process joins a running launch's job, or is taken into it (#1134: one the agent started after its
- * turn's status was written, slow to start or started by a process it left). The host tells it once until a launch's
- * processes are listed again (runningProcesses) or a launch starts, so it comes at most once per listing however many
- * processes start. Returns a function that stops it.
+ * turn's status was written, slow to start or started by a process it left). The host tells it once per launch until
+ * that launch's processes are listed again (runningProcesses) or it starts, so it comes at most once per launch and
+ * listing however many processes start. Returns a function that stops it.
  */
 export function onLaunchProcessJoined(fn: () => void): () => void {
   joinedListeners.add(fn)

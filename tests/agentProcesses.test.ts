@@ -647,6 +647,45 @@ $r | ConvertTo-Json -Compress
     expect(r).toEqual({ added: 'ok', heldOld: 'old', runningKept: 'old', forgotten: null, addedNew: 'ok', heldNew: 'new', exited: true, newKept: 'new', letGo: null })
   }, 150000)
 
+  // Joins and listings in an order of the test's own (#1134, round 1): a notice due for one launch's process is never
+  // taken back by listing another launch (the port's thread had told it, the input thread listed B before the notice was
+  // written); each launch is told once until it is listed again, however many processes join it.
+  it('tells each launch once until it is listed again, and listing one never takes back the notice due for another (#1134)', async () => {
+    const { HOST_SOURCE } = await import('../src/main/agentProcesses')
+    const src = join(dir, 'host-notices.cs')
+    writeFileSync(src, HOST_SOURCE)
+    const probe = join(dir, 'notices.ps1')
+    writeFileSync(
+      probe,
+      `param($src)
+$ErrorActionPreference = 'Stop'
+Add-Type -ReferencedAssemblies System.Management -TypeDefinition (Get-Content -Raw $src)
+$w = [System.IO.StringWriter]::new()
+[HiveJobs]::Notices = $w
+$told = { ($w.ToString() -split "\`n" | Where-Object { $_.Trim() -eq 'new' }).Count }
+$r = [ordered]@{}
+# A joins; B is listed before the notice is written.
+[HiveJobs]::Joined('a'); $null = [HiveJobs]::Describe('b', 5); [HiveJobs]::Tell()
+$r.otherListed = & $told
+# A again, not listed since: nothing more.
+[HiveJobs]::Joined('a'); [HiveJobs]::Tell()
+$r.again = & $told
+# B joins: told on its own.
+[HiveJobs]::Joined('b'); [HiveJobs]::Tell()
+$r.otherJob = & $told
+# A listed, then many join it: told once.
+$null = [HiveJobs]::Describe('a', 5)
+for ($i = 0; $i -lt 20; $i++) { [HiveJobs]::Joined('a') }
+[HiveJobs]::Tell(); [HiveJobs]::Tell()
+$r.afterListing = & $told
+$r | ConvertTo-Json -Compress
+`
+    )
+    const out = execFileSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe, src], { windowsHide: true, timeout: 120000 })
+    const r = JSON.parse(String(out).trim().split(/\r?\n/).at(-1)!)
+    expect(r).toEqual({ otherListed: 1, again: 1, otherJob: 2, afterListing: 3 })
+  }, 150000)
+
   it('lists nothing for a launch that left nothing running, nor for one it never tracked', async () => {
     const { launchEnded, trackLaunch } = await import('../src/main/agentProcesses')
     const cli = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 300)'], { stdio: 'ignore', windowsHide: true })
