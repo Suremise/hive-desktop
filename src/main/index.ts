@@ -57,6 +57,7 @@ import { clearDiscovery, clearDiscoveryNow } from './apiDiscovery'
 import { clearHookAuth } from './hookTokens'
 import { assistantHome, assistantTokenFile, endAssistant, newAssistantToken, newTurn } from './assistantControl'
 import { sessions } from './sessions'
+import { usageHistory } from './usageHistory'
 import { notificationIcon } from './paths'
 import { createTray, destroyTray, resourcesDir, setTrayPendingQuit, showWindow } from './tray'
 import { keepOffScreen, offScreenOrigin, showOsNotification, testQuiet } from './testQuiet'
@@ -588,7 +589,7 @@ async function quitNow(tellUser: boolean): Promise<void> {
   }
   await sessions.stopAllAndWait(3000)
   await quitLeftovers()
-  await sessions.flushUsageCache()
+  await usageHistory.stop()
   await progress.saveNow().catch(() => undefined)
   await flushMetrics().catch(() => undefined)
   await config.flush()
@@ -958,6 +959,8 @@ app.whenReady().then(async () => {
   wireSettingsEffects()
   startBranchWatch()
 
+  // The usage history (#1106): its tick for running sessions; each workspace's import starts as it opens.
+  usageHistory.start()
   registerIpc(appInfo, {
     quit: () => void requestQuit(),
     restart: () => {

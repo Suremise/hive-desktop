@@ -643,11 +643,15 @@ export function cardNumbers(ws: WorkspaceService): Set<number> {
   return new Set((db.prepare('SELECT number FROM cards').all() as { number: number }[]).map((r) => r.number)) // i18n-ignore: SQL
 }
 
-/** Which cards a query asks for: archived or not (both when left out), these numbers, given to one of these agents. */
+/**
+ * Which cards a query asks for: archived or not (both when left out), these numbers, given to one of these agents, being
+ * reviewed by one of these agents (#1107: picked in the query, so no other card's document is parsed).
+ */
 export interface CardQuery {
   archived?: boolean
   numbers?: number[]
   agents?: string[]
+  reviewers?: string[]
 }
 
 /** Cards' documents, by number, as the query asks; in number order. */
@@ -666,6 +670,11 @@ export function cardDocs(ws: WorkspaceService, q: CardQuery = {}): { number: num
     where.push(`agent IN (SELECT value FROM json_each(?))`) // i18n-ignore: SQL
     args.push(JSON.stringify(q.agents))
   }
+  if (q.reviewers) {
+    if (!q.reviewers.length) return []
+    where.push(`doc ->> '$.review.agent' IN (SELECT value FROM json_each(?))`) // i18n-ignore: SQL
+    args.push(JSON.stringify(q.reviewers))
+  }
   const rows = db.prepare(`SELECT number, doc FROM cards${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY number`).all(...args) as { number: number; doc: string }[] // i18n-ignore: SQL
   return rows.map((r) => ({ number: r.number, doc: JSON.parse(r.doc) as Record<string, unknown> }))
 }
@@ -679,6 +688,16 @@ export function archivedSummaryDocs(ws: WorkspaceService): { number: number; doc
   const field = (k: string): string => `'${k}', doc -> '$.${k}'`
   const fields = ['title', 'project', 'projectId', 'agent', 'agentName', 'column', 'order', 'labels', 'blocked', 'archivedFor', 'archivedBatch', 'createdAt', 'createdBy', 'updatedAt'].map(field).join(', ')
   const rows = db.prepare(`SELECT number, json_object(${fields}, 'archived', json('true')) AS doc FROM cards WHERE archived = 1 ORDER BY number`).all() as { number: number; doc: string }[] // i18n-ignore: SQL
+  return rows.map((r) => ({ number: r.number, doc: JSON.parse(r.doc) as Record<string, unknown> }))
+}
+
+/**
+ * Each card's holds (#602), archived cards too, made in the query (#1107: what costs need of every card, without its
+ * comments): its project, agent, reviewer and holds, and its history only for a card that keeps no holds (holdsFromHistory).
+ */
+export function holdDocs(ws: WorkspaceService): { number: number; doc: Record<string, unknown> }[] {
+  const { db } = readConn(ws)
+  const rows = db.prepare(`SELECT number, json_object('project', doc -> '$.project', 'projectId', doc -> '$.projectId', 'agent', doc -> '$.agent', 'agentName', doc -> '$.agentName', 'review', doc -> '$.review', 'held', doc -> '$.held', 'history', CASE WHEN json_type(doc, '$.held') = 'array' THEN NULL ELSE doc -> '$.history' END) AS doc FROM cards ORDER BY number`).all() as { number: number; doc: string }[] // i18n-ignore: SQL
   return rows.map((r) => ({ number: r.number, doc: JSON.parse(r.doc) as Record<string, unknown> }))
 }
 

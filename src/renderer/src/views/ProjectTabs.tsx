@@ -306,6 +306,8 @@ export const limitWindow = (l: PlanLimit): string => (l.windowMinutes === 300 ? 
 
 /** Live updates of the session list come at most this often (each reads the project's session files). */
 const LIVE_REFRESH_MS = 15_000
+/** While the usage history is reading sessions a list shows (#1106), the list is read again this soon after it tells. */
+const PENDING_RELOAD_MS = 1_500
 
 /**
  * The project's sessions with their usage, for the Overview and the Sessions tab. Updates follow
@@ -350,6 +352,15 @@ export function useSessions(project: ProjectInfo) {
     else if (!timer.current) timer.current = setTimeout(load, wait)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveKey, mode, shown])
+  // Sessions the usage history didn't have yet (#1106): their figures follow soon after the worker has them (it says so,
+  // usageVersion; else the next look), whatever the update setting: that's the list's first load finishing, not a refresh.
+  const pending = sessions.data?.list.some((i) => i.pending) ?? false
+  useEffect(() => {
+    if (!pending || !shown) return
+    const t = setTimeout(load, PENDING_RELOAD_MS)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usageVersion, sessions.at, pending, shown])
   useEffect(() => {
     if (mode !== 'minute' || !shown) return
     const t = setInterval(load, 60_000)

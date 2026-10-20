@@ -1,0 +1,52 @@
+import { ADVANCED_DEFS, advancedDef, advancedRegExp, literalRegExp } from '../shared/advanced'
+
+/**
+ * The advanced settings (#367) as the CLIs' transcript parsers read them (#1106): the parsers also run in the usage
+ * worker (usageWorker.ts), which can't load Electron, so they read values here rather than from AdvancedStore (main's
+ * advanced.ts, which makes itself the reader when it loads). In the worker the reader is the values main sent; before
+ * either (unit tests), every value is its default.
+ */
+export interface AdvancedReader {
+  get<T extends string | number | string[] | boolean>(id: string): T
+  pattern(id: string): RegExp
+}
+
+/** A reader of resolved values (each setting's value as it applies), the default for any not given. */
+export function valuesReader(values: Record<string, unknown>): AdvancedReader {
+  const patterns = new Map<string, { source: string; re: RegExp }>()
+  const get = <T>(id: string): T => {
+    const def = advancedDef(id)
+    if (!def) throw new Error(`No advanced setting "${id}"`) // i18n-ignore: a programming error (an id Hive's code asks for), for the log
+    return (id in values ? values[id] : def.default) as T
+  }
+  return {
+    get,
+    pattern: (id) => {
+      const def = advancedDef(id)!
+      const source = get<string>(id)
+      const was = patterns.get(id)
+      if (was?.source === source) return was.re
+      const re = def.kind === 'text' ? literalRegExp(source) : advancedRegExp(def, source)
+      patterns.set(id, { source, re })
+      return re
+    }
+  }
+}
+
+let reader: AdvancedReader = valuesReader({})
+
+/** What the parsers read: the reader set last. */
+export const advancedValues: AdvancedReader = {
+  get: <T extends string | number | string[] | boolean>(id: string) => reader.get<T>(id),
+  pattern: (id) => reader.pattern(id)
+}
+
+/** Makes `r` the parsers' reader (main's AdvancedStore; the worker's values from main). */
+export function readAdvancedFrom(r: AdvancedReader): void {
+  reader = r
+}
+
+/** Every setting's value as it applies now, for the worker. */
+export function resolvedValues(r: AdvancedReader): Record<string, unknown> {
+  return Object.fromEntries(ADVANCED_DEFS.map((d) => [d.id, r.get(d.id)]))
+}

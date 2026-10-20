@@ -205,6 +205,11 @@ export interface AppSettings {
   }
   sessions: {
     backupTranscripts: boolean
+    /**
+     * How long Hive keeps its backups of sessions the CLI still has (#1110): after this many days without activity they
+     * go to the Recycle Bin; 'off' keeps them. A session whose only copy is Hive's is never touched.
+     */
+    backupRetention: BackupRetention
     cacheTtl: CacheTtlSetting
     confirmStop: boolean
     /** Context size (tokens) above which Compact is highlighted. 0 never highlights. */
@@ -819,7 +824,12 @@ export interface TaskPatch {
   before?: number | null
   /** At the top or the bottom of the column (instead of before). */
   position?: 'top' | 'bottom'
+  /** Replaces the card's labels. Not with addLabels or removeLabels. */
   labels?: string[]
+  /** Labels added where missing, keeping the others (#1131). */
+  addLabels?: string[]
+  /** Labels taken off where present, keeping the others (#1131). */
+  removeLabels?: string[]
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
@@ -1802,6 +1812,16 @@ export interface SessionUsage {
   safeguardsAsked?: Record<string, number>
 }
 
+/** A workspace's usage history (#1106): whether its one-time import of the sessions it had is under way, and how far. */
+/** Settings → Sessions → Keep transcript backups (#1110): off, or a number of days. */
+export type BackupRetention = 'off' | '30' | '90' | '180' | '365'
+
+export interface UsageHistoryProgress {
+  importing: boolean
+  done: number
+  total: number
+}
+
 export interface UsageTokens {
   inputTokens: number
   outputTokens: number
@@ -1847,6 +1867,9 @@ export interface ProjectStorage {
   sessions: number
   /** Archived sessions' backups (.hive/archive). */
   archive: number
+  /** What the backups and the archive hold before compression (#1110: a compressed backup's own size), when any is. */
+  sessionsRaw?: number
+  archiveRaw?: number
   /** Files pasted or dropped into sessions (.hive/attachments). */
   attachments: number
   /** The agents' worktree folders. */
@@ -1903,11 +1926,13 @@ export interface SessionListItem extends Partial<SessionRecord> {
   deleted?: boolean
   usage: SessionUsage | null
   recache: RecacheEstimate | null
+  /** The usage history doesn't have it yet (#1106): its figures follow once the worker has read it (the window is told). */
+  pending?: boolean
 }
 
 /**
- * The workspace's usage for the Workspace Overview: each project's sessions (Hive's own, and deleted ones' kept
- * usage) and the Assistant's, with their usage by day, from the usage cache.
+ * The workspace's usage for the Workspace Overview: each project's sessions (Hive's own, deleted ones included) and the
+ * Assistant's, with their usage by day, from the usage history (#1106).
  */
 export interface WorkspaceUsage {
   workspacePath: string
@@ -1915,6 +1940,8 @@ export interface WorkspaceUsage {
   assistant: SessionListItem[]
   /** Projects left out: hidden, or removed from Hive. */
   hidden: number
+  /** The usage history's import of the sessions the workspace had (#1106): while it runs, the figures are partial. */
+  history: UsageHistoryProgress
 }
 
 /** A tool call and its result, as shown in the transcript viewer. */
@@ -1963,8 +1990,10 @@ export type TranscriptItem = TranscriptItemBase &
 
 export interface Transcript {
   sessionId: string
-  /** File size read so far; pass back to transcript:read to get null when nothing changed. */
+  /** File size read so far. */
   size: number
+  /** Pass back to transcript:read (knownVersion) to get null when nothing changed: a plain file's size, a compressed backup's identity (#1110: replaced whole, maybe by one of the same size). */
+  version: string
   /** Items in the whole conversation; `items` holds those from `from` on (an item's id is its index). */
   total: number
   from: number
@@ -2295,6 +2324,8 @@ export type HiveEvent =
   | { type: 'git-tool'; git: GitTool }
   | { type: 'menu-command'; command: string; args?: unknown[] }
   | { type: 'usage-changed'; projectPath: string; sessionId: string }
+  /** A workspace's usage history: its one-time import of existing sessions under way, or done (#1106). */
+  | { type: 'usage-history'; workspacePath: string; progress: UsageHistoryProgress }
   | { type: 'notes-changed' }
   /** The workspace's task board changed (its path names the window). */
   | { type: 'tasks-changed'; workspacePath: string }

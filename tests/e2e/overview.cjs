@@ -72,7 +72,8 @@ const becomes = async (fn) => !!(await lib.until(fn, HUNG_MS))
   const paging = table.locator('.table-paging')
   const pagingText = async () => ((await paging.innerText().catch(() => '')) ?? '').replace(/\s+/g, ' ')
   // 25 compactions, ten to a page: newest first, three pages.
-  check('the first page: ten rows, newest first', (await rows.count()) === 10 && /manual/.test(await rows.first().textContent()), String(await rows.count()))
+  // The usage history has the session's compactions once it has read it (#1106: the list fills in then).
+  check('the first page: ten rows, newest first', await becomes(async () => (await rows.count()) === 10 && /manual/.test(await rows.first().textContent())), String(await rows.count()))
   check('small turns are not flagged as explaining a compaction', (await table.locator('.compaction-turn').count()) === 0)
   check('"1–10 of 25" and "Page 1 of 3"', /1–10 of 25/.test(await pagingText()) && /Page 1 of 3/.test(await pagingText()), await pagingText())
   check('the date column is sorted, newest first', (await table.locator('th[aria-sort]').count()) === 1 && (await table.locator('th[aria-sort="descending"]').innerText()).startsWith('WHEN'), await table.locator('th[aria-sort]').innerText().catch(() => ''))

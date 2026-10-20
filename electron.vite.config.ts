@@ -41,7 +41,9 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
           'hive-mcp': resolve(__dirname, 'src/main/mcp/hive-mcp.ts'),
-          'hive-progress': resolve(__dirname, 'src/main/progressReporters/hive-progress.ts')
+          'hive-progress': resolve(__dirname, 'src/main/progressReporters/hive-progress.ts'),
+          // The usage history's worker thread (#1106).
+          'usage-worker': resolve(__dirname, 'src/main/usageWorker.ts')
         }
       }
     }

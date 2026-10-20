@@ -50,6 +50,8 @@ The checks are positive and negative:
   handover without re-running tests.
 - **Notes**: a lasting rule goes to a shared note, while progress goes on the card.
 - **A plan** starts nothing.
+- **Tagging cards** (#1131): a label added to several cards keeps each card's own labels (`addLabels`, never `labels`),
+  in one `hive_update_tasks` call.
 - **A script against the API** runs with the agent's own token, lists its project's card, is refused for another
   project's, and never prints a token.
 - **Ordinary coding** reads no Hive skill.

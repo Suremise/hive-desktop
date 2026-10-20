@@ -487,3 +487,62 @@ describe('a board saved by a newer Hive (#1017)', () => {
     await expect(inWorkspace(w, () => tasks.createTask({ title: 'No', project: 'p' }, user))).rejects.toThrow(/saved by a newer version of Hive/)
   })
 })
+
+describe('reads that need only some cards (#1107)', () => {
+  // A busy board's archived cards are most of it (945 of 1058, 13 MB, most of that comments): what Hive reads often
+  // asks the query for what it needs, and never parses an archived card's document for nothing.
+  const marker = 'ARCHIVED-COMMENTS-1107'
+  const from = '2026-10-02T00:00:00.000Z'
+  const to = '2026-10-03T00:00:00.000Z'
+  const old = { archived: true, column: 'done', description: marker, comments: [{ at: from, by: 'You', text: marker, id: 'm' }] }
+  const board = (): string =>
+    workspaceWith({
+      '1.json': fileOf(card(1, { column: 'doing', agent: 'a1', agentName: 'Agent 1', held: [{ agent: 'a1', name: 'Agent 1', role: 'build', from }] })),
+      '2.json': fileOf(card(2, { ...old, held: [{ agent: 'a1', name: 'Agent 1', role: 'build', from, to }] })),
+      // From before holds were kept (#602): read from its history.
+      '3.json': fileOf(card(3, { ...old, agent: 'a1', agentName: 'Agent 1', history: [{ at: from, by: 'You', what: 'Created in Doing' }, { at: to, by: 'You', what: 'Moved to Done' }] })),
+      '4.json': fileOf(card(4, { ...old, column: 'review', review: { agent: 'r9', agentName: 'R9', since: from } }))
+    })
+
+  it("asks for an agent's reviews in the query, archived cards included", async () => {
+    const w = await open(board())
+    expect((await inWorkspace(w, () => tasks.allTasks(w, { reviewers: ['r9'] }))).map((c) => c.number)).toEqual([4])
+    expect(await inWorkspace(w, () => tasks.allTasks(w, { reviewers: ['a1'] }))).toEqual([])
+    expect(await inWorkspace(w, () => tasks.allTasks(w, { reviewers: [] }))).toEqual([])
+  })
+
+  it("reads every card's holds for costs as the cards in full have them, the history only for a card that keeps none", async () => {
+    const w = await open(board())
+    const holds = new Map((await inWorkspace(w, () => tasks.cardHolds(w))).map((c) => [c.number, c]))
+    expect([...holds.keys()]).toEqual([1, 2, 3, 4])
+    for (const num of [1, 2, 3]) {
+      const full = await inWorkspace(w, () => tasks.getTask(num, w))
+      expect(holds.get(num)).toMatchObject({ project: full.project, held: full.held, agent: full.agent })
+    }
+    expect(holds.get(2)!.history).toEqual([])
+    expect(holds.get(3)!.held).toBeUndefined()
+    expect(holds.get(3)!.history).toEqual((await inWorkspace(w, () => tasks.getTask(3, w))).history)
+  })
+
+  it('decision notices, the hourly archiving, ending reviews and costs never parse an archived card they have no use for', async () => {
+    const ws = board()
+    const w = await open(ws)
+    const { newDecisionsOn } = await import('../src/main/decisionNotices')
+    const { cardCosts, laneCosts } = await import('../src/main/cardCosts')
+    // The cards' files move into the board at its first read (once, every card parsed): done before looking.
+    await inWorkspace(w, () => tasks.allTasks(w, { numbers: [1] }))
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      await inWorkspace(w, async () => {
+        await newDecisionsOn(w, { projectPath: join(ws, 'p'), agentId: 'a1' }, 'Agent 1 (p)')
+        await tasks.archiveOldDone(w)
+        await tasks.endReviews('p', 'a1', 'its session ended', w)
+        expect((await cardCosts(w, { numbers: [1] })).map((c) => c.number)).toEqual([1])
+        await laneCosts(w)
+      })
+      expect(parse.mock.calls.filter(([text]) => typeof text === 'string' && text.includes(marker))).toEqual([])
+    } finally {
+      parse.mockRestore()
+    }
+  })
+})

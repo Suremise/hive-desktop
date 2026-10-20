@@ -1,5 +1,5 @@
 import { SAFEGUARD_DEFAULTS, SAFEGUARD_TOOLS, newStop, type SafeguardEvent } from '../../../shared/safeguards'
-import { advanced } from '../../advanced'
+import { advancedValues as advanced } from '../../advancedValues'
 import { isUserPrompt } from './prompts'
 
 /** What the reading keeps between reads (the launch's memo): the model the agent ran on, its last tool calls, its turn, the stops seen. */

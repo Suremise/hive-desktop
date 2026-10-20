@@ -1850,7 +1850,7 @@ function taskPatch(body: any): TaskPatch {
     if (body.position !== 'top' && body.position !== 'bottom') throw new HttpError(400, `Unknown position "${String(body.position)}": top or bottom.`)
     out.position = body.position
   }
-  for (const k of ['labels', 'blockedBy', 'links', 'context'] as const) if (body?.[k] !== undefined) out[k] = body[k]
+  for (const k of ['labels', 'addLabels', 'removeLabels', 'blockedBy', 'links', 'context'] as const) if (body?.[k] !== undefined) out[k] = body[k]
   if (body?.decision !== undefined && body.decision !== null) out.decision = String(body.decision)
   if (body?.review !== undefined && body.review !== null && body.review !== '') {
     if (body.review !== 'start' && body.review !== 'passed' && body.review !== 'failed') throw new HttpError(400, `Unknown review "${String(body.review)}": start, passed or failed.`)

@@ -78,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   sessions: {
     backupTranscripts: true,
+    backupRetention: 'off',
     cacheTtl: 'auto',
     confirmStop: true,
     compactSuggestTokens: 200000,

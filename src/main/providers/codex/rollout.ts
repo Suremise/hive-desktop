@@ -5,7 +5,7 @@ import { CODEX } from '../../../shared/codex'
 import { isSessionId } from '../../../shared/defaults'
 import { NOTICE_TEXT, firstLine, noticeOf, shortPath, toolLabel, type NewItem } from '../conversation'
 import type { ConversationParserLike, ImageLocation, LiveDetails } from '../types'
-import { advanced } from '../../advanced'
+import { advancedValues as advanced } from '../../advancedValues'
 import { countSafeguards } from '../../../shared/safeguards'
 import { codexSafeguards } from './safeguards'
 
@@ -244,7 +244,7 @@ export class CodexUsageParser {
         this.last = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheWriteTokens: 0, cacheReadTokens: usage.cacheReadTokens }
         if (typeof p.info.model_context_window === 'number') usage.contextWindow = p.info.model_context_window
         const lastTokens = (last.input_tokens ?? 0) + (last.output_tokens ?? 0)
-        this.timeline.add(ts || usage.lastActivity, step, lastTokens > 0 ? 1 : 0)
+        this.timeline.add(ts || usage.lastActivity, step, lastTokens > 0 ? 1 : 0, -1, 0, usage.model)
         // Codex repeats the totals with an empty last request (e.g. right after compacting): not a request.
         if (lastTokens > 0) {
           usage.contextTokens = lastTokens

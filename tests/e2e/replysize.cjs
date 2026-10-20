@@ -228,6 +228,10 @@ const prose = (seed, n) => {
   const batched = measure('hive_update_tasks (3 cards)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], labels: ['perf'] }), 400)
   const batchLines = batched.split('\n')
   check('a batch confirms each card and its change', batchLines[0] === '3 cards changed:' && batchLines.length === 4 && batchLines.slice(1).every((l) => /^#\d+ .+: Labels: perf\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), batched)
+  // #1131: tagging says only the label added, not each card's labels.
+  const tagged = measure('hive_update_tasks (3 cards, addLabels)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], addLabels: ['0.9.4'] }), 400)
+  const tagLines = tagged.split('\n')
+  check('tagging says only the label added', tagLines[0] === '3 cards changed:' && tagLines.length === 4 && tagLines.slice(1).every((l) => /^#\d+ .+: Labels: added 0\.9\.4\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), tagged)
   // Lanes (#483): a start, a join (a lane made for a builder that hasn't registered yet), the listing and an end.
   const laneStarted = measure('hive_lane (start)', tool('hive_lane', { action: 'start', cards: [todo[0], todo[1], todo[2]], reviewer: 'Tester', rounds: 10, waitMinutes: 360, name: 'measured lane' }), 400)
   check('a lane start: its pair, state, cards and id', /^Lane started: Coder \/ Tester \(alpha\) measured lane: active, on #\d+; .+; rounds 10, wait 6 h\. lane-[0-9a-f]+$/.test(laneStarted), laneStarted)

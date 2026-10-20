@@ -448,9 +448,11 @@ Select a template to see what it holds: each agent's name, role, coding agent, m
 
 ### Archiving and backups
 
-Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Files you paste or drop into a session are kept in `.hive/attachments`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its attachments stay). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
+Claude Code and Codex delete old transcripts after a while. Hive keeps a copy of every session transcript in the project's `.hive/sessions` folder, and archived sessions in `.hive/archive`. Once a session ends or is archived, Hive compresses its copy (`<id>.jsonl.gz`, usually under a third of the size); you can still open, search, export and resume it as before. Files you paste or drop into a session are kept in `.hive/attachments`. Hive only deletes them when you ask (deleting a session sends its transcript copies to the Recycle Bin; its attachments stay), or as **Keep transcript backups** says (below). If the CLI has removed a transcript, Hive restores it from the backup when you resume.
 
-**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), attachments (`.hive/attachments`) and each agent's worktree. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
+**Keep transcript backups.** **Settings → Sessions → Keep transcript backups** is **Always** unless you change it. Set it to 30, 90 or 180 days or a year, and Hive's copies of sessions that have had no activity for that long go to the Recycle Bin, but only for sessions the coding agent still has: the session stays in the Sessions tab, can still be opened and resumed from the agent's own transcript, and what it used stays in your usage totals. A session whose only copy is Hive's is never removed this way; delete it yourself, or use **Clean Up…** in Storage.
+
+**Storage.** **Project Settings → Storage** (or **Project Storage and Clean Up…** in the command palette) shows how much space Hive keeps for the project: transcript backups (`.hive/sessions`), the archive (`.hive/archive`), attachments (`.hive/attachments`) and each agent's worktree. Under the backups' and the archive's sizes it says what they hold before compression. It's measured in the background, so a large worktree never holds up the window, and leaving the page stops measuring; **Refresh** measures again. The coding agents' own transcripts (in `~/.claude` and `~/.codex`) aren't counted. **Settings → Workspace → Storage** shows the workspace's total and every project, the Hive Assistant included, biggest first; **Storage** next to one opens its page.
 
 **Clean Up…** on that page moves old files to the Recycle Bin. Nothing is cleaned up automatically. Choose what goes:
 
@@ -495,7 +497,7 @@ To start afresh without losing the thread, click the size (or choose **Hand Over
 
 So that a hand-over never cuts into an agent's work, the notice offers **Hand Over to…** only while the agent is idle, isn't merging and isn't on a card of a running card loop. Otherwise it just says the agent can hand over when it has finished, and **Hand Over to…** doesn't offer the agent itself. Hive checks again when you click (a notice can be old by then), and once more just before the conversation ends: if the agent took the merge slot or started other work while it wrote the handover, its conversation isn't ended and the handover is kept. The Assistant sees each agent's transcript size too, and can suggest it. For new work that doesn't need the thread, ask the Assistant to give the agent the task **in a new conversation**: the same, without the handover (see **Card loops**).
 
-**Usage cache.** Hive remembers each transcript's token counts, also across restarts, so the Overview and session lists open without reading every transcript again. A transcript is read again only if it changed while Hive was closed, such as a session you continued outside Hive. **Settings → Sessions → Usage cache size** sets how many it keeps (5,000), and **Clear the usage cache** starts afresh.
+**Usage history.** Hive records what each session used as it goes, in the workspace's `.hive/usage.db`, so the Overviews open at once without reading any transcript, and a session's usage stays in the totals after you delete it or its transcripts are gone. A running session is recorded at the end of each turn, about every minute, and when it ends, so the Overviews can be a turn behind. The first time a workspace opens in this version, Hive imports what its existing sessions used, in the background; the Workspace Overview says how far it is, and its figures are partial until it's done. Sessions started outside Hive aren't counted. **Settings → Sessions → Usage cache size** only sets how many transcripts Hive keeps in memory while it runs (5,000), and **Clear the usage cache** forgets those; the usage history stays.
 
 ### Workspace Overview
 
@@ -508,7 +510,7 @@ The **Workspace Overview** (in the activity bar, or **Ctrl+Shift+O**) adds up th
 - a table **by project**, with the Assistant as its own row: click a column to sort, or a row to open that project's Overview;
 - each provider's totals and plan limits.
 
-Hidden and removed projects aren't counted. It updates like the project Overview, and reads no more than it does: token counts come from the usage cache.
+Hidden and removed projects aren't counted. It updates like the project Overview, and reads no transcript: its figures come from the usage history (see **Usage history** above).
 
 ### Plan usage
 

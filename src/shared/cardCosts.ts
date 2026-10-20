@@ -4,7 +4,7 @@ import { fmt, msg, tr } from './i18n'
 import { TASK_COLUMNS } from './tasks'
 import { reviewRounds } from './laneBar'
 import { costText, money } from './usageTotals'
-import { TOKENS_SPREAD, TOKENS_UNKNOWN, type UsageRow, type UsageTimeline } from './usageTimeline'
+import { TOKENS_SPREAD, TOKENS_UNKNOWN, chargeShares, rowModel, type UsageRow, type UsageTimeline } from './usageTimeline'
 
 /**
  * Cost per card and per lane (#602, Darren's decision of 11 Oct). Usage is the card's while an agent held it: its
@@ -236,7 +236,6 @@ export function addPart(to: CostPart, p: CostPart): CostPart {
 }
 
 const rowTokens = (r: UsageRow): UsageTokens => ({ inputTokens: r[1], outputTokens: r[2], cacheWriteTokens: r[3], cacheReadTokens: r[4] })
-const tokenSum = (t: UsageTokens): number => t.inputTokens + t.outputTokens + t.cacheWriteTokens + t.cacheReadTokens
 
 /** A session as the cost of cards reads it: its usage (for its provider and model), its timeline, and when it was active. */
 export interface SessionSlice {
@@ -262,32 +261,17 @@ export function sliceSession(s: SessionSlice, spans: Span[], settings?: Pick<App
   // Not active near the spans at all (a minute's margin: its first and last activity are its main conversation's).
   if (s.to >= s.from && overlap(spans, s.from - 60_000, s.to + 60_000) === 0) return null
   const { provider, model } = s.usage
-  const { rows, reports } = s.timeline
+  const { rows } = s.timeline
   const step = s.timeline.step * 1000
   const covered = rows.map((r) => overlap(spans, r[0] * 1000, r[0] * 1000 + step) / step)
   if (!covered.some((f) => f > 0)) return null
-  const est = (r: UsageRow): number | null => estimateCost({ provider, model, ...rowTokens(r) }, settings)
+  // Each row priced at its own model (#1106: a session that switched models), else the session's.
+  const est = (r: UsageRow): number | null => estimateCost({ provider, model: rowModel(s.timeline!, r, model), ...rowTokens(r) }, settings)
   const own = usesOwnPrices(provider, settings)
-  // How each charge is split between its rows: one measure for all of a charge's rows.
-  const measures: ((r: UsageRow) => number)[] = [(r) => est(r) ?? 0, (r) => tokenSum(rowTokens(r)), (r) => r[5], () => 1]
-  const byReport = new Map<number, { rows: number[]; weight: (r: UsageRow) => number; total: number }>()
-  if (!own)
-    rows.forEach((r, i) => {
-      if (r[6] < 0) return
-      const g = byReport.get(r[6]) ?? { rows: [], weight: () => 1, total: 0 }
-      g.rows.push(i)
-      byReport.set(r[6], g)
-    })
-  for (const g of byReport.values()) {
-    for (const m of measures) {
-      const total = g.rows.reduce((n, i) => n + m(rows[i]), 0)
-      if (total > 0) {
-        g.weight = m
-        g.total = total
-        break
-      }
-    }
-  }
+  // Each row's share of its charge (chargeShares), and whether all of a charge's rows are inside the spans.
+  const shares = own ? null : chargeShares(s.timeline, est)
+  const whole = new Map<number, boolean>()
+  if (!own) rows.forEach((r, i) => r[6] >= 0 && whole.set(r[6], (whole.get(r[6]) ?? true) && covered[i] === 1))
   const out = emptyPart()
   let costKnown = false
   let costUnknown = false
@@ -304,12 +288,11 @@ export function sliceSession(s: SessionSlice, spans: Span[], settings?: Pick<App
       if (r[7] & TOKENS_SPREAD) out.tokensEstimated = true
     }
     out.requests += r[5] * f
-    const g = !own && r[6] >= 0 ? byReport.get(r[6]) : undefined
-    if (g) {
+    if (shares && r[6] >= 0) {
       costKnown = true
-      if (g.total > 0) out.cost += (reports[r[6]] ?? 0) * (g.weight(r) / g.total) * f
+      out.cost += shares[i] * f
       // The spans take part of the charge: its split is Hive's.
-      if (g.rows.some((j) => covered[j] !== 1)) out.estimated = true
+      if (!whole.get(r[6])) out.estimated = true
       return
     }
     const e = r[7] & TOKENS_UNKNOWN ? null : est(r)

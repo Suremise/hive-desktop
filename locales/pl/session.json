@@ -91,7 +91,7 @@
   "session.mode.typing": "Hive wpisuje wiersz do tego agenta. Przełącz tryb za chwilę.",
   "session.mode.unconfirmed": "Brak potwierdzenia przełączenia na tryb {mode} od {provider}. Sprawdź terminal agenta albo użyj tam /permissions.",
   "session.mode.why.asking": "{provider} pyta Cię o coś",
-  "session.mode.why.busy": "{seconds, plural, one {{provider} był zajęty przez # sekundę} few {{provider} był zajęty przez # sekundy} many {{provider} był zajęty przez # sekund} other {{provider} był zajęty przez # sekundy}}",
+  "session.mode.why.busy": "{seconds, plural, one {{provider} pracuje już od # sekundy} few {{provider} pracuje już od # sekund} many {{provider} pracuje już od # sekund} other {{provider} pracuje już od # sekundy}}",
   "session.mode.why.ended": "jego sesja się zakończyła",
   "session.mode.working": "{provider} pracuje. Przełącz tryb, gdy skończy.",
   "session.modeOffer.many": "{n, plural, one {Przełączyć teraz # działającego agenta ({agents})? W przeciwnym razie nowy tryb zacznie obowiązywać od jego następnej sesji.} few {Przełączyć teraz # działających agentów ({agents})? W przeciwnym razie nowy tryb zacznie obowiązywać od ich następnej sesji.} many {Przełączyć teraz # działających agentów ({agents})? W przeciwnym razie nowy tryb zacznie obowiązywać od ich następnej sesji.} other {Przełączyć teraz # działającego agenta ({agents})? W przeciwnym razie nowy tryb zacznie obowiązywać od ich następnej sesji.}}",

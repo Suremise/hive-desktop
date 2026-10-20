@@ -558,7 +558,9 @@ const tools: Tool[] = [
         description: { type: 'string' },
         ...(ASSISTANT ? { project: { type: 'string' } } : {}),
         agent: { type: 'string', description: 'Agent name or id; empty takes it from its agent.' },
-        labels: { type: 'array', items: { type: 'string' } },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Replaces its labels. To tag it, use addLabels and removeLabels.' },
+        addLabels: { type: 'array', items: { type: 'string' }, description: 'Labels added, its others kept.' },
+        removeLabels: { type: 'array', items: { type: 'string' }, description: 'Labels taken off, its others kept.' },
         blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
         links: cardsArg('Related cards (replaces the list).'),
         context: contextArg,
@@ -569,15 +571,15 @@ const tools: Tool[] = [
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'context', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'addLabels', 'removeLabels', 'blockedBy', 'links', 'context', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },
   {
     name: 'hive_update_tasks',
     description: ASSISTANT
-      ? "Change up to 100 cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (unknown, archived, in Doing with another agent...) is left as it was and the rest still change. The call counts as one change toward this message's limit, however many cards it has. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused."
-      : "Change up to 100 of your project's cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (another project's or unknown, archived, in Doing with another agent...) is left as it was and the rest still change. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused.",
+      ? "Change up to 100 cards in one call, each with the same column, position, blocked, labels (added, removed or replaced) or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (unknown, archived, in Doing with another agent...) is left as it was and the rest still change. The call counts as one change toward this message's limit, however many cards it has. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused."
+      : "Change up to 100 of your project's cards in one call, each with the same column, position, blocked, labels (added, removed or replaced) or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (another project's or unknown, archived, in Doing with another agent...) is left as it was and the rest still change. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -585,14 +587,16 @@ const tools: Tool[] = [
         column: columnArg,
         position: { type: 'string', enum: ['top', 'bottom'], description: "The top or bottom of each card's column, in turn." },
         blocked: { type: 'string', description: 'Why they are blocked, for each card (empty clears it).' },
-        labels: { type: 'array', items: { type: 'string' }, description: "Replaces each card's labels." },
+        labels: { type: 'array', items: { type: 'string' }, description: "Replaces each card's labels. To tag cards, use addLabels and removeLabels." },
+        addLabels: { type: 'array', items: { type: 'string' }, description: "Labels added to each card, its others kept." },
+        removeLabels: { type: 'array', items: { type: 'string' }, description: "Labels taken off each card, its others kept." },
         agent: { type: 'string', description: 'Agent name or id, given to each card (empty takes it from each).' }
       },
       required: ['numbers']
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['numbers', 'column', 'position', 'blocked', 'labels', 'agent']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['numbers', 'column', 'position', 'blocked', 'labels', 'addLabels', 'removeLabels', 'agent']) if (a[k] !== undefined) body[k] = a[k]
       return batchText((await api('POST', '/v1/tasks/batch', body)) as TaskBatch)
     }
   },

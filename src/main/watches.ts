@@ -1245,7 +1245,7 @@ function laneCheckSoon(store: Store): void {
  * follows (so a lane's end is told); in the watcher's view (a project agent: its project's lanes; the Assistant: all).
  * Each lane's cards as the board has them now, with their verdicts, blocks and stalls.
  */
-async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' | 'laneMarks'> & { since?: string; laneSince?: string }, board?: TaskCard[]): Promise<LaneNow[]> {
+async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' | 'laneMarks'> & { since?: string; laneSince?: string }, board: LaneBoard = laneBoard(store.ws)): Promise<LaneNow[]> {
   const cond = rec.lanes!
   const inView = (await listLanes(store.ws, { all: true })).filter((l) => rec.scope === null || same(l.project, rec.scope))
   // Every running lane, and a lane it follows until its end has been told (round 1 finding: one that ended between a
@@ -1256,7 +1256,7 @@ async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' |
   const from = Date.parse(rec.laneSince ?? rec.since ?? '')
   const isNew = (l: { id: string; startedAt: string }): boolean => !rec.laneMarks?.[l.id] && Date.parse(l.startedAt) > from
   const chosen = cond.ids === 'all' ? inView.filter((l) => l.state === 'active' || l.state === 'paused' || told(l.id) || isNew(l)) : inView.filter((l) => (cond.ids as string[]).includes(l.id))
-  const byNumber = new Map((board ?? (await allTasks(store.ws))).map((c) => [c.number, c]))
+  const byNumber = await board.byNumber(chosen.flatMap((l) => l.cards.map((c) => c.number)))
   const agents = new Map()
   const out: LaneNow[] = []
   for (const l of chosen) {
@@ -1282,6 +1282,42 @@ async function lanesNow(store: Store, rec: Pick<WatchRecord, 'scope' | 'lanes' |
   return out
 }
 
+/**
+ * The cards a round of lane watches reads (#1107): each lane's cards by number (an archived one too, so a card archived
+ * mid-lane is still found), each read at most once, and the board's live cards only once an agent waits for the user
+ * (waitsSince); never the whole board, whose archived cards are most of it (945 of 1058, 13 MB, on a busy one).
+ */
+interface LaneBoard {
+  byNumber(numbers: readonly number[]): Promise<Map<number, TaskCard>>
+  live(): Promise<TaskCard[]>
+}
+
+function laneBoard(ws: WorkspaceService): LaneBoard {
+  const reads = new Map<number, Promise<TaskCard | null>>()
+  let live: Promise<TaskCard[]> | null = null
+  return {
+    async byNumber(numbers) {
+      const missing = [...new Set(numbers)].filter((n) => !reads.has(n))
+      if (missing.length) {
+        const batch = allTasks(ws, { numbers: missing }).then((cards) => new Map(cards.map((c) => [c.number, c])))
+        for (const n of missing) {
+          const one = batch.then((m) => m.get(n) ?? null)
+          // A read that failed fails each round that awaits it, never as unhandled for the cards no round got to.
+          one.catch(() => undefined)
+          reads.set(n, one)
+        }
+      }
+      const out = new Map<number, TaskCard>()
+      for (const n of numbers) {
+        const c = await reads.get(n)!
+        if (c) out.set(n, c)
+      }
+      return out
+    },
+    live: () => (live ??= allTasks(ws, { archived: false }))
+  }
+}
+
 /** What a lane watch has to tell now (#531, #726), and where its marks would move to. */
 interface LaneRound {
   hits: LaneHit[]
@@ -1300,10 +1336,9 @@ interface LaneRound {
  * from when the watch began). Lanes no longer followed (an ended one told) leave an "all" watch's marks. With them, the
  * cards beside its lanes as a card watch checks its cards, and the agents waiting for the user (#726).
  */
-async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Promise<LaneRound> {
+async function laneRound(store: Store, rec: WatchRecord, board: LaneBoard = laneBoard(store.ws)): Promise<LaneRound> {
   const cond = rec.lanes!
-  const all = board ?? (await allTasks(store.ws))
-  const nows = await lanesNow(store, rec, all)
+  const nows = await lanesNow(store, rec, board)
   const listed = await listLanes(store.ws, { all: true })
   const started = new Map(listed.map((l) => [l.id, l.startedAt]))
   const hits: LaneHit[] = []
@@ -1319,7 +1354,7 @@ async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Pr
   // Named lanes: the waits of their projects' agents; "all": of every project in the watcher's view.
   const named = cond.ids === 'all' ? null : new Set(listed.filter((l) => (cond.ids as string[]).includes(l.id)).map((l) => l.project.toLowerCase()))
   const waitSeq = latestWaitSeq()
-  return { hits, next, cards: c?.hits ?? [], told: c?.told ?? {}, waits: waitsSince(store, rec, all, named), waitSeq }
+  return { hits, next, cards: c?.hits ?? [], told: c?.told ?? {}, waits: await waitsSince(store, rec, board, named), waitSeq }
 }
 
 /**
@@ -1328,7 +1363,7 @@ async function laneRound(store: Store, rec: WatchRecord, board?: TaskCard[]): Pr
  * same launch (a wait the user answered at once has nothing left to tell); its latest wait, with its card (the one it
  * works on in Doing, else the one it reviews) and what it asks.
  */
-function waitsSince(store: Store, rec: WatchRecord, board: readonly TaskCard[], named: Set<string> | null): WaitHit[] {
+async function waitsSince(store: Store, rec: WatchRecord, board: LaneBoard, named: Set<string> | null): Promise<WaitHit[]> {
   if (!rec.lanes?.events.includes('waiting')) return []
   const from = rec.waitSeq ?? 0
   const latest = new Map<string, WaitStart>()
@@ -1343,8 +1378,10 @@ function waitsSince(store: Store, rec: WatchRecord, board: readonly TaskCard[], 
     const live = sessions.liveFor(w.projectPath, w.agentId)
     if (live?.status !== 'waiting' || (live.runId || '') !== w.runId) continue
     const project = basename(resolve(w.projectPath))
-    const mine = (c: TaskCard): boolean => !c.archived && !!c.project && same(c.project, project)
-    const card = board.find((c) => mine(c) && c.column === 'doing' && c.agent === w.agentId) ?? board.find((c) => mine(c) && c.column === 'review' && c.review?.agent === w.agentId)
+    const mine = (c: TaskCard): boolean => !!c.project && same(c.project, project)
+    // The live cards, read only once an agent waits (#1107).
+    const cards = await board.live()
+    const card = cards.find((c) => mine(c) && c.column === 'doing' && c.agent === w.agentId) ?? cards.find((c) => mine(c) && c.column === 'review' && c.review?.agent === w.agentId)
     out.push({ name: w.name, project, card: card?.number ?? null, what: w.what })
   }
   return out
@@ -1361,8 +1398,8 @@ const roundTells = (r: LaneRound): boolean => r.hits.length > 0 || r.cards.lengt
  */
 async function evaluateLanes(store: Store): Promise<void> {
   if (!alive(store) || !store.list.some((r) => r.lanes && !r.fired)) return
-  const board = await allTasks(store.ws).catch(() => null)
-  if (!board) return
+  // One reading for every watch of this round: each card read at most once.
+  const board = laneBoard(store.ws)
   await locked(store, async () => {
     let changed = false
     for (const rec of store.list) {

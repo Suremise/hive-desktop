@@ -2,14 +2,14 @@ import { readdir, readFile, stat } from 'original-fs/promises'
 import { join } from 'path'
 import type { DayUsage, SessionUsage, TranscriptItem, TranscriptTool, UsageTokens } from '../../../shared/types'
 import { addTokens, emptyDay, localDay } from '../../../shared/usageDays'
-import { TimelineBuilder, pendingRows, secondOf, spreadTokens } from '../../../shared/usageTimeline'
+import { TimelineBuilder, pendingRows, secondOf, spreadTokens, type PendingRequest } from '../../../shared/usageTimeline'
 import { isSessionId } from '../../../shared/defaults'
 import { placeMatcher } from '../../fsutil'
 import { COPILOT } from '../../../shared/copilot'
 import { formatToolInput } from '../claude/conversation'
 import { NOTICE_TEXT, firstLine, noticeOf, shortPath, type NewItem } from '../conversation'
 import type { ConversationParserLike, ExternalSession, ImageLocation, LiveDetails } from '../types'
-import { advanced } from '../../advanced'
+import { advancedValues as advanced } from '../../advancedValues'
 
 /**
  * The Copilot CLI's sessions (COPILOT_HOME/session-state/<id>/): events.jsonl holds one JSON event per line,
@@ -229,7 +229,7 @@ export class CopilotUsageParser {
   /** Each charge's credits in USD (the timeline's reports). */
   private charges: number[] = []
   /** The requests since the last exit, with the charge covering each (-1: none yet): their tokens aren't known yet. */
-  private launch: { second: number; report: number }[] = []
+  private launch: PendingRequest[] = []
   /** The last running totals seen, to count each day's increase. */
   private lastTokens: UsageTokens = { ...ZERO }
   private lastNano = 0
@@ -337,9 +337,9 @@ export class CopilotUsageParser {
           usage.requests++
           const day = this.day(ts)
           if (day) day.requests++
-          const second = secondOf(ts || usage.lastActivity)
-          if (second !== null) this.launch.push({ second, report: -1 })
           usage.model = realModel(d.model) ?? usage.model
+          const second = secondOf(ts || usage.lastActivity)
+          if (second !== null) this.launch.push({ second, report: -1, model: this.timeline.modelIndex(usage.model) })
           break
         }
         case 'session.usage_checkpoint': {
@@ -369,7 +369,7 @@ export class CopilotUsageParser {
             cacheWriteTokens: grew(t.cacheWriteTokens, this.lastTokens.cacheWriteTokens)
           }
           if (day) addTokens(day, step)
-          spreadTokens(this.timeline, this.launch, step, ts || usage.lastActivity)
+          spreadTokens(this.timeline, this.launch, step, ts || usage.lastActivity, (i) => this.timeline.modelName(i))
           this.launch = []
           this.lastTokens = { inputTokens: t.inputTokens, outputTokens: t.outputTokens, cacheWriteTokens: t.cacheWriteTokens, cacheReadTokens: t.cacheReadTokens }
           Object.assign(usage, this.lastTokens)
