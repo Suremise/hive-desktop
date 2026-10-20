@@ -148,7 +148,11 @@ const rolloutFile = (sid, h) => path.join(codexHome, 'sessions', '2026', '10', '
   check('providers are the top level', JSON.stringify(providers) === JSON.stringify(['Claude Code', 'Codex']), JSON.stringify(providers))
   check('branches start folded except the focused agent’s', (await names()).length < 14, JSON.stringify(await names()))
   await page.getByRole('button', { name: 'Expand All' }).click()
-  await lib.until(async () => (await names()).length === 14, 5000)
+  // Every session with its title: those the usage history reads on first sight show theirs once it has (#1106).
+  await lib.until(async () => {
+    const n = await names()
+    return n.length === 14 && !n.some((x) => /^Session [0-9a-f]{8}$/.test(x))
+  }, HUNG_MS)
   const all = await names()
   check('Expand All shows every session', all.length === 14, JSON.stringify(all))
   const agentLabels = (await page.locator('.session-branch-agent .label').allInnerTexts()).map((t) => t.trim())

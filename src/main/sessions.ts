@@ -4652,6 +4652,7 @@ class SessionManager {
         hasTranscript,
         hasBackup,
         transcriptBytes: await transcriptSize(transcript),
+        ...(!ctx.stored?.has(rec.id) && (hasTranscript || hasBackup) ? { pending: true } : {}),
         usage,
         recache: usage && providerDescriptor(provider).capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null
       })
@@ -4683,6 +4684,7 @@ class SessionManager {
             hasTranscript: true,
             hasBackup: false,
             transcriptBytes: st?.size ?? null,
+            ...(same ? {} : { pending: true }),
             usage,
             recache: usage && adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
             ...(ext.sub ? { sub: ext.sub } : {})

@@ -1885,6 +1885,8 @@ export interface SessionListItem extends Partial<SessionRecord> {
   deleted?: boolean
   usage: SessionUsage | null
   recache: RecacheEstimate | null
+  /** The usage history doesn't have it yet (#1106): its figures follow once the worker has read it (the window is told). */
+  pending?: boolean
 }
 
 /**
