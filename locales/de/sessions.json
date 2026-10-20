@@ -103,6 +103,7 @@
   "sessions.marker.orphan": "Die Sitzung, die sie gestartet hat, ist nicht aufgeführt (gelöscht oder nicht aus diesem Projekt).",
   "sessions.menu.copyId": "Sitzungs-ID kopieren",
   "sessions.menu.delete": "{kind, select, conversation {Unterhaltung löschen…} other {Sitzung löschen…}}",
+  "sessions.menu.purge": "Dateien von Hive bereinigen…",
   "sessions.menu.rename": "Umbenennen…",
   "sessions.menu.showAgent": "{agent} anzeigen",
   "sessions.menu.showAssistant": "Assistenten anzeigen",

@@ -6364,6 +6364,13 @@ body.pane-resizing .monaco-editor {
 .cleanup-preview .table td {
   padding: 4px 10px;
 }
+/* Purge… (#1138): the note of running sessions left alone, and a backup that is its session's last copy. */
+.purge-running {
+  margin: 6px 0;
+}
+.purge-last-copy {
+  margin-left: 6px;
+}
 .conflict-list {
   margin: 4px 0 10px;
   padding-left: 20px;

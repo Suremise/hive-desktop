@@ -270,6 +270,8 @@
   "tips.startNewAll.title": "Sesiones nuevas para todos los agentes",
   "tips.storageCleanup.text": "Configuración del proyecto → Almacenamiento muestra cuánto espacio ocupan las copias de seguridad, el archivo, los adjuntos y los worktrees de un proyecto. Limpiar… mueve los adjuntos y las copias antiguas a la Papelera de reciclaje, y antes te muestra exactamente qué se va.",
   "tips.storageCleanup.title": "Mira lo que guarda Hive y haz limpieza",
+  "tips.storagePurge.text": "Purgar… en Configuración del proyecto → Almacenamiento, o Purgar los archivos de Hive… en una sesión, quita lo que Hive guarda de las sesiones: copias, adjuntos y restos. Antes muestra cada archivo; los archivos de los agentes y tus totales de uso no cambian.",
+  "tips.storagePurge.title": "Purgar lo que guarda Hive",
   "tips.taskbarBadge.text": "El botón de Hive en la barra de tareas muestra cuántos agentes te necesitan, y parpadea cuando uno te pregunta algo con Hive en segundo plano.",
   "tips.taskbarBadge.title": "Un vistazo a la barra de tareas",
   "tips.templateNames.text": "Los nombres de los agentes son únicos en todo el espacio de trabajo. Al cargar una plantilla de otro proyecto, da nombres nuevos a sus agentes en la lista, junto a los de la plantilla: Cargar plantilla espera hasta que ninguno esté en uso.",

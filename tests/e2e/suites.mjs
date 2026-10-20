@@ -156,6 +156,7 @@ export const SUITES = [
   { name: 'projectrename' },
   { name: 'providerdetect' },
   { name: 'providers' },
+  { name: 'purge' },
   { name: 'quit' },
   { name: 'quitwait' },
   { name: 'rail' },

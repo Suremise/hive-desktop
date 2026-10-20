@@ -2,7 +2,7 @@ import { parentPort } from 'worker_threads'
 import { createHash } from 'crypto'
 import { open, stat } from 'original-fs/promises'
 import { dirname, join } from 'path'
-import type { AppSettings, SessionUsage } from '../shared/types'
+import type { AppSettings, ProviderId, SessionUsage } from '../shared/types'
 import { baselineOfRows, baselineOfUsage, dominates, ledgerRows, mergeBaselines, reshareRows, sessionRows, summaryOf, unknownOnCards, type SessionHold } from '../shared/usageLedger'
 import { openDb, type Db } from './db'
 import { readAdvancedFrom, valuesReader } from './advancedValues'
@@ -19,7 +19,9 @@ import { newUsageParser, parserShape, restoreParser, saveParser, type RawUsagePa
  * it; another Hive's worker on the same workspace waits up to db.ts's busy timeout, and a session it recorded meanwhile
  * is left as it wrote it). It answers main's queries on that file too, so main never opens it. Jobs run one at a time,
  * in the order main sends them (main keeps the queue and its priorities, usageHistory.ts); queries are answered at once,
- * between a job's reads. No Electron here (a worker can't load it): logs go to main.
+ * between a job's reads. It also reads a transcript's usage so far for main (#1147: a running session's footer and
+ * context gauge, as each turn grows it), from the same parsers its jobs use (`reads`). No Electron here (a worker can't
+ * load it): logs go to main.
  */
 
 export interface IngestJob extends SessionMeta {
@@ -46,7 +48,7 @@ export interface KeptJob extends SessionMeta {
 export type IngestResult = { status: 'written' | 'unchanged' | 'missing' | 'kept' | 'busy' | 'failed'; requests?: number }
 
 export type WorkerRequest = { id: number } & (
-  | { type: 'config'; advanced: Record<string, unknown>; providers: AppSettings['providers']; hiveVersion: string }
+  | { type: 'config'; advanced: Record<string, unknown>; providers: AppSettings['providers']; hiveVersion: string; cacheSize?: number }
   | { type: 'ingest'; file: string; job: IngestJob }
   | { type: 'kept'; file: string; job: KeptJob }
   | { type: 'sessions'; file: string; scopes: string[] | null }
@@ -57,7 +59,22 @@ export type WorkerRequest = { id: number } & (
   | { type: 'forgetStates'; file: string; before: string }
   | { type: 'attribute'; file: string; scope: string; sessions: { session: string; holds: SessionHold[]; holdsKey: string | null }[] }
   | { type: 'close'; file: string }
+  | { type: 'read'; path: string; session: string; provider: ProviderId; seed: ReadSeed | null }
+  | { type: 'forgetReads' }
 )
+
+/** Where a read may take its session's saved parser state up from (#1147): the history's file and the session's scope. */
+export interface ReadSeed {
+  file: string
+  scope: string
+}
+
+/** What a transcript used so far (without its timeline, which stays here), with the size and modified time it was read at. */
+export interface ReadResult {
+  usage: SessionUsage
+  size: number
+  mtime: number
+}
 
 export type WorkerReply = { id: number; ok: true; value: unknown } | { id: number; ok: false; error: string } | { log: 'info' | 'warn'; text: string; path?: string }
 
@@ -139,6 +156,141 @@ async function bytesBefore(path: string, offset: number): Promise<string | null>
 }
 
 /**
+ * Each transcript read in this run, by path (#1147), with the parser that read it: transcripts only grow, so one is read
+ * from where the last read stopped (a long session's transcript can be hundreds of MB) rather than from the start. A
+ * running session's footer and context gauge read it (`readUsage`), and so do the history's jobs (`ingest`): one parser for
+ * both. Reads of one file take turns (`inTurn`), so no line is fed twice. At most MAX_PARSERS parsers are kept (each
+ * holds its session's request history) and results for the usage cache size (Settings → Sessions), least recently used
+ * first; nothing here outlives the worker (a new one takes the saved states up).
+ */
+interface ReadEntry {
+  /** null once dropped (too many kept): the result stays, and a changed file is read again. */
+  parser: RawUsageParser | null
+  session: string
+  provider: ProviderId
+  /** Bytes fed so far, at a line boundary. */
+  offset: number
+  size: number
+  mtime: number
+  raw: SessionUsage | null
+}
+const reads = new Map<string, ReadEntry>()
+const MAX_PARSERS = 200
+let cacheSize = 5000
+const readKey = (path: string): string => path.toLowerCase()
+
+/** The entry for a file, as the most recently used. */
+function touch(path: string): ReadEntry | undefined {
+  const c = reads.get(readKey(path))
+  if (c) {
+    reads.delete(readKey(path))
+    reads.set(readKey(path), c)
+  }
+  return c
+}
+
+function keep(path: string, c: ReadEntry): void {
+  reads.delete(readKey(path))
+  reads.set(readKey(path), c)
+  let parsers = 0
+  for (const e of reads.values()) if (e.parser) parsers++
+  for (const [k, e] of reads) {
+    if (parsers <= MAX_PARSERS && reads.size <= cacheSize) break
+    if (reads.size > cacheSize) {
+      reads.delete(k)
+      if (e.parser) parsers--
+    } else if (e.parser) {
+      e.parser = null
+      parsers--
+    }
+  }
+}
+
+/** The file's entry, when its parser can go on from where it stopped: the same session and provider, a file that only grew. */
+function goOn(path: string, session: string, provider: ProviderId, size: number, mtime: number): ReadEntry | null {
+  const c = touch(path)
+  if (!c?.parser || c.session !== session || c.provider !== provider || isGz(path) || size < c.offset || (size === c.size && mtime !== c.mtime)) return null
+  return c
+}
+
+/** Reads of one file, one at a time (a read and a job, or two reads). */
+const turns = new Map<string, Promise<unknown>>()
+function inTurn<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const key = readKey(path)
+  const run = (turns.get(key) ?? Promise.resolve()).then(fn)
+  const settled = run.catch(() => undefined)
+  turns.set(key, settled)
+  void settled.then(() => {
+    if (turns.get(key) === settled) turns.delete(key)
+  })
+  return run
+}
+
+/**
+ * A session's saved parser state, when it was made from this file's bytes: the same path, at least as long, its bytes
+ * before the offset as they were (a file that shrank and grew again between reads is another), by this Hive's parser.
+ * A compressed backup (#1110) is finished and read whole: no state for it.
+ */
+async function takeUp(cur: ReturnType<typeof cursorOf>, path: string, size: number, provider: ProviderId, session: string): Promise<{ parser: RawUsageParser; from: number } | null> {
+  if (isGz(path) || !cur?.state || !cur.path || cur.path.toLowerCase() !== path.toLowerCase() || cur.stateOffset === null || cur.stateOffset > size || cur.stateVersion !== hiveVersion || !cur.stateShape) return null
+  if (cur.stateCheck !== (await bytesBefore(path, cur.stateOffset))) return null
+  const parser = restoreParser(provider, session, cur.state, cur.stateShape)
+  return parser ? { parser, from: cur.stateOffset } : null
+}
+
+/** A result as main gets it: without its timeline (cost per card reads the history's). */
+const readResult = (c: ReadEntry): ReadResult => {
+  const { timeline: _timeline, ...usage } = c.raw!
+  return { usage, size: c.size, mtime: c.mtime }
+}
+
+/**
+ * What a transcript used so far, for main (#1147): unchanged since it was last read, as it was; else what it added, fed
+ * to its parser. One not read in this run (Hive restarted, a session resumed) takes its session's saved state up from the
+ * history (`seed`), so only what was added since is read; without one, it is read from the start, here, never in main.
+ * Null when it can't be read, or for a provider this Hive can't read.
+ */
+async function readUsage(path: string, session: string, provider: ProviderId, seed: ReadSeed | null): Promise<ReadResult | null> {
+  return inTurn(path, async () => {
+    let st
+    try {
+      st = await stat(path)
+    } catch {
+      return null
+    }
+    const had = touch(path)
+    if (had?.raw && had.size === st.size && had.mtime === st.mtimeMs && had.session === session && had.provider === provider) return readResult(had)
+    let c = goOn(path, session, provider, st.size, st.mtimeMs)
+    if (!c) {
+      let taken: Awaited<ReturnType<typeof takeUp>> = null
+      if (seed) {
+        try {
+          taken = await takeUp(cursorOf(dbOf(seed.file).reader, seed.scope, session), path, st.size, provider, session)
+        } catch (e) {
+          log('warn', `usage history: couldn't look for a session's saved state (${(e as Error).message})`, seed.file)
+        }
+      }
+      const parser = taken?.parser ?? newUsageParser(provider, session)
+      if (!parser) return null
+      c = { parser, session, provider, offset: taken?.from ?? 0, size: 0, mtime: 0, raw: null }
+    }
+    try {
+      if (isGz(path) || st.size > c.offset) c.offset = await feed(path, c.parser!, c.offset)
+    } catch (e) {
+      // Fed in part: what it read can't be gone on from.
+      reads.delete(readKey(path))
+      log('warn', `usage: couldn't read a transcript (${(e as Error).message})`, path)
+      return null
+    }
+    c.size = st.size
+    c.mtime = st.mtimeMs
+    c.raw = c.parser!.result()
+    keep(path, c)
+    return readResult(c)
+  })
+}
+
+/**
  * Records what a session used from its file: unchanged since it was read, nothing (its cards re-shared from what is stored
  * when their holds changed); else from where it was left (its parser's saved state, made from this file's bytes), or from
  * the start (no state of this parser's shape and Hive's version, a file that shrank or is another). Usage history is only
@@ -169,14 +321,17 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   if (!st.isFile()) return cur ? unchanged() : { status: 'missing' }
   const samePath = !!cur?.path && cur.path.toLowerCase() === job.path.toLowerCase()
   if (cur && samePath && cur.size === st.size && cur.mtime === st.mtimeMs) return unchanged()
+  // The parser this run read the file with (a running session's footer, an earlier job), when it is at least as far on as
+  // the saved state; else the saved state taken up (takeUp), else a new parser from the start.
   let parser: RawUsageParser | null = null
   let from = 0
-  // Taken up only for this file's bytes: the same path, at least as long, its bytes before the offset as they were (a file
-  // that shrank and grew again between reads is another), by this Hive's parser.
-  // A compressed backup (#1110) is finished and read whole: no state for it.
-  if (!isGz(job.path) && cur?.state && samePath && cur.stateOffset !== null && cur.stateOffset <= st.size && cur.stateVersion === hiveVersion && cur.stateShape && cur.stateCheck === (await bytesBefore(job.path, cur.stateOffset))) {
-    parser = restoreParser(job.provider, job.session, cur.state, cur.stateShape)
-    if (parser) from = cur.stateOffset
+  const live = goOn(job.path, job.session, job.provider, st.size, st.mtimeMs)
+  if (live && (!samePath || cur?.stateOffset == null || live.offset >= cur.stateOffset)) {
+    parser = live.parser
+    from = live.offset
+  } else {
+    const taken = await takeUp(samePath ? cur : null, job.path, st.size, job.provider, job.session)
+    if (taken) ({ parser, from } = taken)
   }
   parser ??= newUsageParser(job.provider, job.session)
   if (!parser) return cur ? unchanged() : { status: 'missing' }
@@ -184,10 +339,16 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   try {
     offset = await feed(job.path, parser, from)
   } catch (e) {
+    // A parser fed in part can't be gone on from.
+    if (live?.parser === parser) reads.delete(readKey(job.path))
     log('warn', `usage history: couldn't read a transcript (${(e as Error).message})`, job.path)
     return { status: 'failed' }
   }
   const raw = parser.result()
+  // What it read is kept for the next read of a running session (the footer's, the next tick's); a session that ended
+  // has its state saved below, and its parser is let go.
+  if (job.keepState === 'now') reads.delete(readKey(job.path))
+  else if (live?.parser === parser || job.keepState === 'running') keep(job.path, { parser, session: job.session, provider: job.provider, offset, size: st.size, mtime: st.mtimeMs, raw })
   // Read again after the awaits: what another writer recorded meanwhile is checked in the write.
   const now = cursorOf(db, job.scope, job.session)
   const settings = providers ? { providers } : null
@@ -276,10 +437,12 @@ export async function handleRequest(m: WorkerRequest): Promise<unknown> {
       readAdvancedFrom(valuesReader(m.advanced))
       providers = m.providers
       hiveVersion = m.hiveVersion
+      if (m.cacheSize) cacheSize = m.cacheSize
       return true
     case 'ingest':
     case 'kept': {
-      const run = jobs.then(() => (m.type === 'ingest' ? ingest(m.file, m.job) : kept(m.file, m.job)))
+      // An ingest takes its file's turn with the reads, which share its parser.
+      const run = jobs.then(() => (m.type === 'kept' ? kept(m.file, m.job) : m.job.path ? inTurn(m.job.path, () => ingest(m.file, m.job)) : ingest(m.file, m.job)))
       jobs = run.catch(() => undefined)
       return run
     }
@@ -306,6 +469,12 @@ export async function handleRequest(m: WorkerRequest): Promise<unknown> {
       const r = dbOf(m.file).writer.prepare('UPDATE usage_sessions SET state = NULL, state_offset = NULL, state_shape = NULL, state_version = NULL, state_check = NULL, state_at = NULL WHERE state IS NOT NULL AND updated_at < ?').run(m.before) // i18n-ignore: SQL
       return Number(r.changes)
     }
+    case 'read':
+      // At once, not after the jobs: a running session's footer never waits for an import.
+      return readUsage(m.path, m.session, m.provider, m.seed)
+    case 'forgetReads':
+      reads.clear()
+      return true
     case 'close': {
       // After the jobs sent before it.
       const run = jobs.then(() => close(m.file))

@@ -479,6 +479,38 @@
     "defaultMessage": "Its CLI hasn't taken the line Hive typed before; nothing more is typed until it does.",
     "description": "Typing into an agent is refused: its CLI hasn't taken the line Hive typed before."
   },
+  "session.purge.changed": {
+    "defaultMessage": "The session's copies changed since the preview.",
+    "description": "Purge left a session alone: Hive's copies of its transcript changed since the preview."
+  },
+  "session.purge.cliBack": {
+    "defaultMessage": "The CLI has this session's transcript again.",
+    "description": "Purge left a session alone: the coding agent's own transcript is back since the preview, so Hive's backups are no longer its last copy."
+  },
+  "session.purge.cliGone": {
+    "defaultMessage": "The CLI no longer has this session's transcript.",
+    "description": "Purge left a session alone: the coding agent's own transcript went since the preview, so Hive's backups are now its last copy."
+  },
+  "session.purge.gone": {
+    "defaultMessage": "The session is no longer in Hive.",
+    "description": "Purge left a session alone: it was deleted since the preview."
+  },
+  "session.purge.open": {
+    "defaultMessage": "Its transcript is open in Hive. Close it, then try again.",
+    "description": "Purge left a session alone: its transcript is open in Hive's Sessions tab."
+  },
+  "session.purge.reading": {
+    "defaultMessage": "Hive is reading its transcript (an export or a search). Try again in a moment.",
+    "description": "Purge left a session alone for a moment: Hive is reading its transcript."
+  },
+  "session.purge.running": {
+    "defaultMessage": "It is running.",
+    "description": "Purge left a session alone: it is running (or starting) now."
+  },
+  "session.purge.unread": {
+    "defaultMessage": "Hive couldn't record what the session used, so it is kept.",
+    "description": "Purge left a session alone: Hive couldn't save its usage in the usage history, which the totals keep."
+  },
   "session.setup.failed": {
     "defaultMessage": "The setup command exited with code {code}. Its output is in the agent's terminal. Fix it and start the agent again, or start it without setup.",
     "description": "The notice that a worktree setup command failed. {code} is its exit code."

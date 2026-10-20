@@ -699,6 +699,8 @@ export function registerIpc(getAppInfo: () => ReturnType<HiveRequests['app:info'
     'antivirus:dismiss': () => dismissAntivirus(),
     'storage:cleanupPreview': (p, opts) => storage.cleanupPreview(p, opts),
     'storage:cleanup': (p, opts, listed) => storage.cleanup(p, opts, listed),
+    'storage:purgePreview': (target) => storage.purgePreview(target),
+    'storage:purge': (previewId, listed, permanent) => storage.purge(previewId, listed, permanent === true),
     'session:clearUsageCache': () => sessions.forgetUsageCache(),
     'session:adopt': (p, id) => sessions.adopt(p, id),
     'session:usage': (p, id) => sessions.usage(workspace.assertSessionHost(p), id),

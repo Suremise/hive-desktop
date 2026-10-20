@@ -186,7 +186,8 @@ export const AREAS = [
   { paths: ['src/main/hiveVcs.ts', 'src/shared/hiveVcsText.ts', 'src/renderer/src/components/HiveVcsNotice.tsx'], suites: ['hivevcs', 'gitinit'] },
   // Hook tokens per launch (#345): the hook server, and hook commands reading their header from the auth file.
   { paths: ['src/main/hookTokens.ts'], suites: ['agents', 'ctxpercent', 'codex-extra', 'attention', 'claude-real', 'claudehome', 'codex', 'review'] },
-  { paths: ['src/main/storage.ts', 'src/shared/storage.ts', 'src/renderer/src/components/Storage.tsx'], suites: ['storage', 'storageclose', 'asarfiles'] },
+  { paths: ['src/main/storage.ts', 'src/shared/storage.ts', 'src/renderer/src/components/Storage.tsx'], suites: ['storage', 'storageclose', 'asarfiles', 'purge'] },
+  { paths: ['src/renderer/src/components/Purge.tsx'], suites: ['purge'] },
   { paths: ['src/main/antivirus.ts', 'src/shared/antivirus.ts', 'src/renderer/src/components/Antivirus.tsx'], suites: ['antivirus', 'performance'] },
   { paths: ['src/shared/tipPlacement.ts'], suites: ['tooltips'] },
   { paths: ['src/shared/uiPrefs.ts', 'src/renderer/src/projectPrefs.ts'], suites: ['skillprefs', 'skills', 'sessiontree'] },
@@ -199,7 +200,7 @@ export const AREAS = [
   { paths: ['src/main/titleBar.ts', 'src/shared/titleBar.ts'], suites: ['carddialog'] },
   // A window fitted to the display it opens on (#812).
   { paths: ['src/main/windowBounds.ts'], suites: ['tabstrip', 'windows', 'closewindow', 'resize'] },
-  { paths: ['src/main/transcripts.ts', 'src/main/transcriptReads.ts', 'src/main/transcriptFiles.ts', 'src/renderer/src/views/SessionsTab.tsx', 'src/shared/sessionOrigin.ts', 'src/shared/sessionResume.ts', 'src/shared/sessionTree.ts'], suites: ['transcript', 'sessionorigin', 'sessionsize', 'sessiontree', 'sessioncleanup', 'loadfail', 'sessionname', 'packaged-transcript'] },
+  { paths: ['src/main/transcripts.ts', 'src/main/transcriptReads.ts', 'src/main/transcriptFiles.ts', 'src/renderer/src/views/SessionsTab.tsx', 'src/shared/sessionOrigin.ts', 'src/shared/sessionResume.ts', 'src/shared/sessionTree.ts'], suites: ['transcript', 'sessionorigin', 'sessionsize', 'sessiontree', 'sessioncleanup', 'loadfail', 'sessionname', 'packaged-transcript', 'purge'] },
   // Compressed backups (#1110): resumed from, sized in Storage, read in another language.
   { paths: ['src/main/transcriptFiles.ts'], suites: ['resume', 'storage', 'i18nlive'] },
   { paths: ['src/shared/sessionCleanup.ts', 'src/renderer/src/views/SessionCleanup.tsx'], suites: ['sessioncleanup', 'sessiontree'] },

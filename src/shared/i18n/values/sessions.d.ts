@@ -105,6 +105,7 @@ interface HiveMessageValues {
   'sessions.marker.orphan': undefined
   'sessions.menu.copyId': undefined
   'sessions.menu.delete': { kind: string }
+  'sessions.menu.purge': undefined
   'sessions.menu.rename': undefined
   'sessions.menu.showAgent': { agent: string | number }
   'sessions.menu.showAssistant': undefined

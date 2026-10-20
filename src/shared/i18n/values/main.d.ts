@@ -142,6 +142,15 @@ interface HiveMessageValues {
   'main.removal.wontRemove': { worktrees: string | number }
   'main.storage.claimed': undefined
   'main.storage.noLonger': { path: string | number }
+  'main.storage.purgeChanged': undefined
+  'main.storage.purgeClaimed': undefined
+  'main.storage.purgeExpired': undefined
+  'main.storage.purgeLastCopy': undefined
+  'main.storage.purgeNoLonger': undefined
+  'main.storage.purgeNotKept': undefined
+  'main.storage.purgeRunning': undefined
+  'main.storage.purgeSessionChanged': undefined
+  'main.storage.purgeUnrecorded': undefined
   'main.storage.running': undefined
   'main.storage.unarchived': undefined
   'main.tray.active': undefined
