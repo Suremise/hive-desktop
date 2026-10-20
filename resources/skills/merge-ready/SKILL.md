@@ -27,7 +27,7 @@ In Hive an agent often works in its own git worktree on its own branch. The user
 
 ## Finishing
 
-Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Who merges: in a card loop, the builder, at the lane's end, as its brief says (below, `--no-ff` through the merge slot). Otherwise the user, from Hive, where they review it first (its Merge dialog's squash or merge commit is their choice), or you when they ask. Rebase, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
+Give the user the summary and say plainly whether the branch is ready, and if not, what's in the way. Who merges: in a card loop, the builder, at the lane's end, as its brief says (Merging, below). Otherwise the user, from Hive, where they review it first (its Merge dialog's squash or merge commit is their choice), or you when they ask. Rebase, push, delete the branch or publish only when the user asks you to. If the user isn't watching this agent, a short `hive_notify` that the branch is ready helps them notice.
 
 ## Merging, when the user or your brief asks you to
 

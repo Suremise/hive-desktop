@@ -36,6 +36,39 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
+## One answer per workflow rule (Phase 0 tidy): fakes, Codex (its default model), fixtures v67, 20 October 2026
+
+#1129: the board rule says Done in the project folder is committed; merge-ready says who merges (a lane's builder at
+its end, otherwise the user or an agent asked); a lane's cards change only between cards (card-loop, run-lanes, the
+`hive_lane` descriptions); run-lanes counts a team setup the user chose as agreeing to worktrees, and its brief names
+the project's own conventions (such as the user OK-ing screenshots); review-agent-work checks a convention the brief
+names; merge-ready's timer line points to work-on-card. Repo docs (AGENTS.md, RELEASING.md, tests/e2e/README.md) too.
+- **Fakes**: every scenario passes the same checks before (`hb5-1136-after`, the branch before #1129) and after
+  (`hb5-1129-after`); progress-long-command timed out once under load and passes alone. Agents' guidance +35
+  characters, delivered skills about +490 bytes.
+- **Codex, before and after** (assistant-new-lane, card-loop-lane, merged-to-done, merge-main-moved, review-card, 2
+  each: `2026-10-20T04-38-23-codex`, `04-31-16-codex`): all pass both ways but merge-main-moved.
+- **merge-main-moved on Codex**, a known weak spot: before 5 of 10 (`04-38-23`, `04-50-29`, `04-57-25`); after, with
+  merge-ready's "who merges" line first naming `--no-ff` and the slot, 3 of 10 (`04-31-16`, `04-47-06`, `04-53-41`): every
+  sample that read the skill passed before (5 of 5), 3 of 5 after, the two others merging with `--no-commit` on the base
+  and checking the combined tree (the same path seen before #1129). With that line pointing to the section instead, 5 of
+  8 (`05-00-39`, `05-03-11`; read 6 times, passed 5). Not reading merge-ready (about half the runs, both ways) is the
+  main failure; #1162 settles the `--no-commit` path.
+- **Claude Code**: not run (its test home was signed out); see #1136.
+
+## A decision about a card goes on the card: fakes, Codex (its default model), fixtures v65, 20 October 2026
+
+#1136: with the journal on, its always-present rule said to write decisions as they happen, and nothing always-present
+said a decision about a card belongs on the card (coordinate-agents does, but a wake doesn't load it): Claude Code's
+Assistant wrote a journal entry instead (assistant-reply-decision 0 of 3 on 19 Oct). The journal rule now says a
+decision about a card goes on the card first, the journal only noting it; the Control rule says to pass an agent's
+question on in its words; the journal and coordinate-agents skills match.
+- **Fakes**: every scenario passes the same checks before (`hb5-1136-before`) and after (`hb5-1136-after`);
+  worktree-isolation timed out once before, under load. The Assistant's guidance +172 bytes with the journal on.
+- **Claude Code, before**: assistant-reply-decision failed again (`2026-10-20T03-01-43-claude-code`).
+- **Codex**: both scenarios 2 of 2 before (`2026-10-20T03-04-44-codex`) and after (`03-42-10-codex`).
+- **Claude Code, after**: waits for its test home's sign-in.
+
 ## Screenshots read through their report: fakes, Claude Code (its default model), Codex (its default model), fixtures v65, 20 October 2026
 
 #899: i18nshots writes a text report naming the screenshots worth opening, and review-agent-work gains a general line:
