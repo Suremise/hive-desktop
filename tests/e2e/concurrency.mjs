@@ -26,7 +26,8 @@
 //
 // After the rounds (or alone, with --lane-wait): a run that waits for a test lane while its source changes (#735). In
 // the second worktree, an e2e run (--build --record) and a scenario run start while every lane of a pool of their own
-// is held (HIVE_TEST_LANES_DIR, and folders of their own: real runs neither wait for it nor make it wait); once both
+// is held (HIVE_TEST_LANES_DIR, with folders and ports of their own, #1127: real runs neither wait for it, make it
+// wait nor answer on its ports); once both
 // say they wait, a source file is added there, then lanes are let go. Checked: both waited, then built the source as
 // it was once they had a lane, after the wait; both pass; the e2e record names that source and is valid; the build
 // is stamped as it.
@@ -37,7 +38,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
-import { LANES } from './lanes.mjs'
+import { LANES, OWN_POOL_FIRST, holdOwnPool } from './lanes.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
 import { fingerprint } from './record.mjs'
@@ -285,6 +286,18 @@ async function heavyRound(k, worktrees) {
 /** A run that waits for a test lane while its source changes (#735): see the top of this file. */
 async function laneWaitCheck(wt) {
   console.log('\n--- A run that waits for a test lane while its source changes (#735)')
+  // The machine's one pool of its own (#1127): another checker's would have the same ports. Waits while one runs.
+  let saidHolder = ''
+  const own = await holdOwnPool(runContext.MACHINE_LANES_DIR, {
+    root,
+    what: 'the concurrency check of a run waiting for a lane',
+    onWait: (h) => {
+      const line = `Waiting for the pool of its own: held by ${h.what || 'a checker'} in ${h.root || 'another worktree'} (process ${h.pid})`
+      if (line !== saidHolder) console.log(line)
+      saidHolder = line
+    }
+  })
+  process.on('exit', own.release)
   const pool = join(RUN, 'lanes')
   rmSync(pool, { recursive: true, force: true })
   mkdirSync(pool, { recursive: true })
@@ -315,6 +328,9 @@ async function laneWaitCheck(wt) {
     for (const r of [e2e, scenario]) {
       check(`${r.name}: passes`, r.code === 0, `exit ${r.code}\n${r.out.split(/\r?\n/).filter((l) => /FAIL|ERROR|Error|failed|isn't from this source/.test(l)).slice(0, 12).join('\n')}`)
       check(`${r.name}: it got a lane after waiting`, /^Got a test lane after \d+ s/m.test(r.out), r.out.slice(0, 600))
+      // Its pool's ports, never a machine lane's another worktree's run may hold (#1127).
+      const port = Number(/^Lane \d+: (?:ports|Agent API port) (\d+)/m.exec(r.out)?.[1])
+      check(`${r.name}: its lane's ports are its pool's own`, port >= OWN_POOL_FIRST - 1, /^Lane .*/m.exec(r.out)?.[0] ?? 'no lane line')
     }
     // Built once, after the wait, by one of the two (the build lock): from the source as it was once they had a lane.
     const builtAfter = [e2e, scenario].filter((r) => {
@@ -327,6 +343,7 @@ async function laneWaitCheck(wt) {
   } finally {
     rmSync(probe, { force: true })
     rmSync(pool, { recursive: true, force: true })
+    own.release()
   }
 }
 

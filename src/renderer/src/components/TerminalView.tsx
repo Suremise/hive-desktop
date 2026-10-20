@@ -59,6 +59,17 @@ function disposeWebgl(webgl: WebglAddon, canvases: HTMLCanvasElement[]): void {
 /** How many terminals hold a WebGL context (for tests). */
 ;(window as unknown as { __hiveWebglCount?: () => number }).__hiveWebglCount = () => webglHolders.size
 
+/**
+ * Glyph atlas pages merged away, as the terminals sharing the atlas heard it (each hears every page), for tests (#1048):
+ * counted, and window.__hiveAtlasMerges there, only in development and test builds (from a terminal's first WebGL).
+ */
+let atlasMerges = 0
+function countAtlasMerges(): boolean {
+  if (useStore.getState().appInfo?.isPackaged !== false) return false
+  ;(window as unknown as { __hiveAtlasMerges?: () => number }).__hiveAtlasMerges ??= () => atlasMerges
+  return true
+}
+
 /** Where some text is on screen in a terminal (the middle of its first character), for tests that point at it. */
 ;(window as unknown as { __hiveTerminalTextAt?: (key: string, text: string) => { x: number; y: number } | null }).__hiveTerminalTextAt = (key, text) => {
   const term = terminals.get(key)
@@ -597,6 +608,22 @@ export function TerminalView({
           const webgl = new WebglAddon()
           const canvases = (): HTMLCanvasElement[] => [...(term.element?.querySelectorAll('canvas') ?? [])]
           const had = new Set(canvases())
+          // Terminals with the same font and colours share one glyph atlas. Once it is full, drawing a new glyph
+          // merges its pages in the middle of a frame: the cells already drawn in that frame point at glyphs that
+          // moved, and show others' (letters from two drawings, #1048). Its next frame redraws them right, but none
+          // comes while output has stopped and the cursor is hidden (Claude Code's), until a scroll. So every
+          // terminal sharing the atlas redraws itself on the next frame, once per merge.
+          let redraw = false
+          const counted = countAtlasMerges()
+          webgl.onRemoveTextureAtlasCanvas(() => {
+            if (counted) atlasMerges++
+            if (redraw) return
+            redraw = true
+            requestAnimationFrame(() => {
+              redraw = false
+              if (webglRef.current === webgl && termRef.current === term) term.refresh(0, term.rows - 1)
+            })
+          })
           webgl.onContextLoss(() => {
             webgl.dispose()
             if (webglRef.current === webgl) {
