@@ -270,6 +270,8 @@
   "tips.startNewAll.title": "Fresh sessions for every agent",
   "tips.storageCleanup.text": "Project Settings → Storage shows how much space a project's backups, archive, attachments and worktrees take. Clean Up… moves old attachments and backups to the Recycle Bin, and shows you exactly what goes first.",
   "tips.storageCleanup.title": "See what Hive keeps, and clean up",
+  "tips.storagePurge.text": "Purge… in Project Settings → Storage, or Purge Hive's Files… on a session, removes everything Hive keeps for sessions: backups, attachments and leftovers. It lists every file first; the coding agents' own files and your usage totals stay.",
+  "tips.storagePurge.title": "Purge what Hive keeps",
   "tips.taskbarBadge.text": "Hive's taskbar button shows how many agents need you, and flashes when one asks you something while Hive is in the background.",
   "tips.taskbarBadge.title": "Glance at the taskbar",
   "tips.templateNames.text": "Agent names are unique across the workspace. Loading a template from another project, give its agents new names in the list beside the template's own: Load template waits until none is taken.",

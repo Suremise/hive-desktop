@@ -103,6 +103,7 @@
   "sessions.marker.orphan": "このセッションを開始したセッションは一覧にありません（削除されたか、このプロジェクトのものではありません）。",
   "sessions.menu.copyId": "セッションIDをコピー",
   "sessions.menu.delete": "{kind, select, conversation {会話を削除…} other {セッションを削除…}}",
+  "sessions.menu.purge": "Hiveのファイルをパージ…",
   "sessions.menu.rename": "名前を変更…",
   "sessions.menu.showAgent": "{agent}を表示",
   "sessions.menu.showAssistant": "アシスタントを表示",

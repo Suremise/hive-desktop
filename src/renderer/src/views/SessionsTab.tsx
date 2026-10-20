@@ -22,6 +22,7 @@ import { rememberProjectPref } from '../projectPrefs'
 import { fmt, msg, tr, type Msg } from '@shared/i18n'
 import type { CleanupPlan, CleanupSkip } from '@shared/sessionCleanup'
 import { SessionCleanup } from './SessionCleanup'
+import { PurgeDialog } from '../components/Purge'
 
 /**
  * Sessions tab: the project's sessions as a tree on the left (provider → agent → session → the sub-sessions it
@@ -63,6 +64,9 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
   const listWidth = usePaneSize('sessions', 320)
   const [showArchived, setShowArchived] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
+  // Purge… of one session (#1138), and the view it closed before its files went (opened again after, if it's still there).
+  const [purging, setPurging] = useState<SessionListItem | null>(null)
+  const purgeClosed = useRef<string | null>(null)
   const kind: Kind = assistant ? 'conversation' : 'session'
   useLanguage()
   const newOne = (): void => {
@@ -325,6 +329,7 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
     entries.push({ separator: true })
     if (s.source === 'hive' && !live) entries.push({ label: s.archived ? tr(UNARCHIVE) : tr(ARCHIVE), icon: s.archived ? 'unarchive' : 'archive', onClick: () => void archive(s, !s.archived) })
     entries.push({ label: tr(msg({ id: 'sessions.menu.delete', defaultMessage: '{kind, select, conversation {Delete Conversation…} other {Delete Session…}}', description: "Menu item on a session (the Hive Assistant's: a conversation): deletes it from Hive, after a confirmation." }), { kind }), icon: 'trash', keybinding: formatKeybinding('Del'), danger: true, disabled: live, onClick: () => void remove(s) }) // i18n-ignore: a key's id, which formatKeybinding names
+    if (s.source === 'hive') entries.push({ label: tr(msg({ id: 'sessions.menu.purge', defaultMessage: "Purge Hive's Files…", description: "Menu item on a session: lists, then removes, everything Hive keeps of it (its backups, attachments, old usage), never the coding agent's own files." })), icon: 'trash', danger: true, disabled: live, onClick: () => setPurging(s) })
     if (n.children.length) entries.push({ separator: true }, ...branchEntries(n))
     entries.push({ separator: true }, { label: tr(msg({ id: 'sessions.menu.copyId', defaultMessage: 'Copy Session ID', description: "Menu item on a session: copies its id (the CLI's session id) to the clipboard." })), icon: 'copy', onClick: () => copyText(s.id) })
     return entries
@@ -645,6 +650,29 @@ export function SessionsTab({ project, assistant = false }: { project: ProjectIn
         )}
       </div>
       {menu.element}
+      {purging && (
+        <PurgeDialog
+          target={{ kind: 'session', projectPath: project.path, sessionId: purging.id }}
+          name={sessionName(purging)}
+          beforeApply={async () => {
+            purgeClosed.current = await closeView([purging.id])
+          }}
+          onClose={() => {
+            moving.current = false
+            if (purgeClosed.current) setSelectedId(purgeClosed.current)
+            purgeClosed.current = null
+            setPurging(null)
+          }}
+          onDone={() => {
+            // Open again where it is now: a session whose last copy went is gone, and the list shows another.
+            moving.current = false
+            if (purgeClosed.current) setSelectedId(purgeClosed.current)
+            purgeClosed.current = null
+            setPurging(null)
+            reload()
+          }}
+        />
+      )}
       {cleaningUp && (
         <SessionCleanup
           projectPath={project.path}

@@ -103,6 +103,7 @@
   "sessions.marker.orphan": "Sesji, która ją uruchomiła, nie ma na liście (usunięta lub spoza tego projektu).",
   "sessions.menu.copyId": "Kopiuj ID sesji",
   "sessions.menu.delete": "{kind, select, conversation {Usuń rozmowę…} other {Usuń sesję…}}",
+  "sessions.menu.purge": "Wyczyść całkowicie pliki Hive…",
   "sessions.menu.rename": "Zmień nazwę…",
   "sessions.menu.showAgent": "Pokaż agenta {agent}",
   "sessions.menu.showAssistant": "Pokaż Asystenta",

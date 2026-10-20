@@ -1,6 +1,6 @@
-// Project Settings → Storage: which files Clean Up… removes, and how sizes read.
+// Project Settings → Storage: which files Clean Up… and Purge… remove, and how sizes read.
 import { describe, expect, it } from 'vitest'
-import { planCleanup, type CleanupFacts, type CleanupSession } from '../src/shared/storage'
+import { planCleanup, planPurge, type CleanupFacts, type CleanupSession, type PurgeFacts, type PurgeSession } from '../src/shared/storage'
 import { formatSize } from '../src/shared/units'
 import type { CleanupOptions } from '../src/shared/types'
 
@@ -61,5 +61,55 @@ describe('formatSize', () => {
     expect(formatSize(5 * 1024 * 1024)).toBe('5.0 MB')
     expect(formatSize(300 * 1024 * 1024)).toBe('300 MB')
     expect(formatSize(2.5 * 1024 ** 3)).toBe('2.5 GB')
+  })
+})
+
+const purgeSession = (id: string, patch: Partial<PurgeSession> = {}): PurgeSession => ({ id, name: `Session ${id}`, running: false, inCli: true, keptUsageBytes: null, ...patch })
+const file = (id: string, name = `${id}.jsonl`, backup = true) => ({ path: `P/.hive/sessions/${name}`, bytes: 100, mtimeMs: 1, id, folder: 'sessions' as const, backup })
+const folder = (name: string, files = ['x.png']) => ({ name, path: `P/.hive/attachments/${name}`, files: files.map((f) => ({ path: `P/.hive/attachments/${name}/${f}`, bytes: 5, mtimeMs: 1 })) })
+const purgeFacts = (patch: Partial<PurgeFacts>): PurgeFacts => ({ host: 'P', hostName: 'p', sessions: [], files: [], attachmentFolders: [], deletedUsage: [], liveNames: new Set(), ...patch })
+
+describe('Purge', () => {
+  it("lists each session's backups, leftovers, attachments and kept usage; a backup the CLI no longer has is a last copy", () => {
+    const f = purgeFacts({
+      sessions: [purgeSession('a'), purgeSession('b', { inCli: false, keptUsageBytes: 40 })],
+      files: [file('a'), file('b', 'b.jsonl.gz'), file('b', 'b.jsonl.gz.spare', false)],
+      attachmentFolders: [folder('a')]
+    })
+    expect(planPurge(f).items.map((i) => [i.kind, i.sessionId, !!i.lastCopy])).toEqual([
+      ['backup', 'a', false],
+      ['backup', 'b', true],
+      ['leftover-backup', 'b', false],
+      ['attachments', 'a', false],
+      ['kept-usage', 'b', false]
+    ])
+  })
+
+  it('leaves running sessions out and counts them; launches running are left out too', () => {
+    const f = purgeFacts({ sessions: [purgeSession('a', { running: true, keptUsageBytes: 1 }), purgeSession('b')], files: [file('a'), file('b')], attachmentFolders: [folder('run-1')], liveNames: new Set(['run-1']) })
+    const r = planPurge(f)
+    expect([r.items.map((i) => i.sessionId), r.running]).toEqual([['b'], 2])
+  })
+
+  it("lists what is left of sessions Hive no longer has, and old usage of deleted ones", () => {
+    const f = purgeFacts({ files: [file('gone')], attachmentFolders: [folder('gone'), folder('run-9')], deletedUsage: [{ id: 'd', name: 'Old', bytes: 9 }] })
+    expect(planPurge(f).items.map((i) => i.kind)).toEqual(['leftover-backup', 'orphan-attachments', 'orphan-attachments', 'deleted-usage'])
+  })
+
+  it("a session's own purge lists only that session (no leftovers of others, no deleted sessions' usage)", () => {
+    const f = purgeFacts({ sessions: [purgeSession('a', { keptUsageBytes: 2 }), purgeSession('b')], files: [file('a'), file('b'), file('gone')], attachmentFolders: [folder('B')], deletedUsage: [{ id: 'd', name: '', bytes: 1 }] })
+    expect(planPurge(f, 'A').items.map((i) => [i.kind, i.sessionId])).toEqual([['backup', 'a'], ['kept-usage', 'a']])
+  })
+
+  it('lists each attachment, and keeps a leftover that may be the only copy of a session the CLI lost', () => {
+    const f = purgeFacts({ sessions: [purgeSession('a', { inCli: false }), purgeSession('b', { inCli: false })], files: [file('a', 'a.jsonl.gz.spare', false), file('b'), file('b', 'b.jsonl.spare', false)], attachmentFolders: [folder('a', ['1.png', '2.png'])] })
+    const r = planPurge(f)
+    expect([r.recoverable, r.items.map((i) => [i.kind, i.sessionId])]).toEqual([1, [['backup', 'b'], ['leftover-backup', 'b'], ['attachments', 'a'], ['attachments', 'a']]])
+  })
+
+  it('keys tell the kind apart: a folder that changed kind no longer matches the preview', () => {
+    const orphan = planPurge(purgeFacts({ attachmentFolders: [folder('x')] })).items[0]
+    const owned = planPurge(purgeFacts({ sessions: [purgeSession('x')], attachmentFolders: [folder('x')] })).items[0]
+    expect(orphan.key).not.toBe(owned.key)
   })
 })
