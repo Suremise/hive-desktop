@@ -241,6 +241,12 @@ async function hooksFromCodex(executable: string, hookArgs: string[], cwd: strin
   })
 }
 
+/**
+ * Only Hive's own server's tools run without Codex asking (#1166), as with Claude Code and Copilot; every other server's
+ * follow Codex's approval policy for the agent's mode. ("hive" is reserved: no workspace server has that name.)
+ */
+const approval = (name: string): Record<string, unknown> => (name === 'hive' ? { default_tools_approval_mode: 'approve' } : {})
+
 /** An MCP server definition (Claude Code's JSON format) as a Codex mcp_servers table; null if it can't be passed safely. */
 export function codexMcpServer(name: string, def: McpServerDef): { table: Record<string, unknown> | null; warning?: string } {
   const ref = (v: unknown): string | null => {
@@ -250,7 +256,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
   // Secrets must be environment references: literal ones would appear on Codex's command line.
   if (findSecretWarnings(def).length) return { table: null, warning: `MCP server "${name}" has a literal secret, so Codex agents don't get it. Use an environment variable reference such as \${TOKEN}.` } // i18n-ignore: logged only
   if (def.url) {
-    const table: Record<string, unknown> = { url: def.url, default_tools_approval_mode: 'approve' }
+    const table: Record<string, unknown> = { url: def.url, ...approval(name) }
     const plain: Record<string, string> = {}
     const fromEnv: Record<string, string> = {}
     for (const [k, v] of Object.entries(def.headers ?? {})) {
@@ -265,7 +271,7 @@ export function codexMcpServer(name: string, def: McpServerDef): { table: Record
     return { table }
   }
   if (!def.command) return { table: null }
-  const table: Record<string, unknown> = { command: def.command, default_tools_approval_mode: 'approve' }
+  const table: Record<string, unknown> = { command: def.command, ...approval(name) }
   // Hive's own tools can wait minutes (for agents to finish, or for the user to answer the Assistant).
   if (name === 'hive') table.tool_timeout_sec = advanced.number('codex.mcp.toolTimeoutSeconds')
   if (def.args?.length) table.args = def.args.map(String)

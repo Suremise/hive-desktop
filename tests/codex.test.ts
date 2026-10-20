@@ -125,6 +125,35 @@ describe('Codex: when a person must act', () => {
       rmSync(home, { recursive: true, force: true })
     }
   })
+
+  it("pre-approves only Hive's own server's tools: a third-party one follows Codex's approval policy (#1166)", async () => {
+    const { rmSync } = await import('fs')
+    const home = tempDir('hive-codex-home-')
+    const before = process.env.CODEX_HOME
+    process.env.CODEX_HOME = home
+    try {
+      const { codex } = await import('../src/main/providers/codex/adapter')
+      const mcpServers = { hive: { command: 'node', args: ['hive-mcp.js'] }, gh: { command: 'npx', args: ['-y', 'gh-mcp'] }, api: { url: 'https://mcp.example.com' } }
+      const ctx = {
+        projectPath: home, agentId: 'a-1', executable: 'C:\\bin\\codex.exe', cwd: home, workspacePath: home, runId: 'r', sessionId: '',
+        resume: false, name: '', skills: [], mcpServers, model: null, effort: null, permissionMode: null, extraArgs: [], hookUrl: 'http://127.0.0.1:1/hook?run=r', hookAuthFile: 'C:/hive/hook-auth/r.txt', privateDir: 'C:/hive/launches/r', guidance: '', env: {}, allowBackgroundSessions: false, use200kContext: false
+      }
+      const server = (args: string[], name: string) => args.find((a) => a.startsWith(`mcp_servers.${name}=`))
+      for (const permissionMode of [null, 'read-only', 'ask', 'approve-for-me', 'full-access']) {
+        const { args } = codex.buildCommand(ctx.executable, { ...ctx, permissionMode })
+        expect(server(args, 'hive'), String(permissionMode)).toContain('default_tools_approval_mode="approve"')
+        expect(server(args, 'gh'), String(permissionMode)).toMatch(/^mcp_servers\.gh=\{command="npx"/)
+        expect(server(args, 'gh'), String(permissionMode)).not.toContain('default_tools_approval_mode')
+        expect(server(args, 'api'), String(permissionMode)).toMatch(/^mcp_servers\.api=\{url="https:\/\/mcp\.example\.com"/)
+        expect(server(args, 'api'), String(permissionMode)).not.toContain('default_tools_approval_mode')
+        expect(args.filter((a) => a.includes('default_tools_approval_mode'))).toHaveLength(1)
+      }
+    } finally {
+      if (before === undefined) delete process.env.CODEX_HOME
+      else process.env.CODEX_HOME = before
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('Codex settings as TOML', () => {
@@ -136,15 +165,13 @@ describe('Codex settings as TOML', () => {
       command: 'npx',
       args: ['-y', 'x'],
       env: { MODE: 'fast' },
-      env_vars: ['GITHUB_TOKEN'],
-      default_tools_approval_mode: 'approve'
+      env_vars: ['GITHUB_TOKEN']
     })
     expect(codexMcpServer('api', { url: 'https://x', headers: { Authorization: 'Bearer ${API_KEY}', 'X-Team': '${TEAM}', Accept: 'json' } }).table).toEqual({
       url: 'https://x',
       bearer_token_env_var: 'API_KEY',
       env_http_headers: { 'X-Team': 'TEAM' },
-      http_headers: { Accept: 'json' },
-      default_tools_approval_mode: 'approve'
+      http_headers: { Accept: 'json' }
     })
     const literal = codexMcpServer('bad', { command: 'x', env: { API_TOKEN: 'ghp_abcdefghijklmnop' } })
     expect(literal.table).toBeNull()

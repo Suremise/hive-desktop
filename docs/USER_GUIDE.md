@@ -843,6 +843,8 @@ A server can be a program Hive starts (`command`, `args`, `env`, as above) or on
 
 A server you add or change is used by sessions started afterwards; restart a running session to give it the change.
 
+Hive approves only its own `hive` tools in advance, for every CLI. A server you add is treated like the agent's other tools: whether the agent asks before using one depends on its CLI and its [permission mode](#permission-modes). For Codex: in **Read only** and **Ask for approval**, Codex asks you before each call of another server's tool; in **Approve for me**, its automatic reviewer decides, and asks you only about a call it thinks is risky; in **Full access**, it calls them without asking.
+
 ### Turning servers on where they're needed
 
 A server in the workspace is **available** to every project, and runs in a project only when it is **on in the workspace and on in that project**, so a big server you need in one project doesn't fill every other project's agents' context with its tools. A server you add starts off everywhere.
