@@ -297,7 +297,7 @@
   "settings.assistant.journal.tip": "Para este espaço de trabalho. Desativar mantém as entradas; Excluir diário… as remove. As ferramentas de diário do Assistente acompanham uma mudança no próximo início dele; ele é avisado na hora.",
   "settings.assistant.journal.title": "Diário",
   "settings.assistant.mode.desc": "Como o Assistente trabalha numa nova conversa (Coordenador, Planejador, Triagem de QA, Gerente de release ou um seu), a menos que um espaço de trabalho escolha outro.",
-  "settings.assistant.mode.tip": "Os modos são arquivos Markdown em cada espaço de trabalho (.hive/modes): edite-os, ou adicione os seus, na visualização do Hive Assistant (o robô à esquerda). O painel troca de modo na hora, mantendo a conversa.",
+  "settings.assistant.mode.tip": "Os modos são arquivos Markdown em cada espaço de trabalho (.hive/modes): edite-os, ou adicione os seus, na visualização do Hive Assistant (a coroa à esquerda). O painel troca de modo na hora, mantendo a conversa.",
   "settings.assistant.mode.title": "Modo padrão",
   "settings.assistant.panelSide.desc": "Em que lado da janela fica o painel do Assistente, em todos os espaços de trabalho.",
   "settings.assistant.panelSide.option.left": "Esquerda",

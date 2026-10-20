@@ -297,7 +297,7 @@
   "settings.assistant.journal.tip": "このワークスペース用の設定です。オフにしてもエントリは残ります。「ジャーナルを削除…」で削除されます。アシスタントのジャーナルツールへの変更は次回の起動で反映されますが、アシスタントにはすぐに伝えられます。",
   "settings.assistant.journal.title": "ジャーナル",
   "settings.assistant.mode.desc": "新しい会話でのアシスタントの働き方です（コーディネーター、プランナー、QAトリアージ担当、リリースマネージャー、または独自のもの）。ワークスペースで別のものを選んだ場合を除きます。",
-  "settings.assistant.mode.tip": "モードは各ワークスペースのMarkdownファイル（.hive/modes）です。Hive Assistantビュー（左側のロボット）で編集したり、独自のものを追加したりできます。パネルでは、会話を保ったまますぐにモードを切り替えられます。",
+  "settings.assistant.mode.tip": "モードは各ワークスペースのMarkdownファイル（.hive/modes）です。Hive Assistantビュー（左側の王冠）で編集したり、独自のものを追加したりできます。パネルでは、会話を保ったまますぐにモードを切り替えられます。",
   "settings.assistant.mode.title": "既定のモード",
   "settings.assistant.panelSide.desc": "アシスタントのパネルをウィンドウのどちら側に置くかです（すべてのワークスペースで）。",
   "settings.assistant.panelSide.option.left": "左",

@@ -297,7 +297,7 @@
   "settings.assistant.journal.tip": "Dla tego obszaru roboczego. Wyłączenie zachowuje wpisy; Usuń dziennik… je usuwa. Narzędzia dziennika Asystenta uwzględnią zmianę przy jego następnym uruchomieniu; sam Asystent dowiaduje się o niej od razu.",
   "settings.assistant.journal.title": "Dziennik",
   "settings.assistant.mode.desc": "Jak Asystent pracuje w nowej rozmowie (Koordynator, Planista, Triażysta QA, Menedżer wydań lub Twój własny tryb), chyba że obszar roboczy wybierze inny.",
-  "settings.assistant.mode.tip": "Tryby to pliki Markdown w każdym obszarze roboczym (.hive/modes): edytuj je lub dodawaj własne w widoku Hive Assistant (robot po lewej). Panel od razu zmienia tryb, zachowując rozmowę.",
+  "settings.assistant.mode.tip": "Tryby to pliki Markdown w każdym obszarze roboczym (.hive/modes): edytuj je lub dodawaj własne w widoku Hive Assistant (korona po lewej). Panel od razu zmienia tryb, zachowując rozmowę.",
   "settings.assistant.mode.title": "Domyślny tryb",
   "settings.assistant.panelSide.desc": "Po której stronie okna jest panel Asystenta, w każdym obszarze roboczym.",
   "settings.assistant.panelSide.option.left": "Lewa",

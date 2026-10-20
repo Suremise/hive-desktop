@@ -1192,7 +1192,7 @@
     "description": "What the setting \"Default mode\" does, under its title (Settings → Assistant)."
   },
   "settings.assistant.mode.tip": {
-    "defaultMessage": "Modes are Markdown files in each workspace (.hive/modes): edit them, or add your own, in the Hive Assistant view (the robot on the left). The panel switches mode at once, keeping the conversation.",
+    "defaultMessage": "Modes are Markdown files in each workspace (.hive/modes): edit them, or add your own, in the Hive Assistant view (the crown on the left). The panel switches mode at once, keeping the conversation.",
     "description": "The info tip of the setting \"Default mode\" (Settings → Assistant): more on what it does and when it applies."
   },
   "settings.assistant.mode.title": {

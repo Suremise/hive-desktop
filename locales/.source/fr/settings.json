@@ -297,7 +297,7 @@
   "settings.assistant.journal.tip": "For this workspace. Turning it off keeps the entries; Delete Journal… removes them. The Assistant's journal tools follow a change at its next start; it is told at once.",
   "settings.assistant.journal.title": "Journal",
   "settings.assistant.mode.desc": "How the Assistant works in a new conversation (Coordinator, Planner, QA triager, Release manager, or your own), unless a workspace chooses another.",
-  "settings.assistant.mode.tip": "Modes are Markdown files in each workspace (.hive/modes): edit them, or add your own, in the Hive Assistant view (the robot on the left). The panel switches mode at once, keeping the conversation.",
+  "settings.assistant.mode.tip": "Modes are Markdown files in each workspace (.hive/modes): edit them, or add your own, in the Hive Assistant view (the crown on the left). The panel switches mode at once, keeping the conversation.",
   "settings.assistant.mode.title": "Default mode",
   "settings.assistant.panelSide.desc": "Which side of the window the Assistant's panel is on, in every workspace.",
   "settings.assistant.panelSide.option.left": "Left",

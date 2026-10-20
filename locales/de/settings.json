@@ -297,7 +297,7 @@
   "settings.assistant.journal.tip": "Gilt für diesen Arbeitsbereich. Ausschalten behält die Einträge; „Journal löschen…“ entfernt sie. Die Journal-Werkzeuge des Assistenten folgen einer Änderung bei seinem nächsten Start; er wird sofort informiert.",
   "settings.assistant.journal.title": "Journal",
   "settings.assistant.mode.desc": "Wie der Assistent in einer neuen Unterhaltung arbeitet (Koordinator, Planer, QA-Triage, Release-Manager oder dein eigener Modus), wenn ein Arbeitsbereich keinen anderen wählt.",
-  "settings.assistant.mode.tip": "Modi sind Markdown-Dateien in jedem Arbeitsbereich (.hive/modes): Bearbeite sie oder füge eigene hinzu, in der Ansicht „Hive Assistant“ (der Roboter links). Das Panel wechselt den Modus sofort und behält die Unterhaltung.",
+  "settings.assistant.mode.tip": "Modi sind Markdown-Dateien in jedem Arbeitsbereich (.hive/modes): Bearbeite sie oder füge eigene hinzu, in der Ansicht „Hive Assistant“ (die Krone links). Das Panel wechselt den Modus sofort und behält die Unterhaltung.",
   "settings.assistant.mode.title": "Standardmodus",
   "settings.assistant.panelSide.desc": "Auf welcher Seite des Fensters das Panel des Assistenten ist, in jedem Arbeitsbereich.",
   "settings.assistant.panelSide.option.left": "Links",
