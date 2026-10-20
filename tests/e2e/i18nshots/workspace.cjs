@@ -116,6 +116,17 @@ function seedAssistantUsage(ctx) {
   putSessions(assistant, kept)
 }
 
+/**
+ * The seeded session in the usage history, which the Overview reads (#1106). A record written behind Hive's back reaches
+ * it when a list of its host's sessions asks for it, as the Assistant's session picker does (the ten-minute sweep
+ * otherwise, #1172): listed, then waited for until main counts it.
+ */
+async function assistantUsageRecorded(ctx) {
+  await ctx.inv('session:list', path.join(ctx.workspace, '.hive', 'assistant'))
+  const counted = async () => (await ctx.inv('workspace:usage')).assistant.some((s) => s.usage)
+  if (!(await ctx.lib.until(counted, ctx.hungMs))) throw new Error("the Assistant's seeded session never reached the usage history")
+}
+
 /** The Workspace Overview's sidebar row and chart legend entry for the Assistant. */
 const assistantRow = (ctx) => ctx.page.locator('.sidebar .row', { has: ctx.page.locator('.assistant-mark') }).first().locator('.label')
 const assistantLegend = (ctx) => ctx.page.locator('.overview-page .stack-legend > span').evaluateAll((spans) => spans.map((s) => s.textContent.trim()))
@@ -123,6 +134,7 @@ const assistantLegend = (ctx) => ctx.page.locator('.overview-page .stack-legend 
 /** The Workspace Overview, with the Assistant's usage beside the projects'. */
 async function overview(ctx) {
   seedAssistantUsage(ctx)
+  await assistantUsageRecorded(ctx)
   await ctx.command('view.overview')
   await shown(ctx, ctx.page.locator('.overview-page .cards .card'), "the Workspace Overview's figures")
   await shown(ctx, ctx.page.locator('.sidebar .row .assistant-mark'), "the Assistant's row")
