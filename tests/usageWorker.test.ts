@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { DatabaseSync } from 'node:sqlite'
 import { handleRequest, type IngestJob, type IngestResult } from '../src/main/usageWorker'
 import { cursorOf, writeSession, type StoredSession } from '../src/main/usageDb'
-import { summaryOf, usageFromRows } from '../src/shared/usageLedger'
+import { rowsPart, summaryOf, usageFromRows } from '../src/shared/usageLedger'
 import { priceUsage } from '../src/shared/usageDays'
 import { newUsageParser } from '../src/main/usageParsers'
 import { DEFAULT_SETTINGS } from '../src/shared/defaults'
@@ -207,9 +207,20 @@ describe('the usage worker', () => {
     const share = (card: number, key: string) => call({ type: 'attribute', file: t.file, scope: 'p1', sessions: [{ session: 'abc', holds: [{ card, role: 'build', parts: [[1, [[T0 - 1000, T0 + 5000]]]] }], holdsKey: key }] })
     expect(await share(12, 'h1')).toBe(1)
     expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
-    expect((await t.stored())!.rows.filter((r) => r.card === 12).reduce((n, r) => n + r.inputTokens, 0)).toBe(100_000)
+    // The card holding the whole request has its whole charge, as reported (round 7): never its tokens for free.
+    const card = async (n: number) => rowsPart((await t.stored())!.rows.filter((r) => r.card === n), 'claude-code', DEFAULT_SETTINGS)
+    expect(await card(12)).toMatchObject({ inputTokens: 100_000, outputTokens: 10_000, requests: 1, cost: expect.closeTo(0.5, 9), priced: 1, unpriced: 0, estimated: false })
     expect(await share(13, 'h2')).toBe(1)
     expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
+    expect(await card(13)).toMatchObject({ cost: expect.closeTo(0.5, 9), priced: 1 })
+    expect(await card(12)).toBeNull()
+    // Two cards held at once: half each, and still $0.50 in all.
+    const both = [15, 16].map((c) => ({ card: c, role: 'build' as const, parts: [[2, [[T0 - 1000, T0 + 5000]]]] as [number, [number, number][]][] }))
+    expect(await call({ type: 'attribute', file: t.file, scope: 'p1', sessions: [{ session: 'abc', holds: both, holdsKey: 'hb' }] })).toBe(1)
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
+    expect((await card(15))!.cost + (await card(16))!.cost).toBeCloseTo(0.5, 9)
+    expect((await card(15))!.cost).toBeCloseTo(0.25, 3)
+    expect(await share(13, 'h2')).toBe(1)
     // A request added, still without a report: the old charge, and Hive's estimate for the new request alone.
     appendFileSync(t.transcript, req('r2', 1_000, 100, T0 + 2000))
     expect((await t.ingest({ holds: [{ card: 13, role: 'build', parts: [[1, [[T0 - 1000, T0 + 5000]]]] }], holdsKey: 'h2' })).status).toBe('written')

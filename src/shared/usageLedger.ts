@@ -399,10 +399,18 @@ export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provide
     } else if (b.costUsd !== null) {
       // A reported charge and the tokens it paid for, as one record (round 5): what the rows' own reported charges lack of
       // it, with the tokens they lack coverage for. Those are marked covered on the day's rows first (the same tokens,
-      // read again without their report: not estimated a second time), the rest on the `kept` row's own tokens.
+      // read again without their report: not estimated a second time), the rest on the `kept` row's own tokens; and the
+      // amount goes with them (round 7), shared between the rows that took them as any charge is (by Hive's estimate for
+      // the tokens each took, else their number), so a card has the charge for its tokens, never them for free. Only an
+      // amount no row's tokens took stays on the `kept` row (card 0).
       const has = day.reduce((n, x) => n + reported(x), 0)
       if (b.costUsd > has) {
-        r.fixedUsd = b.costUsd - has
+        const took = new Map<LedgerRow, UsageTokens>()
+        const tookOf = (x: LedgerRow): UsageTokens => {
+          let t = took.get(x)
+          if (!t) took.set(x, (t = ZERO()))
+          return t
+        }
         for (const k of KINDS) {
           let need = Math.max(0, b.covered[k] - day.reduce((n, x) => n + (x.fixedEstimated ? 0 : x.covered[k]), 0))
           for (const x of day) {
@@ -411,10 +419,19 @@ export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provide
             if (free <= 0 || x.fixedEstimated) continue
             const take = Math.min(free, need)
             x.covered[k] += take
+            tookOf(x)[k] += take
             need -= take
           }
           r.covered[k] = Math.min(r[k], need)
+          if (r.covered[k] > 0) tookOf(r)[k] += r.covered[k]
         }
+        const amount = b.costUsd - has
+        const takers = [...took.entries()].filter(([, t]) => tokenSum(t) > 0)
+        const weights = takers.map(([x, t]) => estimateCost({ provider, model: x.model || null, ...t }, settings) ?? 0)
+        const byTokens = weights.every((w) => w === 0)
+        const total = byTokens ? takers.reduce((n, [, t]) => n + tokenSum(t), 0) : weights.reduce((n, w) => n + w, 0)
+        if (total > 0) takers.forEach(([x, t], i) => (x.fixedUsd += amount * ((byTokens ? tokenSum(t) : weights[i]) / total)))
+        else r.fixedUsd = amount
       }
     }
     if (hasUse(r)) out.push(r)
