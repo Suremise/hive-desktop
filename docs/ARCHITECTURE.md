@@ -2,6 +2,37 @@
 
 This document explains how Hive is put together, for anyone changing the code. Product decisions live in [SPEC.md](SPEC.md).
 
+## Code map
+
+| Path | What |
+|---|---|
+| `src/main/index.ts` | App lifecycle, window, quit flow, settings side effects |
+| `src/main/sessions.ts` | Launch/stop/resume per agent (any provider), normalised hooks → status, file locks (PreToolUse), transcript backups, usage and cost, Continue with… |
+| `src/shared/assistant.ts`, `assistantTools.ts`, `src/main/personas.ts`, `assistantControl.ts`, `src/renderer/src/components/Assistant.tsx`, `AssistantView.tsx`, `Personas.tsx` | The Hive Assistant (one per workspace, a session host at `.hive/assistant` whose settings are overlaid from Settings → Assistant) and its modes (Coordinator, Planner, QA triager; once called personas, so their files are `.hive/personas`, shipped in `resources/personas`) |
+| `src/main/projectAgents.ts`, `src/main/worktrees.ts` | A project's agents (`agentLimit()`: 12 by default, 24 at most, #562; a page holds as many as the layout has panes): add/update/remove/merge; git worktree operations |
+| `src/shared/providers.ts`, `claude.ts`, `codex.ts`, `copilot.ts` | Provider descriptors (names, modes, models, capabilities) and settings resolution helpers |
+| `src/shared/models.ts`, `src/main/providers/*/models.ts` | Models and capabilities from the CLIs (Claude Code's initialize, codex debug models, Copilot's ACP session), with the editable fallbacks: what the pickers, the footer and the Agent API offer |
+| `src/main/providers/` | `ProviderAdapter` interface, registry, `claude/`, `codex/` and `copilot/` adapters (launch, hooks, transcripts, usage, conversation parsers) |
+| `src/main/providerService.ts` | Each provider's install info, readiness and setup tasks (Agent Setup) |
+| `src/shared/advanced.ts`, `src/main/advanced.ts`, `src/renderer/src/components/AdvancedSettings.tsx` | Advanced settings (#367): the overridable defaults with their recorded samples, advanced.json and the CLI versions overrides were made for, Settings → Advanced's list |
+| `src/shared/prices.ts`, `instructions.ts` | Price tables and cost estimates; shared AGENTS.md logic |
+| `src/main/servers.ts` | Hook server (random port) and Agent API |
+| `src/main/usageHistory.ts`, `usageWorker.ts`, `usageDb.ts`, `usageParsers.ts`, `src/shared/usageLedger.ts` | The usage history (#1106): what each session used, recorded by a worker thread in the workspace's `.hive/usage.db` (rows per day, model and card), and every usage view's source |
+| `src/main/updater.ts`, `src/renderer/src/components/Updates.tsx` | Hive's own updates (electron-updater, GitHub Releases): state, status bar item, update dialog |
+| `src/main/mcp/hive-mcp.ts` | Built-in `hive` MCP server (Node built-ins only) |
+| `src/main/progressReporters/`, `tests/progressReport.mts` | `hive-progress` wrapper (shims on every session's PATH) and Hive's test runners reporting to the Progress panel (`src/main/progress.ts`) |
+| `src/main/workspace.ts` | Workspace/project discovery, `.hive` folders, git exclude; one `WorkspaceService` per window behind the `workspace` stand-in |
+| `src/main/db.ts`, `src/main/boardStore.ts` | Hive's SQLite layer (`node:sqlite`: connections, settings, migrations), and the board's database (`.hive/hive.db`): its one write path (`boardWrite`, a transaction told once), the move in from the cards' files, export (#1017) |
+| `src/main/windows.ts` | Hive's windows (one workspace each) and where each event and terminal's output goes |
+| `src/main/files.ts` | Files/Images tab back end: project file operations, find, live watch, session images |
+| `src/main/transcripts.ts`, `src/main/providers/conversation.ts` | Sessions tab transcript viewer: per-provider incremental parsers, search, Markdown export |
+| `src/shared/api.ts` | The typed IPC contract — add channels here first |
+| `src/renderer/src/commands.ts` | Every command + keybinding (menus, palette, shortcuts) |
+| `src/renderer/src/views/` | Project view and tabs (`FilesTab.tsx` has Files and Images, `SessionsTab.tsx` the transcript viewer), the Workspace Overview (`WorkspaceOverview.tsx`), settings, notes, skills, MCP, docs |
+| `src/renderer/src/components/FileView.tsx` | Files tab editor + previewer registry (markdown, CSV, HTML, SVG, images, PDF) |
+| `tests/`, `tests/e2e/` | Unit tests (Vitest, fixtures in `tests/fixtures`); end-to-end suites (`lib.cjs`, `run.mjs`, and a fake Claude Code in `fake-claude/` for suites that run agents without signing in) |
+| `src/renderer/src/components/AgentPanes.tsx`, `AgentDialogs.tsx` | Session tab agent strip, layouts and panes; Add Agent, Agent Settings, Continue with… and Merge dialogs |
+
 ## Processes
 
 ```
