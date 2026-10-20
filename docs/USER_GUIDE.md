@@ -466,7 +466,7 @@ The dialog lists every file that will go, with its size and the total, before an
 - The coding agents' own files (in `~/.claude`, `~/.codex` and `~/.copilot`) are never touched, and running sessions are left alone (the dialog says how many). A session the coding agent still has stays in the Sessions tab: you can still open and resume it from the agent's own transcript.
 - A session whose only copy is Hive's backup (its coding agent no longer has the transcript) is deleted, as **Delete Session** does; the dialog tags those backups *last copy* and warns you.
 - What the sessions used always stays in your usage totals: Purge never clears the usage history.
-- Purge removes exactly what the dialog listed: anything that changes while it is open (a session resumed, a file added or written to, a coding agent's transcript gone or back) is left alone and listed in the result.
+- Purge removes exactly what the dialog listed: anything that changes while it is open (a session resumed, a file added or written to, a coding agent's transcript gone or back) is left alone and listed in the result. A dialog left open for over an hour removes nothing: Hive says its list is out of date, and you open Purge again to see what goes now.
 - If Hive ever stopped while deleting or moving a session's files, the files it left may be that session's only copy: Purge keeps them, and the dialog says how many.
 
 ### Antivirus scanning
