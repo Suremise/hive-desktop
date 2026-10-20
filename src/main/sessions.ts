@@ -833,11 +833,39 @@ class SessionManager {
    * The hive server of an agent's launch `runId` says its CLI has connected (#865): Hive's lines may go to it now, and
    * what waited is offered at once (its status is sent again, which deliveries follow). Whether it was that launch's.
    */
+  /** Who waits for a launch's hive tools (hiveToolsSettled), by agent: told when they connect. */
+  private toolsWaiters = new Map<string, Set<() => void>>()
+
+  /**
+   * Resolves once an agent's hive tools no longer hold its lines (#865 round 3): they connected, or the bound from when
+   * it became ready passed (a timer for what is left of it, so a launch that ends meanwhile is let go then too).
+   */
+  hiveToolsSettled(projectPath: string, agentId: string): Promise<void> {
+    if (!this.hiveToolsWaiting(projectPath, agentId)) return Promise.resolve()
+    const key = liveId(projectPath, agentId)
+    const l = this.live.get(key)!
+    const bound = advanced.number('hive.mcp.connectSeconds') * 1000
+    const left = l.readyAt === undefined ? bound : Math.max(0, bound - (Date.now() - l.readyAt))
+    return new Promise((settle) => {
+      const waiters = this.toolsWaiters.get(key) ?? new Set<() => void>()
+      this.toolsWaiters.set(key, waiters)
+      const done = (): void => {
+        clearTimeout(timer)
+        waiters.delete(done)
+        if (!waiters.size && this.toolsWaiters.get(key) === waiters) this.toolsWaiters.delete(key)
+        settle()
+      }
+      const timer = setTimeout(done, left + 50)
+      waiters.add(done)
+    })
+  }
+
   hiveToolsConnected(projectPath: string, agentId: string, runId?: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l || (runId !== undefined && l.state.runId !== runId)) return false
     if (l.hiveTools !== 'connecting') return true
     l.hiveTools = 'connected'
+    for (const done of [...(this.toolsWaiters.get(liveId(projectPath, agentId)) ?? [])]) done()
     log.info(`${userText(agentId)}'s hive tools connected${l.readyAt === undefined ? '' : ` ${Date.now() - l.readyAt} ms after it became ready`}`)
     this.emitState(l.state)
     return true

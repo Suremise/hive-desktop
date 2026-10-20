@@ -81,6 +81,31 @@ describe("no line of Hive's before a launch's hive tools have connected (#865)",
     expect(whyNoLine(project, id)).toBeNull()
   })
 
+  it('a wait for them (a task given meanwhile, round 3) ends when they connect', async () => {
+    launched()
+    let settled = false
+    const wait = sessions.hiveToolsSettled(project, id).then(() => (settled = true))
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    sessions.hiveToolsConnected(project, id, 'run1')
+    await wait
+    expect(settled).toBe(true)
+  })
+
+  it('…or when the bound from its ready has passed, and at once when nothing holds its lines', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+    launched()
+    let settled = false
+    const wait = sessions.hiveToolsSettled(project, id).then(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1_100)
+    await wait
+    expect(settled).toBe(true)
+    live.delete(key)
+    await expect(sessions.hiveToolsSettled(project, id)).resolves.toBeUndefined()
+  })
+
   it('never connected (its server failed, MCP off in its CLI): at most 30 s from when it first became ready', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const e = launched('starting')

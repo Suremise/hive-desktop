@@ -4,8 +4,8 @@
 // types no line into the session, at most Settings → Advanced → "hive tools: wait to connect" from when it became ready.
 // On fake Claude Code (fake-claude/), which connects the real hive server as it starts, or holds it back while
 // fake-mcp-hold-<agent> is in its home until the test makes fake-mcp-go-<agent>:
-// 1. Resumed with its connection held: a task is refused saying its hive tools haven't connected, a message waits
-//    (no doorbell), and once it connects, one doorbell rings and the message is read.
+// 1. Resumed with its connection held: a message waits (no doorbell), and once it connects, one doorbell rings and the
+//    message is read. A task given while held waits too (round 3: it was refused), and is given once it connects.
 // 2. The route: only the launch's own token; the workspace's, none, or an ended launch's are refused.
 // 3. Never connected (held to the end): the doorbell rings once the bound (set to 3 s here) has passed.
 // Dev build, throwaway profile, workspace and CLAUDE_CONFIG_DIR.
@@ -98,17 +98,33 @@ const check = (name, ok, extra = '') => {
     hold()
     await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
     check('it is resumed and ready', !!(await until(() => idle(builder.id), HUNG_MS)))
-    const task = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'A task while its tools are connecting.' })
-    check('a task is refused: its hive tools have not connected', task.status === 409 && /hive tools haven't connected yet/.test(task.body?.error ?? ''), JSON.stringify(task))
     const m1 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (resumed).' })
     check('a message is queued, not told', m1.status === 200 && m1.body?.typed !== true && delivery(m1.body.id)?.state === 'queued', JSON.stringify(m1))
-    // Still refused after the message was queued: its doorbell can't have rung meanwhile (the same gate).
-    const task2 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'Another task.' })
-    check('still held: the gate is the same', task2.status === 409 && /hive tools/.test(task2.body?.error ?? ''), JSON.stringify(task2))
+    // Hive has had its chance to offer it (a delivery tick offers what waits every 5 s): still queued, no doorbell.
+    await lib.sleep(6000) // A fixed wait on purpose: this checks that something does NOT happen, which no condition can show.
     check('no doorbell while held', bells().length === bellsFresh && delivery(m1.body.id)?.state === 'queued', `${bells().length} bells, ${delivery(m1.body.id)?.state}`)
     go()
     check('once connected, the message is read', !!(await until(() => ['received', 'acked'].includes(delivery(m1.body.id)?.state), HUNG_MS)), delivery(m1.body.id)?.state)
     check('with one doorbell', bells().length === bellsFresh + 1 && bells().at(-1).includes(m1.body.id), JSON.stringify(bells().slice(bellsFresh)))
+
+    // --- 1b. A task given while its tools are connecting waits for them (round 3), then goes in: one doorbell.
+    await inv('session:stop', alpha, builder.id)
+    check('the builder stops (1b)', !!(await until(async () => !(await live(builder.id)), HUNG_MS)))
+    hold()
+    await inv('session:start', alpha, { agentId: builder.id, resumeId: sessionId })
+    check('it is resumed and ready (1b)', !!(await until(() => idle(builder.id), HUNG_MS)))
+    const bellsTask = bells().length
+    let taskReply = null
+    const taskCall = asAssistant('POST', `/v1/projects/alpha/agents/Builder/prompt`, { text: 'work 1' }).then((r) => (taskReply = r))
+    const taskRecord = () => deliveriesOf(alpha).find((d) => d.kind === 'task' && d.body === 'work 1') ?? null
+    check('a task while held is kept waiting, not refused', !!(await until(() => taskRecord()?.state === 'queued', HUNG_MS)) && taskReply === null, JSON.stringify({ record: taskRecord(), taskReply }))
+    check('…with no doorbell', bells().length === bellsTask)
+    go()
+    await taskCall
+    check('once connected, the task is given', taskReply?.status === 200 && !!taskReply.body?.ok, JSON.stringify(taskReply))
+    check('…with one doorbell', !!(await until(() => bells().length === bellsTask + 1, HUNG_MS)) && bells().at(-1).includes(taskReply?.body?.id ?? '?'), JSON.stringify(bells().slice(bellsTask)))
+    check('…and read', !!(await until(() => ['received', 'acked'].includes(taskRecord()?.state), HUNG_MS)), taskRecord()?.state)
+    await until(() => idle(builder.id), HUNG_MS)
 
     // --- 2. Only the launch's own token says it has connected.
     const nowToken = JSON.parse(fs.readFileSync(path.join(tokenDir, fs.readdirSync(tokenDir)[0]), 'utf8')).token
@@ -131,7 +147,7 @@ const check = (name, ok, extra = '') => {
     const m2 = await asAssistant('POST', `/v1/projects/alpha/agents/Builder/message`, { text: 'Hello from the suite (never connected).' })
     check('a message for it is taken', m2.status === 200, JSON.stringify(m2))
     check('after the bound, it is told anyway', !!(await until(() => ['received', 'acked'].includes(delivery(m2.body.id)?.state), HUNG_MS)), delivery(m2.body.id)?.state)
-    check('with one doorbell', bells().length === bellsFresh + 2 && bells().at(-1).includes(m2.body.id), JSON.stringify(bells().slice(bellsFresh)))
+    check('with one doorbell', bells().length === bellsFresh + 3 && bells().at(-1).includes(m2.body.id), JSON.stringify(bells().slice(bellsFresh)))
     // Its held connection ends with the launch.
     go()
     await inv('session:stop', alpha, builder.id)
