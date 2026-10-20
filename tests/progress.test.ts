@@ -2,8 +2,8 @@
 // updates; stale runs; the taskbar's combined bar; time left.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProgressError, ProgressStore, admitReport, keptRuns, type ProgressCaller, type ProgressHistory } from '../src/main/progress'
-import { FINISHING_MS, MAX_OPEN_PER_OWNER, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
-import type { MergeSlotInfo, ProgressRun } from '../src/shared/types'
+import { FINISHING_MS, MAX_OPEN_PER_OWNER, ProgressSync, applyRunsPatch, MAX_OPEN_PER_WORKSPACE, PASSED_SHOWN_MS, RECENT_KEPT, STRIP_BARS, ALL_PROJECTS, agentOpenRun, barLook, runStateWord as stateWordIn, runStatusLine as statusLineIn, runWords, NO_PROJECT, SHOW_ALL, activeFilter, agentChoices, filterChoices as filterChoicesIn, filterMergeSlots, filterRuns, inStrip, isListed, isOpenRun, isOverdue, isRecent, runDetailsText as detailsTextIn, stripRuns, stripSummary, taskbarProgress, timeLeft, unseenTrouble } from '../src/shared/progress'
+import type { MergeSlotInfo, ProgressRun, ProgressSnapshot } from '../src/shared/types'
 import { setDateStyle } from '../src/shared/dates'
 import { fmt, setLanguage, tr } from '../src/shared/i18n'
 import { runAgentName } from '../src/shared/progress'
@@ -26,12 +26,12 @@ const otherWsScript: ProgressCaller = { source: 'api', workspacePath: 'C:\\other
 const assistant: ProgressCaller = { source: 'assistant', workspacePath: WS, agentName: 'Hive Assistant', provider: 'claude-code' }
 
 let now = 1_000_000
-let changes: { ws: string; runs: ProgressRun[] }[] = []
+let changes: { ws: string; runs: ProgressRun[]; patch?: ProgressRun[] | null }[] = []
 let running = true
 /** The reporters' processes still there (#549), by pid. */
 let alivePids = new Set<number>()
 const store = (): ProgressStore =>
-  new ProgressStore({ now: () => now, changed: (ws, runs) => changes.push({ ws, runs }), ownerRunning: () => running, processAlive: (pid) => alivePids.has(pid), emitEveryMs: 250 })
+  new ProgressStore({ now: () => now, changed: (ws, runs, patch) => changes.push({ ws, runs, patch }), ownerRunning: () => running, processAlive: (pid) => alivePids.has(pid), emitEveryMs: 250 })
 
 const status = (fn: () => unknown): number | null => {
   try {
@@ -50,6 +50,189 @@ beforeEach(() => {
   vi.useFakeTimers()
 })
 afterEach(() => vi.useRealTimers())
+
+describe("the window's tellings (#1108)", () => {
+  const ids = (runs: ProgressRun[] | null | undefined): string[] | null => (runs ? runs.map((r) => r.id) : null)
+
+  it('an update tells only the run that changed; runs updated together within the interval are told together', () => {
+    const s = store()
+    const a = s.start(alfie, { title: 'a', total: 10 })
+    const b = s.start(betty, { title: 'b', total: 10 })
+    for (let i = 0; i < 150; i++) {
+      const done = s.start(script, { title: `old ${i}` })
+      s.finish(script, done.id, { ok: true })
+    }
+    changes = []
+    now += 1000
+    s.update(alfie, a.id, { step: 1 })
+    expect(changes.map((c) => ids(c.patch))).toEqual([[a.id]])
+    expect(changes[0].runs).toHaveLength(152)
+    expect(changes[0].patch![0]).toMatchObject({ id: a.id, step: 1 })
+    // Within 250 ms: held, then both together.
+    s.update(alfie, a.id, { step: 2 })
+    s.update(betty, b.id, { step: 1 })
+    expect(changes).toHaveLength(1)
+    vi.advanceTimersByTime(250)
+    expect(changes.map((c) => ids(c.patch))).toEqual([[a.id], [b.id, a.id]])
+  })
+
+  it('a new run, a run gone stale and runs seen are told as patches; an end, a dismissal or the history the whole list', () => {
+    const s = store()
+    const a = s.start(alfie, { title: 'a' })
+    expect(ids(changes.at(-1)!.patch)).toEqual([a.id])
+    now += 1000
+    s.update(alfie, a.id, { step: 1 })
+    // A run's update waiting when it ends: the end tells the whole list, which has it.
+    s.update(alfie, a.id, { step: 2 })
+    s.finish(alfie, a.id, { ok: false })
+    expect(changes.at(-1)!.patch).toBeNull()
+    s.seen(WS)
+    expect(ids(changes.at(-1)!.patch)).toEqual([a.id])
+    const b = s.start(betty, { title: 'b' })
+    running = false
+    s.sweep()
+    expect(ids(changes.at(-1)!.patch)).toEqual([b.id])
+    s.dismiss(WS, b.id)
+    expect(changes.at(-1)!.patch).toBeNull()
+    s.clear(WS)
+    expect(changes.at(-1)).toMatchObject({ runs: [], patch: null })
+  })
+
+  describe("a window's runs kept in step (ProgressSync)", () => {
+    const run = (id: string, step: number, startedAt = 1): ProgressRun => ({ id, step, startedAt }) as ProgressRun
+    /** A window on `ws`, its reads answered by hand: `answer(i, snap)` or `fail(i)` for the i-th read. */
+    function windowOn(ws = 'C:\\A') {
+      const state = { ws: ws as string | null, runs: [] as ProgressRun[] }
+      const reads: { resolve: (s: ProgressSnapshot) => void; reject: (e: Error) => void }[] = []
+      const sync = new ProgressSync({
+        workspace: () => state.ws,
+        runs: () => state.runs,
+        set: (r) => void (state.runs = r),
+        load: () => new Promise((resolve, reject) => void reads.push({ resolve, reject }))
+      })
+      const tell = (seq: number, runs: ProgressRun[], whole = false, workspacePath = state.ws ?? ''): void => sync.told({ type: 'progress-runs', workspacePath, seq, whole, runs })
+      const answer = async (i: number, seq: number, runs: ProgressRun[], workspacePath = ws): Promise<void> => {
+        reads[i].resolve({ workspacePath, seq, runs })
+        await Promise.resolve()
+      }
+      const fail = async (i: number): Promise<void> => {
+        reads[i].reject(new Error('gone'))
+        await Promise.resolve()
+      }
+      const steps = (): (number | null)[] => state.runs.map((r) => r.step)
+      return { state, reads, sync, tell, answer, fail, steps }
+    }
+
+    it("applies tellings that arrive while the list is read on top of it, after the list's number (HR2's round-1 case)", async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(10, [run('x', 10)]) // sent before the list was read: in it already
+      w.tell(11, [run('x', 11)])
+      await w.answer(0, 10, [run('x', 10)])
+      expect(w.steps()).toEqual([11])
+      // A skipped one reads again; one arriving meanwhile isn't lost, and the older list doesn't overwrite it.
+      w.tell(13, [run('x', 13)])
+      expect(w.reads).toHaveLength(2)
+      w.tell(14, [run('x', 14)])
+      await w.answer(1, 13, [run('x', 13)])
+      expect(w.steps()).toEqual([14])
+      w.tell(15, [run('x', 15)])
+      expect(w.steps()).toEqual([15])
+      expect(w.reads).toHaveLength(2)
+    })
+
+    it('a whole telling during a read is applied after the list when it is newer, and dropped when not', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(5, [run('a', 1)], true)
+      w.tell(7, [run('b', 1)], true)
+      await w.answer(0, 6, [run('old', 1)])
+      expect(w.state.runs.map((r) => r.id)).toEqual(['b'])
+      w.tell(8, [run('b', 2)])
+      expect(w.steps()).toEqual([2])
+    })
+
+    it("drops a read for a workspace the window no longer shows, and one a newer read replaced", async () => {
+      const w = windowOn('C:\\A')
+      w.sync.reload()
+      w.state.ws = 'C:\\B'
+      w.sync.reload()
+      await w.answer(0, 3, [run('a-run', 1)], 'C:\\A')
+      expect(w.state.runs).toEqual([])
+      await w.answer(1, 9, [run('b-run', 1)], 'C:\\B')
+      expect(w.state.runs.map((r) => r.id)).toEqual(['b-run'])
+      // Another workspace's tellings never reach it.
+      w.tell(10, [run('a-run', 2)], true, 'C:\\A')
+      expect(w.state.runs.map((r) => r.id)).toEqual(['b-run'])
+      // A telling for the workspace now shown while the old one's read is under way starts its own read.
+      w.state.ws = 'C:\\A'
+      w.tell(4, [run('a-run', 4)])
+      expect(w.reads).toHaveLength(3)
+    })
+
+    it('reads at first, and again for a telling of some runs when a read failed; a whole telling is a base', async () => {
+      const w = windowOn()
+      w.tell(1, [run('x', 1)])
+      expect(w.reads).toHaveLength(1)
+      w.tell(2, [run('x', 2)])
+      await w.fail(0)
+      expect(w.state.runs).toEqual([])
+      w.tell(3, [run('x', 3)])
+      expect(w.reads).toHaveLength(2)
+      w.tell(4, [run('x', 4)], true)
+      await w.fail(1)
+      expect(w.steps()).toEqual([4])
+      w.tell(5, [run('x', 5)])
+      expect(w.steps()).toEqual([5])
+    })
+
+    it('a failed read applies what waited after its newest whole telling, with no telling after (HR2, round 2)', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(3, [run('x', 3)])
+      w.tell(4, [run('x', 4)], true)
+      w.tell(5, [run('x', 5)])
+      await w.fail(0)
+      expect(w.steps()).toEqual([5])
+      expect(w.reads).toHaveLength(1)
+      w.tell(6, [run('x', 6)])
+      expect(w.steps()).toEqual([6])
+    })
+
+    it('a failed read whose waiting tellings skip one after the whole reads again, and the next read puts it right', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(4, [run('x', 4)], true)
+      w.tell(6, [run('x', 6)])
+      await w.fail(0)
+      expect(w.steps()).toEqual([4])
+      expect(w.reads).toHaveLength(2)
+      w.tell(7, [run('x', 7)])
+      await w.answer(1, 6, [run('x', 6)])
+      expect(w.steps()).toEqual([7])
+    })
+
+    it('a failed read with only some runs waiting reads again once, not on and on', async () => {
+      const w = windowOn()
+      w.sync.reload()
+      w.tell(2, [run('x', 2)])
+      await w.fail(0)
+      expect(w.reads).toHaveLength(2)
+      await w.fail(1)
+      expect(w.reads).toHaveLength(2)
+    })
+  })
+
+  it('a patch puts runs in place by id, keeps the others the same objects, and a new run by when it started', () => {
+    const run = (id: string, startedAt: number, step = 0): ProgressRun => ({ id, startedAt, step }) as ProgressRun
+    const before = [run('c', 30), run('b', 20), run('a', 10)]
+    const after = applyRunsPatch(before, [run('b', 20, 5), run('d', 25), run('e', 40), run('z', 1)])
+    expect(after.map((r) => r.id)).toEqual(['e', 'c', 'd', 'b', 'a', 'z'])
+    expect(after[1]).toBe(before[0])
+    expect(after[3]).toMatchObject({ step: 5 })
+    expect(after[4]).toBe(before[2])
+  })
+})
 
 describe('progress runs', () => {
   it("is the starter's: its agent, name and provider come from the caller, not the request", () => {
@@ -388,7 +571,7 @@ describe('progress runs', () => {
     s.update(script, mine.id, { step: 2 }) // a merged window event is pending
     changes = []
     s.clear(WS)
-    expect(changes).toEqual([{ ws: WS, runs: [] }])
+    expect(changes).toEqual([{ ws: WS, runs: [], patch: null }])
     expect(s.list(WS)).toEqual([])
     expect(s.failureUnseen(WS)).toBe(false)
     expect(status(() => s.update(script, mine.id, { step: 3 }))).toBe(404)

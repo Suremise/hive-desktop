@@ -36,7 +36,7 @@ Codex run.
 
 Every scenario ran once per provider. Models vary from run to run, so a single result is a sample, not a rate.
 
-## A card's reference that no longer resolves: fake, Claude Code (haiku), Codex (its default model), fixtures v63, 19 October 2026
+## A card's reference that no longer resolves: fake, Claude Code (haiku), Codex (its default model), fixtures v63–v64 (v65 once merged with main, which also reached v64), 19 October 2026
 
 #819: the start prompt names a reference that doesn't resolve, why and the closest headings ("This reference no
 longer resolves: DESIGN.md#retry-policies (no such heading; closest: #retry-policy). Ask the user which section is
@@ -85,6 +85,59 @@ use them on documents over about 20 KB. One new scenario, **long-doc-section**: 
   around the answer, not the hive tools, and never the whole file: as good for a document in its own folder, which Claude
   Code can read by range (Codex and Copilot can't, the card's reason for the tools). An earlier run
   (`2026-10-19T20-44-11-claude-code`) did the same, failed by checks that took a ranged Read for a whole one; fixed.
+## Licence audit: fakes, Claude Code (its default model), Codex (its default model), fixtures v64, 20 October 2026
+
+#410: a general agents' skill, **licence-audit**: inventory what ships (runtime dependencies, bundled libraries, vendored
+material inside packages, assets, installer parts, runtimes), read each licence from its files, flag anything not plainly
+permissive for the user, regenerate the notices, report a table. RELEASING.md points to it. The agents' catalog has a
+2,000-character budget: its description is short to fit (1,985). New scenario **licence-audit**: a fixture with an MIT
+package carrying a CC-BY-3.0 icon (vendored), an MIT-or-GPL dual licence and a GPL dev tool.
+- **Fakes**: work-on-card, review-card and card-loop-rounds pass before (`hb5-410-before`, main at 5ed47fbd) and after
+  (`hb5-410-after`): calls the same; the catalog +130 bytes, delivered skills +2,869.
+- **Claude Code, before** (main's skills, the scenario copied in; `2026-10-19T23-02-47-claude-code`): the behaviour checks
+  pass 2 of 2 on this small fixture without the skill (it found the vendored icon and the dual licence by reading
+  node_modules). The skill's value is the method on a real project (installer parts, notices), which a fixture can't show.
+- **Claude Code, after**: 2 of 2, reading licence-audit each time (`2026-10-19T22-58-58-claude-code`).
+- **Codex**: passes, reading it (`2026-10-19T23-00-22-codex`).
+
+## Board hygiene: fakes, Claude Code (its default model), Codex (its default model), fixtures v62 and v63, 19 October 2026
+
+#409, built small (the Assistant's brief after #1112's drift review): **board-hygiene** sweeps for duplicates (linked,
+marked for the user to archive), the user's answers not yet recorded as decisions, and blocked reasons gone stale
+(rewritten or raised, not cleared); it leaves archiving, On Hold, Done, columns and lanes alone. coordinate-agents and
+run-lanes name it. The Assistant's catalog has a 2,000-character budget: triage-report's and board-hygiene's
+descriptions are short to fit (1,997). New scenario **board-hygiene**: a duplicate pair, an answer only in an agent's
+comment, a card blocked on one now Done, and a card On Hold.
+- **Fakes**: coordinator-wake-failed, assistant-look-lanes and mode-qa-triager-plans pass before (`hb5-409-before`,
+  main at 1cd25924) and after (`hb5-409-after`): calls the same; the catalog +291 bytes, delivered skills +5,129 (two
+  more skills, with #408's).
+- **Claude Code, before** (main's skills, the scenario copied in; `2026-10-19T22-23-33-claude-code`): 0 of 2. It linked
+  the duplicates, but recorded no decision and cleared the block itself, both times.
+- **Claude Code, after**: 2 of 2, reading board-hygiene (`2026-10-19T22-16-42-claude-code`); qa-triage-report 2 of 2
+  there with its shorter description.
+- **Codex**: board-hygiene and qa-triage-report pass (`2026-10-19T22-19-07-codex`).
+- **Round 2 (fixtures v63)**: decisions only from the user's own words (their chat, a comment the card shows as theirs, Hive's
+  reply wake); an agent's account of an answer is asked about, not recorded. The scenario now has the user's own comment
+  (CSV) and an agent's "the user told me: tabs" (no decision, ask). Fake passes; Claude Code 3 of 3
+  (`2026-10-19T22-40-54-claude-code`); Codex 2 of 2 (`2026-10-19T22-42-34-codex`). assistant-reply-decision and
+  coordinator-wake-question fail on Claude Code on main too (reading no skill; `2026-10-19T22-48-31-claude-code`): #1136.
+
+## The QA triager's procedure: fakes, Claude Code (its default model), Codex (its default model), fixtures v61, 19 October 2026
+
+#408: a new Assistant skill, **triage-report** (the cause found in the code before the card, a duplicate check including
+Passed and unmerged work, then the card with what the user saw, the likely cause, evidence, fix direction and done
+when), which the QA triager mode now names. Two new scenarios: **qa-triage-report** (a banner reads "Saved 0 card": the
+cause is a plural in banner.js) and **qa-triage-duplicate** (the same report while a card with its fix is in Passed).
+- **Fakes**: mode-qa-triager-plans and -coordinates pass before (`hb5-408-before`, main at 1cd25924) and after
+  (`hb5-408-after`); the mode is +126 bytes, the skills' catalog +255, delivered skills +2,521 (one more skill).
+- **Claude Code, before** (main's skills, the new scenarios copied in; `2026-10-19T20-48-31-claude-code`): 2 of 2 each
+  already found the cause, filed one card in Todo and, with the fix in Passed, commented on it instead of filing a twin.
+  Its cards gave the cause, a fix and a test, but no evidence and no done-when.
+- **Claude Code, after**: both pass 2 of 2, reading triage-report each time (`2026-10-19T20-41-33-claude-code`), and the
+  cards carry what the user saw, evidence and a done-when. qa-triage-report now checks evidence and done-when: 2 of 2
+  (`2026-10-19T20-54-40-claude-code`).
+- **Codex**: both pass (`2026-10-19T20-44-15-codex`), reading triage-report; its card has evidence and a done-when.
+
 ## Coordinator lessons from 0.9.0: fakes, Claude Code (its default model), Codex (its default model), fixtures v60, 19 October 2026
 
 #1075: run-lanes has the coordinator bring the user a simpler option, with a recommendation, when a card fails review a

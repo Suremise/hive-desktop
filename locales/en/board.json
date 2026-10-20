@@ -1887,6 +1887,10 @@
     "defaultMessage": "Its reviewer's watch didn't wake it. Show the reviewer and ask it to review the card.",
     "description": "Tooltip on a card stalled in Review: its reviewer watches it but has not started."
   },
+  "board.stall.hintWakeUntaken": {
+    "defaultMessage": "Hive typed this card's wake into that agent, but its CLI didn't send it. Show the agent, click its terminal and press Enter.",
+    "description": "Tooltip on a stalled card: Hive typed the line that wakes the agent into its terminal, and the agent's CLI never sent it (it waits in the agent's prompt)."
+  },
   "board.stalled.noAgent": {
     "defaultMessage": "In Doing, but no agent has it.",
     "description": "Why a card in the Doing column is stalled (on the card). Doing is the column."
@@ -1922,6 +1926,10 @@
   "board.stalled.reviewWaitSilent": {
     "defaultMessage": "{agent} is watching #{card} but hasn't started reviewing it (it shows working, but has been silent for {silent, number} min: state unknown): in Review for {waited}.",
     "description": "Why a card waiting in Review is stalled: its reviewer watches it but hasn't started, and Hive can't tell what the reviewer is doing. {agent} is the reviewer's name, {card} the card number (after #), {silent} minutes, {waited} how long it has waited (\"40 min\", \"2 h 5 min\")."
+  },
+  "board.stalled.wakeUntaken": {
+    "defaultMessage": "{agent} hasn't taken the wake Hive typed for #{card}: it waits in its prompt.",
+    "description": "Why a card in a card loop is stalled: the agent watched the card, and Hive typed its wake line into the agent's terminal, but the agent's CLI never sent it. {agent} is its name, {card} the card number (after #)."
   },
   "board.start.busy": {
     "defaultMessage": "{status}. Choose it once it's idle.",

@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import type { DeliveryNeed } from '../shared/deliveries'
 import { createLogger, userText } from './logger'
+import { folderChanging, folderSteady } from './folderFence'
 import { readyFor } from './readiness'
 import { sessions } from './sessions'
 
@@ -63,6 +64,10 @@ export function whyNoLine(projectPath: string, agentId: string, need: DeliveryNe
   if (!readyFor(st, need)) return st.status === 'watching' ? 'it is waiting on cards, and takes no new work until it is woken' : `it is ${st.status}` // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.userMayBeTyping(projectPath, agentId)) return 'the user has just typed in its terminal and may still be writing there' // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.lineWaiting(projectPath, agentId)) return "its CLI hasn't taken the line Hive typed before" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  if (sessions.launchTaskWaiting(projectPath, agentId)) return "its CLI hasn't taken its launch's task yet" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  // Its folder being changed under it (#646: a Git switch or pull): no turn of Hive's starts there until that is done.
+  const changing = folderChanging(st.cwd)
+  if (changing) return `its folder is being changed (${changing})` // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (lineComing(projectPath, agentId)) return "a watch's wake goes first" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   return null
 }
@@ -104,6 +109,7 @@ export async function typeLine(projectPath: string, agentId: string, line: strin
       if (!wanted()) throw new Error('It is no longer wanted.') // i18n-ignore: why a line wasn't typed, for the log
       if (!readyFor(sessions.liveFor(projectPath, agentId), need)) throw new Error('The agent got busy.') // i18n-ignore: why a line wasn't typed, for the log
       if (sessions.userMayBeTyping(projectPath, agentId)) throw new Error('The user is typing there.') // i18n-ignore: why a line wasn't typed, for the log
+      if (folderChanging(sessions.liveFor(projectPath, agentId)?.cwd)) throw new Error('Its folder is being changed.') // i18n-ignore: why a line wasn't typed, for the log
       before = sessions.promptsTaken(projectPath, agentId)
     })
     log.info(`Woke ${userText(agentId)}: ${userText(line.slice(0, 80))}`)
@@ -168,9 +174,18 @@ async function confirming(projectPath: string, agentId: string, before: { runId:
   // Enter again, once, when that is safe (the same launch, idle, nobody typing there, Hive not typing): waited for a
   // while rather than given up at once (#430). Never a third Enter.
   let retried = false
-  for (const end = Date.now() + 6 * takeMs(); ; ) {
+  for (let end = Date.now() + 6 * takeMs(); ; ) {
     const t = taken()
     if (t) return t
+    // Its folder being changed (#646 round 1): no Enter until that is done; the wait doesn't count against the window,
+    // so the line is held, not given up.
+    const cwd = sessions.liveFor(projectPath, agentId)?.cwd
+    if (folderChanging(cwd)) {
+      const held = Date.now()
+      await folderSteady(cwd)
+      end += Date.now() - held
+      continue
+    }
     // The user has typed into the prompt since Hive's line began (#652 round 1 finding 2: any pause, 0 included): it is
     // their draft, never submitted or cleared by Hive, and nothing more is typed into the agent until a prompt is sent.
     if (sessions.userTypedOverLine(projectPath, agentId)) {

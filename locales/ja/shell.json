@@ -51,6 +51,7 @@
   "shell.command.assistant.settings": "アシスタントの設定…",
   "shell.command.assistant.start": "Hive Assistantを開始",
   "shell.command.assistant.toggle": "Hive Assistantの表示を切り替え",
+  "shell.command.console.showCapture": "キャプチャをフォルダーに表示",
   "shell.command.help.about": "{app}について",
   "shell.command.help.agentSetup": "エージェントのセットアップ…",
   "shell.command.help.api": "Agent APIリファレンス",

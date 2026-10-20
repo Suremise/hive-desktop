@@ -155,7 +155,7 @@ function endCall(t: Turn, call: string | null): void {
 
 /** A hook's kind, for the log's reasons. */
 function what(ev: HookEvent): string {
-  const names: Partial<Record<HookEvent['kind'], string>> = { toolStart: 'a tool start', toolEnd: 'a tool end', prompt: 'a prompt', ask: 'a question', stop: 'a Stop', start: 'a session start', end: 'a session end', compactStart: 'a compaction start', compactEnd: 'a compaction end' }
+  const names: Partial<Record<HookEvent['kind'], string>> = { toolStart: 'a tool start', toolEnd: 'a tool end', prompt: 'a prompt', ask: 'a question', stop: 'a Stop', start: 'a session start', end: 'a session end', compactStart: 'a compaction start', compactEnd: 'a compaction end' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
   return names[ev.kind] ?? `${ev.kind} news`
 }
 
@@ -181,9 +181,9 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
     // once and ends once: a start of it again, or its news once it is over, is stale; the launch's SessionEnd isn't.
     const k = ledger.compaction
     if (turn === k?.id) {
-      if (!launchWide) return { verdict: 'stale', why: `${what(ev)} under a compaction's id` }
-      if (ev.kind === 'compactStart') return { verdict: 'stale', why: k.open ? 'a repeated compaction start' : 'a compaction start of a compaction that is over' }
-      if (!k.open && ev.kind !== 'end') return { verdict: 'stale', why: `${what(ev)} of a compaction that is over` }
+      if (!launchWide) return { verdict: 'stale', why: `${what(ev)} under a compaction's id` } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
+      if (ev.kind === 'compactStart') return { verdict: 'stale', why: k.open ? 'a repeated compaction start' : 'a compaction start of a compaction that is over' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
+      if (!k.open && ev.kind !== 'end') return { verdict: 'stale', why: `${what(ev)} of a compaction that is over` } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       if (ev.kind === 'compactEnd') k.open = false
       if (ev.kind === 'end') end(ledger, 'end')
       return { verdict: 'apply', event: ev }
@@ -197,14 +197,14 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       if (ev.kind === 'compactStart' && !running) {
         remember(ledger, ledger.seen, turn, ledger.maxSeen)
         ledger.compaction = { id: turn, open: true }
-        return { verdict: 'apply', event: ev, note: 'a compaction the CLI began itself, under its own id' }
+        return { verdict: 'apply', event: ev, note: 'a compaction the CLI began itself, under its own id' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       }
       if (ev.kind === 'toolStart' && opts.woke && !running && ids.call && !ledger.calls.has(ids.call)) {
         addCall(ledger, begin(ledger, turn, now), ids.call)
-        return { verdict: 'apply', event: { ...ev, resumes: true }, note: "a turn the CLI began by itself: its background task's wake (no prompt hook)" }
+        return { verdict: 'apply', event: { ...ev, resumes: true }, note: "a turn the CLI began by itself: its background task's wake (no prompt hook)" } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       }
     }
-    return { verdict: 'stale', why: `${what(ev)} ${earlier ? 'of an earlier turn' : 'of a turn Hive saw no prompt for'}` }
+    return { verdict: 'stale', why: `${what(ev)} ${earlier ? 'of an earlier turn' : 'of a turn Hive saw no prompt for'}` } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
   }
   // Launch-wide hooks (naming the latest turn, or none); the CLI's session ending is the launch's.
   if (launchWide) {
@@ -218,17 +218,17 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       const i = running && ev.text ? ledger.injected.indexOf(flat(ev.text)) : -1
       if (i >= 0) {
         ledger.injected.splice(i, 1)
-        return { verdict: 'apply', event: { ...ev, injected: true }, note: "Hive's own message in the running turn" }
+        return { verdict: 'apply', event: { ...ev, injected: true }, note: "Hive's own message in the running turn" } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       }
-      if (turn && running) return { verdict: 'apply', event: ev, note: 'a prompt in the running turn' }
-      if (turn) return { verdict: 'stale', why: 'a prompt of a turn that is over' }
+      if (turn && running) return { verdict: 'apply', event: ev, note: 'a prompt in the running turn' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
+      if (turn) return { verdict: 'stale', why: 'a prompt of a turn that is over' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       begin(ledger, null, now)
       return { verdict: 'apply', event: ev }
     }
     case 'toolStart': {
       if (ids.sub) {
         // A sub-agent works inside its parent's turn: news of that turn while it runs; after it, a background agent's.
-        if (!running) return { verdict: 'stale', why: "a sub-agent's tool outside the running turn" }
+        if (!running) return { verdict: 'stale', why: "a sub-agent's tool outside the running turn" } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
         addCall(ledger, a, ids.call)
         return { verdict: 'apply', event: ev }
       }
@@ -239,24 +239,24 @@ export function admit(ledger: TurnLedger, ev: HookEvent, ids: HookIds, opts: { h
       // No ids and no turn known yet: nothing to carry on (a tool start alone changes nothing, as before the ledger).
       if (!a) return { verdict: 'apply', event: ev }
       // The latest turn, over: a call it never started is a start of it, and it goes on; one it started is no start.
-      if (ids.call && a.callsSeen.has(ids.call)) return { verdict: 'stale', why: 'a tool start of a call its turn started before it ended' }
+      if (ids.call && a.callsSeen.has(ids.call)) return { verdict: 'stale', why: 'a tool start of a call its turn started before it ended' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       reopen(a)
       addCall(ledger, a, ids.call)
-      return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a new tool call after its Stop: its turn goes on' }
+      return { verdict: 'apply', event: { ...ev, resumes: true }, note: 'a new tool call after its Stop: its turn goes on' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
     }
     case 'toolEnd': {
       if (running) {
         endCall(a, ids.call)
         return { verdict: 'apply', event: ev }
       }
-      if (a) return { verdict: 'stale', why: turn ? 'a tool end of a turn that is over' : 'a tool end after its turn ended, with no tool start since' }
+      if (a) return { verdict: 'stale', why: turn ? 'a tool end of a turn that is over' : 'a tool end after its turn ended, with no tool start since' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       return { verdict: 'apply', event: ev }
     }
     case 'ask':
-      if (turn && !running) return { verdict: 'stale', why: 'a question of a turn that is over' }
+      if (turn && !running) return { verdict: 'stale', why: 'a question of a turn that is over' } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       return { verdict: 'apply', event: ev }
     case 'stop': {
-      if (ids.sub) return { verdict: 'stale', why: "a sub-agent's Stop" }
+      if (ids.sub) return { verdict: 'stale', why: "a sub-agent's Stop" } // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
       // No ids and no turn known: a turn that ended at once.
       if (!a) begin(ledger, null, now)
       const t = ledger.active!
@@ -324,7 +324,7 @@ export function endRunning(ledger: TurnLedger, by: string): void {
 /** The running turn's id and calls, for the log. */
 export function describe(ledger: TurnLedger): string {
   const a = ledger.active
-  if (!a) return 'no turn'
+  if (!a) return 'no turn' // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
   const calls = a.calls.size + a.unnamedCalls
-  return `turn ${a.id ?? '?'} ${a.state === 'running' ? 'running' : `over (${a.endedBy ?? '?'})`}${calls ? `, ${calls} call${calls === 1 ? '' : 's'} open` : ''}`
+  return `turn ${a.id ?? '?'} ${a.state === 'running' ? 'running' : `over (${a.endedBy ?? '?'})`}${calls ? `, ${calls} call${calls === 1 ? '' : 's'} open` : ''}` // i18n-ignore: the turn ledger's reasons, for the log and the developer console's event data (recorded like a log), stay English (#1104)
 }

@@ -2464,6 +2464,25 @@ p.hint {
   position: absolute;
   inset: 0;
 }
+/* The code editor's right-click menu (#1102). Monaco draws it in a shadow root hosted beside .monaco-editor, where
+   its theme's colour variables don't reach (it showed black text on no surface), and standalone Monaco defines no
+   border width or radius at all. Custom properties do cross into a shadow root, so its host gets Hive's menu look
+   (.menu above) here, in both themes. */
+.shadow-root-host {
+  --vscode-menu-background: var(--bg-elevated);
+  --vscode-menu-foreground: var(--fg);
+  --vscode-menu-border: var(--border);
+  --vscode-menu-separatorBackground: var(--border);
+  --vscode-menu-selectionBorder: transparent;
+  --vscode-list-hoverBackground: var(--accent-fill);
+  --vscode-list-hoverForeground: var(--accent-fg);
+  --vscode-disabledForeground: var(--fg-decor);
+  --vscode-widget-shadow: transparent;
+  --vscode-shadow-lg: var(--shadow);
+  --vscode-strokeThickness: 1px;
+  --vscode-cornerRadius-large: 6px;
+  --vscode-cornerRadius-medium: 4px;
+}
 .git-status {
   width: 16px;
   text-align: center;

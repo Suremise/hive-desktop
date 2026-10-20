@@ -5,6 +5,7 @@ import { initDeliveries } from './deliveries'
 import { initInboxNotices } from './inboxNotices'
 import { initDecisionWakes } from './decisionWakes'
 import { initDevConsole } from './devConsoleSources'
+import { flightRecorder } from './flightRecorder'
 import { initAssistantModes } from './assistantMode'
 import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'child_process'
@@ -63,6 +64,7 @@ import { pinFollower } from './pin'
 import { closedNotice, focusedHive, routeAppNotice, setFocusedHive, startNoticeResolver } from './notices'
 import { initUpdater, installNow } from './updater'
 import { flushMetrics } from './metrics'
+import { watchMainStalls } from './mainStalls'
 import { createWorkspaceService, disposeWorkspaceService, inWorkspace, openWorkspaces, workspace, workspaceFor, workspaceOf, type WorkspaceService } from './workspace'
 import { journalSettingsOf } from './journalService'
 import { assistantStartView } from './startView'
@@ -81,25 +83,6 @@ import { fmt, msg, tr } from '../shared/i18n'
 
 const log = createLogger('main')
 let quitting = false
-
-/**
- * Notes in hive.log when the main process was busy long enough to be felt (every terminal's typing goes
- * through it), at most once a minute, so pauses can be matched with what Hive was doing.
- */
-function watchMainStalls(): void {
-  const every = 500
-  let last = performance.now()
-  let logged = 0
-  setInterval(() => {
-    const now = performance.now()
-    const late = now - last - every
-    last = now
-    if (late > 250 && Date.now() - logged > 60_000) {
-      logged = Date.now()
-      log.warn(`The main process was busy for ${Math.round(late)} ms`)
-    }
-  }, every).unref()
-}
 
 // Development builds use their own profile (and Agent API port, see servers.ts) so they can run
 // alongside the installed Hive — e.g. while developing Hive from a session inside Hive.
@@ -803,6 +786,8 @@ app.whenReady().then(async () => {
   advanced.load()
   // Show developer features is one of them too, kept under its settings key: the file and the setting stay one value.
   bindAdvancedSettings(config)
+  // The developer console's flight recorder (#698): its triggers are advanced settings, followed as they change.
+  flightRecorder.start((source) => sessions.flightAgent(source))
   session.defaultSession.setPermissionRequestHandler((_wc, permission, done) => done(ALLOWED_PERMISSIONS.has(permission)))
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission))
   protocol.handle('hive-img', async (req) => {
@@ -1077,6 +1062,7 @@ app.on('will-quit', () => {
   killAll()
   closeProcessTracking()
   unwatchAll()
+  flightRecorder.stop()
   advanced.stop()
   destroyTray()
   // The boards' databases: checkpointed and closed, the stubs older versions read brought up to date (#1017).

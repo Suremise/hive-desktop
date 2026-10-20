@@ -3,7 +3,8 @@
 // are tested without signing in or spending tokens. It must run with CLAUDE_CONFIG_DIR pointing at a test folder.
 //
 // What it does, like Claude Code:
-// - `--version` and `auth status --json` answer as a signed-in CLI.
+// - `--version` and `auth status --json` answer as a signed-in CLI. `--version` says 2.1.999, or the version in
+//   fake-version.txt in CLAUDE_CONFIG_DIR when there is one (#698: a CLI updated between launches).
 // - In a folder it hasn't been told to trust, it first asks "Do you trust this folder?" with Claude Code's menu, but
 //   starting on "Yes, I trust this folder" (Claude Code's starts on "No, exit"), so Enter trusts it; Down/Up move the
 //   choice, and Enter on "No, exit" quits (exit 1).
@@ -11,7 +12,8 @@
 //   Enter (Ctrl+U clears the line), shown on its input line as it is typed. With fake-launch-hold-<agent> in its home, it
 //   holds its command line's task after SessionStart until the test makes fake-launch-go-<agent> (#712: a CLI ready but
 //   not yet on its task). Each prompt sends UserPromptSubmit, is written to the transcript, "works"
-//   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "edit <file>" first sends PreToolUse for
+//   (1 s, or N seconds for "work N"), and ends with a reply and Stop. "newfield": its UserPromptSubmit carries a
+//   top-level field Claude Code doesn't send (hive_test_new_field: true), as a CLI update adding one would (#698). "edit <file>" first sends PreToolUse for
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
@@ -116,7 +118,13 @@ const { callHiveTool, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = r
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  console.log('2.1.999 (Claude Code)')
+  let version = '2.1.999'
+  try {
+    version = fs.readFileSync(path.join(process.env.CLAUDE_CONFIG_DIR || '', 'fake-version.txt'), 'utf8').trim() || version
+  } catch {
+    // No fake-version.txt: its own version.
+  }
+  console.log(`${version} (Claude Code)`)
   process.exit(0)
 }
 /** The test home's sign-in has expired (fake-signin.json, #309). */
@@ -444,7 +452,7 @@ async function runPrompt(text, enter = null) {
   out(BUSY)
   busyDrawn = writes
   write({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } })
-  await hook('UserPromptSubmit', { prompt: text })
+  await hook('UserPromptSubmit', { prompt: text, ...(/\bnewfield\b/i.test(text) ? { hive_test_new_field: true } : {}) })
   if (signedOut()) {
     const said = 'Login expired · Please run /login'
     refused = text

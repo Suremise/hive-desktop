@@ -1,3 +1,5 @@
+import { msg } from '../shared/i18n'
+import { hiveError } from './hiveError'
 import { ConsoleRing, hiveSourceId, makeEvent, sessionSourceId, type CapturedEvent, type ConsoleEvent } from '../shared/devConsole'
 
 /**
@@ -12,6 +14,11 @@ import { ConsoleRing, hiveSourceId, makeEvent, sessionSourceId, type CapturedEve
  * while Settings → Advanced → Developer console: show text is on, #699) is sent a second copy with text kept, and only it.
  * While a source has such a subscriber, those copies are kept in a ring of their own too, which only text subscribers
  * read (a window's backlog after a pause); readers only ever get the redacted ring.
+ *
+ * The flight recorder (#698) is the one exception to "nothing while nobody watches": while one of its triggers is on, it
+ * sets which sources it keeps (`setFlight`, every agent's session) and each of them is captured whether a console watches
+ * it or not, into a small ring of its own (redacted, never text) that only the recorder reads. With every trigger off it
+ * keeps nothing, and capture is free again.
  */
 
 /** At most this many sources per subscriber, and this many subscribers: each holds rings while it lasts. */
@@ -20,6 +27,10 @@ export const MAX_SUBSCRIBERS = 50
 /** Events waiting to be sent to one subscriber, at most (by count and bytes): past either, the oldest are dropped and counted. */
 export const QUEUE_MAX_EVENTS = 500
 export const QUEUE_MAX_BYTES = 1024 * 1024
+/** The flight recorder's ring per source (#698): smaller than a console's, kept for at most this many sources (the least recently written go first). */
+export const FLIGHT_RING_EVENTS = 200
+export const FLIGHT_RING_BYTES = 256 * 1024
+export const FLIGHT_MAX_SOURCES = 100
 
 export interface ConsoleSubscription {
   /** Live events as they are kept, batched after the current task; `dropped`: how many didn't fit its queue since the last batch. */
@@ -44,12 +55,16 @@ export class DevConsole {
   private textRings = new Map<string, ConsoleRing>()
   private seq = 0
   private flushing = false
+  /** The flight recorder's sources (#698): kept whether watched or not, while it is on. */
+  private flight: ((source: string) => boolean) | null = null
+  private flightKept: ((e: ConsoleEvent) => void) | null = null
+  private flightRings = new Map<string, ConsoleRing>()
 
   constructor(private readonly now: () => number = Date.now) {}
 
   /** Whether a source is being captured: callers ask before building anything (zero cost when nobody watches). */
   capturing(source: string): boolean {
-    return this.rings.has(source)
+    return this.rings.has(source) || !!this.flight?.(source)
   }
 
   /** The sources being captured whose ids start so ("hive:" for every workspace's Hive events). */
@@ -62,8 +77,9 @@ export class DevConsole {
    * and may return null to keep nothing. A capture point never fails its caller.
    */
   capture(sources: (string | null | undefined)[], build: () => CapturedEvent | null): void {
-    if (!this.rings.size) return
-    const live = [...new Set(sources)].filter((s): s is string => !!s && this.rings.has(s))
+    if (!this.rings.size && !this.flight) return
+    const flying = (s: string): boolean => !!this.flight?.(s)
+    const live = [...new Set(sources)].filter((s): s is string => !!s && (this.rings.has(s) || flying(s)))
     if (!live.length) return
     let c: CapturedEvent | null
     try {
@@ -75,12 +91,45 @@ export class DevConsole {
     const at = new Date(this.now()).toISOString()
     for (const source of live) {
       const e = makeEvent(++this.seq, at, source, c)
-      this.rings.get(source)!.push(e)
+      if (flying(source)) this.keepFlight(e)
+      const ring = this.rings.get(source)
+      if (!ring) continue
+      ring.push(e)
       const withText = this.textual.get(source) ? makeEvent(e.seq, at, source, c, { includeText: true }) : null
       if (withText) this.textRings.get(source)?.push(withText)
       for (const sub of this.subs.values()) if (sub.deliver && sub.sources.has(source)) this.enqueue(sub, sub.includeText && withText ? withText : e)
     }
     this.scheduleFlush()
+  }
+
+  /**
+   * Turns the flight recorder's capture on (`keep`: the sources it keeps, whether watched or not; `kept`: told of each
+   * event it keeps) or off (null: its rings go, and capture is free again where nobody watches).
+   */
+  setFlight(keep: ((source: string) => boolean) | null, kept: ((e: ConsoleEvent) => void) | null = null): void {
+    this.flight = keep
+    this.flightKept = keep ? kept : null
+    if (!keep) this.flightRings.clear()
+  }
+
+  /** The flight recorder's events of a source, oldest first (redacted). */
+  flightEvents(source: string): ConsoleEvent[] {
+    return this.flightRings.get(source)?.all() ?? []
+  }
+
+  /** Keeps an event in its source's flight ring (the least recently written source goes past the bound), and says so. */
+  private keepFlight(e: ConsoleEvent): void {
+    let ring = this.flightRings.get(e.source)
+    if (ring) this.flightRings.delete(e.source)
+    else ring = new ConsoleRing(FLIGHT_RING_EVENTS, FLIGHT_RING_BYTES)
+    this.flightRings.set(e.source, ring)
+    ring.push(e)
+    while (this.flightRings.size > FLIGHT_MAX_SOURCES) this.flightRings.delete(this.flightRings.keys().next().value!)
+    try {
+      this.flightKept?.(e)
+    } catch {
+      // A capture point never fails its caller.
+    }
   }
 
   /**
@@ -91,7 +140,7 @@ export class DevConsole {
   subscribe(id: string, sources: string[], opts: ConsoleSubscription = {}): Map<string, ConsoleEvent[]> {
     const wanted = new Set(sources.slice(0, MAX_SOURCES))
     const old = this.subs.get(id)
-    if (!old && this.subs.size >= MAX_SUBSCRIBERS) throw new Error('Too many developer consoles open at once')
+    if (!old && this.subs.size >= MAX_SUBSCRIBERS) throw hiveError(msg({ id: 'console.tooMany', defaultMessage: 'Too many developer consoles open at once', description: 'An error opening a developer console window or starting a recording: Hive already watches for as many as it allows. Closing one helps.' }))
     if (old?.includeText) for (const s of old.sources) this.untext(s)
     // A new subscription starts with nothing waiting: what was queued for the old one (its sources, its opt-in to text) is
     // never sent to this one. It gets the rings' redacted events below instead.
@@ -181,7 +230,7 @@ export class DevConsole {
   }
 
   /** What is captured now: sources, events (and those kept with text too) and bytes, and what waits to be sent (diagnostics and tests). */
-  stats(): { sources: number; events: number; textEvents: number; bytes: number; subscribers: number; queued: number } {
+  stats(): { sources: number; events: number; textEvents: number; bytes: number; subscribers: number; queued: number; flightSources: number; flightEvents: number; flightBytes: number } {
     let events = 0
     let bytes = 0
     for (const r of this.rings.values()) {
@@ -195,7 +244,13 @@ export class DevConsole {
     }
     let queued = 0
     for (const s of this.subs.values()) queued += s.queue.length
-    return { sources: this.rings.size, events, textEvents, bytes, subscribers: this.subs.size, queued }
+    let flightEvents = 0
+    let flightBytes = 0
+    for (const r of this.flightRings.values()) {
+      flightEvents += r.count
+      flightBytes += r.bytes
+    }
+    return { sources: this.rings.size, events, textEvents, bytes, subscribers: this.subs.size, queued, flightSources: this.flightRings.size, flightEvents, flightBytes }
   }
 
   /** Queues an event for a subscriber within its bounds: the oldest waiting go first, and are counted. */

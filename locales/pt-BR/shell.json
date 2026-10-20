@@ -51,6 +51,7 @@
   "shell.command.assistant.settings": "Configurações do Assistente…",
   "shell.command.assistant.start": "Iniciar o Hive Assistant",
   "shell.command.assistant.toggle": "Alternar Hive Assistant",
+  "shell.command.console.showCapture": "Mostrar captura na pasta",
   "shell.command.help.about": "Sobre o {app}",
   "shell.command.help.agentSetup": "Configuração de agentes…",
   "shell.command.help.api": "Referência da Agent API",

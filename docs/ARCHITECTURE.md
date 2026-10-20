@@ -70,7 +70,7 @@ Adding a provider: a descriptor added to `PROVIDERS`, an adapter added to the re
 
 ## Hand Over to…
 
-`sessions.handOver(project, from, to, { handover })` optionally types a handover request into the source (`sendPrompt()`: Ctrl+U, text, Enter; the text as a bracketed paste where the provider's `capabilities.bracketedPaste` and the CLI's terminal mode allow, #597) and waits until `sessions.latestHandover()` (set in `index.ts` from the shared notes) shows a newer handover for the project, failing if the agent finishes, asks or stops without one; starts the target if it isn't running and waits for **ready**; types the pick-up prompt; then writes `handedOverFrom` on the target's session record once its id is known. The renderer's `HandOverDialog` (`AgentDialogs.tsx`) and `POST /v1/projects/{name}/handover` call it.
+`sessions.handOver(project, from, to, { handover })` optionally types a handover request into the source (`sendPrompt()`: Ctrl+U, text, Enter; the text as a bracketed paste where the provider's `capabilities.bracketedPaste` and the CLI's terminal mode allow, #597; Enter only once the CLI has drawn the line where `capabilities.enterOnceDrawn`, #600) and waits until `sessions.latestHandover()` (set in `index.ts` from the shared notes) shows a newer handover for the project, failing if the agent finishes, asks or stops without one; starts the target if it isn't running and waits for **ready**; types the pick-up prompt; then writes `handedOverFrom` on the target's session record once its id is known. The renderer's `HandOverDialog` (`AgentDialogs.tsx`) and `POST /v1/projects/{name}/handover` call it.
 
 ## Launching a session
 

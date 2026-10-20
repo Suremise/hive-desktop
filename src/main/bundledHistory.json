@@ -1,5 +1,9 @@
 {
   "skills": {
+    "board-hygiene": [
+      "0572c5dcda525e1c",
+      "053f431d60a616b7"
+    ],
     "card-loop": [
       "7fca2f34d9b1d72a",
       "fef50c9d90ab9153",
@@ -55,7 +59,8 @@
       "5789a9d8b15a5745",
       "c741e781e828f497",
       "f22778f750b9dc74",
-      "57d289c5244ba353"
+      "57d289c5244ba353",
+      "919aaea51b50d4cb"
     ],
     "handover": [
       "60ac1268a067e829",
@@ -65,6 +70,9 @@
     "journal": [
       "a5944f6b716d5f3e",
       "9d8e5f27b9ad5ac3"
+    ],
+    "licence-audit": [
+      "fbeedbd277f91f4c"
     ],
     "merge-ready": [
       "280e0ba668e1fd5c",
@@ -103,11 +111,16 @@
       "4a5f633ce0dadd86",
       "498f2c8e26bbcdec",
       "7c7f5a64ca420f0e",
-      "be5d6f7a441bed4a"
+      "be5d6f7a441bed4a",
+      "0d9e752a3c871dd5"
     ],
     "split-work": [
       "9f3b17bc4a73bdd1",
       "125641bf5c31d814"
+    ],
+    "triage-report": [
+      "d854ef7b080ac6e2",
+      "7ca7cd68a3f66813"
     ],
     "tune-settings": [
       "734ef492088145a7"
@@ -161,7 +174,8 @@
       "20e2ba7c90ec0932"
     ],
     "qa-triager": [
-      "1fac81c2d6f4fa25"
+      "1fac81c2d6f4fa25",
+      "f2a025454728a429"
     ],
     "release-manager": [
       "bbd2aa88c583d7b0"

@@ -6,8 +6,17 @@
  * comparison says whether the two can be compared at all (and why not), compares like with like (the same scenarios,
  * scope, filters), keeps what wasn't measured unknown (never zero), and never calls a smaller result better when the work
  * it did got worse: fewer checks passing or running, or more failures, calls or retries.
+ *
+ * Its text is read both by code and people (#1104, the SPEC's "Text read by both"): what the window shows is messages
+ * (measures' labels and tips) or text as data beside an English field (a comparison's `reasonsText` and `notesText`, a
+ * refusal's `errorText`), shown in the user's language when rendered; the English fields stay for tests and code. Names
+ * a kept comparison is stored under (its default label, `about`, `derived`) stay as written in its file.
  */
-import { utf8Bytes, type MetricsScope } from './metrics'
+import { msg, type Msg } from './i18n/msg'
+import { englishText, listOf, withValues, type Text, type TextPart } from './advanced'
+import { utf8Bytes, type MetricsRole, type MetricsScope } from './metrics'
+import { formatDate, formatDateTime } from './dates'
+import { moneyLabel } from './usageTotals'
 
 export const BENCHMARK_SCHEMA = 'hive-benchmark/1'
 export const METRICS_EXPORT_SCHEMA = 'hive-metrics/1'
@@ -27,69 +36,165 @@ export const compareScopeKey = (s: CompareScope): string => (s.kind === 'project
 /** A page's scope as a comparison's: the workspace view with "Workspace's own work" chosen is its own scope. */
 export const compareScopeOf = (scope: MetricsScope, own: boolean): CompareScope => (scope.kind === 'project' ? scope : own ? { kind: 'workspace', own: true } : { kind: 'workspace' })
 
-const scopeName = (s: CompareScope): string => (s.kind === 'project' ? `project ${s.project}` : s.own ? 'the workspace’s own work' : 'the whole workspace')
+/** What the comparison says: shown in the window (Performance → Compare), with its English kept beside it for code. */
+const M = {
+  scopeName: msg({ id: 'performance.compare.scopeName', defaultMessage: '{kind, select, project {project {project}} own {the workspace’s own work} other {the whole workspace}}', description: 'A scope of Performance → Compare, inside "Different scopes: {base} and {run}.": a project (its name), the workspace’s own work (no project’s: the Assistant, scripts), or the whole workspace.' }),
+  filters: msg({ id: 'performance.compare.filters', defaultMessage: '{role}, {provider}{own, select, yes {, own work} other {}}', description: "A Performance export's filters, inside \"Different filters ({base} and {run}).\": {role} is a role name or \"everyone\", {provider} a provider's id or \"all providers\"; \"own work\" when it is the workspace's own work." }),
+  everyone: msg({ id: 'performance.compare.filters.everyone', defaultMessage: 'everyone', description: "A Performance export's role filter when it has none: everyone's work. Lower case, in a list of filters." }),
+  allProviders: msg({ id: 'performance.compare.filters.allProviders', defaultMessage: 'all providers', description: "A Performance export's provider filter when it has none. Lower case, in a list of filters." }),
+  // Why two can't be compared.
+  differentKinds: msg({ id: 'performance.compare.reason.differentKinds', defaultMessage: 'One is a scenario benchmark and the other a Performance export: they measure different things.', description: 'Performance → Compare: why a baseline and a run cannot be compared.' }),
+  differentScopes: msg({ id: 'performance.compare.reason.differentScopes', defaultMessage: 'Different scopes: {base} and {run}.', description: 'Performance → Compare: why a baseline and a run cannot be compared. {base} and {run} are scopes ("the whole workspace", "project alpha").' }),
+  differentFixtures: msg({ id: 'performance.compare.reason.differentFixtures', defaultMessage: 'Different scenario versions (fixtures v{base} and v{run}): the scenarios themselves changed.', description: "Performance → Compare: why two scenario benchmarks cannot be compared. {base} and {run} are the scenarios' version numbers (v3: keep the v)." }),
+  fakeVsModel: msg({ id: 'performance.compare.reason.fakeVsModel', defaultMessage: 'A fake provider against a model trial: a fake proves routing and sizes, not a model’s behaviour.', description: 'Performance → Compare: why two scenario benchmarks cannot be compared. A fake provider is a stand-in for a coding agent CLI that runs no model; a model trial runs the real one.' }),
+  differentProviders: msg({ id: 'performance.compare.reason.differentProviders', defaultMessage: 'Different providers ({base} and {run}).', description: "Performance → Compare: why two scenario benchmarks cannot be compared. {base} and {run} are providers' ids (claude-code, fake-codex)." }),
+  differentSetups: msg({ id: 'performance.compare.reason.differentSetups', defaultMessage: 'Different model setups ({base} and {run}).', description: 'Performance → Compare: why two model trials cannot be compared. {base} and {run} are each a model, an effort and a mode, as the CLI names them ("opus, high, full-access").' }),
+  sourceChanged: msg({ id: 'performance.compare.reason.sourceChanged', defaultMessage: '{side, select, baseline {The baseline’s} other {The run’s}} source changed while it ran: its samples may mix two versions.', description: "Performance → Compare: why two scenario benchmarks cannot be compared: Hive's source code changed while one of them ran." }),
+  differentFilters: msg({ id: 'performance.compare.reason.differentFilters', defaultMessage: 'Different filters ({base} and {run}).', description: 'Performance → Compare: why two Performance exports cannot be compared. {base} and {run} are their filters ("everyone, all providers").' }),
+  notRecording: msg({ id: 'performance.compare.reason.notRecording', defaultMessage: 'Hive wasn’t recording in one of the ranges: there is nothing to compare.', description: 'Performance → Compare: why two Performance exports cannot be compared.' }),
+  oneIncomplete: msg({ id: 'performance.compare.reason.oneIncomplete', defaultMessage: 'One of them is incomplete.', description: 'Performance → Compare: why a baseline and a run cannot be compared.' }),
+  // What a reader should know.
+  cliVersions: msg({ id: 'performance.compare.note.cliVersions', defaultMessage: 'CLI versions differ ({base} and {run}).', description: "Performance → Compare, a note on two model trials: the coding agent CLIs' versions differ. {base} and {run} are lists of versions, or ? when unknown." }),
+  sameGuidance: msg({ id: 'performance.compare.note.sameGuidance', defaultMessage: 'Both ran the same guidance revision: differences are in the tools, the API, the skills or the run itself.', description: "Performance → Compare, a note: both scenario benchmarks ran with the same revision of Hive's guidance for agents." }),
+  fakeUsage: msg({ id: 'performance.compare.note.fakeUsage', defaultMessage: 'Provider usage isn’t compared: a fake’s tokens are simulated, not a provider’s.', description: "Performance → Compare, a note: a fake provider's token counts aren't real, so they aren't compared." }),
+  partial: msg({ id: 'performance.compare.note.partial', defaultMessage: '{side, select, baseline {The baseline} other {The run}} is partial: {what}.', description: 'Performance → Compare, a note on Performance exports: what makes one partial. {what} is a list of reasons ("3 measurements dropped (a limit was full)").' }),
+  rangesDiffer: msg({ id: 'performance.compare.note.rangesDiffer', defaultMessage: 'The ranges differ in length: compared per hour recorded.', description: 'Performance → Compare, a note on two Performance exports of time ranges of different lengths.' }),
+  realUse: msg({ id: 'performance.compare.note.realUse', defaultMessage: 'Real use isn’t a controlled workload: a change here can be the work that was done, not Hive.', description: 'Performance → Compare, a note on two Performance exports (measurements of real use, not of a fixed test).' }),
+  stale: msg({ id: 'performance.compare.note.stale', defaultMessage: '{n, plural, one {# sample} other {# samples}} left out: the session was given other guidance than the run started with (stale).', description: "Performance → Compare, a note on a scenario: samples left out because their session was given another revision of Hive's guidance." }),
+  leftOut: msg({ id: 'performance.compare.note.leftOut', defaultMessage: '{n, plural, one {# sample} other {# samples}} left out: {why}.', description: "Performance → Compare, a note on a scenario: samples left out because they didn't complete or couldn't be read. {why} lists why (\"no check ran\", or the test harness's own words, in English)." }),
+  oneSample: msg({ id: 'performance.compare.note.oneSample', defaultMessage: 'One sample on a side: no spread to judge a change by.', description: 'Performance → Compare, a note on a scenario run only once on a side.' }),
+  measuredPartly: msg({ id: 'performance.compare.note.measuredPartly', defaultMessage: '{n, plural, one {# sample} other {# samples}} measured partly (recording off, measurements dropped or missing): sizes aren’t judged.', description: 'Performance → Compare, a note on a scenario.' }),
+  skillRevisions: msg({ id: 'performance.compare.note.skillRevisions', defaultMessage: 'The sessions were given different skill revisions.', description: 'Performance → Compare, a note on a scenario: the baseline and the run were given different versions of skills.' }),
+  skillRevisionsOf: msg({ id: 'performance.compare.note.skillRevisionsOf', defaultMessage: 'The sessions were given different skill revisions ({names}).', description: "Performance → Compare, a note on a scenario: the baseline and the run were given different versions of these skills. {names} lists skills' names." }),
+  usageNotEvery: msg({ id: 'performance.compare.note.usageNotEvery', defaultMessage: 'Provider usage isn’t compared: not every sample reported it.', description: 'Performance → Compare, a note on a scenario of model trials.' }),
+  estimates: msg({ id: 'performance.compare.note.estimates', defaultMessage: 'Some costs are Hive’s estimates (≈), not the provider’s.', description: 'Performance → Compare, a note on a scenario of model trials. Keep ≈ (it marks an estimate).' }),
+  resumed: msg({ id: 'performance.compare.note.resumed', defaultMessage: 'A resumed session’s provider usage is its whole conversation’s: left out.', description: 'Performance → Compare, a note on a scenario of model trials.' }),
+  notJudged: msg({ id: 'performance.compare.note.notJudged', defaultMessage: 'Not judged: some of what it’s judged by wasn’t measured.', description: 'Performance → Compare, a note on a scenario that got no verdict.' }),
+  withinSpread: msg({ id: 'performance.compare.note.withinSpread', defaultMessage: 'Smaller on average, but within the samples’ spread.', description: "Performance → Compare, a note on a scenario judged smaller: the change is within the range of the samples' values." }),
+  // Why a sample's correctness isn't known (kept in its file as the English: the harness's own reasons stay as it wrote them).
+  tooManyChecks: msg({ id: 'performance.compare.sample.tooManyChecks', defaultMessage: 'too many checks to read', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  invalidCheck: msg({ id: 'performance.compare.sample.invalidCheck', defaultMessage: 'a check in it isn’t valid', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  checkTwice: msg({ id: 'performance.compare.sample.checkTwice', defaultMessage: 'a check is listed twice', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  checksNotList: msg({ id: 'performance.compare.sample.checksNotList', defaultMessage: 'its checks aren’t a list', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  countsDiffer: msg({ id: 'performance.compare.sample.countsDiffer', defaultMessage: 'its check counts don’t match its checks', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  failedNoCheck: msg({ id: 'performance.compare.sample.failedNoCheck', defaultMessage: 'it says it failed, but no check did', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  noCheckRan: msg({ id: 'performance.compare.sample.noCheckRan', defaultMessage: 'no check ran', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  didntComplete: msg({ id: 'performance.compare.sample.didntComplete', defaultMessage: 'didn’t complete', description: "Why a scenario's sample is left out of Performance → Compare, in \"{n} samples left out: {why}.\". Lower case." }),
+  // What makes a Performance export partial.
+  dropped: msg({ id: 'performance.compare.partial.dropped', defaultMessage: '{n, plural, one {# measurement dropped} other {# measurements dropped}} (a limit was full)', description: 'What makes a Performance export partial, in "The baseline is partial: {what}.". Lower case.' }),
+  unattributed: msg({ id: 'performance.compare.partial.unattributed', defaultMessage: 'some losses couldn’t be attributed to a project', description: 'What makes a Performance export partial, in "The baseline is partial: {what}.": measurements lost that Hive couldn\'t say were which project\'s. Lower case.' }),
+  evicted: msg({ id: 'performance.compare.partial.evicted', defaultMessage: 'history removed for space in the range', description: 'What makes a Performance export partial, in "The baseline is partial: {what}.": recorded history in its time range was removed to make room. Lower case.' }),
+  projectPart: msg({ id: 'performance.compare.partial.projectPart', defaultMessage: 'one project’s part of a workspace export', description: 'What makes a Performance export partial, in "The baseline is partial: {what}.": only one project\'s part of an export of the whole workspace is compared. Lower case.' }),
+  invalid: msg({ id: 'performance.compare.partial.invalid', defaultMessage: 'some of its measurements weren’t valid, so {keys} {n, plural, one {is} other {are}} unknown', description: "What makes a Performance export partial, in \"The baseline is partial: {what}.\". {keys} lists measures' field names (requests, responseBytes: keep them); {n} is how many. Lower case." }),
+  // Why a file isn't imported.
+  tooLarge: msg({ id: 'performance.compare.error.tooLarge', defaultMessage: 'It is over {mb, number} MB.', description: 'Why a file is not imported to Performance → Compare: it is larger than {mb} MB.' }),
+  notJson: msg({ id: 'performance.compare.error.notJson', defaultMessage: 'It isn’t JSON.', description: 'Why a file is not imported to Performance → Compare.' }),
+  notHive: msg({ id: 'performance.compare.error.notHive', defaultMessage: 'It isn’t a Hive benchmark or Performance export.', description: 'Why a file is not imported to Performance → Compare.' }),
+  benchmarkOnProject: msg({ id: 'performance.compare.error.benchmarkOnProject', defaultMessage: 'A scenario benchmark is its own test workspace’s, not one of your projects: compare it in the Performance view (activity bar), with the whole workspace selected.', description: "Why a scenario benchmark (a test run's measurements) is not imported on a project's Performance page." }),
+  benchmarkOnOwn: msg({ id: 'performance.compare.error.benchmarkOnOwn', defaultMessage: 'A scenario benchmark is its whole test workspace’s, not the workspace’s own work: compare it with the whole workspace selected.', description: 'Why a scenario benchmark is not imported to Performance → Compare with "Workspace\'s own work" selected.' }),
+  invalidBenchmark: msg({ id: 'performance.compare.error.invalidBenchmark', defaultMessage: 'It isn’t a valid scenario benchmark (no run, fixtures version or scenarios).', description: 'Why a file is not imported to Performance → Compare.' }),
+  noScenarios: msg({ id: 'performance.compare.error.noScenarios', defaultMessage: 'It has no valid scenarios.', description: 'Why a scenario benchmark is not imported to Performance → Compare.' }),
+  invalidExport: msg({ id: 'performance.compare.error.invalidExport', defaultMessage: 'It isn’t a valid Performance export (no report, scope or projects).', description: 'Why a file is not imported to Performance → Compare.' }),
+  projectsExport: msg({ id: 'performance.compare.error.projectsExport', defaultMessage: 'It is project {project}’s export: compare it on that project’s page.', description: "Why a project's Performance export is not imported on the workspace's Performance page. {project} is the project's name." }),
+  exportIsOwn: msg({ id: 'performance.compare.error.exportIsOwn', defaultMessage: 'It is the workspace’s own work: compare it with “Workspace’s own work” selected.', description: 'Why a Performance export is not imported to Performance → Compare. “Workspace’s own work” is a choice on the Performance page: name it as it is there.' }),
+  exportIsWhole: msg({ id: 'performance.compare.error.exportIsWhole', defaultMessage: 'It is the whole workspace’s: compare it with the whole workspace selected.', description: 'Why a Performance export is not imported to Performance → Compare.' }),
+  ownHoldsProjects: msg({ id: 'performance.compare.error.ownHoldsProjects', defaultMessage: 'It says it is the workspace’s own work, but it holds projects’ data: not imported.', description: 'Why a Performance export is not imported to Performance → Compare: its contents disagree with what it says it is.' }),
+  sanitized: msg({ id: 'performance.compare.error.sanitized', defaultMessage: 'It is sanitized (project names replaced), so it can’t be matched to this project.', description: "Why a Performance export is not imported on a project's Performance page." }),
+  otherProject: msg({ id: 'performance.compare.error.otherProject', defaultMessage: 'It is project {project}’s export, not {here}’s.', description: "Why a Performance export is not imported on a project's Performance page. {project} and {here} are projects' names." }),
+  holdsOther: msg({ id: 'performance.compare.error.holdsOther', defaultMessage: 'It says it is {project}’s, but it also holds {other, select, projects {other projects’} other {the workspace’s own}} data: not imported.', description: "Why a project's Performance export is not imported: it also holds other projects' data, or the workspace's own work's. {project} is the project's name." }),
+  sanitizedPart: msg({ id: 'performance.compare.error.sanitizedPart', defaultMessage: 'It is sanitized (project names replaced), so this project’s part can’t be found.', description: "Why a workspace's Performance export is not imported on a project's Performance page." }),
+  ownNoPart: msg({ id: 'performance.compare.error.ownNoPart', defaultMessage: 'It is the workspace’s own work: it has no project’s part.', description: "Why a Performance export is not imported on a project's Performance page." }),
+  noPart: msg({ id: 'performance.compare.error.noPart', defaultMessage: 'It is a workspace export with no part for {project}.', description: "Why a workspace's Performance export is not imported on a project's Performance page. {project} is the project's name." }),
+  unknownSchema: msg({ id: 'performance.compare.error.unknownSchema', defaultMessage: 'It isn’t a Hive benchmark (hive-benchmark/1) or Performance export (hive-metrics/1).', description: 'Why a file is not imported to Performance → Compare. Keep hive-benchmark/1 and hive-metrics/1 (file formats).' }),
+  // A kept comparison's name and description when Hive made them (#1104): the window says them from its facts.
+  aboutScenarios: msg({ id: 'performance.compare.about.scenarios', defaultMessage: '{real, select, yes {Model trial {provider} {model} ({effort}, {mode})} other {Fake {provider}}}, fixtures v{fixtures}, {scenarios, plural, one {# scenario} other {# scenarios}} × {repeats, number}, source {head}{real, select, yes {, spent {spent}{unpriced, plural, =0 {} other { + {unpriced, number} unpriced (total unknown)}}} other {}}', description: "What a kept scenario benchmark is, in a line under its name in Performance → Compare. A model trial ran a real model ({provider} the CLI, {model}, its {effort} and permission {mode}); Fake ran Hive's fake CLI. fixtures v{fixtures} is the version of the test fixtures (keep v); {head} is the git commit the run was made from; {spent} what the trial cost; unpriced trials are ones with no known cost." }),
+  aboutExport: msg({ id: 'performance.compare.about.export', defaultMessage: '{from} to {to}: {filters}', description: 'What a kept Performance export is, in a line under its name in Performance → Compare: its range ({from} and {to} are dates and times) and its filters (such as "project agents, all providers").' }),
+  aboutExportPart: msg({ id: 'performance.compare.about.exportPart', defaultMessage: '{from} to {to}: {filters} ({part})', description: "What a kept Performance export is, in a line under its name in Performance → Compare, when it is one project's part of a workspace export: its range ({from} and {to} are dates and times), its filters, and {part}, which says it is that part." }),
+  labelBenchmark: msg({ id: 'performance.compare.label.benchmark', defaultMessage: '{provider} benchmark', description: "The name Hive gives a kept scenario benchmark that came without one, in Performance → Compare. {provider} is the CLI's name (Claude Code, Codex…)." }),
+  labelExport: msg({ id: 'performance.compare.label.export', defaultMessage: 'Export {from} to {to}{own, select, yes {, own work} other {}}', description: "The name Hive gives a kept Performance export, in Performance → Compare: the dates it covers; own work when it is the workspace's own work (no project's)." }),
+  labelExportPart: msg({ id: 'performance.compare.label.exportPart', defaultMessage: 'Export {from} to {to}, {project}’s part', description: "The name Hive gives one project's part of a workspace's Performance export, kept in Performance → Compare: the dates it covers, and the project's name." }),
+  labelKept: msg({ id: 'performance.compare.label.kept', defaultMessage: 'Kept {from} to {to}', description: "The name Hive gives a Performance view kept for comparison when you give it none (Keep current view), in Performance → Compare: the dates it covers." }),
+  roleAgent: msg({ id: 'performance.compare.filters.role.agent', defaultMessage: 'project agents', description: "A Performance export's Who filter (as Performance's Who menu names it: Project agents), in a list of filters. Lower case." }),
+  roleAssistant: msg({ id: 'performance.compare.filters.role.assistant', defaultMessage: 'the Assistant', description: "A Performance export's Who filter (as Performance's Who menu names it: The Assistant), in a list of filters." }),
+  roleApi: msg({ id: 'performance.compare.filters.role.api', defaultMessage: 'scripts', description: "A Performance export's Who filter (as Performance's Who menu names it: Scripts), in a list of filters. Lower case." }),
+  roleViewer: msg({ id: 'performance.compare.filters.role.viewer', defaultMessage: 'viewer apps', description: "A Performance export's Who filter (as Performance's Who menu names it: Viewer apps), in a list of filters. Lower case." })
+}
+
+const said = (m: Msg, values: Record<string, TextPart>): Text => withValues(m, values)
+
+/** The Who filter's roles, as a list of filters names them; a role this version doesn't know (an imported file's) as written. */
+const ROLE_NAME: Record<MetricsRole, Msg> = { agent: M.roleAgent, assistant: M.roleAssistant, api: M.roleApi, viewer: M.roleViewer }
+const roleName = (role: string | undefined): TextPart => (role === undefined ? M.everyone : Object.hasOwn(ROLE_NAME, role) ? ROLE_NAME[role as MetricsRole] : role)
+/** An export's filters, in a list: its role (or everyone), its provider (or all providers), and own work. */
+const filtersText = (x: ExportSummary['filters']): Text => said(M.filters, { role: roleName(x.role), provider: x.provider ?? M.allProviders, own: x.own ? 'yes' : 'no' })
+
+const scopeName = (s: CompareScope): Text => said(M.scopeName, s.kind === 'project' ? { kind: 'project', project: s.project } : { kind: s.own ? 'own' : 'workspace', project: '' })
 
 /** Each measure: what it is, its unit, and how to read a change. All are "less is better". */
 export interface MeasureDef {
   key: string
-  label: string
+  /** Its name, shown with `tr()`. */
+  label: Msg
   unit: 'bytes' | 'chars' | 'count' | 'ms' | 'tokens' | 'usd' | 's'
   group: 'context' | 'traffic' | 'work' | 'failures' | 'skills' | 'provider' | 'time'
-  /** What it says about the run, shown on hover. */
-  tip: string
+  /** What it says about the run, shown on hover (with `tr()`). */
+  tip: Msg
 }
+
+const AS_REPORTED = msg({ id: 'performance.compare.measureTip.asReported', defaultMessage: 'As the provider reported them.', description: "Tooltip of a token measure in Performance → Compare: the provider's own count." })
+const PER_HOUR = msg({ id: 'performance.compare.measureTip.perHour', defaultMessage: 'Per hour recorded.', description: 'Tooltip of a measure in Performance → Compare of exports: shown per hour Hive was recording.' })
 
 /** A scenario sample's measures (tests/scenarios/harness.cjs measuresOf), with what the comparison derives from them. */
 export const SCENARIO_MEASURES: MeasureDef[] = [
-  { key: 'contextBytes', label: 'Hive context', unit: 'bytes', group: 'context', tip: 'What Hive put in the session’s context: launch guidance (core, project, the Assistant’s role and mode, skills’ catalog), the hive tools’ list and every tool reply. Exact UTF-8 bytes, not tokens. Unknown if any part wasn’t measured.' },
-  { key: 'guidanceBytes', label: 'Launch guidance', unit: 'bytes', group: 'context', tip: 'Core contract, project additions, the Assistant’s role and mode, and the skills’ catalog, at launch.' },
-  { key: 'guidanceChars', label: 'Launch guidance (characters)', unit: 'chars', group: 'context', tip: 'The same parts in characters (UTF-16 code units); the catalog has bytes only.' },
-  { key: 'toolListBytes', label: 'Tool list', unit: 'bytes', group: 'context', tip: 'The hive tools’ names, descriptions and schemas as the CLI got them.' },
-  { key: 'toolChars', label: 'Tool replies', unit: 'chars', group: 'context', tip: 'Characters of the hive tools’ replies, as the model got them.' },
-  { key: 'toolBytes', label: 'Tool replies (bytes)', unit: 'bytes', group: 'context', tip: 'UTF-8 bytes of the same replies.' },
-  { key: 'toolCalls', label: 'Tool calls', unit: 'count', group: 'work', tip: 'hive tool calls measured by the bridge.' },
-  { key: 'toolDetailCalls', label: 'Detail calls', unit: 'count', group: 'work', tip: 'Calls that asked for the full form.' },
-  { key: 'hiveCalls', label: 'Calls run', unit: 'count', group: 'work', tip: 'hive tool calls the server ran (its own log).' },
-  { key: 'repeatedCalls', label: 'Repeated calls', unit: 'count', group: 'work', tip: 'Calls identical to one already made: work done twice.' },
-  { key: 'hiveCallErrors', label: 'Failed calls', unit: 'count', group: 'failures', tip: 'hive tool calls that failed.' },
-  { key: 'toolErrors', label: 'Tool errors', unit: 'count', group: 'failures', tip: 'Tool replies that were errors (the bridge’s count).' },
-  { key: 'apiFailed', label: 'API failures', unit: 'count', group: 'failures', tip: 'Refused, failed or cancelled requests.' },
-  { key: 'apiCancelled', label: 'API cancelled', unit: 'count', group: 'failures', tip: 'Requests the client gave up on.' },
-  { key: 'apiRequests', label: 'API requests', unit: 'count', group: 'traffic', tip: 'Agent API requests by the session (and agents it started), not the harness’s own.' },
-  { key: 'apiResponseBytes', label: 'API sent', unit: 'bytes', group: 'traffic', tip: 'Response bodies Hive’s API sent.' },
-  { key: 'apiRequestBytes', label: 'API received', unit: 'bytes', group: 'traffic', tip: 'Request bodies Hive’s API received.' },
-  { key: 'apiMs', label: 'API time', unit: 'ms', group: 'time', tip: 'Time Hive spent on the requests, in all.' },
-  { key: 'skillBytes', label: 'Skills on disk', unit: 'bytes', group: 'skills', tip: 'Delivered skills’ bytes: what was available, not what a model read.' },
-  { key: 'skillsNotDelivered', label: 'Skills not given', unit: 'count', group: 'skills', tip: 'Skills asked for that the session didn’t get.' },
-  { key: 'skillScans', label: 'Skill scans', unit: 'count', group: 'skills', tip: 'The skill service’s scans during the scenario.' },
-  { key: 'skillHits', label: 'Skill cache hits', unit: 'count', group: 'skills', tip: 'Skills found unchanged (more is fine: shown for the cache scenarios).' },
-  { key: 'skillMisses', label: 'Skill cache misses', unit: 'count', group: 'skills', tip: 'Skills read again (changed, or not cached).' },
-  { key: 'skillInvalidations', label: 'Skill changes seen', unit: 'count', group: 'skills', tip: 'Kept revisions found changed.' },
-  { key: 'skillBytesRead', label: 'Skill bytes read', unit: 'bytes', group: 'skills', tip: 'Bytes the skill service read from disk.' },
-  { key: 'seconds', label: 'Duration', unit: 's', group: 'time', tip: 'The scenario’s run, start to end (a model trial’s varies most).' }
+  { key: 'contextBytes', label: msg({ id: 'performance.compare.measure.contextBytes', defaultMessage: 'Hive context', description: "A measure in Performance → Compare: the size of what Hive put in an agent session's context." }), unit: 'bytes', group: 'context', tip: msg({ id: 'performance.compare.measureTip.contextBytes', defaultMessage: 'What Hive put in the session’s context: launch guidance (core, project, the Assistant’s role and mode, skills’ catalog), the hive tools’ list and every tool reply. Exact UTF-8 bytes, not tokens. Unknown if any part wasn’t measured.', description: 'Tooltip of the Hive context measure in Performance → Compare. "hive tools" are Hive\'s tools for agents (keep hive).' }) },
+  { key: 'guidanceBytes', label: msg({ id: 'performance.compare.measure.guidanceBytes', defaultMessage: 'Launch guidance', description: 'A measure in Performance → Compare: the size of the guidance Hive gave a session at launch.' }), unit: 'bytes', group: 'context', tip: msg({ id: 'performance.compare.measureTip.guidanceBytes', defaultMessage: 'Core contract, project additions, the Assistant’s role and mode, and the skills’ catalog, at launch.', description: 'Tooltip of the Launch guidance measure in Performance → Compare: its parts.' }) },
+  { key: 'guidanceChars', label: msg({ id: 'performance.compare.measure.guidanceChars', defaultMessage: 'Launch guidance (characters)', description: 'A measure in Performance → Compare: the launch guidance counted in characters.' }), unit: 'chars', group: 'context', tip: msg({ id: 'performance.compare.measureTip.guidanceChars', defaultMessage: 'The same parts in characters (UTF-16 code units); the catalog has bytes only.', description: 'Tooltip of the Launch guidance (characters) measure in Performance → Compare.' }) },
+  { key: 'toolListBytes', label: msg({ id: 'performance.compare.measure.toolListBytes', defaultMessage: 'Tool list', description: "A measure in Performance → Compare: the size of the list of Hive's tools a session was given." }), unit: 'bytes', group: 'context', tip: msg({ id: 'performance.compare.measureTip.toolListBytes', defaultMessage: 'The hive tools’ names, descriptions and schemas as the CLI got them.', description: 'Tooltip of the Tool list measure in Performance → Compare. Keep hive (the tools\' name).' }) },
+  { key: 'toolChars', label: msg({ id: 'performance.compare.measure.toolChars', defaultMessage: 'Tool replies', description: "A measure in Performance → Compare: the size of the replies of Hive's tools." }), unit: 'chars', group: 'context', tip: msg({ id: 'performance.compare.measureTip.toolChars', defaultMessage: 'Characters of the hive tools’ replies, as the model got them.', description: 'Tooltip of the Tool replies measure in Performance → Compare. Keep hive (the tools\' name).' }) },
+  { key: 'toolBytes', label: msg({ id: 'performance.compare.measure.toolBytes', defaultMessage: 'Tool replies (bytes)', description: "A measure in Performance → Compare: the size of the replies of Hive's tools, in bytes." }), unit: 'bytes', group: 'context', tip: msg({ id: 'performance.compare.measureTip.toolBytes', defaultMessage: 'UTF-8 bytes of the same replies.', description: 'Tooltip of the Tool replies (bytes) measure in Performance → Compare.' }) },
+  { key: 'toolCalls', label: msg({ id: 'performance.compare.measure.toolCalls', defaultMessage: 'Tool calls', description: "A measure in Performance → Compare: how many times agents called Hive's tools." }), unit: 'count', group: 'work', tip: msg({ id: 'performance.compare.measureTip.toolCalls', defaultMessage: 'hive tool calls measured by the bridge.', description: "Tooltip of the Tool calls measure in Performance → Compare. Keep hive (the tools' name); the bridge is Hive's MCP server between the CLI and Hive." }) },
+  { key: 'toolDetailCalls', label: msg({ id: 'performance.compare.measure.toolDetailCalls', defaultMessage: 'Detail calls', description: "A measure in Performance → Compare: calls of Hive's tools that asked for the full reply." }), unit: 'count', group: 'work', tip: msg({ id: 'performance.compare.measureTip.toolDetailCalls', defaultMessage: 'Calls that asked for the full form.', description: 'Tooltip of the Detail calls measure in Performance → Compare.' }) },
+  { key: 'hiveCalls', label: msg({ id: 'performance.compare.measure.hiveCalls', defaultMessage: 'Calls run', description: "A measure in Performance → Compare: calls of Hive's tools that Hive ran." }), unit: 'count', group: 'work', tip: msg({ id: 'performance.compare.measureTip.hiveCalls', defaultMessage: 'hive tool calls the server ran (its own log).', description: "Tooltip of the Calls run measure in Performance → Compare. Keep hive (the tools' name)." }) },
+  { key: 'repeatedCalls', label: msg({ id: 'performance.compare.measure.repeatedCalls', defaultMessage: 'Repeated calls', description: 'A measure in Performance → Compare: tool calls identical to an earlier one.' }), unit: 'count', group: 'work', tip: msg({ id: 'performance.compare.measureTip.repeatedCalls', defaultMessage: 'Calls identical to one already made: work done twice.', description: 'Tooltip of the Repeated calls measure in Performance → Compare.' }) },
+  { key: 'hiveCallErrors', label: msg({ id: 'performance.compare.measure.hiveCallErrors', defaultMessage: 'Failed calls', description: "A measure in Performance → Compare: calls of Hive's tools that failed." }), unit: 'count', group: 'failures', tip: msg({ id: 'performance.compare.measureTip.hiveCallErrors', defaultMessage: 'hive tool calls that failed.', description: "Tooltip of the Failed calls measure in Performance → Compare. Keep hive (the tools' name)." }) },
+  { key: 'toolErrors', label: msg({ id: 'performance.compare.measure.toolErrors', defaultMessage: 'Tool errors', description: 'A measure in Performance → Compare: tool replies that were errors.' }), unit: 'count', group: 'failures', tip: msg({ id: 'performance.compare.measureTip.toolErrors', defaultMessage: 'Tool replies that were errors (the bridge’s count).', description: "Tooltip of the Tool errors measure in Performance → Compare. The bridge is Hive's MCP server between the CLI and Hive." }) },
+  { key: 'apiFailed', label: msg({ id: 'performance.compare.measure.apiFailed', defaultMessage: 'API failures', description: "A measure in Performance → Compare: requests to Hive's Agent API that failed." }), unit: 'count', group: 'failures', tip: msg({ id: 'performance.compare.measureTip.apiFailed', defaultMessage: 'Refused, failed or cancelled requests.', description: 'Tooltip of the API failures measure in Performance → Compare.' }) },
+  { key: 'apiCancelled', label: msg({ id: 'performance.compare.measure.apiCancelled', defaultMessage: 'API cancelled', description: "A measure in Performance → Compare: requests to Hive's Agent API that the caller cancelled." }), unit: 'count', group: 'failures', tip: msg({ id: 'performance.compare.measureTip.apiCancelled', defaultMessage: 'Requests the client gave up on.', description: 'Tooltip of the API cancelled measure in Performance → Compare.' }) },
+  { key: 'apiRequests', label: msg({ id: 'performance.compare.measure.apiRequests', defaultMessage: 'API requests', description: "A measure in Performance → Compare: requests to Hive's Agent API." }), unit: 'count', group: 'traffic', tip: msg({ id: 'performance.compare.measureTip.apiRequests', defaultMessage: 'Agent API requests by the session (and agents it started), not the harness’s own.', description: "Tooltip of the API requests measure in Performance → Compare. The harness is the test program that runs the scenarios." }) },
+  { key: 'apiResponseBytes', label: msg({ id: 'performance.compare.measure.apiResponseBytes', defaultMessage: 'API sent', description: "A measure in Performance → Compare: the size of the Agent API's replies." }), unit: 'bytes', group: 'traffic', tip: msg({ id: 'performance.compare.measureTip.apiResponseBytes', defaultMessage: 'Response bodies Hive’s API sent.', description: 'Tooltip of the API sent measure in Performance → Compare.' }) },
+  { key: 'apiRequestBytes', label: msg({ id: 'performance.compare.measure.apiRequestBytes', defaultMessage: 'API received', description: "A measure in Performance → Compare: the size of the requests the Agent API received." }), unit: 'bytes', group: 'traffic', tip: msg({ id: 'performance.compare.measureTip.apiRequestBytes', defaultMessage: 'Request bodies Hive’s API received.', description: 'Tooltip of the API received measure in Performance → Compare.' }) },
+  { key: 'apiMs', label: msg({ id: 'performance.compare.measure.apiMs', defaultMessage: 'API time', description: "A measure in Performance → Compare: the time Hive's Agent API spent on requests." }), unit: 'ms', group: 'time', tip: msg({ id: 'performance.compare.measureTip.apiMs', defaultMessage: 'Time Hive spent on the requests, in all.', description: 'Tooltip of the API time measure in Performance → Compare.' }) },
+  { key: 'skillBytes', label: msg({ id: 'performance.compare.measure.skillBytes', defaultMessage: 'Skills on disk', description: 'A measure in Performance → Compare: the size of the skills delivered to a session.' }), unit: 'bytes', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillBytes', defaultMessage: 'Delivered skills’ bytes: what was available, not what a model read.', description: 'Tooltip of the Skills on disk measure in Performance → Compare.' }) },
+  { key: 'skillsNotDelivered', label: msg({ id: 'performance.compare.measure.skillsNotDelivered', defaultMessage: 'Skills not given', description: "A measure in Performance → Compare: skills a session should have had but didn't get." }), unit: 'count', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillsNotDelivered', defaultMessage: 'Skills asked for that the session didn’t get.', description: 'Tooltip of the Skills not given measure in Performance → Compare.' }) },
+  { key: 'skillScans', label: msg({ id: 'performance.compare.measure.skillScans', defaultMessage: 'Skill scans', description: 'A measure in Performance → Compare: how often Hive looked through the skills.' }), unit: 'count', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillScans', defaultMessage: 'The skill service’s scans during the scenario.', description: 'Tooltip of the Skill scans measure in Performance → Compare.' }) },
+  { key: 'skillHits', label: msg({ id: 'performance.compare.measure.skillHits', defaultMessage: 'Skill cache hits', description: 'A measure in Performance → Compare: skills Hive found unchanged in its cache.' }), unit: 'count', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillHits', defaultMessage: 'Skills found unchanged (more is fine: shown for the cache scenarios).', description: 'Tooltip of the Skill cache hits measure in Performance → Compare.' }) },
+  { key: 'skillMisses', label: msg({ id: 'performance.compare.measure.skillMisses', defaultMessage: 'Skill cache misses', description: 'A measure in Performance → Compare: skills Hive had to read again.' }), unit: 'count', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillMisses', defaultMessage: 'Skills read again (changed, or not cached).', description: 'Tooltip of the Skill cache misses measure in Performance → Compare.' }) },
+  { key: 'skillInvalidations', label: msg({ id: 'performance.compare.measure.skillInvalidations', defaultMessage: 'Skill changes seen', description: 'A measure in Performance → Compare: skills Hive found changed.' }), unit: 'count', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillInvalidations', defaultMessage: 'Kept revisions found changed.', description: 'Tooltip of the Skill changes seen measure in Performance → Compare.' }) },
+  { key: 'skillBytesRead', label: msg({ id: 'performance.compare.measure.skillBytesRead', defaultMessage: 'Skill bytes read', description: 'A measure in Performance → Compare: how much of the skills Hive read from disk.' }), unit: 'bytes', group: 'skills', tip: msg({ id: 'performance.compare.measureTip.skillBytesRead', defaultMessage: 'Bytes the skill service read from disk.', description: 'Tooltip of the Skill bytes read measure in Performance → Compare.' }) },
+  { key: 'seconds', label: msg({ id: 'performance.compare.measure.seconds', defaultMessage: 'Duration', description: "A measure in Performance → Compare: how long a scenario's run took." }), unit: 's', group: 'time', tip: msg({ id: 'performance.compare.measureTip.seconds', defaultMessage: 'The scenario’s run, start to end (a model trial’s varies most).', description: 'Tooltip of the Duration measure in Performance → Compare.' }) }
 ]
 
 /** Provider-reported usage of a scenario's session: model trials only (a fake's is simulated), and only when both report it. */
 export const USAGE_MEASURES: MeasureDef[] = [
-  { key: 'inputTokens', label: 'Input tokens', unit: 'tokens', group: 'provider', tip: 'As the provider reported them.' },
-  { key: 'cacheReadTokens', label: 'Cache read', unit: 'tokens', group: 'provider', tip: 'As the provider reported them.' },
-  { key: 'cacheWriteTokens', label: 'Cache write', unit: 'tokens', group: 'provider', tip: 'As the provider reported them.' },
-  { key: 'outputTokens', label: 'Output tokens', unit: 'tokens', group: 'provider', tip: 'Reasoning included, as the provider reported them.' },
-  { key: 'reasoningTokens', label: 'of it reasoning', unit: 'tokens', group: 'provider', tip: 'Part of output, not added to it.' },
-  { key: 'requests', label: 'Provider requests', unit: 'count', group: 'provider', tip: 'Model requests the session made.' },
-  { key: 'costUsd', label: 'Cost', unit: 'usd', group: 'provider', tip: 'API-equivalent; only when every sample on both sides has a cost (≈ when Hive estimated one).' }
+  { key: 'inputTokens', label: msg({ id: 'performance.compare.measure.inputTokens', defaultMessage: 'Input tokens', description: 'A measure in Performance → Compare: tokens a model read, as its provider reported them.' }), unit: 'tokens', group: 'provider', tip: AS_REPORTED },
+  { key: 'cacheReadTokens', label: msg({ id: 'performance.compare.measure.cacheReadTokens', defaultMessage: 'Cache read', description: "A measure in Performance → Compare: tokens read from the provider's prompt cache." }), unit: 'tokens', group: 'provider', tip: AS_REPORTED },
+  { key: 'cacheWriteTokens', label: msg({ id: 'performance.compare.measure.cacheWriteTokens', defaultMessage: 'Cache write', description: "A measure in Performance → Compare: tokens written to the provider's prompt cache." }), unit: 'tokens', group: 'provider', tip: AS_REPORTED },
+  { key: 'outputTokens', label: msg({ id: 'performance.compare.measure.outputTokens', defaultMessage: 'Output tokens', description: 'A measure in Performance → Compare: tokens a model wrote.' }), unit: 'tokens', group: 'provider', tip: msg({ id: 'performance.compare.measureTip.outputTokens', defaultMessage: 'Reasoning included, as the provider reported them.', description: 'Tooltip of the Output tokens measure in Performance → Compare.' }) },
+  { key: 'reasoningTokens', label: msg({ id: 'performance.compare.measure.reasoningTokens', defaultMessage: 'of it reasoning', description: 'A measure in Performance → Compare, under Output tokens: the part of them that was reasoning. Lower case: it reads on from the row above.' }), unit: 'tokens', group: 'provider', tip: msg({ id: 'performance.compare.measureTip.reasoningTokens', defaultMessage: 'Part of output, not added to it.', description: 'Tooltip of the "of it reasoning" measure in Performance → Compare.' }) },
+  { key: 'requests', label: msg({ id: 'performance.compare.measure.providerRequests', defaultMessage: 'Provider requests', description: "A measure in Performance → Compare: requests a session made to its model's provider." }), unit: 'count', group: 'provider', tip: msg({ id: 'performance.compare.measureTip.providerRequests', defaultMessage: 'Model requests the session made.', description: 'Tooltip of the Provider requests measure in Performance → Compare.' }) },
+  { key: 'costUsd', label: msg({ id: 'performance.compare.measure.costUsd', defaultMessage: 'Cost', description: 'A measure in Performance → Compare: what a session cost, in dollars.' }), unit: 'usd', group: 'provider', tip: msg({ id: 'performance.compare.measureTip.costUsd', defaultMessage: 'API-equivalent; only when every sample on both sides has a cost (≈ when Hive estimated one).', description: 'Tooltip of the Cost measure in Performance → Compare. Keep ≈ (it marks an estimate).' }) }
 ]
 
 /** A Performance export's summary measures: per hour Hive was recording, so ranges of different lengths compare. */
 export const EXPORT_MEASURES: MeasureDef[] = [
-  { key: 'requests', label: 'API requests', unit: 'count', group: 'traffic', tip: 'Agent API requests, per hour recorded.' },
-  { key: 'failed', label: 'Failed or cancelled', unit: 'count', group: 'failures', tip: 'Per hour recorded.' },
-  { key: 'responseBytes', label: 'API sent', unit: 'bytes', group: 'traffic', tip: 'Per hour recorded.' },
-  { key: 'toolCalls', label: 'Tool calls', unit: 'count', group: 'work', tip: 'Per hour recorded.' },
-  { key: 'toolChars', label: 'Tool replies', unit: 'chars', group: 'context', tip: 'Characters, per hour recorded.' },
-  { key: 'detailCalls', label: 'Detail calls', unit: 'count', group: 'work', tip: 'Per hour recorded.' },
-  { key: 'launches', label: 'Launches', unit: 'count', group: 'work', tip: 'Per hour recorded.' },
-  { key: 'guidancePerLaunch', label: 'Guidance a launch', unit: 'bytes', group: 'context', tip: 'Core, project, the Assistant’s role and mode, and catalog, on average (not per hour).' }
+  { key: 'requests', label: msg({ id: 'performance.compare.measure.exportRequests', defaultMessage: 'API requests', description: "A measure in Performance → Compare of exports: requests to Hive's Agent API." }), unit: 'count', group: 'traffic', tip: msg({ id: 'performance.compare.measureTip.exportRequests', defaultMessage: 'Agent API requests, per hour recorded.', description: 'Tooltip of the API requests measure in Performance → Compare of exports.' }) },
+  { key: 'failed', label: msg({ id: 'performance.compare.measure.exportFailed', defaultMessage: 'Failed or cancelled', description: "A measure in Performance → Compare of exports: Agent API requests that failed or were cancelled." }), unit: 'count', group: 'failures', tip: PER_HOUR },
+  { key: 'responseBytes', label: msg({ id: 'performance.compare.measure.exportResponseBytes', defaultMessage: 'API sent', description: "A measure in Performance → Compare of exports: the size of the Agent API's replies." }), unit: 'bytes', group: 'traffic', tip: PER_HOUR },
+  { key: 'toolCalls', label: msg({ id: 'performance.compare.measure.exportToolCalls', defaultMessage: 'Tool calls', description: "A measure in Performance → Compare of exports: calls of Hive's tools." }), unit: 'count', group: 'work', tip: PER_HOUR },
+  { key: 'toolChars', label: msg({ id: 'performance.compare.measure.exportToolChars', defaultMessage: 'Tool replies', description: "A measure in Performance → Compare of exports: the size of the replies of Hive's tools." }), unit: 'chars', group: 'context', tip: msg({ id: 'performance.compare.measureTip.exportToolChars', defaultMessage: 'Characters, per hour recorded.', description: 'Tooltip of the Tool replies measure in Performance → Compare of exports.' }) },
+  { key: 'detailCalls', label: msg({ id: 'performance.compare.measure.exportDetailCalls', defaultMessage: 'Detail calls', description: "A measure in Performance → Compare of exports: calls of Hive's tools that asked for the full reply." }), unit: 'count', group: 'work', tip: PER_HOUR },
+  { key: 'launches', label: msg({ id: 'performance.compare.measure.exportLaunches', defaultMessage: 'Launches', description: 'A measure in Performance → Compare of exports: agent sessions started.' }), unit: 'count', group: 'work', tip: PER_HOUR },
+  { key: 'guidancePerLaunch', label: msg({ id: 'performance.compare.measure.exportGuidancePerLaunch', defaultMessage: 'Guidance a launch', description: "A measure in Performance → Compare of exports: the size of Hive's guidance for each session started." }), unit: 'bytes', group: 'context', tip: msg({ id: 'performance.compare.measureTip.exportGuidancePerLaunch', defaultMessage: 'Core, project, the Assistant’s role and mode, and catalog, on average (not per hour).', description: 'Tooltip of the Guidance a launch measure in Performance → Compare of exports: its parts.' }) }
 ]
 
 // ---------------------------------------------------------------------------
@@ -168,8 +273,30 @@ export interface ExportSummary {
   filters: { role?: string; provider?: string; own?: boolean }
   /** Totals in the range (not per hour). */
   totals: Measures
-  /** Measurements dropped or not attributable: the totals may be low. */
+  /** Measurements dropped or not attributable: the totals may be low. In English (kept files and tests read it). */
   partial: string[]
+  /** The same as data, for the window (a summary kept before #1104 has only `partial`). */
+  partialWhy?: PartialReason[]
+}
+
+/** What makes an export's summary partial, as data: the window says it in its language. */
+export type PartialReason = { kind: 'dropped'; n: number } | { kind: 'unattributed' } | { kind: 'evicted' } | { kind: 'projectPart' } | { kind: 'invalid'; keys: string[] }
+
+const partialText = (r: PartialReason): Text =>
+  r.kind === 'dropped' ? said(M.dropped, { n: r.n }) : r.kind === 'invalid' ? said(M.invalid, { keys: r.keys.join(', '), n: r.keys.length }) : r.kind === 'unattributed' ? M.unattributed : r.kind === 'evicted' ? M.evicted : M.projectPart
+
+/** A kept summary's reasons re-read: known ones only, their keys the export's measures (else none: its English is shown). */
+function readPartialWhy(v: unknown): PartialReason[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: PartialReason[] = []
+  for (const x of v.slice(0, 10)) {
+    const o = obj(x)
+    if (o?.kind === 'dropped' && num(o.n) !== null) out.push({ kind: 'dropped', n: num(o.n)! })
+    else if (o?.kind === 'unattributed' || o?.kind === 'evicted' || o?.kind === 'projectPart') out.push({ kind: o.kind })
+    else if (o?.kind === 'invalid' && Array.isArray(o.keys) && o.keys.length && o.keys.every((k) => typeof k === 'string' && EXPORT_KEYS.has(k))) out.push({ kind: 'invalid', keys: [...new Set(o.keys as string[])] })
+    else return undefined
+  }
+  return out
 }
 
 export interface Artifact {
@@ -181,6 +308,8 @@ export interface Artifact {
   scope: CompareScope
   /** Derived from a workspace export: one project's part, explicitly chosen. */
   derived?: string
+  /** The name is one Hive gave it (it came with none): the window says it from its facts (#1104). */
+  labelKind?: LabelKind
   run?: BenchmarkRun
   scenarios?: ScenarioResult[]
   summary?: ExportSummary
@@ -245,29 +374,29 @@ function readSample(v: unknown): Sample | null {
   let problem: string | undefined
   const checks: Check[] = []
   if (Array.isArray(o.checks)) {
-    if (o.checks.length > BENCHMARK_LIMITS.checks) problem = 'too many checks to read'
+    if (o.checks.length > BENCHMARK_LIMITS.checks) problem = M.tooManyChecks.defaultMessage
     for (const c of o.checks.slice(0, BENCHMARK_LIMITS.checks)) {
       const co = obj(c)
       if (!co || typeof co.name !== 'string' || !(co.ok === true || co.ok === false || co.ok === null)) {
-        problem ??= 'a check in it isn’t valid'
+        problem ??= M.invalidCheck.defaultMessage
         continue
       }
       const name = text(co.name)
-      if (checks.some((x) => x.name === name)) problem ??= 'a check is listed twice'
+      if (checks.some((x) => x.name === name)) problem ??= M.checkTwice.defaultMessage
       else checks.push({ name, ok: co.ok as boolean | null })
     }
-  } else if (o.checks !== undefined) problem = 'its checks aren’t a list'
+  } else if (o.checks !== undefined) problem = M.checksNotList.defaultMessage
   const listed = Array.isArray(o.checks) && o.checks.length > 0
   const count = (key: 'passed' | 'failed' | 'skipped', want: boolean | null): number => {
     const fromList = checks.filter((c) => c.ok === want).length
     const given = num(o[key])
-    if (listed && given !== null && given !== fromList) problem ??= 'its check counts don’t match its checks'
+    if (listed && given !== null && given !== fromList) problem ??= M.countsDiffer.defaultMessage
     return listed ? fromList : (given ?? 0)
   }
   const passed = count('passed', true)
   const failed = count('failed', false)
   const skipped = count('skipped', null)
-  if (o.ok === false && failed === 0 && listed) problem ??= 'it says it failed, but no check did'
+  if (o.ok === false && failed === 0 && listed) problem ??= M.failedNoCheck.defaultMessage
   const incomplete = typeof o.incomplete === 'string' ? text(o.incomplete) : problem
   // Passed only if it completed, nothing failed and something was checked.
   const ok = incomplete !== undefined || o.ok === null ? null : failed > 0 || o.ok === false ? false : passed > 0 ? true : null
@@ -277,7 +406,7 @@ function readSample(v: unknown): Sample | null {
   for (const [k, rev] of Object.entries(skills ?? {}).slice(0, BENCHMARK_LIMITS.skills)) if (/^[a-z0-9][\w-]{0,63}$/i.test(k) && typeof rev === 'string') skillMap[k] = text(rev, 64)
   return {
     ok,
-    ...(incomplete !== undefined ? { incomplete } : ok === null && o.ok !== null ? { incomplete: 'no check ran' } : {}),
+    ...(incomplete !== undefined ? { incomplete } : ok === null && o.ok !== null ? { incomplete: M.noCheckRan.defaultMessage } : {}),
     passed,
     failed,
     skipped,
@@ -429,12 +558,12 @@ export function summaryOf(report: unknown, project?: string): ExportSummary {
   const filters = obj(r.filters) ?? {}
   const coverage = obj(r.coverage) ?? {}
   const dropped = num(r.dropped) ?? 0
-  const partial: string[] = []
-  if (dropped > 0) partial.push(`${dropped} measurements dropped (a limit was full)`)
-  if (r.lossesUnattributed === true || (project !== undefined && (num(r.droppedUntracked) ?? 0) > 0)) partial.push('some losses couldn’t be attributed to a project')
-  if (typeof coverage.evictedThrough === 'string') partial.push('history removed for space in the range')
-  if (project !== undefined) partial.push('one project’s part of a workspace export')
-  if (unknown.size) partial.push(`some of its measurements weren’t valid, so ${[...unknown].join(', ')} ${unknown.size === 1 ? 'is' : 'are'} unknown`)
+  const partialWhy: PartialReason[] = []
+  if (dropped > 0) partialWhy.push({ kind: 'dropped', n: dropped })
+  if (r.lossesUnattributed === true || (project !== undefined && (num(r.droppedUntracked) ?? 0) > 0)) partialWhy.push({ kind: 'unattributed' })
+  if (typeof coverage.evictedThrough === 'string') partialWhy.push({ kind: 'evicted' })
+  if (project !== undefined) partialWhy.push({ kind: 'projectPart' })
+  if (unknown.size) partialWhy.push({ kind: 'invalid', keys: [...unknown] })
   const from = iso(r.from)
   const to = iso(r.to)
   const observed = num(coverage.observedMs)
@@ -445,7 +574,8 @@ export function summaryOf(report: unknown, project?: string): ExportSummary {
     rangeMs: num(coverage.rangeMs) ?? Math.max(0, Date.parse(to) - Date.parse(from) || 0),
     filters: { ...(typeof filters.role === 'string' ? { role: text(filters.role, 20) } : {}), ...(typeof filters.provider === 'string' ? { provider: text(filters.provider, 40) } : {}), ...(filters.own === true ? { own: true } : {}) },
     totals: Object.fromEntries(Object.entries(totals).filter(([k]) => !unknown.has(k))),
-    partial
+    partial: partialWhy.map((w) => englishText(partialText(w))),
+    partialWhy
   }
 }
 
@@ -455,6 +585,7 @@ function readSummary(v: unknown): ExportSummary | null {
   const totals = s ? readMeasures(s.totals, EXPORT_KEYS) : null
   if (!s || !totals) return null
   const f = obj(s.filters) ?? {}
+  const why = readPartialWhy(s.partialWhy)
   return {
     from: iso(s.from),
     to: iso(s.to),
@@ -462,11 +593,20 @@ function readSummary(v: unknown): ExportSummary | null {
     rangeMs: num(s.rangeMs) ?? 0,
     filters: { ...(typeof f.role === 'string' ? { role: text(f.role, 20) } : {}), ...(typeof f.provider === 'string' ? { provider: text(f.provider, 40) } : {}), ...(f.own === true ? { own: true } : {}) },
     totals,
-    partial: arr(s.partial, 10).map((x) => text(x))
+    partial: arr(s.partial, 10).map((x) => text(x)),
+    ...(why ? { partialWhy: why } : {})
   }
 }
 
-export type ParseResult = { artifact: Artifact } | { error: string } | { projectPart: { project: string } }
+/** A refusal: its English (`error`: the log, tests) and its text for the window (`errorText`, #1104). */
+export interface Refusal {
+  error: string
+  errorText?: Text
+}
+
+export type ParseResult = { artifact: Artifact } | Refusal | { projectPart: { project: string } }
+
+const refuse = (t: Text): Refusal => ({ error: englishText(t), errorText: t })
 
 /**
  * Reads a file as an artifact for a scope (the page's), checked as untrusted input. A scenario benchmark is the whole
@@ -476,57 +616,62 @@ export type ParseResult = { artifact: Artifact } | { error: string } | { project
  * can't be matched to a project.
  */
 export function parseArtifact(textValue: string, scope: CompareScope, opts: { useProjectPart?: boolean } = {}): ParseResult {
-  if (utf8Bytes(textValue) > BENCHMARK_LIMITS.fileBytes) return { error: `It is over ${BENCHMARK_LIMITS.fileBytes / 1024 / 1024} MB.` }
+  if (utf8Bytes(textValue) > BENCHMARK_LIMITS.fileBytes) return refuse(said(M.tooLarge, { mb: BENCHMARK_LIMITS.fileBytes / 1024 / 1024 }))
   let data: Record<string, unknown> | null
   try {
     data = obj(JSON.parse(textValue))
   } catch {
-    return { error: 'It isn’t JSON.' }
+    return refuse(M.notJson)
   }
-  if (!data) return { error: 'It isn’t a Hive benchmark or Performance export.' }
+  if (!data) return refuse(M.notHive)
   const app = obj(data.app)
   if (data.schema === BENCHMARK_SCHEMA) {
-    if (scope.kind === 'project') return { error: 'A scenario benchmark is its own test workspace’s, not one of your projects: compare it in the Performance view (activity bar), with the whole workspace selected.' }
-    if (scope.own) return { error: 'A scenario benchmark is its whole test workspace’s, not the workspace’s own work: compare it with the whole workspace selected.' }
+    if (scope.kind === 'project') return refuse(M.benchmarkOnProject)
+    if (scope.own) return refuse(M.benchmarkOnOwn)
     const run = readRun(data.run)
-    if (!run || !Array.isArray(data.scenarios)) return { error: 'It isn’t a valid scenario benchmark (no run, fixtures version or scenarios).' }
+    if (!run || !Array.isArray(data.scenarios)) return refuse(M.invalidBenchmark)
     const scenarios = readScenarios(data.scenarios)
-    if (!scenarios.length) return { error: 'It has no valid scenarios.' }
-    return { artifact: { schema: BENCHMARK_SCHEMA, kind: 'scenarios', label: text(data.label) || `${run.provider} benchmark`, createdAt: iso(data.createdAt), appVersion: text(app?.version, 40), scope: { kind: 'workspace' }, run, scenarios } }
+    if (!scenarios.length) return refuse(M.noScenarios)
+    // i18n-ignore: a kept comparison's default name, stored in its file and renamed by the user (#1104: stays as written)
+    return { artifact: { schema: BENCHMARK_SCHEMA, kind: 'scenarios', label: text(data.label) || `${run.provider} benchmark`, ...(text(data.label) ? {} : { labelKind: 'benchmark' as const }), createdAt: iso(data.createdAt), appVersion: text(app?.version, 40), scope: { kind: 'workspace' }, run, scenarios } }
   }
   if (data.schema === METRICS_EXPORT_SCHEMA) {
     const report = obj(data.report)
     const fileScope = readScope(report?.scope)
     const projects = obj(report?.projects)
-    if (!report || !fileScope || !projects) return { error: 'It isn’t a valid Performance export (no report, scope or projects).' }
+    if (!report || !fileScope || !projects) return refuse(M.invalidExport)
     const own = obj(report.filters)?.own === true
     const base = { schema: METRICS_EXPORT_SCHEMA as typeof METRICS_EXPORT_SCHEMA, kind: 'export' as const, createdAt: iso(data.exportedAt), appVersion: text(app?.version, 40) }
     const sanitized = data.sanitized === true
+    // i18n-ignore: part of a kept comparison's default name, stored in its file (#1104: stays as written)
     const range = `${iso(report.from).slice(0, 10)} to ${iso(report.to).slice(0, 10)}`
     const names = Object.keys(projects)
     if (scope.kind === 'workspace') {
-      if (fileScope.kind !== 'workspace') return { error: `It is project ${text(fileScope.project, 80)}’s export: compare it on that project’s page.` }
-      if (own !== !!scope.own) return { error: own ? 'It is the workspace’s own work: compare it with “Workspace’s own work” selected.' : 'It is the whole workspace’s: compare it with the whole workspace selected.' }
+      if (fileScope.kind !== 'workspace') return refuse(said(M.projectsExport, { project: text(fileScope.project, 80) }))
+      if (own !== !!scope.own) return refuse(own ? M.exportIsOwn : M.exportIsWhole)
       // Own work has no project's part: one that does isn't what it says.
-      if (own && names.some((n) => hasData(projects[n]))) return { error: 'It says it is the workspace’s own work, but it holds projects’ data: not imported.' }
-      return { artifact: { ...base, label: `Export ${range}${own ? ', own work' : ''}`, scope: own ? { kind: 'workspace', own: true } : { kind: 'workspace' }, summary: summaryOf(report) } }
+      if (own && names.some((n) => hasData(projects[n]))) return refuse(M.ownHoldsProjects)
+      // i18n-ignore: a kept comparison's default name, stored in its file and renamed by the user (#1104: stays as written)
+      return { artifact: { ...base, label: `Export ${range}${own ? ', own work' : ''}`, labelKind: 'export', scope: own ? { kind: 'workspace', own: true } : { kind: 'workspace' }, summary: summaryOf(report) } }
     }
     if (fileScope.kind === 'project') {
-      if (sanitized) return { error: 'It is sanitized (project names replaced), so it can’t be matched to this project.' }
-      if (fileScope.project.toLowerCase() !== scope.project.toLowerCase()) return { error: `It is project ${text(fileScope.project, 80)}’s export, not ${scope.project}’s.` }
+      if (sanitized) return refuse(M.sanitized)
+      if (fileScope.project.toLowerCase() !== scope.project.toLowerCase()) return refuse(said(M.otherProject, { project: text(fileScope.project, 80), here: scope.project }))
       // Its contents must be its project's only.
       const others = names.filter((n) => n.toLowerCase() !== scope.project.toLowerCase() && hasData(projects[n]))
-      if (others.length || hasData(report.workspace)) return { error: `It says it is ${scope.project}’s, but it also holds ${others.length ? 'other projects’' : 'the workspace’s own'} data: not imported.` }
-      return { artifact: { ...base, label: `Export ${range}`, scope, summary: summaryOf(report, scope.project) } }
+      if (others.length || hasData(report.workspace)) return refuse(said(M.holdsOther, { project: scope.project, other: others.length ? 'projects' : 'own' }))
+      // i18n-ignore: a kept comparison's default name, stored in its file and renamed by the user (#1104: stays as written)
+      return { artifact: { ...base, label: `Export ${range}`, labelKind: 'export', scope, summary: summaryOf(report, scope.project) } }
     }
     // A workspace export on a project's page: only that project's part, and only when asked for.
-    if (sanitized) return { error: 'It is sanitized (project names replaced), so this project’s part can’t be found.' }
-    if (own) return { error: 'It is the workspace’s own work: it has no project’s part.' }
-    if (!names.some((n) => n.toLowerCase() === scope.project.toLowerCase())) return { error: `It is a workspace export with no part for ${scope.project}.` }
+    if (sanitized) return refuse(M.sanitizedPart)
+    if (own) return refuse(M.ownNoPart)
+    if (!names.some((n) => n.toLowerCase() === scope.project.toLowerCase())) return refuse(said(M.noPart, { project: scope.project }))
     if (!opts.useProjectPart) return { projectPart: { project: scope.project } }
-    return { artifact: { ...base, label: `Export ${range}, ${scope.project}’s part`, scope, derived: 'one project’s part of a workspace export', summary: summaryOf(report, scope.project) } }
+    // i18n-ignore: a kept comparison's default name, stored in its file and renamed by the user (#1104: stays as written)
+    return { artifact: { ...base, label: `Export ${range}, ${scope.project}’s part`, labelKind: 'export', scope, derived: englishText(M.projectPart), summary: summaryOf(report, scope.project) } }
   }
-  return { error: 'It isn’t a Hive benchmark (hive-benchmark/1) or Performance export (hive-metrics/1).' }
+  return refuse(M.unknownSchema)
 }
 
 /**
@@ -537,7 +682,7 @@ export function readKept(v: unknown): Artifact | null {
   const a = obj(v)
   const scope = readScope(a?.scope)
   if (!a || !scope) return null
-  const base = { label: text(a.label, 80), createdAt: iso(a.createdAt), appVersion: text(a.appVersion, 40), scope, ...(typeof a.derived === 'string' ? { derived: text(a.derived) } : {}) }
+  const base = { label: text(a.label, 80), createdAt: iso(a.createdAt), appVersion: text(a.appVersion, 40), scope, ...(typeof a.derived === 'string' ? { derived: text(a.derived) } : {}), ...(isLabelKind(a.labelKind) ? { labelKind: a.labelKind } : {}) }
   if (a.kind === 'scenarios') {
     const run = readRun(a.run)
     const scenarios = readScenarios(a.scenarios)
@@ -561,8 +706,12 @@ export interface KeptEntry {
   createdAt: string
   keptAt: string
   pinned: boolean
-  /** One line saying what it is (provider and model, or the export's range and filters). */
+  /** One line saying what it is (provider and model, or the export's range and filters), in English. */
   about: string
+  /** What `about` (and a name Hive gave it) were made from, so the window says them in its language (#1104); none on entries kept before. */
+  facts?: KeptFacts
+  /** The name is one Hive gave it: the window says it from `facts` (#1104). */
+  labelKind?: LabelKind
   /** A project's: that project's stable id (#514), so it stays its own whatever the project is called later. */
   owner?: string
 }
@@ -573,22 +722,81 @@ export function readEntry(v: unknown): KeptEntry | null {
   const scope = readScope(e?.scope)
   if (!e || !scope || typeof e.id !== 'string' || !/^[0-9a-f]{12}$/.test(e.id) || (e.kind !== 'scenarios' && e.kind !== 'export')) return null
   const owner = scope.kind === 'project' && typeof e.owner === 'string' && /^p-[0-9a-f]{12}$/.test(e.owner) ? { owner: e.owner } : {}
-  return { id: e.id, label: text(e.label, 80), kind: e.kind, scope, createdAt: iso(e.createdAt), keptAt: iso(e.keptAt) || new Date(0).toISOString(), pinned: e.pinned === true, about: text(e.about, 300), ...owner }
+  return { id: e.id, label: text(e.label, 80), kind: e.kind, scope, createdAt: iso(e.createdAt), keptAt: iso(e.keptAt) || new Date(0).toISOString(), pinned: e.pinned === true, about: text(e.about, 300), ...owner, ...factsAndLabel(e) }
 }
 
 /** An import: kept, refused (with why), or a question (use a workspace export's part for this project?). */
-export type ImportResult = { entry: KeptEntry } | { error: string } | { ask: { token: string; project: string } }
+export type ImportResult = { entry: KeptEntry } | Refusal | { ask: { token: string; project: string } }
 
 /** What a kept artifact is, in a line (provider and model, or an export's range and filters). */
 export function aboutOf(a: Artifact): string {
   if (a.kind === 'scenarios' && a.run) {
     const r = a.run
+    // i18n-ignore: a kept comparison's one-line description, stored in its index entry when kept (#1104: stays as written)
     const spend = r.real ? `, spent $${r.spentUsd}${r.unknownCostTrials ? ` + ${r.unknownCostTrials} unpriced (total unknown)` : ''}` : ''
+    // i18n-ignore: a kept comparison's one-line description, stored in its index entry when kept (#1104: stays as written)
     return `${r.real ? 'Model trial' : 'Fake'} ${r.provider}${r.real ? ` ${r.model} (${r.effort}, ${r.mode ?? '–'})` : ''}, fixtures v${r.fixturesVersion}, ${a.scenarios?.length ?? 0} scenarios × ${r.repeats}, source ${r.source.head}${r.source.dirty ? '+' : ''}${spend}`
   }
   const s = a.summary!
   const f = [s.filters.role ?? 'everyone', s.filters.provider ?? 'all providers', s.filters.own ? 'own work' : ''].filter(Boolean).join(', ')
+  // i18n-ignore: a kept comparison's one-line description, stored in its index entry when kept (#1104: stays as written)
   return `${s.from.slice(0, 16).replace('T', ' ')} to ${s.to.slice(0, 16).replace('T', ' ')}: ${f}${a.derived ? ` (${a.derived})` : ''}`
+}
+
+/** What Hive made a kept comparison's description from (#1104), kept in its index entry: the window says it in its language. */
+export type KeptFacts =
+  | { kind: 'scenarios'; real: boolean; provider: string; model: string; effort: string; mode: string | null; fixtures: number; scenarios: number; repeats: number; head: string; dirty: boolean; spentUsd: number; unpriced: number }
+  | { kind: 'export'; from: string; to: string; filters: ExportSummary['filters']; part: boolean }
+/** The name Hive gave a kept comparison that came with none: a benchmark's, an export's, or a kept Performance view's. */
+export type LabelKind = 'benchmark' | 'export' | 'kept'
+const isLabelKind = (v: unknown): v is LabelKind => v === 'benchmark' || v === 'export' || v === 'kept'
+
+/** A kept artifact's facts, for its index entry. */
+export function factsOf(a: Artifact): KeptFacts | undefined {
+  if (a.kind === 'scenarios' && a.run) {
+    const r = a.run
+    return { kind: 'scenarios', real: r.real, provider: r.provider, model: r.model, effort: r.effort, mode: r.mode, fixtures: r.fixturesVersion, scenarios: a.scenarios?.length ?? 0, repeats: r.repeats, head: r.source.head, dirty: !!r.source.dirty, spentUsd: r.spentUsd, unpriced: r.unknownCostTrials }
+  }
+  if (a.kind === 'export' && a.summary) return { kind: 'export', from: a.summary.from, to: a.summary.to, filters: a.summary.filters, part: !!a.derived }
+  return undefined
+}
+
+/** An index entry's facts and name kind, re-read as untrusted input: fresh and bounded, or left out. */
+function factsAndLabel(e: Record<string, unknown>): { facts?: KeptFacts; labelKind?: LabelKind } {
+  const f = obj(e.facts)
+  let facts: KeptFacts | undefined
+  if (f?.kind === 'scenarios' && typeof f.real === 'boolean' && num(f.fixtures) !== null && num(f.scenarios) !== null && num(f.repeats) !== null && num(f.spentUsd) !== null && num(f.unpriced) !== null) {
+    facts = { kind: 'scenarios', real: f.real, provider: text(f.provider, 40), model: text(f.model, 80), effort: text(f.effort, 20), mode: typeof f.mode === 'string' ? text(f.mode, 20) : null, fixtures: num(f.fixtures)!, scenarios: num(f.scenarios)!, repeats: num(f.repeats)!, head: text(f.head, 40), dirty: f.dirty === true, spentUsd: num(f.spentUsd)!, unpriced: num(f.unpriced)! }
+  } else if (f?.kind === 'export' && iso(f.from) && iso(f.to)) {
+    const x = obj(f.filters) ?? {}
+    const filters = { ...(typeof x.role === 'string' ? { role: text(x.role, 20) } : {}), ...(typeof x.provider === 'string' ? { provider: text(x.provider, 40) } : {}), ...(x.own === true ? { own: true } : {}) }
+    facts = { kind: 'export', from: iso(f.from), to: iso(f.to), filters, part: f.part === true }
+  }
+  return { ...(facts ? { facts } : {}), ...(facts && isLabelKind(e.labelKind) ? { labelKind: e.labelKind } : {}) }
+}
+
+/** A kept comparison's name as the window shows it: one Hive gave it, said from its facts in the window's language; the user's as written. */
+export function keptLabel(e: Pick<KeptEntry, 'label' | 'labelKind' | 'facts' | 'scope'>): TextPart {
+  const f = e.facts
+  if (!e.labelKind || !f) return e.label
+  if (f.kind === 'scenarios') return e.labelKind === 'benchmark' ? said(M.labelBenchmark, { provider: f.provider }) : e.label
+  const range = { from: formatDate(f.from), to: formatDate(f.to) }
+  if (e.labelKind === 'kept') return said(M.labelKept, range)
+  if (f.part && e.scope.kind === 'project') return said(M.labelExportPart, { ...range, project: e.scope.project })
+  return said(M.labelExport, { ...range, own: f.filters.own ? 'yes' : 'no' })
+}
+
+/** What a kept comparison is, in a line, as the window shows it: from its facts in the window's language, else its English. */
+export function keptAbout(e: Pick<KeptEntry, 'about' | 'facts'>): TextPart {
+  const f = e.facts
+  if (!f) return e.about
+  if (f.kind === 'scenarios') {
+    // i18n-ignore: a dash, for a run that had no permission mode
+    const mode = f.mode ?? '–'
+    return said(M.aboutScenarios, { real: f.real ? 'yes' : 'no', provider: f.provider, model: f.model, effort: f.effort, mode, fixtures: String(f.fixtures), scenarios: f.scenarios, repeats: f.repeats, head: `${f.head}${f.dirty ? '+' : ''}`, spent: moneyLabel(f.spentUsd), unpriced: f.unpriced })
+  }
+  const values = { from: formatDateTime(f.from), to: formatDateTime(f.to), filters: filtersText(f.filters) }
+  return f.part ? said(M.aboutExportPart, { ...values, part: M.projectPart }) : said(M.aboutExport, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -641,7 +849,9 @@ export interface ScenarioComparison {
   samples: { base: number; run: number }
   measures: MeasureDelta[]
   usage: MeasureDelta[] | null
+  /** In English (tests, code); `notesText` is the same for the window. */
   notes: string[]
+  notesText: Text[]
 }
 
 export interface Comparison {
@@ -650,6 +860,9 @@ export interface Comparison {
   /** Why they can't be compared (when not comparable), or what differs that a reader should know. */
   reasons: string[]
   notes: string[]
+  /** The reasons and notes as text, for the window (#1104): the English fields are these in English. */
+  reasonsText: Text[]
+  notesText: Text[]
   scenarios?: ScenarioComparison[]
   rows?: MeasureDelta[]
   summary: Partial<Record<ScenarioStatus, number>>
@@ -695,28 +908,32 @@ const avg = (xs: Sample[], f: (s: Sample) => number): number => (xs.length ? xs.
 /** Measures that mean more failures or more work when they grow: a growth is a regression, whatever the size did. */
 const FAILURE_KEYS = ['hiveCallErrors', 'toolErrors', 'apiFailed', 'apiCancelled', 'repeatedCalls', 'hiveCalls']
 
+/** Why a sample is left out: Hive's own reasons as messages, the harness's own words (or an older Hive's) as written. */
+const SAMPLE_PROBLEMS = [M.tooManyChecks, M.invalidCheck, M.checkTwice, M.checksNotList, M.countsDiffer, M.failedNoCheck, M.noCheckRan, M.didntComplete]
+const sampleProblem = (reason: string): TextPart => SAMPLE_PROBLEMS.find((m) => m.defaultMessage === reason) ?? reason
+
 function compareScenario(id: string, base: ScenarioResult | undefined, run: ScenarioResult | undefined, compareUsage: boolean): ScenarioComparison {
   const title = run?.title || base?.title || id
   const zero = { passed: 0, failed: 0, skipped: 0 }
   const empty = { quality: { base: { passed: 0, n: 0 }, run: { passed: 0, n: 0 } }, checks: { base: zero, run: zero }, regressions: [], failedChecks: [] }
-  if (!base || !run) return { id, title, status: base ? 'only-in-base' : 'only-in-run', ...empty, samples: { base: base?.samples.length ?? 0, run: run?.samples.length ?? 0 }, measures: [], usage: null, notes: [] }
+  if (!base || !run) return { id, title, status: base ? 'only-in-base' : 'only-in-run', ...empty, samples: { base: base?.samples.length ?? 0, run: run?.samples.length ?? 0 }, measures: [], usage: null, notes: [], notesText: [] }
   const b = base.samples.filter(usable)
   const r = run.samples.filter(usable)
-  const notes: string[] = []
+  const notes: Text[] = []
   const all = [...base.samples, ...run.samples]
   const stale = all.filter((s) => s.stale).length
-  if (stale) notes.push(`${stale} sample${stale === 1 ? '' : 's'} left out: the session was given other guidance than the run started with (stale).`)
+  if (stale) notes.push(said(M.stale, { n: stale }))
   const incomplete = all.filter((s) => s.ok === null && !s.stale)
-  if (incomplete.length) notes.push(`${incomplete.length} sample${incomplete.length === 1 ? '' : 's'} left out: ${[...new Set(incomplete.map((s) => s.incomplete ?? 'didn’t complete'))].join('; ')}.`)
-  if (b.length === 1 || r.length === 1) notes.push('One sample on a side: no spread to judge a change by.')
+  if (incomplete.length) notes.push(said(M.leftOut, { n: incomplete.length, why: listOf([...new Set(incomplete.map((s) => s.incomplete ?? M.didntComplete.defaultMessage))].map(sampleProblem), 'unit') }))
+  if (b.length === 1 || r.length === 1) notes.push(M.oneSample)
   const partial = [...b, ...r].filter((s) => s.coverage.recording !== true || s.coverage.dropped > 0 || s.coverage.partial.length || !s.measures)
-  if (partial.length) notes.push(`${partial.length} sample${partial.length === 1 ? '' : 's'} measured partly (recording off, measurements dropped or missing): sizes aren’t judged.`)
+  if (partial.length) notes.push(said(M.measuredPartly, { n: partial.length }))
   // Skill revisions the sessions were given: different on the two sides (an edited skill) is said.
   const revs = (xs: Sample[]): string => [...new Set(xs.map((s) => JSON.stringify(s.skills ?? {})))].join('|')
   if (b.length && r.length && revs(b) !== revs(r)) {
     const names = new Set<string>()
     for (const s of [...b, ...r]) for (const [k, v] of Object.entries(s.skills ?? {})) if ([...b, ...r].some((x) => (x.skills ?? {})[k] !== v)) names.add(k)
-    notes.push(`The sessions were given different skill revisions${names.size ? ` (${[...names].slice(0, 6).join(', ')})` : ''}.`)
+    notes.push(names.size ? said(M.skillRevisionsOf, { names: listOf([...names].slice(0, 6), 'unit') }) : M.skillRevisions)
   }
   const quality = { base: { passed: b.filter((s) => s.ok).length, n: b.length }, run: { passed: r.filter((s) => s.ok).length, n: r.length } }
   const checks = { base: { passed: avg(b, (s) => s.passed), failed: avg(b, (s) => s.failed), skipped: avg(b, (s) => s.skipped) }, run: { passed: avg(r, (s) => s.passed), failed: avg(r, (s) => s.failed), skipped: avg(r, (s) => s.skipped) } }
@@ -740,13 +957,13 @@ function compareScenario(id: string, base: ScenarioResult | undefined, run: Scen
     usageRows = USAGE_MEASURES.map((m) => deltaOf(m.key, b, r, (s) => s.usage?.[m.key])).filter((d) => !d.incomplete)
     if (!usageRows.length) {
       usageRows = null
-      if ([...b, ...r].some((s) => s.usage)) notes.push('Provider usage isn’t compared: not every sample reported it.')
+      if ([...b, ...r].some((s) => s.usage)) notes.push(M.usageNotEvery)
     }
-    if ([...b, ...r].some((s) => s.costEstimated)) notes.push('Some costs are Hive’s estimates (≈), not the provider’s.')
+    if ([...b, ...r].some((s) => s.costEstimated)) notes.push(M.estimates)
   }
-  if ([...b, ...r].some((s) => s.resumed)) notes.push('A resumed session’s provider usage is its whole conversation’s: left out.')
+  if ([...b, ...r].some((s) => s.resumed)) notes.push(M.resumed)
   const samples = { base: base.samples.length, run: run.samples.length }
-  if (!b.length || !r.length) return { id, title, status: 'incomplete', quality, checks, regressions, failedChecks, samples, measures, usage: usageRows, notes }
+  if (!b.length || !r.length) return { id, title, status: 'incomplete', quality, checks, regressions, failedChecks, samples, measures, usage: usageRows, ...told(notes) }
   const rate = (q: { passed: number; n: number }): number => q.passed / q.n
   const get = (k: string): MeasureDelta => measures.find((m) => m.key === k)!
   const context = get('contextBytes')
@@ -763,10 +980,16 @@ function compareScenario(id: string, base: ScenarioResult | undefined, run: Scen
   else if (!sizeKnown || failureUnknown) status = 'incomplete'
   else if (smaller) status = 'better'
   else status = 'same'
-  if (status === 'incomplete') notes.push('Not judged: some of what it’s judged by wasn’t measured.')
-  if (status === 'better' && context.withinSpread) notes.push('Smaller on average, but within the samples’ spread.')
-  return { id, title, status, quality, checks, regressions, failedChecks, samples, measures, usage: usageRows, notes }
+  if (status === 'incomplete') notes.push(M.notJudged)
+  if (status === 'better' && context.withinSpread) notes.push(M.withinSpread)
+  return { id, title, status, quality, checks, regressions, failedChecks, samples, measures, usage: usageRows, ...told(notes) }
 }
+
+/** A scenario's notes, in English and as text. */
+const told = (notes: Text[]): { notes: string[]; notesText: Text[] } => ({ notes: notes.map((t) => englishText(t)), notesText: notes })
+
+/** A comparison's reasons and notes, in English and as text. */
+const why = (reasons: Text[], notes: Text[]): Pick<Comparison, 'reasons' | 'notes' | 'reasonsText' | 'notesText'> => ({ reasons: reasons.map((t) => englishText(t)), reasonsText: reasons, ...told(notes) })
 
 const sameScope = (a: CompareScope, b: CompareScope): boolean => compareScopeKey(a) === compareScopeKey(b)
 
@@ -777,22 +1000,22 @@ const sameScope = (a: CompareScope, b: CompareScope): boolean => compareScopeKey
  * while it ran, or exports of other filters.
  */
 export function compareArtifacts(base: Artifact, run: Artifact): Comparison {
-  const reasons: string[] = []
-  const notes: string[] = []
-  if (base.kind !== run.kind) return { kind: run.kind, comparable: false, reasons: ['One is a scenario benchmark and the other a Performance export: they measure different things.'], notes, summary: {} }
-  if (!sameScope(base.scope, run.scope)) reasons.push(`Different scopes: ${scopeName(base.scope)} and ${scopeName(run.scope)}.`)
+  const reasons: Text[] = []
+  const notes: Text[] = []
+  if (base.kind !== run.kind) return { kind: run.kind, comparable: false, ...why([M.differentKinds], notes), summary: {} }
+  if (!sameScope(base.scope, run.scope)) reasons.push(said(M.differentScopes, { base: scopeName(base.scope), run: scopeName(run.scope) }))
   if (base.kind === 'scenarios' && base.run && run.run && base.scenarios && run.scenarios) {
     const a = base.run
     const b = run.run
-    if (a.fixturesVersion !== b.fixturesVersion) reasons.push(`Different scenario versions (fixtures v${a.fixturesVersion} and v${b.fixturesVersion}): the scenarios themselves changed.`)
-    if (a.real !== b.real) reasons.push('A fake provider against a model trial: a fake proves routing and sizes, not a model’s behaviour.')
-    if (a.providerId !== b.providerId || a.provider !== b.provider) reasons.push(`Different providers (${a.provider} and ${b.provider}).`)
-    if (a.real && b.real && (a.model !== b.model || a.effort !== b.effort || a.mode !== b.mode)) reasons.push(`Different model setups (${a.model}, ${a.effort}, ${a.mode ?? '–'} and ${b.model}, ${b.effort}, ${b.mode ?? '–'}).`)
-    for (const [side, r] of [['baseline', a] as const, ['run', b] as const]) if (r.sourceChangedDuringRun) reasons.push(`The ${side}’s source changed while it ran: its samples may mix two versions.`)
-    if (a.real && b.real && a.cliVersions.join() !== b.cliVersions.join()) notes.push(`CLI versions differ (${a.cliVersions.join(', ') || '?'} and ${b.cliVersions.join(', ') || '?'}).`)
-    if (a.guidance && b.guidance && a.guidance === b.guidance) notes.push('Both ran the same guidance revision: differences are in the tools, the API, the skills or the run itself.')
+    if (a.fixturesVersion !== b.fixturesVersion) reasons.push(said(M.differentFixtures, { base: a.fixturesVersion, run: b.fixturesVersion }))
+    if (a.real !== b.real) reasons.push(M.fakeVsModel)
+    if (a.providerId !== b.providerId || a.provider !== b.provider) reasons.push(said(M.differentProviders, { base: a.provider, run: b.provider }))
+    if (a.real && b.real && (a.model !== b.model || a.effort !== b.effort || a.mode !== b.mode)) reasons.push(said(M.differentSetups, { base: listOf([a.model, a.effort, a.mode ?? '–'], 'unit'), run: listOf([b.model, b.effort, b.mode ?? '–'], 'unit') }))
+    for (const [side, r] of [['baseline', a] as const, ['run', b] as const]) if (r.sourceChangedDuringRun) reasons.push(said(M.sourceChanged, { side }))
+    if (a.real && b.real && a.cliVersions.join() !== b.cliVersions.join()) notes.push(said(M.cliVersions, { base: a.cliVersions.length ? listOf(a.cliVersions, 'unit') : '?', run: b.cliVersions.length ? listOf(b.cliVersions, 'unit') : '?' }))
+    if (a.guidance && b.guidance && a.guidance === b.guidance) notes.push(M.sameGuidance)
     const realUsage = a.real && b.real
-    if (!realUsage) notes.push('Provider usage isn’t compared: a fake’s tokens are simulated, not a provider’s.')
+    if (!realUsage) notes.push(M.fakeUsage)
     const ids = [...new Set([...base.scenarios.map((s) => s.id), ...run.scenarios.map((s) => s.id)])]
     const scenarios = ids.map((id) =>
       compareScenario(
@@ -804,16 +1027,17 @@ export function compareArtifacts(base: Artifact, run: Artifact): Comparison {
     )
     const summary: Partial<Record<ScenarioStatus, number>> = {}
     for (const s of scenarios) summary[s.status] = (summary[s.status] ?? 0) + 1
-    return { kind: 'scenarios', comparable: reasons.length === 0, reasons, notes, scenarios, summary }
+    return { kind: 'scenarios', comparable: reasons.length === 0, ...why(reasons, notes), scenarios, summary }
   }
   if (base.kind === 'export' && base.summary && run.summary) {
     const a = base.summary
     const b = run.summary
-    const f = (x: ExportSummary['filters']): string => `${x.role ?? 'everyone'}, ${x.provider ?? 'all providers'}${x.own ? ', own work' : ''}`
-    if (f(a.filters) !== f(b.filters)) reasons.push(`Different filters (${f(a.filters)} and ${f(b.filters)}).`)
-    if (!a.observedMs || !b.observedMs) reasons.push('Hive wasn’t recording in one of the ranges: there is nothing to compare.')
-    for (const [side, s] of [['baseline', a] as const, ['run', b] as const]) if (s.partial.length) notes.push(`The ${side} is partial: ${s.partial.join('; ')}.`)
-    if (Math.abs(a.rangeMs - b.rangeMs) > 3_600_000) notes.push('The ranges differ in length: compared per hour recorded.')
+    const filters = filtersText
+    const same = (x: ExportSummary['filters'], y: ExportSummary['filters']): boolean => x.role === y.role && x.provider === y.provider && !!x.own === !!y.own
+    if (!same(a.filters, b.filters)) reasons.push(said(M.differentFilters, { base: filters(a.filters), run: filters(b.filters) }))
+    if (!a.observedMs || !b.observedMs) reasons.push(M.notRecording)
+    for (const [side, s] of [['baseline', a] as const, ['run', b] as const]) if (s.partial.length) notes.push(said(M.partial, { side, what: s.partialWhy?.length ? listOf(s.partialWhy.map(partialText)) : s.partial.join('; ') }))
+    if (Math.abs(a.rangeMs - b.rangeMs) > 3_600_000) notes.push(M.rangesDiffer)
     const known = (s: ExportSummary, ...keys: string[]): boolean => keys.every((k) => typeof s.totals[k] === 'number')
     const perHour = (s: ExportSummary, k: string): number[] => (s.observedMs ? [s.totals[k] / (s.observedMs / 3_600_000)] : [])
     const rows = EXPORT_MEASURES.map((m) => {
@@ -824,8 +1048,8 @@ export function compareArtifacts(base: Artifact, run: Artifact): Comparison {
         ? deltaOf(m.key, a.totals.launches ? [a.totals.guidanceBytes / a.totals.launches] : [], b.totals.launches ? [b.totals.guidanceBytes / b.totals.launches] : [])
         : deltaOf(m.key, perHour(a, m.key), perHour(b, m.key))
     })
-    notes.push('Real use isn’t a controlled workload: a change here can be the work that was done, not Hive.')
-    return { kind: 'export', comparable: reasons.length === 0, reasons, notes, rows, summary: {} }
+    notes.push(M.realUse)
+    return { kind: 'export', comparable: reasons.length === 0, ...why(reasons, notes), rows, summary: {} }
   }
-  return { kind: run.kind, comparable: false, reasons: ['One of them is incomplete.'], notes, summary: {} }
+  return { kind: run.kind, comparable: false, ...why([M.oneIncomplete], notes), summary: {} }
 }

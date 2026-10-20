@@ -56,12 +56,11 @@ export const EXCLUDED = [
   [/^src\/shared\/redact\.ts$/, 'log markers'],
   [/^src\/main\/freshPath\.ts$/, 'a registry key, not text'],
   [/^src\/main\/exitLog\.ts$/, "log lines and Copy Diagnostics' report, in English (#985)"],
+  [/^src\/main\/mainStalls\.ts$/, 'log lines of hive.log, in English (#1109)'],
   [/^src\/main\/db\.ts$/, 'SQL statements and settings, no text (#1017)'],
   [/^src\/main\/trash\.ts$/, 'test-only'],
   [/^src\/shared\/consoleFixtures\.mts$/, 'test-only'],
-  [/^src\/main\/(consoleRecorder|devConsole|devConsoleSources|devConsoleWords|mergeSlotHost|turnLedger)\.ts$/, 'developer views stay English (Darren, 14 Oct)'],
-  [/^src\/renderer\/src\/(ConsoleApp|views\/Performance|views\/PerformanceCards|views\/PerformanceCompare)\.tsx$/, 'developer views stay English (Darren, 14 Oct)'],
-  [/^src\/shared\/(benchmark|consoleView|devConsole)\.ts$/, 'developer views stay English (Darren, 14 Oct)'],
+  // Developer views (the developer console, Performance) are translated too (Darren, 19 Oct, #1104).
   [/\.test\.tsx?$/, 'test-only']
 ]
 export const isExcluded = (rel) => EXCLUDED.some(([re]) => re.test(rel))

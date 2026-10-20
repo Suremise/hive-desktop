@@ -107,6 +107,68 @@ function endExactly(targets) {
 }
 
 /**
+ * Suspends (or, `resume`, resumes) each of `targets` ({ pid, started }) only while that pid is still the same process, as
+ * endExactly ends them (#600: a busy CLI in wakepaste-codex/-copilot): a handle to it is opened, its start time checked
+ * against `started`, and it is suspended or resumed through that same handle. Returns { done: the targets it was done to,
+ * failed: [{ pid, why }] } (why: `gone`, `another process` when the pid names another one by now, or the call's NTSTATUS),
+ * so a caller can tell a suspension that didn't happen, and resumes exactly what it suspended. Off Windows: none done.
+ */
+function suspendExactly(targets, resume = false) {
+  const out = { done: [], failed: [] }
+  if (process.platform !== 'win32' || !targets.length) return out
+  const fn = resume ? 'NtResumeProcess' : 'NtSuspendProcess'
+  const list = targets.map((t) => `${Number(t.pid)}:${Number(t.started)}`).join(',')
+  const ps = `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class HiveSuspend{[DllImport("ntdll.dll")]public static extern int ${fn}(IntPtr h);}'; foreach ($t in '${list}'.Split(',')) { $id, $at = $t.Split(':'); try { $p = [Diagnostics.Process]::GetProcessById([int]$id); $h = $p.Handle; if ([Math]::Abs(([DateTimeOffset]$p.StartTime).ToUnixTimeMilliseconds() - [long]$at) -le 1) { $s = [HiveSuspend]::${fn}($h); if ($s -eq 0) { "ok $id" } else { "fail $id 0x{0:X8}" -f $s } } else { "fail $id another-process" } } catch { "fail $id gone" } }`
+  let text = ''
+  try {
+    text = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], { encoding: 'utf8', env: baseEnv(), windowsHide: true })
+  } catch (e) {
+    for (const t of targets) out.failed.push({ pid: t.pid, why: `powershell: ${e.message}` })
+    return out
+  }
+  for (const t of targets) {
+    const line = text.split(/\r?\n/).find((l) => l.split(' ')[1] === String(t.pid)) ?? `fail ${t.pid} no-answer`
+    if (line.startsWith('ok ')) out.done.push(t)
+    else out.failed.push({ pid: t.pid, why: line.split(' ').slice(2).join(' ').replace('another-process', 'another process') })
+  }
+  return out
+}
+
+/**
+ * The processes a test has suspended and not resumed yet (#600), the one list every resume goes by, each by the identity
+ * it was suspended as: `suspend(targets)` adds those suspended; `resume()` resumes them, and those resumed or gone
+ * meanwhile (their identity names no process now) leave the list while those that failed stay, so nothing suspended is
+ * forgotten; `release()` (cleanup) resumes what is left and ends, by its identity, what still can't be resumed, so no
+ * process of the test stays suspended. `act` and `end` are suspendExactly and endExactly (a unit test passes stubs).
+ */
+function suspensions(act = suspendExactly, end = endExactly) {
+  let held = []
+  const resume = () => {
+    if (!held.length) return []
+    const r = act(held, true)
+    const settled = (t) => r.done.some((d) => d.pid === t.pid) || r.failed.some((f) => f.pid === t.pid && (f.why === 'gone' || f.why === 'another process'))
+    held = held.filter((t) => !settled(t))
+    return r.failed
+  }
+  return {
+    held: () => [...held],
+    suspend(targets) {
+      const r = act(targets)
+      held.push(...r.done)
+      return r
+    },
+    resume,
+    release() {
+      const failed = resume()
+      const ended = held
+      if (held.length) end(held)
+      held = []
+      return { failed, ended }
+    }
+  }
+}
+
+/**
  * `targets` ({ pid, started }) ordered so each comes before its parent when its parent is one of them (by `list`'s
  * parent links, a parent started after its child being a reused pid's): children are ended first. Ending a parent first
  * can take its children with it before they are reached: Node starts each child in a job that ends with its parent
@@ -202,4 +264,4 @@ function endChildTree(child) {
   return now ? endTreeExactly({ pid: now.pid, started: now.started }, list) : 0
 }
 
-module.exports = { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree }
+module.exports = { namesFolder, namesFile, ownedBy, descendantsIn, stillRunning, processTree, processes, endExactly, suspendExactly, suspensions, childrenFirst, stopProcessesIn, identify, stillSame, endTreeExactly, endChildTree }

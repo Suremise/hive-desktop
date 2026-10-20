@@ -207,6 +207,10 @@
     "defaultMessage": "Toggle Hive Assistant",
     "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Assistant category."
   },
+  "shell.command.console.showCapture": {
+    "defaultMessage": "Show Capture in Folder",
+    "description": "A command (the menus, the command palette, Settings → Keyboard Shortcuts), in the Developer category: shows a capture of the developer console's flight recorder in File Explorer. It isn't in the menus or the palette: notifications and buttons run it by its name."
+  },
   "shell.command.help.about": {
     "defaultMessage": "About {app}",
     "description": "A command (the Help menu, the command palette), in the Help category. {app} is Hive's name."

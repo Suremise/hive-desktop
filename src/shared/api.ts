@@ -20,6 +20,7 @@ import type {
   MovePlan,
   MoveReport,
   ProgressRun,
+  ProgressSnapshot,
   PermissionMode,
   AddAgentOptions,
   AddedAgent,
@@ -557,6 +558,8 @@ export interface HiveRequests {
   'costs:lanes': (laneIds?: string[]) => LaneCost[]
   /** This window's workspace's progress runs, newest first. */
   'progress:list': () => ProgressRun[]
+  /** The same, with the number of the last telling of them sent (#1108: `progress-runs`' seq), so later ones can follow it. */
+  'progress:snapshot': () => ProgressSnapshot
   /** Moves a finished or stale run to Recent. */
   'progress:dismiss': (id: string) => void
   /** The user looked at the Progress panel: the taskbar stops showing a failure in red. */
@@ -591,6 +594,8 @@ export interface HiveRequests {
   'console:recordings': () => { active: ConsoleRecordingInfo | null; latest: ConsoleRecordingInfo | null }
   /** Shows one of Hive's recordings (by its file name) in its folder. */
   'console:showRecording': (name: string) => void
+  /** The flight recorder's captures (#698), newest first: each one's trigger, agent and when. */
+  'console:captures': () => ConsoleRecordingInfo[]
   'personas:list': () => PersonaInfo[]
   'personas:create': (name: string) => PersonaInfo
   /** Moves the persona's file to the Recycle Bin. */

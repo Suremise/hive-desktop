@@ -232,7 +232,7 @@ describe('DevConsole', () => {
     const build = vi.fn(() => ({ kind: 'hook' as const, name: 'Stop', summary: 's' }))
     c.capture([A1], build)
     expect(build).not.toHaveBeenCalled()
-    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0, flightSources: 0, flightEvents: 0, flightBytes: 0 })
     // Reading (what the hive tools do) starts nothing.
     expect(c.events(A1)).toEqual([])
     expect(c.capturing(A1)).toBe(false)
@@ -250,7 +250,7 @@ describe('DevConsole', () => {
     expect(c.capturing(A1)).toBe(true)
     expect(c.capturing(A2)).toBe(false)
     c.unsubscribe('w1')
-    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0 })
+    expect(c.stats()).toEqual({ sources: 0, events: 0, textEvents: 0, bytes: 0, subscribers: 0, queued: 0, flightSources: 0, flightEvents: 0, flightBytes: 0 })
     expect(c.events(A1)).toEqual([])
   })
 

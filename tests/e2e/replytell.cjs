@@ -109,6 +109,17 @@ const check = (name, ok, extra = '') => {
   await type(alpha, builder.id, 'Ship it')
   check('on again: the next reply is told, by the name in Settings', !!(await until(async () => wakes().length === 2 && wakes()[1].startsWith(`[Hive] Darren replied to Builder on #${card}: "Ship it"`), 20000)), JSON.stringify(wakes().slice(1)))
 
+  // #1099: the Assistant watches Builder while Builder is idle (answered at once: no watch starts) and ends its turn.
+  // The user's reply to Builder still reaches it within seconds, as a wake of its own.
+  await until(async () => (await idle(home, 'assistant')) && (await idle(alpha, builder.id)), HUNG_MS)
+  await type(home, 'assistant', `hive hive_wait_for_agents ${JSON.stringify({ agents: [{ project: 'alpha', agent: 'Builder' }], wake: true })}`)
+  check('an agent watch on idle Builder is answered at once', !!(await until(async () => (await idle(home, 'assistant')) && (await live(home, 'assistant'))?.status !== 'watching', HUNG_MS)))
+  const before = wakes().length
+  const t0 = Date.now()
+  await type(alpha, builder.id, 'Go ahead and push')
+  const told = await until(() => wakes().slice(before).find((x) => x.startsWith('[Hive] Darren replied to Builder (alpha): "Go ahead and push"')), HUNG_MS)
+  check('the reply reaches the Assistant within seconds with no watch of its own (#1099)', !!told && Date.now() - t0 < 15000, JSON.stringify({ wakes: wakes().slice(before), ms: Date.now() - t0 }))
+
   await app.close()
   console.log(failed ? `\n${failed} FAILED` : '\nALL PASSED')
   process.exit(failed ? 1 : 0)

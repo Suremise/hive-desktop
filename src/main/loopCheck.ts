@@ -124,7 +124,14 @@ async function check(loop: Loop): Promise<void> {
   const told = `${inPlay.join(',')}@${now!.statusSince ?? ''}`
   if (loop.told === told) return
   loop.told = told
-  log.info(`${userText(now!.agentName ?? loop.agentId)} isn't watching ${inPlay.map((n) => `#${n}`).join(', ')}: its turn ended without a card watch`)
+  const which = inPlay.map((n) => `#${n}`).join(', ')
+  // #777: it did watch, and its watch's wake waits untaken in its prompt (its CLI didn't take the line Hive typed): its
+  // cards are stalled for that (cardStall says so), and the user was told of the untaken line already, once.
+  if (now!.untakenLine) {
+    log.info(`${userText(now!.agentName ?? loop.agentId)} hasn't taken the wake Hive typed for ${which}: it waits in its prompt`)
+    return
+  }
+  log.info(`${userText(now!.agentName ?? loop.agentId)} isn't watching ${which}: its turn ended without a card watch`)
   sessions.notifyNotWatching(loop.projectPath, loop.agentId, inPlay)
 }
 

@@ -53,6 +53,7 @@ interface HiveMessageValues {
   'shell.command.assistant.settings': undefined
   'shell.command.assistant.start': undefined
   'shell.command.assistant.toggle': undefined
+  'shell.command.console.showCapture': undefined
   'shell.command.help.about': { app: string | number }
   'shell.command.help.agentSetup': undefined
   'shell.command.help.api': undefined
