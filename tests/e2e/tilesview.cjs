@@ -92,17 +92,61 @@ const check = (name, ok, extra = '') => {
     const replyTip = await lib.hoverTip(page, tile('A').locator('.tile-reply'), (t) => t.includes('so it is cut short'), HUNG_MS)
     check("A's reply, cut short, is in full on hover", replyTip.includes(longReply), replyTip)
     await page.mouse.move(5, 5)
+    // A run whose title is too long for its line (round 1 finding 1: its tooltip's wrapper changed the line's width, and
+    // measuring it again and again took the window down).
     const runDone = path.join(lib.WORK, 'tilesview-run-done')
-    await prompts('A').type(`shell: hive-progress --title tiles-run -- node -e "setInterval(() => require('fs').existsSync(process.argv[1]) && process.exit(0), 100)" ${runDone}`)
+    const runTitle = 'A very long progress run title that should be truncated cleanly in every narrow tile'
+    await prompts('A').type(`shell: hive-progress --title "${runTitle}" -- node -e "setInterval(() => require('fs').existsSync(process.argv[1]) && process.exit(0), 100)" ${runDone}`)
     const progressShown = () => tile('A').evaluate((el) => el.querySelector('.tile-progress-text')?.textContent ?? '')
-    check("A's tile shows its progress run", !!(await lib.until(async () => (await progressShown()).startsWith('tiles-run'), HUNG_MS)), await progressShown())
+    check("A's tile shows its progress run", !!(await lib.until(async () => (await progressShown()).startsWith(runTitle), HUNG_MS)), await progressShown())
     const during = await heights()
     check('…and no tile changed height', during.length === 12 && during.every((h) => h === before[0]), `${before[0]} → ${during.join()}`)
+    const cut = await tile('A').evaluate((el) => {
+      const line = el.querySelector('.tile-progress-text .tile-line')
+      const row = el.querySelector('.tile-progress-text')
+      return { cut: !!line && line.scrollWidth > line.clientWidth, fits: !!line && !!row && line.getBoundingClientRect().right <= row.getBoundingClientRect().right + 0.5 }
+    })
+    check('…its long title is cut short within its line', cut.cut && cut.fits, JSON.stringify(cut))
+    const runTip = await lib.hoverTip(page, tile('A').locator('.tile-progress-text'), (t) => t.includes(runTitle), HUNG_MS)
+    check('…in full on hover', runTip.includes(runTitle), runTip)
+    await page.mouse.move(5, 5)
+    check('…and the window is still the tiles (no error)', (await page.locator('.error-boundary').count()) === 0 && (await page.locator('.agent-tile').count()) === 12)
     await page.screenshot({ path: path.join(lib.WORK, 'tilesview-grid-run.png') })
     fs.writeFileSync(runDone, '')
     check('the run ends and A is idle again', !!(await lib.until(async () => (await progressShown()) === '' && ['ready', 'finished'].includes((await live(ids.A))?.status), HUNG_MS)))
     const after = await heights()
     check('…every tile still the same height', after.every((h) => h === before[0]), after.join())
+
+    // Three badges at once in one tile (round 1 finding 2): its context past the threshold, a long transcript and a
+    // background task. They stay on its one line, the warnings first, each cut short rather than cut through or hidden,
+    // and all of them are in full on hover.
+    await inv('settings:update', { sessions: { compactSuggestTokens: 100000, transcriptWarnMB: 1 } })
+    await inv('session:start', alpha, { agentId: ids.D })
+    await lib.until(async () => ['ready', 'waiting'].includes((await live(ids.D))?.status), HUNG_MS)
+    if ((await live(ids.D))?.status === 'waiting') await inv('pty:write', lib.ptyKey(alpha, ids.D), '\r')
+    await lib.until(async () => (await live(ids.D))?.status === 'ready', HUNG_MS)
+    await prompts('D').type('context 500000 pad 1200 background 300')
+    const badges = () =>
+      tile('D').evaluate((el) => {
+        const row = el.querySelector('.tile-badges').getBoundingClientRect()
+        return [...el.querySelectorAll('.tile-badges .tile-badge')].map((b) => {
+          const r = b.getBoundingClientRect()
+          const t = b.querySelector('.tile-badge-text')
+          return { text: t.textContent, warn: b.classList.contains('warn'), inside: r.left >= row.left - 0.5 && r.right <= row.right + 0.5, shown: t.clientWidth > 0, cut: t.scrollWidth > t.clientWidth }
+        })
+      })
+    check("D's tile has its three badges", !!(await lib.until(async () => (await badges()).length === 3, HUNG_MS)), JSON.stringify(await badges()))
+    const b3 = await badges()
+    check('…the warnings first', b3[0].warn && b3[1].warn && !b3[2].warn, JSON.stringify(b3))
+    check('…each within the line, none hidden', b3.every((b) => b.inside && b.shown), JSON.stringify(b3))
+    check('…cut short with an ellipsis where they need it', b3.some((b) => b.cut) && (await tile('D').evaluate((el) => getComputedStyle(el.querySelector('.tile-badge-text')).textOverflow)) === 'ellipsis', JSON.stringify(b3))
+    check('…and D keeps the tiles\' height', (await heights()).every((h) => h === before[0]), (await heights()).join())
+    const badgeTip = await lib.hoverTip(page, tile('D').locator('.tile-badges'), (t) => b3.every((b) => t.includes(b.text)), HUNG_MS)
+    check('…all of them in full on hover', b3.every((b) => badgeTip.includes(b.text)), badgeTip)
+    await page.mouse.move(5, 5)
+    await page.screenshot({ path: path.join(lib.WORK, 'tilesview-badges.png') })
+    await inv('session:stop', alpha, ids.D)
+    await lib.until(async () => !(await live(ids.D)), HUNG_MS)
 
     // --- Page 2: M, highlighted where it is.
     await page.locator('.session-toolbar .tile-pages button').nth(1).click()

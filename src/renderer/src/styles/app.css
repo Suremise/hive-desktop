@@ -5247,14 +5247,28 @@ body.pane-resizing .monaco-editor {
   min-width: 0;
   height: 18px;
 }
-/* A row cut short is in full on hover (its tooltip's wrapper takes the row's place). */
-.agent-tile > .tip-wrap {
+/* A row of text (TileText): the row has the tile's width; inside it the line, and the tooltip's wrapper around the line
+   while it is cut short, fill it whole either way, so the line's width never depends on its tooltip. */
+.tile-row {
+  display: block;
   flex: none;
   min-width: 0;
+  height: 16px;
+  overflow: hidden;
 }
-.agent-tile > .tip-wrap > * {
-  flex: 1;
+.tile-row > .tip-wrap {
+  width: 100%;
   min-width: 0;
+  height: 100%;
+}
+.tile-line {
+  display: block;
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tile-name {
   font-weight: 600;
@@ -5268,15 +5282,6 @@ body.pane-resizing .monaco-editor {
   flex: none;
   color: var(--fg-faint);
   font-size: 11px;
-}
-.tile-status,
-.tile-card,
-.tile-progress-text {
-  flex: none;
-  height: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .agent-tile.waiting .tile-status {
   color: var(--state-waiting);
@@ -5294,9 +5299,6 @@ body.pane-resizing .monaco-editor {
   flex-direction: column;
   gap: 2px;
   height: 21px;
-}
-.tile-progress > .tip-wrap {
-  min-width: 0;
 }
 .tile-bar {
   flex: none;
@@ -5327,42 +5329,68 @@ body.pane-resizing .monaco-editor {
   }
 }
 /* Two lines of the latest reply, room for two always. */
-.tile-reply {
-  flex: none;
+.tile-row.tile-reply {
   height: 32px;
   color: var(--fg-faint);
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 16px;
+}
+.tile-reply .tile-line {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden;
+  height: 100%;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
-/* One line of badges: what doesn't fit is cut at the tile's edge (its pane's footer has them all). */
-.tile-badges {
-  display: flex;
-  flex: none;
-  gap: 4px;
+/* One line of badges (TileBadges): each gives way to the others, cut short with an ellipsis, and all are in full on hover
+   then. */
+.tile-row.tile-badges {
   height: 18px;
-  overflow: hidden;
+}
+.tile-badge-list {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
 }
 .tile-badge {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
   align-items: center;
+  min-width: 0;
   line-height: 18px;
   white-space: nowrap;
   gap: 3px;
-  padding: 0 6px;
+  padding: 0 5px;
   border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--fg-muted);
   font-size: 11px;
 }
+/* The background tasks' badge gives way first (down to its icon), so the warnings keep their amounts while they fit. */
+.tile-badge:not(.warn) {
+  flex-shrink: 1000;
+  min-width: 21px;
+}
 .tile-badge .codicon {
+  flex: none;
   font-size: 11px;
+}
+.tile-badge-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The badges in full, in their tooltip: one a line. */
+.tile-badges-tip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
 }
 .tile-badge.warn {
   color: var(--warning);

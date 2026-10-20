@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import type { AgentState } from '@shared/agentState'
 import { agentDoingCards, agentReviewCards, columnName } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
@@ -273,36 +273,84 @@ function Tile({ project, a, state, tabStop, movable, onFocus, onMenu }: { projec
       <TileText className="tile-reply" lines>
         {live?.replyStart ?? ''}
       </TileText>
-      <span className="tile-badges">
-        {tasksRunning > 0 && (
-          <span className="tile-badge">
-            <Icon name="server-process" /> {tr(msg({ id: 'panes.tiles.background', defaultMessage: '{n, plural, one {# background task} other {# background tasks}}', description: "A badge on an agent's tile: background tasks it started that still run." }), { n: tasksRunning })}
-          </span>
-        )}
-        {ctxOver && (
-          <span className="tile-badge warn">
-            <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.context', defaultMessage: 'Context {tokens}', description: 'A warning badge on an agent\'s tile: its context is past the Compact threshold ({tokens}: "210K").' }), { tokens: formatTokens(usage?.contextTokens ?? 0) })}
-          </span>
-        )}
-        {longTranscript && (
-          <span className="tile-badge warn">
-            <Icon name="warning" /> {tr(msg({ id: 'panes.tiles.transcript', defaultMessage: 'Transcript {size}', description: 'A warning badge on an agent\'s tile: its transcript is past the size Hive flags ({size}: "24 MB").' }), { size: formatSize(live!.transcriptBytes!) })}
-          </span>
-        )}
-      </span>
+      {/* The warnings first: what doesn't fit is cut short, and all of them are on hover then. */}
+      <TileBadges
+        badges={[
+          ...(ctxOver ? [{ icon: 'warning', warn: true, text: tr(msg({ id: 'panes.tiles.context', defaultMessage: 'Context {tokens}', description: 'A warning badge on an agent\'s tile: its context is past the Compact threshold ({tokens}: "210K").' }), { tokens: formatTokens(usage?.contextTokens ?? 0) }) }] : []),
+          ...(longTranscript ? [{ icon: 'warning', warn: true, text: tr(msg({ id: 'panes.tiles.transcript', defaultMessage: 'Transcript {size}', description: 'A warning badge on an agent\'s tile: its transcript is past the size Hive flags ({size}: "24 MB").' }), { size: formatSize(live!.transcriptBytes!) }) }] : []),
+          ...(tasksRunning > 0 ? [{ icon: 'server-process', warn: false, text: tr(msg({ id: 'panes.tiles.background', defaultMessage: '{n, plural, one {# background task} other {# background tasks}}', description: "A badge on an agent's tile: background tasks it started that still run." }), { n: tasksRunning }) }] : [])
+        ]}
+      />
     </button>
   )
 }
 
-/** A tile's row of text in its fixed place (#1145): cut short at its line (`lines`: its last line), in full on hover then. */
+/**
+ * A tile's row of text in its fixed place (#1145): cut short at its line (`lines`: its last line), in full on hover then.
+ * The row (`className`) has its own width, which the tooltip's wrapper, there only while the text is cut, fills without
+ * changing: the text's width never depends on whether it is cut, or measuring it would go round in circles.
+ */
 function TileText({ className, lines = false, children }: { className: string; lines?: boolean; children: ReactNode }) {
   const [ref, clipped] = useClipped<HTMLSpanElement>(lines)
   return (
-    <Tooltip content={clipped ? children : null} block>
-      <span ref={ref} className={className}>
-        {children}
-      </span>
-    </Tooltip>
+    <span className={cx('tile-row', className)}>
+      <Tooltip content={clipped ? children : null} block>
+        <span ref={ref} className="tile-line">
+          {children}
+        </span>
+      </Tooltip>
+    </span>
+  )
+}
+
+interface TileBadge {
+  icon: string
+  warn: boolean
+  text: string
+}
+
+/**
+ * A tile's one line of badges (#1145): each badge gives way to the others, cut short with an ellipsis, and when one is,
+ * all of them are in full on hover. Its width is the row's, as TileText's is.
+ */
+function TileBadges({ badges }: { badges: TileBadge[] }) {
+  const [clipped, setClipped] = useState(false)
+  const observers = useRef<{ ro: ResizeObserver; mo: MutationObserver } | null>(null)
+  const ref = useCallback((el: HTMLSpanElement | null) => {
+    observers.current?.ro.disconnect()
+    observers.current?.mo.disconnect()
+    observers.current = null
+    if (!el) return
+    const update = (): void => setClipped([...el.querySelectorAll<HTMLElement>('.tile-badge-text')].some((t) => t.scrollWidth > t.clientWidth + 1))
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    const mo = new MutationObserver(update)
+    mo.observe(el, { childList: true, characterData: true, subtree: true })
+    observers.current = { ro, mo }
+    update()
+  }, [])
+  const all = clipped ? (
+    <span className="tile-badges-tip">
+      {badges.map((b) => (
+        <span key={b.text} className={cx('tile-badge', b.warn && 'warn')}>
+          <Icon name={b.icon} /> {b.text}
+        </span>
+      ))}
+    </span>
+  ) : null
+  return (
+    <span className="tile-row tile-badges">
+      <Tooltip content={all} block>
+        <span ref={ref} className="tile-badge-list">
+          {badges.map((b) => (
+            <span key={b.text} className={cx('tile-badge', b.warn && 'warn')}>
+              <Icon name={b.icon} />
+              <span className="tile-badge-text">{b.text}</span>
+            </span>
+          ))}
+        </span>
+      </Tooltip>
+    </span>
   )
 }
 
