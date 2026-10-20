@@ -18,6 +18,7 @@ You are in **QA triager** mode: you turn a report into a card someone can fix.
 
 ## How you work
 
+- Triage each report with the **triage-report** skill: the cause first, then a duplicate check, then the card and its place.
 - Look for a card that already covers it before making a new one; add the new evidence there if so.
 - Write the card so it can be fixed cold: the steps, what happens, what should, the cause and where it is (files, lines), a proposed fix, and how to tell it is fixed (a test that fails today).
 - Place it where it belongs: the project, the lane or agent that owns those files, and how urgent it is next to what is already queued.

@@ -1,5 +1,6 @@
 // Moving a project's agents: Move Left in an agent's menu (#975: the strip's tabs went), dragging a pane by its header
-// onto another pane, dropping a pane's header on a page button, Move Right across a page and its shortcut. The order is saved in project.json and a running agent's
+// onto another pane, Move Right and Move Left across a page, and the shortcut. The panes' cells are saved in project.json,
+// with the order as they read (#762; dropping on page buttons and empty cells is in swap.cjs), and a running agent's
 // terminal and session survive the moves. The agent runs the fake Claude Code (fake-claude/). Dev build, throwaway
 // profile, workspace and CLAUDE_CONFIG_DIR.
 const lib = require('./lib.cjs')
@@ -48,22 +49,6 @@ const check = (name, ok, extra = '') => {
   const live = async (id) => (await inv('session:live')).find((s) => s.projectPath.toLowerCase() === alpha.toLowerCase() && s.agentId === id)
   const saved = () => JSON.parse(fs.readFileSync(path.join(alpha, '.hive', 'project.json'), 'utf8')).agents.map((a) => a.name).join(',')
   const paneNames = async () => (await page.locator('.pane-header-bar .agent-name').allInnerTexts()).join(',')
-  // A native drag: press, a first small move (so the drag starts), then over the target, and release.
-  const drag = async (from, to, { dx = 0 } = {}) => {
-    const a = await from.boundingBox()
-    const b = await to.boundingBox()
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(a.x + a.width / 2 + 8, a.y + a.height / 2, { steps: 3 })
-    await lib.sleep(150)
-    const x = b.x + b.width / 2 + dx, y = b.y + b.height / 2
-    await page.mouse.move(x, y, { steps: 8 })
-    await lib.sleep(150)
-    await page.mouse.move(x + 1, y, { steps: 2 })
-    await lib.sleep(100)
-    await page.mouse.up()
-    await lib.sleep(600)
-  }
 
   await page.getByText('alpha', { exact: true }).first().click()
   const names = ['One', 'Two', 'Three']
@@ -136,9 +121,10 @@ const check = (name, ok, extra = '') => {
   check('Move Right crosses to the next page', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Seven,Six', HUNG_MS)), saved())
   check('and the view follows the agent to its page', !!(await until(async () => (await page.locator('.page-switch button.active').innerText()).trim() === '2', HUNG_MS)))
 
-  // Drop Six's pane header on page 1's button: the last place on page 1.
-  await drag(header('Six'), page.locator('.page-switch button[aria-label="Agent page 1"]'))
-  check("dropping on a page button moves it to that page's last place", !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven', HUNG_MS)), saved())
+  // Move Left on Six (first on page 2) takes it back to page 1's last cell, swapping with Seven.
+  await lib.agentMenu(page, 'Six')
+  await lib.menuEntry(page, 'Move Left').click()
+  check('Move Left crosses back to the page before', !!(await until(async () => saved() === 'Three,One,Two,Four,Five,Six,Seven', HUNG_MS)), saved())
   await page.screenshot({ path: path.join(lib.WORK, 'reorder-3-pages.png') })
   check('still running throughout', (await live(one.id))?.sessionId === session)
 

@@ -131,6 +131,18 @@
     "defaultMessage": "Swap with {agent}",
     "description": "Shown over another agent's pane (or its tile in the Tiles view) while an agent is dragged onto it: dropping swaps the two ({agent}: the other agent's name)."
   },
+  "panes.empty.drop": {
+    "defaultMessage": "Drop an agent here",
+    "description": "An empty pane (#762): the user can drag an agent's pane header onto it to move the agent there."
+  },
+  "panes.empty.moveHere": {
+    "defaultMessage": "Move Agent Here",
+    "description": "Button on an empty pane (#762): opens a list of the agents on other pages, to move one into this pane."
+  },
+  "panes.empty.onPage": {
+    "defaultMessage": "Page {page}",
+    "description": "The detail of an agent in an empty pane's Move Agent Here list: the page it is on now."
+  },
   "panes.failed.dismiss": {
     "defaultMessage": "Dismiss (the terminal keeps the output)",
     "description": "Tooltip of the ✕ on the bar of an agent that failed to start."
@@ -335,13 +347,21 @@
     "defaultMessage": "Hand Over to…",
     "description": "Menu item (an agent's menu): hands its work over to another agent or a new conversation."
   },
+  "panes.menu.moveDown": {
+    "defaultMessage": "Move Down",
+    "description": "Menu item (an agent's menu, a grid layout): moves the agent's pane one cell down."
+  },
   "panes.menu.moveLeft": {
     "defaultMessage": "Move Left",
-    "description": "Menu item (an agent's menu): moves the agent one place left among the project's agents."
+    "description": "Menu item (an agent's menu): moves the agent one place left among the project's agents (its pane one cell left, panes side by side)."
   },
   "panes.menu.moveRight": {
     "defaultMessage": "Move Right",
-    "description": "Menu item (an agent's menu): moves the agent one place right among the project's agents."
+    "description": "Menu item (an agent's menu): moves the agent one place right among the project's agents (its pane one cell right, panes side by side)."
+  },
+  "panes.menu.moveUp": {
+    "defaultMessage": "Move Up",
+    "description": "Menu item (an agent's menu, a grid layout): moves the agent's pane one cell up."
   },
   "panes.menu.remove": {
     "defaultMessage": "Remove Agent…",
@@ -379,6 +399,10 @@
     "defaultMessage": "{n, plural, one {# unread} other {# unread}}",
     "description": "An item of a pane's ⋯ menu, and a line of its badge's hover: how many messages left for the agent it hasn't fetched or acked yet. Keep it short."
   },
+  "panes.pages.agentsTip": {
+    "defaultMessage": "{button, select, none {Page {page}} other {{button} (page {page})}}: {agents}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}",
+    "description": "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the names of the agents on it ({agents}: \"B1, B2 and R1\"), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+  },
   "panes.pages.button": {
     "defaultMessage": "Agent page {page}",
     "description": "Accessible name of a numbered page button in the session toolbar."
@@ -402,10 +426,6 @@
   "panes.pages.previous": {
     "defaultMessage": "Previous agent page",
     "description": "The ‹ button of the session toolbar's compact pager (many pages): shows the previous page of agents."
-  },
-  "panes.pages.tip": {
-    "defaultMessage": "{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}",
-    "description": "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
   },
   "panes.processes.count": {
     "defaultMessage": "{n, plural, one {# process} other {# processes}}",

@@ -2,6 +2,7 @@ import { join, relative } from 'path'
 import { lstat, readdir, rm } from 'original-fs/promises'
 import { HIVE_DIR } from '../shared/defaults'
 import { createLogger, userText } from './logger'
+import { trash } from './trash'
 import type { WorkspaceService } from './workspace'
 
 const log = createLogger('leftovers')
@@ -14,31 +15,46 @@ const BEFORE_IDS = /^(.+)\.before-ids\.bak$/i
 export const TEMP_AGE_MS = 24 * 60 * 60 * 1000
 /** A migration's copy is kept a week after it was made (an older Hive's workspace, just migrated, keeps it a while). */
 export const BAK_AGE_MS = 7 * 24 * 60 * 60 * 1000
+/** What a store's move into the workspace database kept (#1017, #1018): `<name>.imported-<ISO time, ':' and '.' as '-'>`. */
+const IMPORTED = /^(.+)\.imported-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/
+/** Such a backup goes to the Recycle Bin two weeks after the move (#1111): time enough to go back to an older Hive. */
+export const IMPORTED_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+/** What a move's backup was, and when its name says it was made; null for any other name. */
+export function importedBackup(name: string): { base: string; at: number } | null {
+  const m = IMPORTED.exec(name)
+  if (!m) return null
+  const at = Date.parse(`${m[2]}T${m[3]}:${m[4]}:${m[5]}.${m[6]}Z`)
+  return Number.isNaN(at) ? null : { base: m[1], at }
+}
 
 /**
  * One of Hive's stores: a folder (relative to a .hive) and the files Hive writes there. Only a temp file of one of those
- * files (`temp`), or the migration's copy of one it migrated (`bak`), is ever removed: the same suffix on anything else
- * (the user's notes, attachments, a folder Hive doesn't know) is never taken for a failed save.
+ * files (`temp`), the migration's copy of one it migrated (`bak`), or the backup kept when one moved into the workspace
+ * database (`imported`), is ever removed: the same suffix on anything else (the user's notes, attachments, a folder Hive
+ * doesn't know) is never taken for one.
  */
 export interface Store {
   dir: string
   temp: RegExp
   bak?: RegExp
+  imported?: RegExp
 }
 
 /** The workspace's .hive: its settings and records, the board, metrics and the Assistant's home. */
 export const WORKSPACE_STORES: Store[] = [
-  { dir: '.', temp: /^(workspace|lanes|watches|project-names|handover-owners|bundled)\.json(\.bak)?$/i, bak: /^(lanes|watches)\.json$/i },
+  // The board's card files moved as their folder, `tasks` (#1017).
+  { dir: '.', temp: /^(workspace|lanes|watches|project-names|handover-owners|bundled)\.json(\.bak)?$/i, bak: /^(lanes|watches)\.json$/i, imported: /^(tasks|lanes\.json|watches\.json)$/i },
   { dir: 'tasks', temp: /^(\d+|board)\.json$/i, bak: /^\d+\.json$/i },
-  { dir: 'metrics', temp: /^metrics\.json$/i },
+  { dir: 'metrics', temp: /^metrics\.json$/i, imported: /^metrics\.json$/i },
   { dir: join('metrics', 'benchmarks'), temp: /^[\w-]+\.json$/i },
-  { dir: 'assistant', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i },
+  { dir: 'assistant', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i, imported: /^(sessions|deliveries)\.json$/i },
   { dir: join('assistant', 'sessions'), temp: /^[\w-]+\.jsonl$/i }
 ]
 
 /** A project's .hive: its settings, sessions and deliveries, and its transcript backups. */
 export const PROJECT_STORES: Store[] = [
-  { dir: '.', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i },
+  { dir: '.', temp: /^(project|sessions|deliveries|sync)\.json(\.bak)?$/i, imported: /^(sessions|deliveries)\.json$/i },
   { dir: 'sessions', temp: /^[\w-]+\.jsonl$/i }
 ]
 
@@ -58,9 +74,10 @@ async function plainDir(hive: string, dir: string): Promise<boolean> {
 
 export interface Swept {
   /** Removed files, by kind, per folder. */
-  removed: { dir: string; temp: number; bak: number }[]
+  removed: { dir: string; temp: number; bak: number; imported: number }[]
   temp: number
   bak: number
+  imported: number
 }
 
 /**
@@ -69,10 +86,13 @@ export interface Swept {
  * only the files each store names are looked at, in that folder only (not its subfolders), and only in a store that is a
  * real folder inside its .hive, never one reached through a link or junction, and never a link to a file. What can't be removed (held
  * open) is left for the next open. Stops when `signal` is aborted, checked again just before each removal.
+ * The backups kept when a store moved into the workspace database (#1111: the board's `tasks` folder, metrics.json…) go
+ * two weeks after the move, by the time in their name, to the Recycle Bin (`trash`, given for tests), a folder whole.
  */
-export async function sweepLeftovers(roots: { hive: string; stores: Store[] }[], opts: { now?: number; signal?: AbortSignal } = {}): Promise<Swept> {
+export async function sweepLeftovers(roots: { hive: string; stores: Store[] }[], opts: { now?: number; signal?: AbortSignal; trash?: (path: string) => Promise<void> } = {}): Promise<Swept> {
   const now = opts.now ?? Date.now()
-  const out: Swept = { removed: [], temp: 0, bak: 0 }
+  const toBin = opts.trash ?? trash
+  const out: Swept = { removed: [], temp: 0, bak: 0, imported: 0 }
   for (const root of roots) {
     for (const store of root.stores) {
       if (opts.signal?.aborted) return out
@@ -81,14 +101,24 @@ export async function sweepLeftovers(roots: { hive: string; stores: Store[] }[],
       const names = await readdir(dir).catch(() => [] as string[])
       let temp = 0
       let bak = 0
+      let imported = 0
       for (const name of names) {
         const t = TEMP.exec(name)?.[1]
         const b = t === undefined ? BEFORE_IDS.exec(name)?.[1] : undefined
-        const kind = t !== undefined && store.temp.test(t) ? 'temp' : b !== undefined && store.bak?.test(b) ? 'bak' : null
+        const i = t === undefined && b === undefined ? importedBackup(name) : null
+        const kind = t !== undefined && store.temp.test(t) ? 'temp' : b !== undefined && store.bak?.test(b) ? 'bak' : i && store.imported?.test(i.base) ? 'imported' : null
         if (!kind) continue
         const file = join(dir, name)
         // The file itself, not what a link points to.
         const st = await lstat(file).catch(() => null)
+        if (kind === 'imported') {
+          // A file or a real folder, never a link or junction; its age is its name's.
+          if (!st || st.isSymbolicLink() || !(st.isFile() || st.isDirectory()) || now - i!.at < IMPORTED_AGE_MS) continue
+          if (opts.signal?.aborted) break
+          if (!(await toBin(file).then(() => true, (e) => (log.warn(`couldn't move ${userText(file)} to the Recycle Bin: tried again at the next open`, e), false)))) continue
+          imported++
+          continue
+        }
         // Made when: a copy keeps its source's modified time on Windows, so its creation time says when it was made.
         if (!st?.isFile() || now - Math.max(st.mtimeMs, st.birthtimeMs) < (kind === 'temp' ? TEMP_AGE_MS : BAK_AGE_MS)) continue
         if (opts.signal?.aborted) break
@@ -96,10 +126,11 @@ export async function sweepLeftovers(roots: { hive: string; stores: Store[] }[],
         if (kind === 'temp') temp++
         else bak++
       }
-      if (temp || bak) {
-        out.removed.push({ dir, temp, bak })
+      if (temp || bak || imported) {
+        out.removed.push({ dir, temp, bak, imported })
         out.temp += temp
         out.bak += bak
+        out.imported += imported
       }
     }
   }
@@ -122,9 +153,9 @@ export async function sweepWorkspaceLeftovers(ws: WorkspaceService): Promise<Swe
   if (!still()) return null
   const roots = [{ hive: join(path, HIVE_DIR), stores: WORKSPACE_STORES }, ...[...shown, ...hidden].map((p) => ({ hive: join(p, HIVE_DIR), stores: PROJECT_STORES }))]
   const swept = await sweepLeftovers(roots, { signal: life })
-  if (swept.temp || swept.bak) {
-    const where = swept.removed.map((r) => `${userText(relative(path, r.dir))} (${[r.bak ? `${r.bak} .before-ids.bak` : '', r.temp ? `${r.temp} .tmp` : ''].filter(Boolean).join(', ')})`).join('; ')
-    log.info(`removed ${swept.bak} old migration backup(s) and ${swept.temp} leftover temp file(s) from ${userText(path)}: ${where}`)
+  if (swept.temp || swept.bak || swept.imported) {
+    const where = swept.removed.map((r) => `${userText(relative(path, r.dir))} (${[r.bak ? `${r.bak} .before-ids.bak` : '', r.temp ? `${r.temp} .tmp` : '', r.imported ? `${r.imported} .imported to the Recycle Bin` : ''].filter(Boolean).join(', ')})`).join('; ')
+    log.info(`removed ${swept.bak} old migration backup(s), ${swept.temp} leftover temp file(s) and ${swept.imported} backup(s) of the move into the workspace database from ${userText(path)}: ${where}`)
   }
   return swept
 }
