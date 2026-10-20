@@ -117,7 +117,8 @@ export async function unusedWorktrees(projectPath: string): Promise<UnusedWorktr
   if (problem) return { worktrees: [], gitProblem: problem }
   const worktrees: UnusedWorktree[] = []
   const ws = workspaceOf(projectPath)
-  const sessions = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
+  // Without them each worktree is only "made by Hive" or not, never by whom: said in the log rather than hidden (#1149).
+  const sessions = (await workspace.sessionsFile(projectPath).catch((e) => void log.warn(`reading ${userText(basename(projectPath))}'s session records for its unused worktrees`, e)))?.sessions ?? []
   // Where Hive makes the project's agent worktrees (projectAgents.ts).
   const hiveFolder = ws.path ? join(ws.worktreesRoot, basename(projectPath)) : null
   for (const w of listed) worktrees.push(await describe(projectPath, w, worktreeOrigin(w.path, sessions, hiveFolder), reads))

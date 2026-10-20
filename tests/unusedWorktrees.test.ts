@@ -75,9 +75,15 @@ const commit = (cwd: string, file: string): void => {
 const branches = (): string[] => git(proj, 'branch', '--format=%(refname:short)').split(/\r?\n/).filter(Boolean)
 const listOf = async (): Promise<UnusedWorktree[]> => (await run(() => unusedWorktrees(proj))).worktrees
 const find = async (path: string): Promise<UnusedWorktree | undefined> => (await listOf()).find((x) => placeKey(x.path) === placeKey(path))
-/** Agents of the project, with these worktrees. */
-const agents = (trees: { path: string; branch: string }[]): void =>
-  writeFileSync(join(proj, '.hive', 'project.json'), JSON.stringify({ version: 2, agents: trees.map((t, i) => ({ id: `a${i}`, name: `A${i}`, provider: 'claude-code', worktree: { ...t, base: 'main' } })) }))
+/**
+ * Agents of the project, with these worktrees. The project keeps its id (#1149): written without it, Hive gives it a new
+ * one at its next read of the ids (a second later or more, as under load), and its session records are under the old one.
+ */
+const agents = (trees: { path: string; branch: string }[]): void => {
+  const file = join(proj, '.hive', 'project.json')
+  const id = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { id?: string }).id : undefined
+  writeFileSync(file, JSON.stringify({ version: 2, ...(id ? { id } : {}), agents: trees.map((t, i) => ({ id: `a${i}`, name: `A${i}`, provider: 'claude-code', worktree: { ...t, base: 'main' } })) }))
+}
 
 beforeAll(async () => {
   mkdirSync(join(proj, '.hive'), { recursive: true })
