@@ -266,6 +266,8 @@ To rename an agent, change its settings, move it or remove it, use its pane's **
 
 A tile waiting for you has a red border and a diamond; a stalled one has a square and a border in its own colour. The tiles show what Hive already knows, so they cost nothing: no terminal is drawn for them, and no CLI is asked anything.
 
+**Tiles keep one size.** Every tile has room for all of these, shown or not, so tiles don't grow and shrink as runs start and end or replies come in, and nothing moves while you read. Text too long for its line (a card's title, a reply, a status) ends in *…*: hover it to read it in full.
+
 **Twelve tiles fit a page.** With more agents, the page buttons on the toolbar's right show the other pages (or press Ctrl+Alt+PageDown and Ctrl+Alt+PageUp). **Settings → Sessions → Tile order** chooses the order:
 
 - **Same as panes** (the default): the tiles are in the panes' order, so a builder stays beside its reviewer, and moving an agent moves its tile too. A tile waiting for you or stalled stays where it is, highlighted, and a page button shows how many such tiles another page has.

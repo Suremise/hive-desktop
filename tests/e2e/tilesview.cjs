@@ -88,6 +88,10 @@ const check = (name, ok, extra = '') => {
     const heights = () => page.locator('.agent-tile').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height * 10) / 10))
     const before = await heights()
     check('every tile is the same height', before.length === 12 && new Set(before).size === 1, before.join())
+    // Its reply cut at its second line is in full on hover.
+    const replyTip = await lib.hoverTip(page, tile('A').locator('.tile-reply'), (t) => t.includes('so it is cut short'), HUNG_MS)
+    check("A's reply, cut short, is in full on hover", replyTip.includes(longReply), replyTip)
+    await page.mouse.move(5, 5)
     const runDone = path.join(lib.WORK, 'tilesview-run-done')
     await prompts('A').type(`shell: hive-progress --title tiles-run -- node -e "setInterval(() => require('fs').existsSync(process.argv[1]) && process.exit(0), 100)" ${runDone}`)
     const progressShown = () => tile('A').evaluate((el) => el.querySelector('.tile-progress-text')?.textContent ?? '')
