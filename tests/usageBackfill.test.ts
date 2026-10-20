@@ -1,8 +1,9 @@
 // The usage history's import and what relies on it (#1106 round 2): an import that couldn't finish isn't recorded as done
 // (nothing retired, its fallbacks kept) and the next try imports what is left; a record's kept usage wins over a stale
 // backup that counted less; a session deleted before the import reached it, or whose use can't be recorded, keeps what
-// it used; the Overview reads a running session from the history, not its transcript.
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+// it used; the Overview reads a running session from the history, not its transcript; the Sessions list reads a running
+// session by the usage worker, as its pane does (#1157).
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { spawn, type ChildProcess } from 'child_process'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -194,19 +195,35 @@ describe("the usage history's import", () => {
     expect((await run(() => workspace.sessionsFile(p))).sessions.some((s) => s.id === id)).toBe(true)
   })
 
-  it("lists a running session from the history: the Sessions tab and project Overview read no transcript for it", async () => {
+  it('lists a running session the history has by the worker, as its pane is (#1157): what was added since, a title too, and not asked again while unchanged', async () => {
     const id = newId()
     await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'running listed', lastActiveAt: at }))
     write(backup(id), transcript(id, [25]))
     await usageHistory.ingest(p, id, { priority: 1, keepState: 'running' })
     const s = sessions as unknown as { live: Map<string, unknown> }
     s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-l', projectPath: p, agentId: 'c1', sessionId: id, status: 'working' } })
-    const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')
+    const usageFor = vi.spyOn(sessions as unknown as { usageFor: (pp: string, path: string, id: string) => Promise<unknown> }, 'usageFor')
+    // The worker's read (#1147): main only asks it. usageFor(projectPath, path, sessionId, provider), read(the same).
+    const workerReads = vi.spyOn(usageHistory, 'read')
+    const readFor = (spy: { mock: { calls: unknown[][] } }): unknown[] => spy.mock.calls.map((c) => c[2])
+    const row = async (): Promise<SessionListItem | undefined> => (await run(() => sessions.list(p))).find((i) => i.id === id)
     try {
-      expect(outputOf(await run(() => sessions.list(p)), id)).toBe(25)
-      expect(usageFor.mock.calls.filter((c) => (c as unknown[])[1] === id)).toEqual([])
+      expect((await row())?.usage?.outputTokens).toBe(25)
+      expect([readFor(usageFor), readFor(workerReads)]).toEqual([[id], [id]])
+      // A CLI /rename and a request since, with no turn ended: the history has neither, the row has both.
+      const request = JSON.stringify({ type: 'assistant', sessionId: id, requestId: 'r-after', timestamp: new Date(T0 + 10 * 60_000).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 30 } } })
+      appendFileSync(backup(id), JSON.stringify({ type: 'custom-title', customTitle: 'Renamed while running', sessionId: id }) + '\n' + request + '\n')
+      workerReads.mockClear()
+      const after = await row()
+      expect([after?.usage?.customTitle, after?.title, after?.usage?.outputTokens]).toEqual(['Renamed while running', 'Renamed while running', 55])
+      expect(readFor(workerReads)).toEqual([id])
+      // Unchanged since: the worker isn't asked again.
+      workerReads.mockClear()
+      expect((await row())?.usage?.outputTokens).toBe(55)
+      expect(workerReads).not.toHaveBeenCalled()
     } finally {
       usageFor.mockRestore()
+      workerReads.mockRestore()
       s.live.clear()
     }
   })
