@@ -262,10 +262,9 @@ export function unknownOnCards(usage: Pick<SessionUsage, 'model' | 'firstActivit
  * are, and its cards' unknown parts again). Its totals never change, only which card each part is on.
  */
 export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | null, all: LedgerRow[], holds: SessionHold[], settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
-  if (!timeline?.rows.length) return [...all.filter((r) => r.card === 0), ...unknownOnCards(summary, holds)]
-  // What a baseline added stays as it is: it depends on the day's totals, which sharing cards out doesn't change.
-  const added = all.filter((r) => r.role === 'kept')
+  // Without what a baseline added (`kept` rows), which the caller applies again (sessionRows), coverage included.
   const rows = all.filter((r) => r.role !== 'kept')
+  if (!timeline?.rows.length) return [...rows.filter((r) => r.card === 0), ...unknownOnCards(summary, holds)]
   const days: Record<string, DayUsage> = {}
   const usage: SessionUsage = { ...summary, ...ZERO(), requests: 0, costUsd: null, costEstimated: false, days, timeline }
   for (const r of rows) {
@@ -279,7 +278,17 @@ export function reshareRows(summary: UsageSummary, timeline: UsageTimeline | nul
     d.prompts += r.prompts
     d.compactions += r.compactions
   }
-  return [...ledgerRows(usage, holds, settings), ...added]
+  return ledgerRows(usage, holds, settings)
+}
+
+/**
+ * A session's rows as they are recorded, whichever way they were made (round 6: every write goes through this): its base
+ * rows (read from its file by ledgerRows, or shared out again from what is stored by reshareRows, never with `kept`
+ * rows) with its baseline applied, charges and the tokens they covered together. So re-sharing cards, importing a kept
+ * usage or reading the file again never changes what a session counted or cost, only which card each part is on.
+ */
+export function sessionRows(base: LedgerRow[], baseline: BaselineDay[], provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): LedgerRow[] {
+  return applyBaseline(base, baseline, provider, settings)
 }
 
 // ---------------------------------------------------------------------------

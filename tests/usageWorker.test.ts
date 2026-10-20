@@ -185,7 +185,7 @@ describe('the usage worker', () => {
     await t.close()
   })
 
-  it('never erases a charge the provider reported, nor charges its tokens twice: a rewrite without its report costs the same', async () => {
+  it('never erases a charge the provider reported, nor charges its tokens twice: a rewrite without its report, its cards shared out again, costs the same', async () => {
     const t = await setup()
     const req = (rid: string, input: number, output: number, at = T0): string => JSON.stringify({ type: 'assistant', requestId: rid, timestamp: new Date(at).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output } } }) + '\n'
     const charge = JSON.stringify({ type: 'cost-state', timestamp: new Date(T0 + 1000).toISOString(), totalCostUSD: 0.5 }) + '\n'
@@ -203,9 +203,19 @@ describe('the usage worker', () => {
     writeFileSync(t.transcript, req('r1', 100_000, 10_000) + prompt(5))
     expect((await t.ingest()).status).toBe('written')
     expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
+    // Its cards shared out again (a hold now covering the request, then another): which card has it changes, not the cost.
+    const share = (card: number, key: string) => call({ type: 'attribute', file: t.file, scope: 'p1', sessions: [{ session: 'abc', holds: [{ card, role: 'build', parts: [[1, [[T0 - 1000, T0 + 5000]]]] }], holdsKey: key }] })
+    expect(await share(12, 'h1')).toBe(1)
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
+    expect((await t.stored())!.rows.filter((r) => r.card === 12).reduce((n, r) => n + r.inputTokens, 0)).toBe(100_000)
+    expect(await share(13, 'h2')).toBe(1)
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5, 9), input: 100_000, output: 10_000, requests: 1 })
     // A request added, still without a report: the old charge, and Hive's estimate for the new request alone.
     appendFileSync(t.transcript, req('r2', 1_000, 100, T0 + 2000))
-    expect((await t.ingest()).status).toBe('written')
+    expect((await t.ingest({ holds: [{ card: 13, role: 'build', parts: [[1, [[T0 - 1000, T0 + 5000]]]] }], holdsKey: 'h2' })).status).toBe('written')
+    expect(await priced()).toEqual({ cost: expect.closeTo(0.5 + est(1_000, 100), 9), input: 101_000, output: 10_100, requests: 2 })
+    // And shared out again once more: the same.
+    expect(await share(14, 'h3')).toBe(1)
     expect(await priced()).toEqual({ cost: expect.closeTo(0.5 + est(1_000, 100), 9), input: 101_000, output: 10_100, requests: 2 })
     // The user's own prices (#436): Hive's estimate for all of it, as for any session.
     expect((await priced(own)).cost).toBeCloseTo(est(101_000, 10_100), 9)

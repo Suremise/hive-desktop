@@ -3,7 +3,7 @@ import { createHash } from 'crypto'
 import { open, stat } from 'original-fs/promises'
 import { dirname, join } from 'path'
 import type { AppSettings, SessionUsage } from '../shared/types'
-import { applyBaseline, baselineOfRows, baselineOfUsage, dominates, ledgerRows, mergeBaselines, reshareRows, summaryOf, unknownOnCards, type SessionHold } from '../shared/usageLedger'
+import { baselineOfRows, baselineOfUsage, dominates, ledgerRows, mergeBaselines, reshareRows, sessionRows, summaryOf, unknownOnCards, type SessionHold } from '../shared/usageLedger'
 import { openDb, type Db } from './db'
 import { readAdvancedFrom, valuesReader } from './advancedValues'
 import type { DatabaseSync } from 'node:sqlite'
@@ -215,12 +215,12 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   const stored = now ? storedSession(db, job.scope, job.session) : null
   let baseline = now ? baselineOf(db, job.scope, job.session) : []
   const read = ledgerRows(raw, job.holds, settings)
-  let rows = applyBaseline(read, baseline, job.provider, settings)
+  let rows = sessionRows(read, baseline, job.provider, settings)
   let grew = false
   if (stored && !dominates(rows, stored.rows)) {
     // Less of something than recorded: what was recorded joins the baseline, and neither is lost.
     baseline = mergeBaselines(baseline, baselineOfRows(stored.rows))
-    rows = applyBaseline(read, baseline, job.provider, settings)
+    rows = sessionRows(read, baseline, job.provider, settings)
     grew = true
     log('info', `usage history: ${job.session} read less of something than recorded: what was recorded is kept beside it`, job.path)
   }
@@ -249,7 +249,8 @@ function reshare(db: DatabaseSync, job: { scope: string; session: string; holds:
   if (!cur || cur.holdsKey === job.holdsKey) return false
   const s = storedSession(db, job.scope, job.session)
   if (!s) return false
-  replaceRows(db, job.scope, job.session, reshareRows(s.summary, s.timeline, s.rows, job.holds, providers ? { providers } : null), job.holdsKey)
+  const settings = providers ? { providers } : null
+  replaceRows(db, job.scope, job.session, sessionRows(reshareRows(s.summary, s.timeline, s.rows, job.holds, settings), baselineOf(db, job.scope, job.session), s.summary.provider, settings), job.holdsKey)
   return true
 }
 
@@ -267,13 +268,11 @@ function kept(file: string, job: KeptJob): IngestResult {
   if (cur) {
     const s = storedSession(db, job.scope, job.session)
     if (!s) return { status: 'busy' }
-    const base = s.rows.filter((r) => r.role !== 'kept')
-    // Without a timeline (kept usage alone), its cards' unknown parts as its holds have them now.
-    const rows = applyBaseline(s.timeline?.rows.length ? base : base.filter((r) => r.card === 0), baseline, job.provider, settings)
-    replaceRows(db, job.scope, job.session, s.timeline?.rows.length ? rows : [...rows, ...unknownOnCards(s.summary, job.holds)], job.holdsKey, baseline)
+    // Its rows shared out by its holds now (a kept usage alone: its cards' unknown parts), the merged baseline applied.
+    replaceRows(db, job.scope, job.session, sessionRows(reshareRows(s.summary, s.timeline, s.rows, job.holds, settings), baseline, job.provider, settings), job.holdsKey, baseline)
     return { status: 'written', requests: job.usage.requests }
   }
-  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: 'clear', summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: [...applyBaseline([], baseline, job.provider, settings), ...unknownOnCards(job.usage, job.holds)], holdsKey: job.holdsKey, baseline }
+  const w: SessionWrite = { ...job, source: 'kept', path: null, size: 0, mtime: 0, offset: 0, state: 'clear', summary: summaryOf({ ...job.usage, lastPrompt: null }), timeline: null, rows: sessionRows(unknownOnCards(job.usage, job.holds), baseline, job.provider, settings), holdsKey: job.holdsKey, baseline }
   return { status: writeSession(db, w, null) ? 'written' : 'busy', requests: job.usage.requests }
 }
 
