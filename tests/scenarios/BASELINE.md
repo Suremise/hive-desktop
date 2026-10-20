@@ -70,11 +70,15 @@ decision about a card goes on the card first, the journal only noting it; the Co
 question on in its words; the journal and coordinate-agents skills match.
 - **Fakes**: every scenario passes the same checks before (`hb5-1136-before`) and after (`hb5-1136-after`);
   worktree-isolation timed out once before, under load. The Assistant's guidance +172 bytes with the journal on.
-- **Claude Code, before**: assistant-reply-decision failed again (`2026-10-20T03-01-43-claude-code`).
-- **Codex**: both scenarios 2 of 2 before (`2026-10-20T03-04-44-codex`) and after (`03-42-10-codex`).
-- **Claude Code, after** (CLI 2.1.304): assistant-reply-decision 3 of 3 (`2026-10-20T07-22-24-claude-code`);
-  coordinator-wake-question 5 of 5 that ran (`07-22-24`, `07-26-01`, `07-32-19`), 4 more lost to the harness before
-  the model acted (a typed prompt not taken: #1168). Before (`2026-10-19T22-48-31-claude-code`): 0 of 2 and 1 of 2.
+Samples the harness lost before the model acted (a typed prompt not taken: #1168) are counted apart, as neither.
+- **Claude Code (CLI 2.1.304), before**: on 97fc8adf, the branch before the change (`2026-10-20T07-52-16-claude-code`,
+  3 each): assistant-reply-decision 1 of 2 (the other read the card and Coder's activity and recorded nothing), 1
+  lost; coordinator-wake-question 2 of 2, 1 lost. On main at 1cd25924 (`2026-10-19T22-48-31-claude-code`): 0 of 2 and
+  1 of 2 (its reply didn't quote the question). In all: 1 of 4 and 3 of 4.
+- **Claude Code, after**: assistant-reply-decision 3 of 3 (`2026-10-20T07-22-24-claude-code`); coordinator-wake-question
+  5 of 5 (`07-22-24`, `07-26-01`, `07-32-19`), 4 lost.
+- **Codex (its default model)**: both 3 of 3 before, on 97fc8adf (`2026-10-20T07-59-00-codex`; an earlier 2 of 2,
+  `03-04-44-codex`, was pruned), and 3 of 3 after (`03-42-10-codex`, `07-51-45-codex`).
 
 ## Screenshots read through their report: fakes, Claude Code (its default model), Codex (its default model), fixtures v65, 20 October 2026
 
