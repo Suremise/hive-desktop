@@ -38,6 +38,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { BUILD_LOCKS, buildInputs, buildLock, buildStamp, buildStampedAt, builtOnce } from './build.mjs'
+import { holdLane } from './clean.mjs'
 import { LANES, OWN_POOL_FIRST, holdOwnPool } from './lanes.mjs'
 import { trySlot } from './slots.mjs'
 import { addWorktree, invocationDir, keepDir, removeInvocation, removeStale } from './tempWorktrees.mjs'
@@ -323,8 +324,25 @@ async function laneWaitCheck(wt) {
     // The source changes while they wait: what they test must be this, not what was there when they started.
     writeFileSync(probe, '// A source file added while runs waited for a test lane (concurrency.mjs, #735).\nexport {}\n')
     const source = { inputs: buildInputs(wt), code: fingerprint(wt) }
+    // A machine lane of the same number held as a runner holds it, with a suite's folder in it (#1133): the waiting runs'
+    // housekeeping, as they end, must leave it, whatever their own pool's claims say.
+    const sentinels = []
+    for (let k = 0; k < 2; k++) {
+      const release = await holdLane(runContext.MACHINE_LANES_DIR, k, { owner: process.pid })
+      if (!release) continue
+      const dir = join(runContext.TEST_ROOT, 'e2e', 'lanes', String(k), `concurrency-sentinel-${process.pid}`)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'held.txt'), "A machine lane's suite folder, held by the concurrency check (#1133).\n")
+      sentinels.push({ k, dir, release })
+    }
     for (let k = 0; k < 2; k++) rmSync(join(pool, `lane-${k}.json`), { force: true })
     const [e2e, scenario] = await runs
+    if (sentinels.length) check("a machine lane held by another runner keeps its folders through the waiting runs' housekeeping", sentinels.every((s) => existsSync(join(s.dir, 'held.txt'))), sentinels.filter((s) => !existsSync(s.dir)).map((s) => `lane ${s.k}'s folder was removed`).join('; '))
+    else console.log("(machine lanes 0 and 1 were both in use: the housekeeping check had no lane to hold, and didn't run)")
+    for (const s of sentinels) {
+      rmSync(s.dir, { recursive: true, force: true })
+      s.release()
+    }
     for (const r of [e2e, scenario]) {
       check(`${r.name}: passes`, r.code === 0, `exit ${r.code}\n${r.out.split(/\r?\n/).filter((l) => /FAIL|ERROR|Error|failed|isn't from this source/.test(l)).slice(0, 12).join('\n')}`)
       check(`${r.name}: it got a lane after waiting`, /^Got a test lane after \d+ s/m.test(r.out), r.out.slice(0, 600))
