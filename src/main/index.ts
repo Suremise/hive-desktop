@@ -48,7 +48,7 @@ import { placeOnDisplay } from './windowBounds'
 import { startBranchWatch } from './branchWatch'
 import { createLogger, userText, logsDir } from './logger'
 import { killAll } from './ptyHost'
-import { allLeftovers, closeProcessTracking, leftoversSaved, leftoversSettled, restoreLeftovers, settleAllLeftovers, settleLeftovers } from './agentProcesses'
+import { allLeftovers, closeProcessTracking, leftoversSaved, leftoversSettled, restoreLeftovers, settleAllLeftovers, settleLeftovers, warmProcessTracking } from './agentProcesses'
 import { leftoversSummary } from '../shared/agentProcesses'
 import { installShims } from './progressReporters/shims'
 import { insideArchive, onCorruptFile } from './fsutil'
@@ -1004,6 +1004,9 @@ app.whenReady().then(async () => {
   const hidden = config.settings.general.startMinimized || process.argv.includes('--hidden')
   const restore = windowsToRestore()
   for (const w of restore) createWindow({ ...w, hidden })
+  // A workspace reopening (#1155): the process tracker gets going beside the windows' loading, so a Resume as soon as
+  // they show doesn't wait for it. A workspace opened later starts it once it shows agents (below).
+  if (restore.some((w) => w.workspacePath)) warmProcessTracking()
   // The last restored window is on top: it counts as focused first.
   const first = hiveWindows()[0]
   first?.win.webContents.once('did-finish-load', () => {
@@ -1028,6 +1031,8 @@ app.whenReady().then(async () => {
     if (e.type === 'session-status' || e.type === 'session-exit') checkPendingQuit()
     // A window opened or closed its workspace: remember it for the next start.
     if (e.type === 'workspace-changed') saveWindowsSoon()
+    // A workspace with agents to start (#1155): the process tracker gets going now, not as the first of them starts.
+    if (e.type === 'workspace-changed' && e.workspace && (e.workspace.projects.some((p) => p.agents.length) || e.workspace.assistant?.agents.some((a) => a.resume))) warmProcessTracking()
     // A CLI's installed version: what a CLI-facing advanced override is made for, and flagged against (#367).
     if (e.type === 'provider-install' && !e.info.checking) advanced.noteCli(e.provider, e.info.found ? (e.info.version ?? null) : null)
     // A card moved to Doing (or was given to a running agent): its session records it.

@@ -134,6 +134,54 @@ describe.runIf(process.platform === 'win32')("when the process tracker fails", (
     expect(await ready).toBe(false)
   }, 30_000)
 
+  it('starts its helper early when warmed (#1155): the first launch finds it running, and quitting meanwhile ends it', async () => {
+    mod = await import('../src/main/agentProcesses')
+    expect(mod.trackerPid()).toBeNull()
+    mod.warmProcessTracking()
+    expect(await until(() => mod!.trackerPid() !== null, 10_000)).toBe(true)
+    const helper = mod.trackerPid()!
+    expect(await mod.trackingReady()).toBe(true)
+    const next = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
+    children.push(next)
+    expect(await mod.trackLaunch({ runId: 'warm1', projectPath: dir, agentId: 'a5', agentName: 'Warm' }, next.pid!)).toEqual({ tracked: true })
+    // The same helper, warmed again as more workspace changes come: no second one.
+    mod.warmProcessTracking()
+    expect(mod.trackerPid()).toBe(helper)
+    expect(toasts).toEqual([])
+    await mod.closeProcessTracking()
+    expect(alive(helper)).toBe(false)
+
+    // Quitting while a warmed helper is still starting: it is ended, and none starts after.
+    vi.resetModules()
+    process.env.HIVE_TEST_PROCESS_TRACKER = 'silent'
+    process.env.HIVE_TEST_TRACKER_WAIT_MS = '60000'
+    mod = await import('../src/main/agentProcesses')
+    mod.warmProcessTracking()
+    expect(await until(() => mod!.trackerPid() !== null, 10_000)).toBe(true)
+    const starting = mod.trackerPid()!
+    await mod.closeProcessTracking()
+    expect(alive(starting)).toBe(false)
+    mod.warmProcessTracking()
+    expect(mod.trackerPid()).toBeNull()
+    expect(toasts).toEqual([])
+  }, 30_000)
+
+  it('says nothing when a warmed helper that holds nothing dies, and the next launch starts another (#1155)', async () => {
+    mod = await import('../src/main/agentProcesses')
+    mod.warmProcessTracking()
+    expect(await mod.trackingReady()).toBe(true)
+    const helper = mod.trackerPid()!
+    process.kill(helper) // its handle is held (the module's helper, running): the pid can't be another's
+    expect(await until(() => mod!.trackerPid() === null, 10_000)).toBe(true)
+    expect(toasts).toEqual([])
+    expect(mod.trackingLost()).toBeNull()
+    const next = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore', windowsHide: true })
+    children.push(next)
+    expect(await mod.trackLaunch({ runId: 'warm2', projectPath: dir, agentId: 'a6', agentName: 'After' }, next.pid!)).toEqual({ tracked: true })
+    expect(mod.trackerPid()).not.toBe(helper)
+    expect(mod.trackingProblem()).toBeNull()
+  }, 30_000)
+
   it('says at once when a running helper dies, keeps it for Diagnostics, ends nothing, and keeps what was listed by identity', async () => {
     mod = await import('../src/main/agentProcesses')
     // A launch that leaves a detached server running, tracked from before it starts it.
