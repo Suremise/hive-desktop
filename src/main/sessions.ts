@@ -47,10 +47,10 @@ import type {
 } from '../shared/types'
 import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
-import { GZ, compressFile, decompressTo, expandBackup, isGz, readTranscript } from './transcriptFiles'
+import { GZ, compressFile, decompressTo, expandBackup, isGz } from './transcriptFiles'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
-import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
+import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery } from './providers/types'
 import { providerService } from './providerService'
 import { config } from './config'
 import { emit, emitTo, tellListeners, toast } from './events'
@@ -444,30 +444,23 @@ function goAheadPrompt(cwd: string, paths: string[]): string {
 const LOCK_TTL_MS = 15 * 60_000
 
 /**
- * Each transcript's usage, with the parser that read it: transcripts only grow, so a running session's is read
- * from where the last read stopped (a long session's transcript can be 100 MB) rather than from the start.
+ * The latest usage main had from the usage worker for each transcript (#1147: the worker reads them, never main), by
+ * path, with the size and modified time it was read at: asked for again while the file is unchanged, it is answered
+ * here, priced once, without asking the worker.
  */
-interface UsageEntry {
-  /** null once dropped (too many kept): the result stays, and a changed file is read again from the start. */
-  parser: UsageParser | null
+interface UsageSeen {
   sessionId: string
   provider: ProviderId
-  /** Bytes read so far, at a line boundary. */
-  offset: number
   size: number
   mtime: number
-  /** The parser's result before costs, which follow the prices in the settings: what usage-cache.json keeps. */
-  raw: SessionUsage | null
-  /** Worked out from raw (with costs); null until asked for again after a change. */
+  /** The worker's result, before costs, which follow the prices in the settings. */
+  raw: SessionUsage
+  /** Worked out from raw (with costs); null until asked for again after a price change. */
   usage: SessionUsage | null
 }
-const usageCache = new Map<string, UsageEntry>()
-/** Transcripts whose parsers are kept (each holds its session's request history); results are kept for more. */
-const MAX_USAGE_PARSERS = 200
-/** Transcripts whose results are kept, in memory and on disk (Settings → Sessions → Usage cache size). */
-const maxUsageResults = (): number => Math.min(50000, Math.max(100, Number(config.settings.sessions.usageCacheSize) || 5000))
-/** How much of a transcript is read at a time. */
-const USAGE_CHUNK = 4 * 1024 * 1024
+const usageSeen = new Map<string, UsageSeen>()
+/** Transcripts main keeps the latest usage of (the worker keeps more: Settings → Sessions → Usage cache size). */
+const MAX_USAGE_SEEN = 200
 
 /**
  * A transcript's size for the Sessions list (#671): a stat, never a read, taken each time the list is (the window keeps
@@ -507,22 +500,6 @@ async function readSpan(path: string, start: number, size: number): Promise<stri
  */
 const usageCacheFile = (): string => join(app.getPath('userData'), 'usage-cache.json')
 
-/** Drops the least recently used parsers beyond MAX_USAGE_PARSERS (their results stay), and results beyond the cache size. */
-function trimUsageCache(): void {
-  const maxResults = maxUsageResults()
-  let parsers = 0
-  for (const c of usageCache.values()) if (c.parser) parsers++
-  for (const [k, c] of usageCache) {
-    if (parsers <= MAX_USAGE_PARSERS && usageCache.size <= maxResults) break
-    if (usageCache.size > maxResults) {
-      usageCache.delete(k)
-      if (c.parser) parsers--
-    } else if (c.parser) {
-      c.parser = null
-      parsers--
-    }
-  }
-}
 
 /** Writes text to a session in small pieces, the way keystrokes arrive, rather than as one burst. */
 async function typeInto(key: string, text: string, still: () => boolean = () => true): Promise<void> {
@@ -1077,7 +1054,7 @@ class SessionManager {
 
   /** Works out usage again (e.g. after price changes, so estimates are recomputed); what was read is kept. */
   clearUsageCache(): void {
-    for (const c of usageCache.values()) c.usage = null
+    for (const c of usageSeen.values()) c.usage = null
   }
 
   /**
@@ -1085,7 +1062,8 @@ class SessionManager {
    * usage history keeps what sessions used: it isn't cleared.
    */
   async forgetUsageCache(): Promise<void> {
-    usageCache.clear()
+    usageSeen.clear()
+    await usageHistory.forgetReads()
     await this.retireUsageCacheFile()
     log.info('usage cache cleared')
   }
@@ -1752,7 +1730,7 @@ class SessionManager {
     }
     const l = check(this.live.get(id))
     const src = await this.liveTranscript(l)
-    const before = src ? ((await this.usageFor(src, l.state.sessionId, l.state.provider))?.compactions.length ?? 0) : 0
+    const before = src ? ((await this.usageFor(l.state.projectPath, src, l.state.sessionId, l.state.provider))?.compactions.length ?? 0) : 0
     // Again: a second Compact or a prompt may have come meanwhile (one at a time, only while idle).
     if (this.live.get(id) !== l) throw hiveError(M.noSession, undefined, { kind: 'conflict' })
     check(l)
@@ -2883,11 +2861,11 @@ class SessionManager {
     await this.readSafeguards(l, src)
     if (l.compacting) {
       // Fallback if the compaction hooks never arrive: a new compaction in the transcript.
-      const u = await this.usageFor(src, sessionId, l.state.provider)
+      const u = await this.usageFor(l.state.projectPath, src, sessionId, l.state.provider)
       if (u) l.compacting?.transcript(u.compactions)
     }
     if (l.defaultModel) {
-      const usage = await this.usageFor(src, sessionId, l.state.provider)
+      const usage = await this.usageFor(l.state.projectPath, src, sessionId, l.state.provider)
       if (usage?.model) {
         providerService.observeDefaultModel(l.state.provider, usage.model)
         l.defaultModel = false
@@ -2908,7 +2886,7 @@ class SessionManager {
     if (l.adapter.descriptor.capabilities.reportsCost && !own) return this.setLiveCost(l, l.reportedCost, false)
     if (!force && Date.now() - (l.costAt ?? 0) <= COST_INTERVAL_MS) return
     l.costAt = Date.now()
-    const usage = await this.usageFor(src, l.state.sessionId, l.state.provider)
+    const usage = await this.usageFor(l.state.projectPath, src, l.state.sessionId, l.state.provider)
     // The settings changed while it was read: the read they started decides.
     if (usesOwnPrices(l.state.provider, config.settings) !== own || !usage) return
     // An estimate is Hive's (the user's prices, or a provider that reports none); anything else is the CLI's report.
@@ -4420,42 +4398,31 @@ class SessionManager {
     }
   }
 
-  /** A transcript's usage, read incrementally. Reads of one transcript take turns, so no line is fed twice. */
-  private usageFor(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
-    return withFileLock(`${path}#usage`, () => this.usageForNow(path, sessionId, provider))
-  }
-
-  private async usageForNow(path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
+  /**
+   * A transcript's usage so far, read by the usage worker (#1147), so a long transcript never holds up main: from where
+   * its last read stopped, or (not read in this run: a session resumed after a restart) from its session's saved state in
+   * the history of `projectPath`, its host. Unchanged since main last had it, answered here without asking the worker.
+   */
+  private async usageFor(projectPath: string, path: string, sessionId: string, provider: ProviderId): Promise<SessionUsage | null> {
     try {
       const s = await stat(path)
-      let c = usageCache.get(path)
-      // Most recently used last: the oldest go first when there are too many.
-      if (c) {
-        usageCache.delete(path)
-        usageCache.set(path, c)
+      const seen = usageSeen.get(path)
+      if (seen && seen.mtime === s.mtimeMs && seen.size === s.size && seen.sessionId === sessionId && seen.provider === provider) {
+        // Most recently used last: the oldest go first when there are too many.
+        usageSeen.delete(path)
+        usageSeen.set(path, seen)
+        // Unchanged since it was read: priced again after a price change, not read.
+        return (seen.usage ??= this.priced(seen.raw))
       }
-      if (c && c.mtime === s.mtimeMs && c.size === s.size && c.sessionId === sessionId && c.provider === provider) {
-        if (c.usage) return c.usage
-        // Unchanged since it was read in this run: priced again, not read.
-        if (c.raw) return (c.usage = this.priced(c.raw))
-      }
-      // A file that shrank or was rewritten (or is now another session's), or whose parser was dropped, is read again from the start.
-      // A compressed backup (#1110) is finished: one that changed is another file, read whole again.
-      if (c && (!c.parser || c.sessionId !== sessionId || c.provider !== provider || isGz(path) || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
-      if (!c) {
-        c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, raw: null, usage: null }
-        usageCache.set(path, c)
-        trimUsageCache()
-      }
-      const parser = c.parser!
-      // In pieces, so a long transcript read for the first time doesn't take its whole size in memory at once; whole
-      // lines only (a line still being written is read next time), a compressed backup decompressed (transcriptFiles).
-      if (isGz(path) || s.size > c.offset) c.offset = await readTranscript(path, c.offset, (piece) => parser.feed(piece.toString('utf8')), USAGE_CHUNK)
-      c.size = s.size
-      c.mtime = s.mtimeMs
-      c.raw = parser.result()
-      this.checkUnderstood(provider, c.raw, s.size)
-      c.usage = this.priced(c.raw)
+      const r = await usageHistory.read(projectPath, path, sessionId, provider)
+      if (!r) return null
+      this.checkUnderstood(provider, r.usage, r.size)
+      // The title the CLI's own index gives it (Codex's, Copilot's), which the worker's parsers can't read.
+      const raw = this.titled(r.usage)
+      const c: UsageSeen = { sessionId, provider, size: r.size, mtime: r.mtime, raw, usage: this.priced(raw) }
+      usageSeen.delete(path)
+      usageSeen.set(path, c)
+      if (usageSeen.size > MAX_USAGE_SEEN) usageSeen.delete(usageSeen.keys().next().value!)
       return c.usage
     } catch {
       return null
@@ -4677,7 +4644,7 @@ class SessionManager {
     if (!usage) {
       const p = await this.anyTranscript(projectPath, sessionId, ctx)
       if (!p) return rec?.keptUsage ?? null
-      usage = await this.usageFor(p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+      usage = await this.usageFor(projectPath, p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
       if (usage && rec && !running) void usageHistory.ingest(projectPath, sessionId, { priority: 2, keepState: 'no' }).catch(() => undefined)
     }
     if (usage) usage = withScreenStopsIn(usage, rec?.screenStops)
@@ -5313,7 +5280,7 @@ class SessionManager {
     assertSessionId(sessionId)
     const src = await this.providerTranscript(projectPath, sessionId)
     const provider = src?.provider ?? 'claude-code'
-    const usage = src ? await this.usageFor(src.path, sessionId, provider) : null
+    const usage = src ? await this.usageFor(projectPath, src.path, sessionId, provider) : null
     // A sub-session (a Codex guardian review, say) stays one: never an agent's session to resume.
     const sub = src ? (await providerAdapter(provider).listSessions(projectPath).catch(() => [])).find((e) => e.id === sessionId)?.sub : undefined
     await workspace.upsertSession(projectPath, {
