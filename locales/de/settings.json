@@ -604,7 +604,7 @@
   "settings.project.metadata.title": "Einstellungsdatei",
   "settings.project.reset.desc": "Alles auf dieser Seite wird wieder auf „Geerbt“ gesetzt. Agenten sowie abgewählte Skills und MCP-Server bleiben erhalten.",
   "settings.project.reset.title": "Projekteinstellungen zurücksetzen",
-  "settings.project.storage.desc": "Im Hintergrund gemessen; „Aktualisieren“ misst neu. Die eigenen Transkripte der Coding-Agenten (in ~/.claude und ~/.codex) werden nicht mitgezählt, und „Aufräumen…“ fasst sie nie an.",
+  "settings.project.storage.desc": "Im Hintergrund gemessen; „Aktualisieren“ misst neu. Die eigenen Transkripte der Coding-Agenten (in ~/.claude, ~/.codex und ~/.copilot) werden nicht mitgezählt, und weder „Aufräumen…“ noch „Bereinigen…“ fasst sie je an.",
   "settings.project.storage.title": "Was Hive speichert",
   "settings.project.transcriptWarnMB.desc": "Größe in MB, ab der das Transkript einer laufenden Unterhaltung für dieses Projekt markiert wird. Leer übernimmt Einstellungen → Sitzungen → Warnen, wenn ein Transkript größer ist als.",
   "settings.project.transcriptWarnMB.off": "Nie",
@@ -642,7 +642,7 @@
   "settings.projectSection.provider.desc": "Modell, Aufwand und Berechtigungen für die Agenten von {provider} in diesem Projekt. Agenten können sie für sich überschreiben.",
   "settings.projectSection.sessions.desc": "Komprimieren und Benachrichtigungen für dieses Projekt.",
   "settings.projectSection.sessions.label": "Sitzungen",
-  "settings.projectSection.storage.desc": "Was Hive für dieses Projekt speichert: Sicherungen von Transkripten, archivierte Sitzungen, Anhänge und die Worktrees der Agenten. „Aufräumen…“ verschiebt alte Sicherungen und Anhänge in den Papierkorb.",
+  "settings.projectSection.storage.desc": "Was Hive für dieses Projekt speichert: Sicherungen von Transkripten, archivierte Sitzungen, Anhänge und die Worktrees der Agenten. „Aufräumen…“ verschiebt alte Sicherungen und Anhänge in den Papierkorb; „Bereinigen…“ entfernt alles, was Hive für die Sitzungen des Projekts speichert.",
   "settings.projectSection.storage.label": "Speicher",
   "settings.provider.allowBackgroundSessions.desc": "Die Agentenansicht von {provider} eine Sitzung in einen eigenen Hintergrunddienst verschieben lassen. Gilt für danach gestartete Sitzungen.",
   "settings.provider.allowBackgroundSessions.tip": "Standardmäßig aus. Wer in {provider} bei leerem Prompt ← drückt (leicht passiert beim Bewegen im Text), öffnet die Agentenansicht und verschiebt die Sitzung in den Hintergrund. Dann kann Hive sie nicht mehr sehen oder stoppen: „Stoppen“ schließt nur das Terminal, die Sitzung läuft weiter, und Fortsetzen schlägt fehl, bis sie mit „{cli} stop“ gestoppt wird.",
@@ -874,7 +874,7 @@
   "settings.workspace.loopWaitHours.desc": "Wie viele Stunden ein Agent in einer Kartenschleife ohne Änderung wartet, bevor er dir Bescheid gibt, wenn du nichts angibst. Projekte können einen eigenen Wert festlegen.",
   "settings.workspace.loopWaitHours.tip": "Sagst du beim Start einer Schleife „wait: 2h“, gilt das weiterhin vorrangig. Bis zu einem Tag. Agenten lesen diesen Wert, wenn sie die Schleife registrieren (ihre Lane), eine Änderung gilt also für danach gestartete Schleifen.",
   "settings.workspace.loopWaitHours.title": "Wartezeit der Kartenschleife",
-  "settings.workspace.storage.desc": "Was Hive für jedes Projekt des Arbeitsbereichs (das größte zuerst) und den Hive Assistant speichert: Sicherungen von Transkripten, archivierte Sitzungen, Anhänge und Worktrees. „Speicher“ öffnet die Seite eines Projekts, mit „Aufräumen…“.",
-  "settings.workspace.storage.tip": "Im Hintergrund gemessen, ein Projekt nach dem anderen. Die eigenen Transkripte der Coding-Agenten (in ~/.claude und ~/.codex) werden nicht mitgezählt. Ausgeblendete Projekte sind nicht enthalten.",
+  "settings.workspace.storage.desc": "Was Hive für jedes Projekt des Arbeitsbereichs (das größte zuerst) und den Hive Assistant speichert: Sicherungen von Transkripten, archivierte Sitzungen, Anhänge und Worktrees. „Speicher“ öffnet die Seite eines Projekts, mit „Aufräumen…“ und „Bereinigen…“; „Bereinigen…“ entfernt hier alles, was Hive für die Sitzungen des ganzen Arbeitsbereichs speichert.",
+  "settings.workspace.storage.tip": "Im Hintergrund gemessen, ein Projekt nach dem anderen. Die eigenen Transkripte der Coding-Agenten (in ~/.claude, ~/.codex und ~/.copilot) werden nicht mitgezählt. Ausgeblendete Projekte sind nicht enthalten.",
   "settings.workspace.storage.title": "Speicher"
 }

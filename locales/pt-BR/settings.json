@@ -604,7 +604,7 @@
   "settings.project.metadata.title": "Arquivo de configurações",
   "settings.project.reset.desc": "Tudo nesta página volta para Herdado. Os agentes, e as exclusões de skills e MCP, são mantidos.",
   "settings.project.reset.title": "Redefinir configurações do projeto",
-  "settings.project.storage.desc": "Medido em segundo plano; Atualizar mede de novo. As transcrições dos próprios agentes de código (em ~/.claude e ~/.codex) não são contadas, e Limpar… nunca mexe nelas.",
+  "settings.project.storage.desc": "Medido em segundo plano; Atualizar mede de novo. As transcrições dos próprios agentes de código (em ~/.claude, ~/.codex e ~/.copilot) não são contadas, e nem Limpar… nem Expurgar… mexem nelas.",
   "settings.project.storage.title": "O que o Hive guarda",
   "settings.project.transcriptWarnMB.desc": "Tamanho, em MB, a partir do qual a transcrição de uma conversa em andamento é sinalizada neste projeto. Vazio herda Configurações → Sessões → Avisar quando uma transcrição passar de.",
   "settings.project.transcriptWarnMB.off": "Nunca",
@@ -642,7 +642,7 @@
   "settings.projectSection.provider.desc": "Modelo, esforço e permissões dos agentes {provider} deste projeto. Os agentes podem substituí-los para si mesmos.",
   "settings.projectSection.sessions.desc": "Compactação e notificações deste projeto.",
   "settings.projectSection.sessions.label": "Sessões",
-  "settings.projectSection.storage.desc": "O que o Hive guarda para este projeto: backups de transcrições, sessões arquivadas, anexos e os worktrees dos agentes. Limpar… move backups e anexos antigos para a Lixeira.",
+  "settings.projectSection.storage.desc": "O que o Hive guarda para este projeto: backups de transcrições, sessões arquivadas, anexos e os worktrees dos agentes. Limpar… move backups e anexos antigos para a Lixeira; Expurgar… remove tudo o que o Hive guarda das sessões do projeto.",
   "settings.projectSection.storage.label": "Armazenamento",
   "settings.provider.allowBackgroundSessions.desc": "Deixar a visualização de agentes do {provider} mover uma sessão para um serviço próprio em segundo plano. Vale para sessões iniciadas depois.",
   "settings.provider.allowBackgroundSessions.tip": "Desativado por padrão. No {provider}, pressionar ← num prompt vazio (fácil de fazer ao navegar pelo texto) abre a visualização de agentes e move a sessão para segundo plano. O Hive então não consegue mais vê-la nem pará-la: Parar só fecha o terminal, a sessão continua rodando, e retomá-la falha até que seja parada com “{cli} stop”.",
@@ -874,7 +874,7 @@
   "settings.workspace.loopWaitHours.desc": "Quantas horas um agente num ciclo de cartões espera sem mudança antes de avisar você, se você não indicar outro valor. Os projetos podem definir o próprio valor.",
   "settings.workspace.loopWaitHours.tip": "Dizer “wait: 2h” ao iniciar um ciclo continua valendo acima disto. Até um dia. Os agentes leem este valor quando registram o ciclo (a raia dele), então uma alteração vale para ciclos iniciados depois.",
   "settings.workspace.loopWaitHours.title": "Espera do ciclo de cartões",
-  "settings.workspace.storage.desc": "O que o Hive guarda para cada projeto do espaço de trabalho (os maiores primeiro) e para o Hive Assistant: backups de transcrições, sessões arquivadas, anexos e worktrees. Armazenamento abre a página de um projeto, com Limpar….",
-  "settings.workspace.storage.tip": "Medido em segundo plano, um projeto por vez. As transcrições dos próprios agentes de código (em ~/.claude e ~/.codex) não são contadas. Projetos ocultos não entram.",
+  "settings.workspace.storage.desc": "O que o Hive guarda para cada projeto do espaço de trabalho (os maiores primeiro) e para o Hive Assistant: backups de transcrições, sessões arquivadas, anexos e worktrees. Armazenamento abre a página de um projeto, com Limpar… e Expurgar…; aqui, Expurgar… remove tudo o que o Hive guarda das sessões de todo o espaço de trabalho.",
+  "settings.workspace.storage.tip": "Medido em segundo plano, um projeto por vez. As transcrições dos próprios agentes de código (em ~/.claude, ~/.codex e ~/.copilot) não são contadas. Projetos ocultos não entram.",
   "settings.workspace.storage.title": "Armazenamento"
 }

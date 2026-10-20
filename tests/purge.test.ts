@@ -19,7 +19,7 @@ let binned = 0
 
 const { createWorkspaceService, disposeWorkspaceService, inWorkspace, workspace } = await import('../src/main/workspace')
 const { sessions } = await import('../src/main/sessions')
-const { purge, purgePreview } = await import('../src/main/storage')
+const { PREVIEW_MS, purge, purgePreview } = await import('../src/main/storage')
 const { usageHistory } = await import('../src/main/usageHistory')
 const { setViewing } = await import('../src/main/transcriptReads')
 
@@ -442,6 +442,35 @@ describe('Purge', () => {
     await run(() => purge(preview.id, preview.items.map((i) => i.key), false))
     await expect(run(() => purge(preview.id, preview.items.map((i) => i.key), false))).rejects.toThrow(/out of date/)
     await expect(run(() => purge('nope', [], false))).rejects.toThrow(/out of date/)
+  })
+
+  // #1158: a preview's age is checked when it is applied, not only when another is made.
+  it('a preview applies up to PREVIEW_MS after it was made, and is refused after, with nothing removed', async () => {
+    const t0 = Date.now()
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const onTime = await session(true)
+      clock.mockReturnValue(t0)
+      const fresh = await run(() => purgePreview({ kind: 'session', projectPath: p, sessionId: onTime }))
+      clock.mockReturnValue(t0 + PREVIEW_MS)
+      const result = await run(() => purge(fresh.id, fresh.items.map((i) => i.key), false))
+      expect(result).toMatchObject({ removed: 2, skipped: [] })
+      expect(existsSync(active(onTime))).toBe(false)
+
+      const late = await session(true)
+      clock.mockReturnValue(t0)
+      const stale = await run(() => purgePreview({ kind: 'session', projectPath: p, sessionId: late }))
+      expect(stale.items.length).toBe(2)
+      clock.mockReturnValue(t0 + PREVIEW_MS + 1)
+      const was = binCount()
+      await expect(run(() => purge(stale.id, stale.items.map((i) => i.key), false))).rejects.toThrow(/out of date\. Open Purge again/)
+      expect([existsSync(active(late)), existsSync(join(attachments(late), 'a.png')), (await records()).some((r) => r.id === late), binCount()]).toEqual([true, true, true, was])
+      // Forgotten once refused: going back in time doesn't bring it back.
+      clock.mockReturnValue(t0)
+      await expect(run(() => purge(stale.id, stale.items.map((i) => i.key), false))).rejects.toThrow(/out of date/)
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it('refuses a target that is not one', async () => {

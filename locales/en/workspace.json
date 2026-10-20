@@ -1556,7 +1556,7 @@
     "description": "Storage, a folder of attachments to clean up: pasted into a launch that never became a session."
   },
   "workspace.storage.neverTouched": {
-    "defaultMessage": "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude and ~/.codex). What the sessions used still counts in the totals.",
+    "defaultMessage": "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude, ~/.codex and ~/.copilot). What the sessions used still counts in the totals.",
     "description": "The Clean Up dialog, at the top. Keep the paths as they are."
   },
   "workspace.storage.noProjects": {

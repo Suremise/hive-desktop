@@ -427,11 +427,16 @@ async function purgeFacts(host: string): Promise<PurgeFacts> {
 
 /**
  * Previews kept for their apply (storage:purge), by id: what each listed, as it saw it. Applying one uses it up; the
- * newest PREVIEWS_KEPT are kept, each for PREVIEW_MS.
+ * newest PREVIEWS_KEPT are kept, each for PREVIEW_MS, and one older is refused (#1158).
  */
 const previews = new Map<string, { target: PurgeTarget; items: PurgeItem[]; at: number }>()
 const PREVIEWS_KEPT = 20
-const PREVIEW_MS = 60 * 60_000
+export const PREVIEW_MS = 60 * 60_000
+
+/** Forgets the previews older than PREVIEW_MS. */
+function pruneExpiredPreviews(now: number): void {
+  for (const [k, p] of previews) if (now - p.at > PREVIEW_MS) previews.delete(k)
+}
 
 /** What Purge… would remove (nothing is changed): every file and record of Hive's it covers, with its size. Kept for its apply. */
 export async function purgePreview(target: PurgeTarget): Promise<PurgePreview> {
@@ -445,7 +450,7 @@ export async function purgePreview(target: PurgeTarget): Promise<PurgePreview> {
     out.recoverable += r.recoverable
   }
   const now = Date.now()
-  for (const [k, p] of previews) if (now - p.at > PREVIEW_MS) previews.delete(k)
+  pruneExpiredPreviews(now)
   previews.set(out.id, { target: structuredClone(target), items: out.items.map((i) => ({ ...i })), at: now })
   while (previews.size > PREVIEWS_KEPT) previews.delete(previews.keys().next().value!)
   return out
@@ -491,10 +496,11 @@ async function removeAttachments(host: string, dir: string, listed: PurgeItem[],
  * (sessions.purge), what it used recorded first, and only with every listed backup unchanged; one whose last copy goes is
  * deleted from Hive, as Delete Session does. What is left of sessions Hive no longer has goes with that id reserved,
  * once no session has it; old kept usage goes once the usage history has it. Running sessions, the usage history and the
- * CLIs' own files are never touched. A preview is applied once.
+ * CLIs' own files are never touched. A preview is applied once, and only within PREVIEW_MS of making it.
  */
 export async function purge(previewId: string, listed: string[], permanent: boolean): Promise<PurgeResult> {
   if (typeof previewId !== 'string' || !Array.isArray(listed)) throw new Error('previewId and listed: a preview and its keys') // i18n-ignore: a refusal no person sees (the window sends these)
+  pruneExpiredPreviews(Date.now())
   const preview = previews.get(previewId)
   if (!preview) throw hiveError(M_PURGE.expired)
   previews.delete(previewId)

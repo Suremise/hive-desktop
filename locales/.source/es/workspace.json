@@ -388,7 +388,7 @@
   "workspace.storage.moved": "Moved {count, plural, one {# item} other {# items}} ({size}) to the Recycle Bin",
   "workspace.storage.movingBusy": "Moving to the Recycle Bin…",
   "workspace.storage.neverStarted": "A launch that never got a session",
-  "workspace.storage.neverTouched": "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude and ~/.codex). What the sessions used still counts in the totals.",
+  "workspace.storage.neverTouched": "Running sessions and sessions that aren't archived are never touched, nor the coding agents' own transcripts (in ~/.claude, ~/.codex and ~/.copilot). What the sessions used still counts in the totals.",
   "workspace.storage.noProjects": "No projects.",
   "workspace.storage.noWorkspace": "Open a workspace to see what Hive keeps for it.",
   "workspace.storage.nothing": "Nothing.",

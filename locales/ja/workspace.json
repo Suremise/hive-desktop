@@ -388,7 +388,7 @@
   "workspace.storage.moved": "{count, plural, other {#件}}（{size}）をごみ箱に移動しました",
   "workspace.storage.movingBusy": "ごみ箱に移動中…",
   "workspace.storage.neverStarted": "セッションにならなかった起動",
-  "workspace.storage.neverTouched": "実行中のセッションとアーカイブされていないセッションには手を付けません。コーディングエージェント自身のトランスクリプト（~/.claudeと~/.codex内）も同様です。セッションの使用量は合計に含まれたままです。",
+  "workspace.storage.neverTouched": "実行中のセッションとアーカイブされていないセッションには手を付けません。コーディングエージェント自身のトランスクリプト（~/.claude、~/.codex、~/.copilot内）も同様です。セッションの使用量は合計に含まれたままです。",
   "workspace.storage.noProjects": "プロジェクトがありません。",
   "workspace.storage.noWorkspace": "Hiveが保持しているものを見るには、ワークスペースを開いてください。",
   "workspace.storage.nothing": "ありません。",

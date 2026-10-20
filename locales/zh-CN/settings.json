@@ -604,7 +604,7 @@
   "settings.project.metadata.title": "设置文件",
   "settings.project.reset.desc": "此页上的所有设置都会恢复为“继承”。智能体以及技能和 MCP 的停用选择会保留。",
   "settings.project.reset.title": "重置项目设置",
-  "settings.project.storage.desc": "在后台测量；点“刷新”重新测量。编程智能体自己的会话记录（位于 ~/.claude 和 ~/.codex）不计入，“清理…”也从不触及它们。",
+  "settings.project.storage.desc": "在后台测量；点“刷新”重新测量。编程智能体自己的会话记录（位于 ~/.claude、~/.codex 和 ~/.copilot）不计入，“清理…”和“彻底清除…”也从不触及它们。",
   "settings.project.storage.title": "Hive 保存的内容",
   "settings.project.transcriptWarnMB.desc": "运行中对话的会话记录达到多大（MB）时，在此项目中显示提醒。留空则继承“设置”→“会话”→“会话记录过大提醒”。",
   "settings.project.transcriptWarnMB.off": "从不",
@@ -642,7 +642,7 @@
   "settings.projectSection.provider.desc": "此项目的 {provider} 智能体的模型、推理强度和权限。智能体可以为自己覆盖这些设置。",
   "settings.projectSection.sessions.desc": "此项目的压缩和通知。",
   "settings.projectSection.sessions.label": "会话",
-  "settings.projectSection.storage.desc": "Hive 为此项目保存的内容：会话记录备份、已归档的会话、附件和智能体的工作树。“清理…”会把旧备份和附件移到回收站。",
+  "settings.projectSection.storage.desc": "Hive 为此项目保存的内容：会话记录备份、已归档的会话、附件和智能体的工作树。“清理…”会把旧备份和附件移到回收站；“彻底清除…”会删除 Hive 为此项目的会话保存的所有内容。",
   "settings.projectSection.storage.label": "存储",
   "settings.provider.allowBackgroundSessions.desc": "允许 {provider} 的 agent view 把会话移到它自己的后台服务中。对之后启动的会话生效。",
   "settings.provider.allowBackgroundSessions.tip": "默认关闭。在 {provider} 中，在空的提示词输入处按 ←（在文本中移动时很容易按到）会打开它的 agent view，并把会话移到后台。此后 Hive 就无法再看到或停止它：“停止”只会关闭终端，会话继续运行，并且在用“{cli} stop”停止之前无法恢复。",
@@ -874,7 +874,7 @@
   "settings.workspace.loopWaitHours.desc": "卡片循环中的智能体在没有变化时最多等待的小时数，之后会告诉你。未指定时使用此值，项目可以单独设置。",
   "settings.workspace.loopWaitHours.tip": "启动循环时说明“wait: 2h”仍然优先。最长一天。智能体在登记循环（其通道）时读取此值，因此更改对之后启动的循环生效。",
   "settings.workspace.loopWaitHours.title": "卡片循环等待时间",
-  "settings.workspace.storage.desc": "Hive 为工作区的每个项目（从最大的开始）和 Hive Assistant 保存的内容：会话记录备份、已归档的会话、附件和工作树。点“存储”会打开项目的页面，其中有“清理…”。",
-  "settings.workspace.storage.tip": "在后台逐个项目测量。编程智能体自己的会话记录（位于 ~/.claude 和 ~/.codex）不计入。已隐藏的项目不包括在内。",
+  "settings.workspace.storage.desc": "Hive 为工作区的每个项目（从最大的开始）和 Hive Assistant 保存的内容：会话记录备份、已归档的会话、附件和工作树。点“存储”会打开项目的页面，其中有“清理…”和“彻底清除…”；这里的“彻底清除…”会删除 Hive 为整个工作区的会话保存的所有内容。",
+  "settings.workspace.storage.tip": "在后台逐个项目测量。编程智能体自己的会话记录（位于 ~/.claude、~/.codex 和 ~/.copilot）不计入。已隐藏的项目不包括在内。",
   "settings.workspace.storage.title": "存储"
 }

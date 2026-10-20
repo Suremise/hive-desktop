@@ -388,7 +388,7 @@
   "workspace.storage.moved": "{count, plural, one {# item movido} other {# itens movidos}} ({size}) para a Lixeira",
   "workspace.storage.movingBusy": "Movendo para a Lixeira…",
   "workspace.storage.neverStarted": "Uma inicialização que nunca virou sessão",
-  "workspace.storage.neverTouched": "Sessões em execução e sessões não arquivadas nunca são alteradas, nem as transcrições dos próprios agentes de código (em ~/.claude e ~/.codex). O que as sessões usaram continua contando nos totais.",
+  "workspace.storage.neverTouched": "Sessões em execução e sessões não arquivadas nunca são alteradas, nem as transcrições dos próprios agentes de código (em ~/.claude, ~/.codex e ~/.copilot). O que as sessões usaram continua contando nos totais.",
   "workspace.storage.noProjects": "Nenhum projeto.",
   "workspace.storage.noWorkspace": "Abra um espaço de trabalho para ver o que o Hive guarda para ele.",
   "workspace.storage.nothing": "Nada.",
