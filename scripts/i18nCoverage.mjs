@@ -7,10 +7,10 @@
 // that English). After translating, record it: `npm run i18n:coverage -- --record <code>` records the English of the
 // language's translations that have no record yet; after updating outdated ones, name them:
 // `npm run i18n:coverage -- --record <code> <id> <id>…`.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
-import { areaOf, rootArg } from './i18nExtract.mjs'
+import { areaOf, rootArg, writeKeepingEndings } from './i18nExtract.mjs'
 import { englishMessages, readLanguage, translatedLanguages } from './i18nCheck.mjs'
 
 /** The English each of a language's translations was made from (id → English), every area merged. */
@@ -73,7 +73,8 @@ export function recordSource(root, code, ids = []) {
   for (const id of take) source[id] = english[id]
   const byArea = {}
   for (const id of Object.keys(source).sort()) (byArea[areaOf(id)] ??= {})[id] = source[id]
-  for (const [area, entries] of Object.entries(byArea)) writeFileSync(join(dir, `${area}.json`), `${JSON.stringify(entries, null, 2)}\n`)
+  // Only the areas whose record changed, each with the line endings it has on disk (#1113: every file was rewritten LF).
+  for (const [area, entries] of Object.entries(byArea)) writeKeepingEndings(join(dir, `${area}.json`), `${JSON.stringify(entries, null, 2)}\n`)
   return take
 }
 

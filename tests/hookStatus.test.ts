@@ -201,6 +201,8 @@ describe('hook → status, for each provider', () => {
       // /compact typed while idle: working while it compacts, and ready (not stuck working) once done.
       const idle = send(adapter, agent('ready'), h.compactStart)
       expect([idle.status, idle.statusMessage], name).toEqual(['working', COMPACTING_MESSAGE])
+      // Watched for its end as Hive's own Compact is: nothing else may say so (#1115).
+      expect(idle.actions, name).toEqual(['autoCompact', 'autoCompactIdle'])
       send(adapter, idle, h.compactEnd)
       expect([idle.status, idle.statusMessage], name).toEqual(['ready', undefined])
       // A prompt typed meanwhile (queued until it is done) starts a turn its end doesn't idle.

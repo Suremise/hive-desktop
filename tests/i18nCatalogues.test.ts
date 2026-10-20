@@ -312,4 +312,19 @@ describe('coverage (i18n:coverage), informational', () => {
     expect(coverage(root, 'pl').board.outdated).toEqual([])
     expect(JSON.parse(readFileSync(join(root, 'locales/.source/pl/board.json'), 'utf8'))).toEqual({ 'board.a': 'Save all', 'board.b': 'Cancel' })
   })
+
+  it('--record writes only the records whose content changed, keeping their CRLF (#1113)', () => {
+    const crlf = (o: object) => `${JSON.stringify(o, null, 2)}\n`.replace(/\n/g, '\r\n')
+    const root = tree({
+      ...english,
+      'locales/pl/board.json': JSON.stringify({ 'board.a': 'Zapisz', 'board.b': 'Anuluj' }),
+      'locales/pl/tips.json': JSON.stringify({ 'tips.c': 'Wskazówka' }),
+      'locales/.source/pl/board.json': crlf({ 'board.a': 'Save' }),
+      'locales/.source/pl/tips.json': crlf({ 'tips.c': 'A tip' })
+    })
+    const tips = readFileSync(join(root, 'locales/.source/pl/tips.json'))
+    expect(recordSource(root, 'pl')).toEqual(['board.b'])
+    expect(readFileSync(join(root, 'locales/.source/pl/tips.json')).equals(tips)).toBe(true)
+    expect(readFileSync(join(root, 'locales/.source/pl/board.json'), 'utf8')).toBe(crlf({ 'board.a': 'Save', 'board.b': 'Cancel' }))
+  })
 })
