@@ -4618,12 +4618,12 @@ class SessionManager {
   }
 
   /**
-   * A session's usage. From the usage history (#1106), priced now; a running one's asked for alone (its usage: the
-   * session's details, the Agent API) from its transcript as it grows, read here a piece at a time, while a list (`ctx`
-   * with the history's sessions: the Sessions tab, the project Overview) takes it from the history too, its last turn's
-   * end or tick, so no transcript is read for it. One the history doesn't have yet (its import under way, a session
-   * adopted since the last sweep) is read from its transcript as before and queued for the history; with no transcript
-   * left, its kept usage, until the history has imported it.
+   * A session's usage. From the usage history (#1106), priced now; a running one's from its transcript as it grows, read
+   * by the usage worker a piece at a time (#1147), in a list too (`ctx` with the history's sessions: the Sessions tab,
+   * the project Overview; #1157: the history has it only from its last turn's end or tick, which missed a CLI /rename),
+   * so main reads no transcript for either. One the history doesn't have yet (its import under way, a session adopted
+   * since the last sweep) is read from its transcript as before and queued for the history; with no transcript left,
+   * its kept usage, until the history has imported it.
    */
   async usage(projectPath: string, sessionId: string, ctx?: ListContext): Promise<SessionUsage | null> {
     assertSessionId(sessionId)
@@ -4631,7 +4631,12 @@ class SessionManager {
     const rec = records.find((s) => s.id === sessionId)
     const running = this.projectStates(projectPath).some((s) => s.sessionId === sessionId)
     let usage: SessionUsage | null = null
-    if (!running || ctx?.stored) {
+    if (running && ctx?.stored) {
+      // As its pane has it; unchanged since the last read, the worker isn't asked at all (usageFor).
+      const p = await this.anyTranscript(projectPath, sessionId, ctx)
+      if (p) usage = await this.usageFor(projectPath, p, sessionId, await this.sessionProvider(projectPath, sessionId, ctx))
+    }
+    if (!usage && (!running || ctx?.stored)) {
       const stored = (ctx?.stored ?? (await usageHistory.storedUsage(projectPath).catch(() => null)))?.get(sessionId)
       if (stored) usage = this.titled(stored.usage)
     }

@@ -108,7 +108,7 @@ describe("the usage history's import", () => {
     expect(outputOf(await run(() => sessions.keptUsage(p)), deletedEarly)).toBe(40)
   })
 
-  it('a list reads only the history: sessions it has none of yet (the import not there yet), stopped or running, are queued, never read here', async () => {
+  it('a list reads no transcript in main: a stopped session it has none of yet (the import not there yet) is queued, a running one read by the worker as its pane is (#1157)', async () => {
     const [stopped, running] = [newId(), newId()]
     for (const id of [stopped, running]) {
       await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'not imported yet', lastActiveAt: at }))
@@ -116,19 +116,25 @@ describe("the usage history's import", () => {
     }
     const s = sessions as unknown as { live: Map<string, unknown> }
     s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-c', projectPath: p, agentId: 'c1', sessionId: running, status: 'working' } })
-    const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')
+    const usageFor = vi.spyOn(sessions as unknown as { usageFor: (pp: string, path: string, id: string) => Promise<unknown> }, 'usageFor')
+    // The worker's read (#1147): main only asks it.
+    const workerReads = vi.spyOn(usageHistory, 'read')
+    const readFor = (spy: { mock: { calls: unknown[][] } }): unknown[] => spy.mock.calls.map((c) => c[2])
     try {
       const items = await run(() => sessions.list(p))
-      expect([stopped, running].map((id) => items.find((i) => i.id === id)?.usage ?? null)).toEqual([null, null])
-      expect(usageFor).not.toHaveBeenCalled()
-      // The queued reads land in the worker: the next list has them, still read from the history.
+      expect([stopped, running].map((id) => outputOf(items, id) ?? null)).toEqual([null, 1000])
+      expect([readFor(usageFor), readFor(workerReads)]).toEqual([[running], [running]])
+      // The queued read lands in the worker: the next list has it, read from the history.
       await vi.waitFor(async () => {
         const later = await run(() => sessions.list(p))
         expect([stopped, running].map((id) => outputOf(later, id))).toEqual([1000, 1000])
       }, { timeout: 10_000 })
-      expect(usageFor).not.toHaveBeenCalled()
+      expect(readFor(usageFor)).not.toContain(stopped)
+      // The running one, unchanged since: the worker isn't asked again.
+      expect(readFor(workerReads)).toEqual([running])
     } finally {
       usageFor.mockRestore()
+      workerReads.mockRestore()
       s.live.clear()
     }
   })
