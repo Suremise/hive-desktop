@@ -328,6 +328,7 @@
   "workspace.storage.attachments": "Anexos",
   "workspace.storage.backupDays": "Idade dos backups em dias",
   "workspace.storage.backups": "Backups de transcrições",
+  "workspace.storage.beforeCompression": "{size} antes da compactação",
   "workspace.storage.cancel": "Cancelar",
   "workspace.storage.cleanUp": "Limpar…",
   "workspace.storage.deletedSession": "Sessão excluída {id}",

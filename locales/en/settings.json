@@ -3031,6 +3031,38 @@
     "defaultMessage": "Workspace",
     "description": "A section of Settings, in its list on the left."
   },
+  "settings.sessions.backupRetention.desc": {
+    "defaultMessage": "How long Hive keeps its backups of sessions the CLI still has. After that many days without activity they go to the Recycle Bin. A session whose only copy is Hive's backup is never touched.",
+    "description": "What the setting \"Keep transcript backups\" does, under its title (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.option.d180": {
+    "defaultMessage": "180 days",
+    "description": "A choice of the setting \"Keep transcript backups\" (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.option.d30": {
+    "defaultMessage": "30 days",
+    "description": "A choice of the setting \"Keep transcript backups\" (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.option.d365": {
+    "defaultMessage": "1 year",
+    "description": "A choice of the setting \"Keep transcript backups\" (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.option.d90": {
+    "defaultMessage": "90 days",
+    "description": "A choice of the setting \"Keep transcript backups\" (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.option.off": {
+    "defaultMessage": "Always",
+    "description": "A choice of the setting \"Keep transcript backups\" (Settings → Sessions)."
+  },
+  "settings.sessions.backupRetention.tip": {
+    "defaultMessage": "Only Hive's own copies go: the CLI's transcript stays, so the session can still be opened and resumed, and what it used stays in the usage history. To remove sessions whose only copy is Hive's, delete them yourself or use Clean Up in Storage.",
+    "description": "The info tip of the setting \"Keep transcript backups\" (Settings → Sessions): more on what it does and when it applies."
+  },
+  "settings.sessions.backupRetention.title": {
+    "defaultMessage": "Keep transcript backups",
+    "description": "A setting's title (Settings → Sessions)."
+  },
   "settings.sessions.backupTranscripts.desc": {
     "defaultMessage": "Copy each session's transcript into the project's .hive/sessions folder.",
     "description": "What the setting \"Back up transcripts\" does, under its title (Settings → Sessions)."

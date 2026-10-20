@@ -115,7 +115,8 @@ describe('Clean Up while sessions change', () => {
     const id = await oldSession(true)
     const { listed, result } = await cleanupWith(id, { ...DEFAULT_CLEANUP, archivedBackupsDays: 90 }, () => run(() => sessions.archive(p, id, false)))
     expect(listed.some((l) => l.toLowerCase() === archived(id).toLowerCase())).toBe(true)
-    expect(existsSync(active(id))).toBe(true)
+    // Compressed again once unarchived (#1110).
+    expect(existsSync(active(id) + '.gz')).toBe(true)
     expect(existsSync(join(attachments(id), 'a.png'))).toBe(true)
     expect(result.skipped.join('\n')).toMatch(/no longer archived/)
   })

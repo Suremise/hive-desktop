@@ -328,6 +328,7 @@
   "workspace.storage.attachments": "Pièces jointes",
   "workspace.storage.backupDays": "Âge des sauvegardes en jours",
   "workspace.storage.backups": "Sauvegardes des transcriptions",
+  "workspace.storage.beforeCompression": "{size} avant compression",
   "workspace.storage.cancel": "Annuler",
   "workspace.storage.cleanUp": "Nettoyer…",
   "workspace.storage.deletedSession": "Session supprimée {id}",

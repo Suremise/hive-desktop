@@ -12,21 +12,23 @@ const lib = require('./lib.cjs')
 const fs = require('fs')
 const path = require('path')
 
-// A stopped session of a project, as Hive keeps its backup: a prompt, then the user interrupting it.
+// A stopped session of a project, as Hive keeps its backup (compressed, #1110): a prompt, then the user interrupting it.
 const ws = path.join(lib.WORK, 'i18nlive-ws')
 const proj = path.join(ws, 'demo')
 const SESSION = '33333333-aaaa-bbbb-cccc-000000000003' // synthetic
-const transcript = path.join(proj, '.hive', 'sessions', `${SESSION}.jsonl`)
+const transcript = path.join(proj, '.hive', 'sessions', `${SESSION}.jsonl.gz`)
 fs.rmSync(ws, { recursive: true, force: true })
 fs.mkdirSync(path.dirname(transcript), { recursive: true })
 fs.writeFileSync(
   transcript,
-  [
-    { type: 'user', timestamp: '2026-10-14T10:00:00.000Z', message: { role: 'user', content: 'Translate the transcript viewer' } },
-    { type: 'user', timestamp: '2026-10-14T10:01:00.000Z', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } }
-  ]
-    .map((l) => JSON.stringify(l))
-    .join('\n') + '\n'
+  require('zlib').gzipSync(
+    [
+      { type: 'user', timestamp: '2026-10-14T10:00:00.000Z', message: { role: 'user', content: 'Translate the transcript viewer' } },
+      { type: 'user', timestamp: '2026-10-14T10:01:00.000Z', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } }
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n') + '\n'
+  )
 )
 fs.writeFileSync(path.join(proj, '.hive', 'sessions.json'), JSON.stringify({ version: 1, sessions: [{ id: SESSION, agent: 'claude-code', name: 'Interrupted', createdAt: '2026-10-14T10:00:00.000Z', lastActiveAt: '2026-10-14T10:01:00.000Z', archived: false }] }))
 

@@ -385,7 +385,10 @@ class UsageHistory {
     if (++this.ticks % SWEEP_TICKS !== 0) return
     for (const ws of openWorkspaces()) {
       if (ws.path && !this.backfilled(ws.path)) void this.opened(ws)
-      else void this.sweep(ws).catch((e) => log.warn('checking the usage history', e))
+      else
+        void this.sweep(ws)
+          .then(() => this.housekeep(ws))
+          .catch((e) => log.warn('checking the usage history', e))
     }
   }
 
@@ -458,6 +461,27 @@ class UsageHistory {
     await this.call({ type: 'forgetStates', file, before: new Date(Date.now() - STATE_DAYS * 86_400_000).toISOString() }).catch(() => undefined)
   }
 
+  /**
+   * The backups' housekeeping (#1110), once the history has every session (so totals survive what goes): backups of
+   * sessions that ended before compression was done compressed, and old ones let go as Settings → Sessions → Keep
+   * transcript backups says. One host at a time, in the background.
+   */
+  private async housekeep(ws: WorkspaceService): Promise<void> {
+    if (!ws.path || !this.backfilled(ws.path) || this.housekeeping.has(wsKey(ws.path))) return
+    const key = wsKey(ws.path)
+    this.housekeeping.add(key)
+    try {
+      for (const host of await this.hosts(ws)) {
+        if (ws.lifetime.aborted || this.stopped) return
+        await sessions.compressIdleBackups(host).catch((e) => log.warn('compressing backups', e))
+        await sessions.applyRetention(host).catch((e) => log.warn('backup retention', e))
+      }
+    } finally {
+      this.housekeeping.delete(key)
+    }
+  }
+  private housekeeping = new Set<string>()
+
   // -------------------------------------------------------------------------
   // The backfill.
   // -------------------------------------------------------------------------
@@ -492,6 +516,7 @@ class UsageHistory {
         // moved meanwhile, by another Hive or a script).
         .then(() => this.sweep(ws))
         .then(() => this.attribute(ws))
+        .then(() => this.housekeep(ws))
         .catch((e) => log.warn(`importing the usage history of ${userText(path)}`, e))
         .finally(() => this.backfills.delete(key))
       this.backfills.set(key, run)

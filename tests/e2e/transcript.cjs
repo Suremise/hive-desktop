@@ -61,7 +61,8 @@ fs.writeFileSync(path.join(sessDir, `${A}.jsonl`), lines.map((l) => JSON.stringi
 fs.writeFileSync(
   path.join(proj, '.hive', 'sessions.json'),
   JSON.stringify({ version: 1, sessions: [
-    { id: A, agent: 'claude-code', name: 'Zebra test fix', createdAt: t(0), lastActiveAt: t(8), archived: false },
+    // Active just now: the suite appends to its backup as a running session's is (#1110: an ended one's is compressed).
+    { id: A, agent: 'claude-code', name: 'Zebra test fix', createdAt: t(0), lastActiveAt: new Date().toISOString(), archived: false },
     { id: B, agent: 'claude-code', name: 'Long session', createdAt: t(0), lastActiveAt: t(0), archived: false }
   ] })
 )

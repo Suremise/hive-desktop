@@ -330,6 +330,7 @@ interface HiveMessageValues {
   'workspace.storage.attachments': undefined
   'workspace.storage.backupDays': undefined
   'workspace.storage.backups': undefined
+  'workspace.storage.beforeCompression': { size: string | number }
   'workspace.storage.cancel': undefined
   'workspace.storage.cleanUp': undefined
   'workspace.storage.deletedSession': { id: string | number }

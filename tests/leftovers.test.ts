@@ -197,9 +197,10 @@ describe('sweeping the leftovers (#1016)', () => {
   it("a project's stores are only its settings, sessions, deliveries and transcript backups", async () => {
     const hive = join(tempDir('hive-leftovers-project-'), '.hive')
     const now = Date.now() + BAK_AGE_MS + 24 * HOUR
-    const gone = [put(join(hive, 'project.json.1-1.tmp'), now), put(join(hive, 'sessions.json.bak.1-2.tmp'), now), put(join(hive, 'sessions', 'abc-123.jsonl.1-3.tmp'), now)]
+    // A backup compressed, or decompressed to archive it, part way when Hive stopped (#1110).
+    const gone = [put(join(hive, 'project.json.1-1.tmp'), now), put(join(hive, 'sessions.json.bak.1-2.tmp'), now), put(join(hive, 'sessions', 'abc-123.jsonl.1-3.tmp'), now), put(join(hive, 'sessions', 'abc-123.jsonl.gz.1-7.tmp'), now), put(join(hive, 'archive', 'abc-123.jsonl.1-8.tmp'), now)]
     const kept = [put(join(hive, 'attachments', 'a.png.1-4.tmp'), now), put(join(hive, 'archive', 'x.json.1-5.tmp'), now), put(join(hive, 'workspace.json.1-6.tmp'), now), put(join(hive, 'project.json.before-ids.bak'), now)]
-    expect((await sweepLeftovers([{ hive, stores: PROJECT_STORES }], { now })).temp).toBe(3)
+    expect((await sweepLeftovers([{ hive, stores: PROJECT_STORES }], { now })).temp).toBe(5)
     for (const f of gone) expect(existsSync(f), f).toBe(false)
     for (const f of kept) expect(existsSync(f), f).toBe(true)
   })

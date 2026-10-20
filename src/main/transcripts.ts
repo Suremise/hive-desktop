@@ -10,6 +10,7 @@ import type { ConversationParserLike } from './providers/types'
 import { sessions } from './sessions'
 import { setViewing, whileReading } from './transcriptReads'
 import { workspace } from './workspace'
+import { isGz, readBytes, readTranscript } from './transcriptFiles'
 
 /** The Sessions tab's refusals, in the window's language (#850). */
 const M = {
@@ -79,14 +80,20 @@ async function parseNow(projectPath: string, sessionId: string, key: string): Pr
   if (!path) throw hiveError(msg({ id: 'service.transcripts.none', defaultMessage: 'This session has no transcript yet.', description: "An error in the Sessions tab: the session's CLI hasn't written its conversation's file yet." }), undefined, { kind: 'notFound' })
   const size = (await stat(path)).size
   let e = cache.get(key)
-  // A different file (the provider deleted it and Hive's backup is used) or a shorter one means start again.
-  if (!e || e.path !== path || size < e.parser.offset) {
+  // A different file (the provider deleted it and Hive's backup is used) or a shorter one means start again; so does a
+  // compressed backup that changed (#1110: it is another file, read whole).
+  if (!e || e.path !== path || (isGz(path) ? size !== e.size : size < e.parser.offset)) {
     const id = await sessions.sessionProvider(projectPath, sessionId)
     e = { path, provider: id, parser: provider(id).conversationParser(projectPath), size: 0, used: 0 }
     cache.set(key, e)
   }
   e.used = Date.now()
-  if (size !== e.size) {
+  if (isGz(path) && size !== e.size) {
+    // Decompressed a piece at a time, each handed to the parser as a plain file's would be.
+    const parser = e.parser
+    await readTranscript(path, 0, (piece) => void parser.feed(piece), READ_CHUNK)
+    e.size = size
+  } else if (size !== e.size) {
     // In pieces, so a long transcript opened for the first time doesn't take its whole size in memory at once.
     let chunk = READ_CHUNK
     while (e.parser.offset < size) {
@@ -148,7 +155,7 @@ export const transcripts = {
     const e = await parsed(projectPath, sessionId)
     const loc = e.parser.images[imageId]
     if (!loc) throw hiveError(msg({ id: 'service.transcripts.noImage', defaultMessage: 'No such image', description: "An error in the Sessions tab: the image asked for isn't in the conversation (any more)." }), undefined, { kind: 'notFound' })
-    const entry = JSON.parse((await readRange(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
+    const entry = JSON.parse((await readBytes(e.path, loc.offset, loc.offset + loc.length)).toString('utf8'))
     const url = provider(e.provider).imageData(entry, loc)
     if (!url) throw hiveError(msg({ id: 'service.transcripts.imageNotKept', defaultMessage: 'The image is not stored in the transcript', description: "An error in the Sessions tab: the conversation's file mentions the image but doesn't hold it." }), undefined, { kind: 'notFound' })
     return url

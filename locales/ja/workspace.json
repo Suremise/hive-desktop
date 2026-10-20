@@ -328,6 +328,7 @@
   "workspace.storage.attachments": "添付ファイル",
   "workspace.storage.backupDays": "バックアップの経過日数",
   "workspace.storage.backups": "トランスクリプトのバックアップ",
+  "workspace.storage.beforeCompression": "圧縮前は{size}",
   "workspace.storage.cancel": "キャンセル",
   "workspace.storage.cleanUp": "クリーンアップ…",
   "workspace.storage.deletedSession": "削除されたセッション{id}",

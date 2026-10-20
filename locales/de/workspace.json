@@ -328,6 +328,7 @@
   "workspace.storage.attachments": "Anhänge",
   "workspace.storage.backupDays": "Alter der Sicherungen in Tagen",
   "workspace.storage.backups": "Transkript-Sicherungen",
+  "workspace.storage.beforeCompression": "{size} vor der Komprimierung",
   "workspace.storage.cancel": "Abbrechen",
   "workspace.storage.cleanUp": "Aufräumen…",
   "workspace.storage.deletedSession": "Gelöschte Sitzung {id}",

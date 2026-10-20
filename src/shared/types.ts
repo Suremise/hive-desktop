@@ -205,6 +205,11 @@ export interface AppSettings {
   }
   sessions: {
     backupTranscripts: boolean
+    /**
+     * How long Hive keeps its backups of sessions the CLI still has (#1110): after this many days without activity they
+     * go to the Recycle Bin; 'off' keeps them. A session whose only copy is Hive's is never touched.
+     */
+    backupRetention: BackupRetention
     cacheTtl: CacheTtlSetting
     confirmStop: boolean
     /** Context size (tokens) above which Compact is highlighted. 0 never highlights. */
@@ -1803,6 +1808,9 @@ export interface SessionUsage {
 }
 
 /** A workspace's usage history (#1106): whether its one-time import of the sessions it had is under way, and how far. */
+/** Settings → Sessions → Keep transcript backups (#1110): off, or a number of days. */
+export type BackupRetention = 'off' | '30' | '90' | '180' | '365'
+
 export interface UsageHistoryProgress {
   importing: boolean
   done: number
@@ -1854,6 +1862,9 @@ export interface ProjectStorage {
   sessions: number
   /** Archived sessions' backups (.hive/archive). */
   archive: number
+  /** What the backups and the archive hold before compression (#1110: a compressed backup's own size), when any is. */
+  sessionsRaw?: number
+  archiveRaw?: number
   /** Files pasted or dropped into sessions (.hive/attachments). */
   attachments: number
   /** The agents' worktree folders. */

@@ -1315,6 +1315,10 @@
     "defaultMessage": "Transcript backups",
     "description": "Storage: Hive's copies of the sessions' transcripts (.hive/sessions)."
   },
+  "workspace.storage.beforeCompression": {
+    "defaultMessage": "{size} before compression",
+    "description": "Storage, beside the size of Hive's transcript backups or archive: what they hold uncompressed ({size}: like 1.2 GB). Ended sessions' backups are compressed."
+  },
   "workspace.storage.cancel": {
     "defaultMessage": "Cancel",
     "description": "The Clean Up dialog's button that closes it."

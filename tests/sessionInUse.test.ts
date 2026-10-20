@@ -184,7 +184,8 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     // Hive ran it, and saw its CLI exit (Archive and Start New archives one just stopped).
     s.noteExit(id)
     await run(() => sessions.archive(p, id, true))
-    expect(existsSync(backup(id, true))).toBe(true)
+    // Archived copies are compressed (#1110).
+    expect(existsSync(backup(id, true) + '.gz')).toBe(true)
     const r = await run(() => sessions.bulk(p, 'delete', [id]))
     expect(r.done).toEqual([id])
   })
@@ -209,11 +210,11 @@ describe.runIf(process.platform === 'win32')('archiving and deleting sessions in
     write(cliFile(outside), transcript(outside))
     const r = await run(() => sessions.bulk(p, 'archive', [mine, outside]))
     expect(r).toEqual({ done: [mine], skipped: [{ id: outside, reason: 'external' }] })
-    expect(existsSync(backup(mine, true))).toBe(true)
+    expect(existsSync(backup(mine, true) + '.gz')).toBe(true)
     expect(await records()).not.toContain(outside)
     const back = await run(() => sessions.bulk(p, 'unarchive', [mine]))
     expect(back.done).toEqual([mine])
-    expect(existsSync(backup(mine))).toBe(true)
+    expect(existsSync(backup(mine) + '.gz')).toBe(true)
   })
 
   it('a delete that fails after a copy went to the Recycle Bin puts that copy back, and keeps the record', async () => {

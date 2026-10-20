@@ -47,6 +47,7 @@ import type {
 } from '../shared/types'
 import { provider as providerAdapter, allProviders } from './providers'
 import { recacheEstimate } from './providers/common'
+import { GZ, compressFile, decompressTo, expandBackup, isGz, readTranscript } from './transcriptFiles'
 import { usesOwnPrices } from '../shared/prices'
 import { priceUsage } from '../shared/usageDays'
 import type { Ask, HookEvent, LaunchContext, LaunchSkill, ProviderAdapter, SkillDelivery, UsageParser } from './providers/types'
@@ -1393,12 +1394,14 @@ class SessionManager {
     if (resume) {
       const recorded = l.transcriptPath
       if (!(await adapter.transcriptPath(cwd, sessionId, recorded))) {
-        // The provider has deleted it: put Hive's backup back where the provider looks for it.
-        const backup = this.backupPath(projectPath, sessionId)
+        // The provider has deleted it: put Hive's backup back where the provider looks for it (a compressed one
+        // decompressed, #1110: the only time it is).
+        const backup = this.backupCopy(projectPath, sessionId)
         const dest = adapter.restorePath(cwd, sessionId, recorded)
-        if (dest && existsSync(backup)) {
+        if (dest && backup) {
           await mkdir(dirname(dest), { recursive: true })
-          await copyFile(backup, dest)
+          if (isGz(backup)) await decompressTo(backup, dest)
+          else await copyFile(backup, dest)
           log.info(`Restored transcript for ${sessionId} from Hive backup`)
         }
       }
@@ -2679,8 +2682,9 @@ class SessionManager {
     if (sessionId) {
       if (await this.anyTranscript(projectPath, sessionId)) {
         await workspace.upsertSession(projectPath, { id: sessionId, lastActiveAt: new Date().toISOString() }).catch(() => undefined)
-        // Its transcript is finished: what it used goes into the usage history now (#1106).
+        // Its transcript is finished: what it used goes into the usage history now (#1106), and its backup is compressed (#1110).
         usageHistory.sessionEnded(projectPath, sessionId)
+        void this.compressBackups(projectPath, sessionId)
       } else {
         // Nothing was ever said (e.g. closed at the login screen) — there is nothing to resume.
         await workspace
@@ -4431,39 +4435,17 @@ class SessionManager {
         if (c.raw) return (c.usage = this.priced(c.raw))
       }
       // A file that shrank or was rewritten (or is now another session's), or whose parser was dropped, is read again from the start.
-      if (c && (!c.parser || c.sessionId !== sessionId || c.provider !== provider || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
+      // A compressed backup (#1110) is finished: one that changed is another file, read whole again.
+      if (c && (!c.parser || c.sessionId !== sessionId || c.provider !== provider || isGz(path) || s.size < c.offset || (s.size === c.size && s.mtimeMs !== c.mtime))) c = undefined
       if (!c) {
         c = { parser: providerAdapter(provider).usageParser(sessionId), sessionId, provider, offset: 0, size: 0, mtime: 0, raw: null, usage: null }
         usageCache.set(path, c)
         trimUsageCache()
       }
       const parser = c.parser!
-      if (s.size > c.offset) {
-        const fh = await open(path, 'r')
-        try {
-          // In pieces, so a long transcript read for the first time doesn't take its whole size in memory at once.
-          let chunk = USAGE_CHUNK
-          while (c.offset < s.size) {
-            const buf = Buffer.alloc(Math.min(chunk, s.size - c.offset))
-            const { bytesRead } = await fh.read(buf, 0, buf.length, c.offset)
-            // Whole lines only: a line still being written is read next time.
-            const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a)
-            if (end < 0) {
-              // One line longer than the piece (a large image or tool output): read a bigger piece.
-              if (bytesRead === buf.length && c.offset + bytesRead < s.size) {
-                chunk *= 2
-                continue
-              }
-              break
-            }
-            parser.feed(buf.subarray(0, end + 1).toString('utf8'))
-            c.offset += end + 1
-            if (bytesRead < buf.length) break
-          }
-        } finally {
-          await fh.close()
-        }
-      }
+      // In pieces, so a long transcript read for the first time doesn't take its whole size in memory at once; whole
+      // lines only (a line still being written is read next time), a compressed backup decompressed (transcriptFiles).
+      if (isGz(path) || s.size > c.offset) c.offset = await readTranscript(path, c.offset, (piece) => parser.feed(piece.toString('utf8')), USAGE_CHUNK)
       c.size = s.size
       c.mtime = s.mtimeMs
       c.raw = parser.result()
@@ -4629,10 +4611,20 @@ class SessionManager {
     const t = await this.providerTranscript(projectPath, sessionId, ctx)
     if (t) return t.path
     for (const archived of [false, true]) {
-      const b = this.backupPath(projectPath, sessionId, archived)
-      if (existsSync(b)) return b
+      const b = this.backupCopy(projectPath, sessionId, archived)
+      if (b) return b
     }
     return null
+  }
+
+  /**
+   * Hive's backup of a session in a folder (active or archived), as it is kept (#1110): its plain `.jsonl` while it runs
+   * (and after a resume, the newer), else its compressed `.jsonl.gz`; null when it has neither.
+   */
+  backupCopy(projectPath: string, sessionId: string, archived = false): string | null {
+    const plain = this.backupPath(projectPath, sessionId, archived)
+    if (existsSync(plain)) return plain
+    return existsSync(plain + GZ) ? plain + GZ : null
   }
 
   /**
@@ -4724,7 +4716,7 @@ class SessionManager {
         // A provider this version doesn't know.
       }
       const hasTranscript = !!transcript
-      const hasBackup = existsSync(this.backupPath(projectPath, rec.id)) || existsSync(this.backupPath(projectPath, rec.id, true))
+      const hasBackup = this.backupFiles(projectPath, rec.id).length > 0
       const usage = await this.usage(projectPath, rec.id, ctx)
       const { keptUsage: _kept, ...fields } = rec
       const sub = rec.sub ?? (await this.recordSub(projectPath, rec))
@@ -4802,7 +4794,7 @@ class SessionManager {
     if (rec.sub) return rec.sub
     try {
       const adapter = providerAdapter(recordProvider(rec))
-      const path = (await adapter.transcriptPath(rec.cwd ?? projectPath, rec.id, rec.transcriptPath).catch(() => null)) ?? this.backupFiles(projectPath, rec.id)[0]
+      const path = (await adapter.transcriptPath(rec.cwd ?? projectPath, rec.id, rec.transcriptPath).catch(() => null)) ?? this.backupCopy(projectPath, rec.id) ?? this.backupCopy(projectPath, rec.id, true)
       return path ? await adapter.subSessionOf(path, rec.id) : null
     } catch {
       return null
@@ -4861,6 +4853,9 @@ class SessionManager {
       await withFileLock(arch, () =>
         withFileLock(active, async () => {
           this.assertNotLive(sessionId, action)
+          // Compressed copies (#1110) moved as plain ones: decompressed first (a plain one beside it is the newer).
+          await inUseOnFail(() => expandBackup(active))
+          await inUseOnFail(() => expandBackup(arch))
           const moves = new Moves()
           // The archive, built aside: the backup brought up to date from the CLI's transcript, so it is complete.
           const fresh = src ? `${arch}.archiving` : null
@@ -4891,6 +4886,78 @@ class SessionManager {
         })
       )
     })
+    // Compressed again, now it is settled (#1110).
+    await this.compressBackups(projectPath, sessionId)
+  }
+
+  /**
+   * Compresses a session's backups that aren't yet (#1110: active and archived, each `.jsonl` to `.jsonl.gz`), unless it
+   * runs or is starting, or its files are moving (archive, delete, Clean Up): then it's left for its end. With its
+   * backups locked, so no copy or move runs into the middle of it. Best effort: a failure leaves the plain file.
+   */
+  async compressBackups(projectPath: string, sessionId: string): Promise<void> {
+    try {
+      await this.withBackupsLocked(projectPath, sessionId, async () => {
+        for (const archived of [false, true]) {
+          const plain = this.backupPath(projectPath, sessionId, archived)
+          if (!existsSync(plain) || this.liveAnywhere(sessionId) || this.reserved(projectPath, sessionId)) continue
+          await compressFile(plain)
+        }
+      })
+    } catch (e) {
+      log.warn(`compressing the backup of ${sessionId}`, e)
+    }
+  }
+
+  /**
+   * Backup retention (#1110, Settings → Sessions → Keep transcript backups; off by default): Hive's copies of a host's
+   * sessions last active more than that many days ago go to the Recycle Bin (trash()), only where the CLI still has the
+   * session's transcript (it can still be opened and resumed from there), and only once the usage history has what it
+   * used. A session whose only copy is Hive's is never touched (the Assistant for Darren, 20 Oct): deleting those stays
+   * the user's (Delete, Clean Up). Running sessions and those whose files are moving are skipped; each is checked again
+   * with its backups locked, just before they go. Returns how many sessions' copies went.
+   */
+  async applyRetention(projectPath: string): Promise<number> {
+    const setting = config.settings.sessions.backupRetention
+    const days = setting === 'off' ? null : Number(setting)
+    if (!days) return 0
+    const recs = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
+    let n = 0
+    for (const rec of recs) {
+      if (Date.now() - Date.parse(rec.lastActiveAt) <= days * 86_400_000 || !this.backupFiles(projectPath, rec.id).length || this.liveAnywhere(rec.id)) continue
+      if (!(await this.providerTranscript(projectPath, rec.id).catch(() => null))) continue
+      try {
+        const went = await this.whileCleaning(projectPath, rec.id, () =>
+          this.withBackupsLocked(projectPath, rec.id, async () => {
+            if (this.liveAnywhere(rec.id) || !(await this.providerTranscript(projectPath, rec.id).catch(() => null))) return false
+            if (!(await usageHistory.recordNow(projectPath, rec.id).catch(() => false))) return false
+            for (const b of this.backupFiles(projectPath, rec.id)) await trash(b)
+            return true
+          })
+        )
+        if (went) n++
+      } catch (e) {
+        log.warn(`backup retention: ${rec.id} kept`, e)
+      }
+    }
+    if (n) log.info(`backup retention: the backups of ${n} session(s) in ${userText(projectPath)} went to the Recycle Bin`)
+    return n
+  }
+
+  /**
+   * Compresses the backups of a host's sessions that ended before this Hive did it (#1110): one at a time, in the
+   * background, the oldest first; those running or active in the last ten minutes are left for their end.
+   */
+  async compressIdleBackups(projectPath: string): Promise<number> {
+    const recs = (await workspace.sessionsFile(projectPath).catch(() => null))?.sessions ?? []
+    const idle = recs.filter((r) => Date.now() - Date.parse(r.lastActiveAt) > 10 * 60_000).sort((a, b) => (a.lastActiveAt < b.lastActiveAt ? -1 : 1))
+    let n = 0
+    for (const r of idle) {
+      if (![false, true].some((archived) => existsSync(this.backupPath(projectPath, r.id, archived)))) continue
+      await this.compressBackups(projectPath, r.id)
+      n++
+    }
+    return n
   }
 
   /** The session is running, or an agent is starting on it, in any project and window. */
@@ -4979,7 +5046,7 @@ class SessionManager {
 
   /** Hive's copies of a session's transcript that exist (the active backup, the archived one). */
   backupFiles(projectPath: string, sessionId: string): string[] {
-    return [false, true].map((archived) => this.backupPath(projectPath, sessionId, archived)).filter((b) => existsSync(b))
+    return [false, true].flatMap((archived) => [this.backupPath(projectPath, sessionId, archived), this.backupPath(projectPath, sessionId, archived) + GZ]).filter((b) => existsSync(b))
   }
 
   /**

@@ -8,6 +8,7 @@ import { openDb, type Db } from './db'
 import { readAdvancedFrom, valuesReader } from './advancedValues'
 import type { DatabaseSync } from 'node:sqlite'
 import { baselineOf, cardRows, cursorOf, getMeta, replaceRows, sessionIds, setMeta, storedSession, storedSessions, storedTimelines, updateMeta, USAGE_MIGRATIONS, writeSession, type SessionMeta, type SessionWrite } from './usageDb'
+import { isGz, readTranscript } from './transcriptFiles'
 import { newUsageParser, parserShape, restoreParser, saveParser, type RawUsageParser } from './usageParsers'
 
 /**
@@ -100,32 +101,9 @@ export const logInProcess = (fn: (m: WorkerReply) => void): void => {
 const log = (level: 'info' | 'warn', text: string, path?: string): void => logTo({ log: level, text, ...(path ? { path } : {}) })
 
 /** Feeds a file to a parser from `offset` to its end (whole lines only); returns where it stopped. */
-async function feed(path: string, parser: RawUsageParser, from: number, size: number): Promise<number> {
-  let offset = from
-  if (size <= offset) return offset
-  const fh = await open(path, 'r')
-  try {
-    let chunk = CHUNK
-    while (offset < size) {
-      const buf = Buffer.alloc(Math.min(chunk, size - offset))
-      const { bytesRead } = await fh.read(buf, 0, buf.length, offset)
-      // Whole lines only: a line still being written is read next time.
-      const end = buf.subarray(0, bytesRead).lastIndexOf(0x0a)
-      if (end < 0) {
-        if (bytesRead === buf.length && offset + bytesRead < size) {
-          chunk *= 2
-          continue
-        }
-        break
-      }
-      parser.feed(buf.subarray(0, end + 1).toString('utf8'))
-      offset += end + 1
-      if (bytesRead < buf.length) break
-    }
-  } finally {
-    await fh.close()
-  }
-  return offset
+async function feed(path: string, parser: RawUsageParser, from: number): Promise<number> {
+  // Whole lines only (a line still being written is read next time); a compressed backup decompressed (#1110).
+  return readTranscript(path, from, (piece) => parser.feed(piece.toString('utf8')), CHUNK)
 }
 
 /** Files saved by a newer Hive (opened read-only, db.ts): nothing is written to them, said once each. */
@@ -195,7 +173,8 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   let from = 0
   // Taken up only for this file's bytes: the same path, at least as long, its bytes before the offset as they were (a file
   // that shrank and grew again between reads is another), by this Hive's parser.
-  if (cur?.state && samePath && cur.stateOffset !== null && cur.stateOffset <= st.size && cur.stateVersion === hiveVersion && cur.stateShape && cur.stateCheck === (await bytesBefore(job.path, cur.stateOffset))) {
+  // A compressed backup (#1110) is finished and read whole: no state for it.
+  if (!isGz(job.path) && cur?.state && samePath && cur.stateOffset !== null && cur.stateOffset <= st.size && cur.stateVersion === hiveVersion && cur.stateShape && cur.stateCheck === (await bytesBefore(job.path, cur.stateOffset))) {
     parser = restoreParser(job.provider, job.session, cur.state, cur.stateShape)
     if (parser) from = cur.stateOffset
   }
@@ -203,7 +182,7 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   if (!parser) return cur ? unchanged() : { status: 'missing' }
   let offset: number
   try {
-    offset = await feed(job.path, parser, from, st.size)
+    offset = await feed(job.path, parser, from)
   } catch (e) {
     log('warn', `usage history: couldn't read a transcript (${(e as Error).message})`, job.path)
     return { status: 'failed' }
@@ -224,7 +203,7 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
     grew = true
     log('info', `usage history: ${job.session} read less of something than recorded: what was recorded is kept beside it`, job.path)
   }
-  const due = job.keepState === 'now' || (job.keepState === 'running' && (!now?.stateAt || Date.now() - Date.parse(now.stateAt) >= STATE_EVERY_MS))
+  const due = !isGz(job.path) && (job.keepState === 'now' || (job.keepState === 'running' && (!now?.stateAt || Date.now() - Date.parse(now.stateAt) >= STATE_EVERY_MS)))
   const w: SessionWrite = {
     ...job,
     // An external session a record now has is Hive's; one recorded as Hive's stays so.

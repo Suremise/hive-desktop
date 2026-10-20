@@ -117,8 +117,8 @@ describe('the usage history of a workspace', () => {
   it('the totals stay when the transcripts and backups go', async () => {
     const before = await run(() => sessions.usageItems(p))
     rmSync(cliFile(inCli))
-    rmSync(backup(inCli))
-    rmSync(backup(onlyBackup))
+    // Plain or compressed (#1110: the import's housekeeping compresses ended sessions' backups).
+    for (const b of [backup(inCli), backup(onlyBackup)]) for (const f of [b, `${b}.gz`]) rmSync(f, { force: true })
     const after = await run(() => sessions.usageItems(p))
     expect([inCli, onlyBackup].map((id) => outputOf(after, id))).toEqual([inCli, onlyBackup].map((id) => outputOf(before, id)))
     // A session's own usage too, as the Sessions list and the Agent API read it.

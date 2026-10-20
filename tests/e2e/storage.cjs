@@ -7,6 +7,7 @@ const lib = require('./lib.cjs')
 const { _electron } = require('playwright-core')
 const fs = require('fs')
 const path = require('path')
+const zlib = require('zlib')
 const { sessionsOf } = require('./storeDocs.cjs')
 // The longest a wait here waits for what it waits on: a bound for a hung run, never how long it should take (#570).
 const HUNG_MS = 10000
@@ -72,7 +73,8 @@ const write = (file, text) => {
     { id: OPEN, name: 'Not archived', archived: false, days: 200, cli: true, n: 4 }
   ]
   for (const s of sessions) {
-    write(path.join(hive, s.archived ? 'archive' : 'sessions', `${s.id}.jsonl`), transcript(s.id, s.n))
+    // Hive's backups of ended sessions are kept compressed (#1110).
+    write(path.join(hive, s.archived ? 'archive' : 'sessions', `${s.id}.jsonl.gz`), zlib.gzipSync(transcript(s.id, s.n)))
     if (s.cli) write(path.join(cliDir, `${s.id}.jsonl`), transcript(s.id, s.n))
     write(path.join(hive, 'attachments', s.id, 'shot.png'), lib.samplePng(40 + s.n * 10, 30))
   }
@@ -132,6 +134,9 @@ const write = (file, text) => {
   check('Storage: attachments', st.attachments === sizeOf(path.join(hive, 'attachments')), `${st.attachments} vs ${sizeOf(path.join(hive, 'attachments'))}`)
   check('Storage: the worktree', st.worktrees.length === 1 && st.worktrees[0].agent === 'Tree' && st.worktrees[0].bytes === sizeOf(st.worktrees[0].path) && st.worktrees[0].bytes > 0, JSON.stringify(st.worktrees))
   check('Storage: the total', st.total === st.sessions + st.archive + st.attachments + st.worktrees[0]?.bytes)
+  // What the compressed backups hold (#1110).
+  const raw = (list) => list.reduce((n, s) => n + Buffer.byteLength(transcript(s.id, s.n)), 0)
+  check('Storage: the backups before compression', st.sessionsRaw === raw(sessions.filter((s) => !s.archived)) && st.archiveRaw === raw(sessions.filter((s) => s.archived)), `${st.sessionsRaw}, ${st.archiveRaw}`)
 
   // Settings → Workspace lists the project and the Assistant, and its Storage link opens the project's page.
   await page.locator('.activity-btn[aria-label="Settings"]').click()
@@ -158,6 +163,7 @@ const write = (file, text) => {
   const group = page.locator('.settings-group', { has: page.locator('h2', { hasText: /^Storage$/ }) })
   check('the link opens Project Settings → Storage', !!(await until(async () => (await group.locator('.storage-table').count()) > 0, HUNG_MS)))
   check('the page shows the backups row', (await group.locator('tr', { hasText: 'Transcript backups' }).count()) === 1)
+  check('… with what they hold before compression', /before compression/.test(await group.locator('tr', { hasText: 'Transcript backups' }).innerText()), await group.locator('tr', { hasText: 'Transcript backups' }).innerText())
   check("… and the worktree's", (await group.locator('tr', { hasText: "Tree's worktree" }).count()) === 1)
   // A DataTable (#250): sorted by Size, the biggest first, the total still under it.
   const sizes = { 'Transcript backups': st.sessions, Archive: st.archive, Attachments: st.attachments, "Tree's worktree": st.worktrees[0]?.bytes ?? 0 }
@@ -179,19 +185,19 @@ const write = (file, text) => {
   check("by default: old archived sessions' attachments", got === true, JSON.stringify(got))
   await dialog.locator('label.choice', { hasText: 'Attachments of deleted sessions' }).locator('input').check()
   await dialog.locator('label.choice', { hasText: "Hive's backups of archived sessions" }).locator('input[type=checkbox]').check()
-  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl`])
+  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl.gz`])
   check('orphan attachments (not the running launch’s) and the backup the CLI still has', got === true, JSON.stringify(got))
   check('no warning before the last-copies option', (await dialog.locator('.banner.danger').count()) === 0)
   await dialog.locator('label.choice', { hasText: 'the CLI no longer has' }).locator('input').check()
-  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl`, `archive/${OLD_GONE}.jsonl`])
+  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl.gz`, `archive/${OLD_GONE}.jsonl.gz`])
   check('the last copy of the session the CLI lost', got === true, JSON.stringify(got))
   check('… with a warning that it cannot be resumed or read', ((await dialog.locator('.banner.danger').textContent()) ?? '').includes("can't be resumed or read"))
   // A shorter age takes the recent session's attachments and backup too; back to 90 leaves them out again.
   await dialog.getByLabel('Attachment age in days').fill('5')
-  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${RECENT}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl`, `archive/${OLD_GONE}.jsonl`])
+  got = await previewIs([`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${RECENT}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl.gz`, `archive/${OLD_GONE}.jsonl.gz`])
   check('the days field changes what is listed', got === true, JSON.stringify(got))
   await dialog.getByLabel('Attachment age in days').fill('90')
-  const listed = [`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl`, `archive/${OLD_GONE}.jsonl`]
+  const listed = [`attachments/${OLD_CLI}`, `attachments/${OLD_GONE}`, `attachments/${DELETED}`, 'attachments/run-deadbeef', `archive/${OLD_CLI}.jsonl.gz`, `archive/${OLD_GONE}.jsonl.gz`]
   got = await previewIs(listed)
   check('back to 90 days', got === true, JSON.stringify(got))
   const button = dialog.getByRole('button', { name: /to the Recycle Bin/ })
@@ -211,7 +217,7 @@ const write = (file, text) => {
   const missing = keptBefore.filter((p) => !p.endsWith('.bak') && !fs.existsSync(p))
   check('nothing else went', missing.length === 0, missing.join(', '))
   check("the running launch's attachments stayed", fs.existsSync(path.join(runDir, 'pending.png')))
-  check('the recent and not-archived sessions kept their backups', fs.existsSync(path.join(hive, 'archive', `${RECENT}.jsonl`)) && fs.existsSync(path.join(hive, 'sessions', `${OPEN}.jsonl`)))
+  check('the recent and not-archived sessions kept their backups', fs.existsSync(path.join(hive, 'archive', `${RECENT}.jsonl.gz`)) && fs.existsSync(path.join(hive, 'sessions', `${OPEN}.jsonl.gz`)))
   check("the CLI's transcripts are untouched", [OLD_CLI, RECENT, OPEN].every((s) => fs.existsSync(path.join(cliDir, `${s}.jsonl`))))
   check('the worktree is untouched', fs.existsSync(st.worktrees[0].path) && sizeOf(st.worktrees[0].path) === st.worktrees[0].bytes)
 
