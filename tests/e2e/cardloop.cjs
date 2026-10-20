@@ -69,11 +69,15 @@ const check = (name, ok, extra = '') => {
     await inv('session:start', alpha, { agentId: id })
     return until(async () => (await live(id))?.status === 'ready', HUNG_MS)
   }
-  /** Types a prompt into an agent (as the user does), Enter included. */
+  /**
+   * Types a prompt into an agent (as the user does), Enter included, once its fake takes prompts (lib.fakePrompts: its
+   * session idle or watching, its last turn drawn over). Typed blind, a prompt that came as a turn ended on Hive's side
+   * but not yet on the fake's was dropped, and the suite then waited for a watch that never began (#1130).
+   */
+  const typers = new Map()
   const say = async (id, text) => {
-    await inv('pty:write', lib.ptyKey(alpha, id), text)
-    await lib.sleep(300)
-    await inv('pty:write', lib.ptyKey(alpha, id), '\r')
+    if (!typers.has(id)) typers.set(id, lib.fakePrompts(inv, lib.ptyKey(alpha, id), () => live(id), { home: claudeHome }))
+    await typers.get(id).type(text)
   }
   const wait = (n, extra) => `hive hive_wait_for_tasks ${JSON.stringify({ cards: Array.isArray(n) ? n : [n], ...extra, wake: true })}`
 
@@ -270,7 +274,7 @@ const check = (name, ok, extra = '') => {
   check('three panes (under 340 px each), a three-card label: ⋯ is clickable', tight.clickable, JSON.stringify(tight))
   await page.screenshot({ path: path.join(lib.WORK, 'cardloop-watching-tight.png') })
   await page.locator('.pane-header-bar', { hasText: 'Third' }).getByLabel('More').first().click()
-  check('the agent menu offers Cancel Card Watch', (await page.getByText('Cancel Card Watch').count()) >= 1)
+  check('the agent menu offers Cancel Card Watch', !!(await until(async () => (await page.getByText('Cancel Card Watch').count()) >= 1, HUNG_MS)))
   await page.getByText('Cancel Card Watch').first().click()
   check('Cancel ends the watch', !!(await until(async () => (await live(third.id))?.status === 'finished' && !(await live(third.id))?.watch, 5000)))
   await lib.fitWindow(app, page, { width: 1500, height: 900 })
@@ -283,7 +287,8 @@ const check = (name, ok, extra = '') => {
   const dep = (await inv('tasks:create', { title: 'Needed first', project: 'alpha', agent: builder.id, column: 'review' })).number
   script('Third', ['work 1'])
   await say(third.id, wait(dep, { column: 'passed' }))
-  await until(async () => (await live(third.id))?.status === 'watching', HUNG_MS)
+  const depWatched = await until(async () => (await live(third.id))?.watch?.cards?.includes(dep), HUNG_MS)
+  check('Third watches the dependency before it moves', !!depWatched, JSON.stringify(await live(third.id)))
   await inv('tasks:update', dep, { column: 'passed' })
   check("a dependency's wake names its agent and says Passed isn't merged", !!(await until(async () => wakes('Third').length === 5, 15000)) && wakes('Third')[4].text.includes(`#${dep} (Builder's card) is in Passed (Passed isn't merged)`), JSON.stringify(wakes('Third').slice(4)))
   await until(async () => (await live(third.id))?.status === 'finished', HUNG_MS)
@@ -293,12 +298,14 @@ const check = (name, ok, extra = '') => {
   const t1 = Date.now()
   const quiet = await api('POST', '/v1/tasks/wait', { cards: [c4], timeoutSeconds: 2 })
   check('no change: it times out (after the timeout), with a since', quiet.body?.timedOut === true && (quiet.body?.since ?? '').startsWith('@') && Date.now() - t1 >= 1900, JSON.stringify(quiet.body))
+  // Each from the last wait's since (#1130): a change made before the wait has registered (under load) still counts.
+  let lastSince = quiet.body?.since
   const onChange = async (change, cond = {}) => {
     const t = Date.now()
-    const pending = api('POST', '/v1/tasks/wait', { cards: [c4], timeoutSeconds: 30, ...cond })
-    await lib.sleep(800)
+    const pending = api('POST', '/v1/tasks/wait', { cards: [c4], timeoutSeconds: 30, ...(lastSince ? { since: lastSince } : {}), ...cond })
     await change()
     const r = await pending
+    lastSince = r.body?.since ?? lastSince
     return { r: r.body, ms: Date.now() - t }
   }
   const byComment = await onChange(() => inv('tasks:comment', c4, 'A note\nmore'), { changes: ['comment'] })
@@ -309,6 +316,7 @@ const check = (name, ok, extra = '') => {
   const since = byMove.r.since
   await inv('tasks:comment', c4, 'Between two waits')
   const missed = await api('POST', '/v1/tasks/wait', { cards: [c4], changes: ['comment'], since, timeoutSeconds: 5 })
+  lastSince = missed.body?.since ?? lastSince
   check('with since, a change made between two waits is reported at once', missed.body?.changes?.[0]?.comment?.firstLine === 'Between two waits', JSON.stringify(missed.body))
   // A verdict: the reviewer's own tools (the wait itself as a script, the verdict through the reviewer's fake).
   const byVerdict = await onChange(() => say(reviewer.id, `boardreview ${c4} start then boardreview ${c4} failed`), { changes: ['verdict'] })

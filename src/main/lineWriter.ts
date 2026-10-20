@@ -65,6 +65,8 @@ export function whyNoLine(projectPath: string, agentId: string, need: DeliveryNe
   if (sessions.userMayBeTyping(projectPath, agentId)) return 'the user has just typed in its terminal and may still be writing there' // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.lineWaiting(projectPath, agentId)) return "its CLI hasn't taken the line Hive typed before" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   if (sessions.launchTaskWaiting(projectPath, agentId)) return "its CLI hasn't taken its launch's task yet" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
+  // A doorbell before its hive tools have connected is a turn that can't read the inbox (#865: a resumed Claude Code).
+  if (sessions.hiveToolsWaiting(projectPath, agentId)) return "its hive tools haven't connected yet" // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)
   // Its folder being changed under it (#646: a Git switch or pull): no turn of Hive's starts there until that is done.
   const changing = folderChanging(st.cwd)
   if (changing) return `its folder is being changed (${changing})` // i18n-ignore: the reply of an agent's call (deliveries.ts, agent-facing)

@@ -282,6 +282,14 @@ interface LiveSession {
   /** When such a launch first became ready (or watching), in ms: its task is pending at most PENDING_MS from then (#721). */
   launchReadyAt?: number
   /**
+   * This launch was given Hive's tools (the hive MCP server, #865): `connecting` until its server says the CLI has
+   * connected (POST /v1/launch/connected), and no line of Hive's is typed meanwhile, at most hive.mcp.connectSeconds
+   * from when it first became ready (readyAt), for a CLI that never connects it.
+   */
+  hiveTools?: 'connecting' | 'connected'
+  /** When this launch first became ready (or watching, or finished), in ms (#865). */
+  readyAt?: number
+  /**
    * The session its next conversation was handed over from (#782): recorded with that conversation once its id is known
    * (Codex's comes with its first prompt, which may be minutes away behind a question at start), then let go.
    */
@@ -791,6 +799,75 @@ class SessionManager {
   launchTaskWaiting(projectPath: string, agentId: string): boolean {
     const l = this.live.get(liveId(projectPath, agentId))
     return !!l && launchPending(l)
+  }
+
+  /**
+   * Whether an agent's launch was given Hive's tools and its CLI hasn't connected them yet (#865): a resumed Claude Code
+   * is ready at its SessionStart before its hive server has connected, and a doorbell typed then is a turn that can't
+   * call hive_inbox. At most hive.mcp.connectSeconds from when it first became ready, for a CLI that never connects it
+   * (its server failed to start, or MCP is off in it).
+   */
+  hiveToolsWaiting(projectPath: string, agentId: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (l?.hiveTools !== 'connecting') return false
+    return l.readyAt === undefined || Date.now() - l.readyAt < advanced.number('hive.mcp.connectSeconds') * 1000
+  }
+
+  /**
+   * The hive server of an agent's launch `runId` says its CLI has connected (#865): Hive's lines may go to it now, and
+   * what waited is offered at once (its status is sent again, which deliveries follow). Whether it was that launch's.
+   */
+  /** Who waits for a launch's hive tools (hiveToolsSettled), by agent: each looks at the gate again when told. */
+  private toolsWaiters = new Map<string, Set<() => void>>()
+  /** The waits look again when Settings → Advanced changes (the bound applies at once), once one has waited. */
+  private toolsSettingsHook: (() => void) | null = null
+
+  /** The waits for an agent's hive tools look at the gate again (it connected, its launch changed or ended). */
+  private recheckTools(key: string): void {
+    for (const look of [...(this.toolsWaiters.get(key) ?? [])]) look()
+  }
+
+  /**
+   * Resolves once an agent's hive tools no longer hold its lines (#865 rounds 3 and 4): once hiveToolsWaiting, the gate
+   * itself, is false. It is looked at again when the tools connect, the launch's state changes or it ends, the bound is
+   * changed in Settings → Advanced, and when what is left of the bound from its ready runs out; never a frozen deadline.
+   */
+  hiveToolsSettled(projectPath: string, agentId: string): Promise<void> {
+    if (!this.hiveToolsWaiting(projectPath, agentId)) return Promise.resolve()
+    const key = liveId(projectPath, agentId)
+    this.toolsSettingsHook ??= advanced.onChange(() => {
+      for (const k of [...this.toolsWaiters.keys()]) this.recheckTools(k)
+    })
+    return new Promise((settle) => {
+      const waiters = this.toolsWaiters.get(key) ?? new Set<() => void>()
+      this.toolsWaiters.set(key, waiters)
+      let timer: NodeJS.Timeout | undefined
+      const look = (): void => {
+        clearTimeout(timer)
+        if (this.hiveToolsWaiting(projectPath, agentId)) {
+          const l = this.live.get(key)!
+          const bound = advanced.number('hive.mcp.connectSeconds') * 1000
+          timer = setTimeout(look, (l.readyAt === undefined ? bound : Math.max(0, bound - (Date.now() - l.readyAt))) + 50)
+          return
+        }
+        waiters.delete(look)
+        if (!waiters.size && this.toolsWaiters.get(key) === waiters) this.toolsWaiters.delete(key)
+        settle()
+      }
+      waiters.add(look)
+      look()
+    })
+  }
+
+  hiveToolsConnected(projectPath: string, agentId: string, runId?: string): boolean {
+    const l = this.live.get(liveId(projectPath, agentId))
+    if (!l || (runId !== undefined && l.state.runId !== runId)) return false
+    if (l.hiveTools !== 'connecting') return true
+    l.hiveTools = 'connected'
+    this.recheckTools(liveId(projectPath, agentId))
+    log.info(`${userText(agentId)}'s hive tools connected${l.readyAt === undefined ? '' : ` ${Date.now() - l.readyAt} ms after it became ready`}`)
+    this.emitState(l.state)
+    return true
   }
 
   /**
@@ -1318,6 +1395,7 @@ class SessionManager {
     else if (l) endAgentToken(l.state.projectPath, l.state.agentId, l.state.runId)
     if (l) this.launchEnded(l.state.projectPath, l.state.agentId, l.state.runId)
     this.live.delete(id)
+    this.recheckTools(id)
     // A start given up before its process spawned has no exit to wait for.
     this.exitWaiters.get(id)?.()
     this.exitWaiters.delete(id)
@@ -1409,6 +1487,8 @@ class SessionManager {
     if (l.modeOverride && modeAllowed(adapter.id, l.modeOverride, config.settings)) mode = l.modeOverride
     l.launchMode = mode
     state.permissionMode = mode ?? undefined
+    // Given Hive's tools, it takes no line of Hive's until they have connected (#865).
+    l.hiveTools = eff.mcpServers.hive ? 'connecting' : undefined
     // Its own Agent API token for this launch, which confines its board calls to its project (the Assistant has its own).
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
@@ -2652,6 +2732,7 @@ class SessionManager {
       // Its CLI has exited: its transcript is finished (archiving it at once is fine, inUse).
       this.noteExit(l.state.sessionId)
       this.live.delete(id)
+      this.recheckTools(id)
     }
     this.runs.delete(runId)
     // Its hook token ends with it: hooks of an ended launch were ignored anyway (findLaunch).
@@ -3283,6 +3364,11 @@ class SessionManager {
     if (l?.state === state) this.fact(state, { composer: this.composerOf(l) })
     // A launch with its task on its command line: when it first became ready, before a watch shows that as watching (#721).
     if (l?.state === state && l.launchTask && l.launchReadyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) l.launchReadyAt = Date.now()
+    // And any launch: its hive tools' bound runs from then (#865), which a wait for them looks at again.
+    if (l?.state === state && l.readyAt === undefined && (state.status === 'ready' || state.status === 'watching' || state.status === 'finished')) {
+      l.readyAt = Date.now()
+      this.recheckTools(liveId(state.projectPath, state.agentId))
+    }
     // A wake-on-change watch (#128): an agent whose turn has ended waits on its cards (watching), never idle; without
     // the watch, it is just finished again (not newly: nothing to look at, nothing to notify).
     const watch = this.watchFor(state.projectPath, state.agentId)
