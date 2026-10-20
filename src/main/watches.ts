@@ -1755,8 +1755,8 @@ async function deliver(store: Store, rec: WatchRecord): Promise<void> {
     return
   }
   // Not over a line it hasn't taken (#430): its next wake waits until it takes that one, or the user presses Enter there.
-  // Nor before its CLI has taken its launch's task (#721).
-  if (!readyFor(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId) || sessions.launchTaskWaiting(rec.projectPath, rec.agentId)) return
+  // Nor before its CLI has taken its launch's task (#721), or connected its hive tools (#865).
+  if (!readyFor(sessions.liveFor(rec.projectPath, rec.agentId)) || sessions.userMayBeTyping(rec.projectPath, rec.agentId) || sessions.lineWaiting(rec.projectPath, rec.agentId) || sessions.launchTaskWaiting(rec.projectPath, rec.agentId) || sessions.hiveToolsWaiting(rec.projectPath, rec.agentId)) return
   const token = { cancelled: false }
   store.delivering.set(rec.id, token)
   const current = (): boolean => !token.cancelled && alive(store) && store.list.includes(rec)

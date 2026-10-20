@@ -17,6 +17,8 @@
 //   an Edit of that file and records the tool call. "background N" starts a background command that ends after
 //   N seconds; its task notification then starts a turn by itself, as in Claude Code. "pad N" adds N KB to the
 //   transcript. "context N": the reply's request reports N input tokens, so the session's context is about N. "ask" first asks for permission (a permission_prompt Notification), then carries on by itself.
+//   It connects the launch's hive MCP server as it starts (#865: the real server, which tells Hive it has connected);
+//   with fake-mcp-hold-<agent> in its home, only once the test makes fake-mcp-go-<agent>.
 //   "holduntil NAME": the turn doesn't end until the test makes a file NAME in its home (CLAUDE_CONFIG_DIR).
 //   "askwhen NAME": the permission prompt once the test makes a file NAME in its home (#667), not after a set time.
 //   "waitfile NAME" as a step ("waitfile go then hive hive_inbox {}"): the steps after it wait for that file.
@@ -114,7 +116,7 @@ const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
 const { spawn } = require('child_process')
-const { callHiveTool, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
+const { callHiveTool, connectHive, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -1026,6 +1028,16 @@ async function main() {
     if (take('fake-title-untimed')) fs.appendFileSync(transcript, JSON.stringify({ type: 'custom-title', customTitle: opts['--name'], sessionId }) + '\n')
     else write({ type: 'custom-title', customTitle: opts['--name'] })
   }
+  // Its MCP servers connect as it starts, beside its session (#865): the launch's hive server, through the real server,
+  // which tells Hive. With fake-mcp-hold-<agent> in its home, not until the test makes fake-mcp-go-<agent>, as a
+  // resumed Claude Code connects them after its SessionStart.
+  const hive = opts['--mcp-config'] ? JSON.parse(fs.readFileSync(opts['--mcp-config'], 'utf8')).mcpServers?.hive : null
+  const held = take('fake-mcp-hold')
+    ? (async () => {
+        while (!take('fake-mcp-go')) await sleep(100)
+      })()
+    : null
+  void connectHive(hive, held)
   await sessionStart(opts['--resume'] ? 'resume' : 'startup')
   promptLine()
   setInterval(() => void whileIdle(), 200)

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **A resumed agent isn't told of new work before Hive's tools are back.** A Claude Code session resumed (the Assistant's too) is ready a moment before Hive's tools have reconnected in it, and a message's notice typed then was a turn the agent couldn't read it in: it said its tools had disconnected, and was told again later. Hive now waits until the agent's tools have connected, at most 30 seconds (*hive tools: wait to connect* in Settings → Advanced), before it tells the agent (#865).
 - **A message left for an agent that's just starting on a task waits for that task.** An agent started with a task (a card's Start, a new conversation) is ready a moment before its coding agent takes the task. A message or wake that arrived just then could be typed first, so the agent read it before its task and Hive lost track of the line. Hive now waits until the task has been taken.
 - **The Assistant hears your replies to agents at once.** When you answer an agent in its pane, the Assistant is told within seconds even when it isn't waiting on that agent at that moment (between its watches, or while it watches lanes), instead of a few turns later.
 - **A stalled card says why when the agent's wake is stuck.** When an agent in a card loop watched its card but the wake Hive typed for it wasn't sent, the card now shows *"hasn't taken the wake Hive typed for #n: it waits in its prompt"*, with how to send it, instead of saying the agent ended its turn without watching.

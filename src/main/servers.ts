@@ -195,7 +195,7 @@ let apiToken = ''
 /** Who is calling: a script with the workspace token, the Assistant, or a project agent (by its own token). */
 /** An Assistant caller keeps the token it came with: one launch's, which its later work is checked against (#186). */
 /** A viewer (#620) reads and follows like the workspace token and changes nothing: every request but a GET is refused. */
-type Caller = { kind: 'api' } | { kind: 'viewer'; id: string; name: string } | { kind: 'assistant'; workspace: string; token: string } | ({ kind: 'agent' } & AgentIdentity)
+type Caller = { kind: 'api' } | { kind: 'viewer'; id: string; name: string } | { kind: 'assistant'; workspace: string; token: string } | ({ kind: 'agent'; runId: string } & AgentIdentity)
 const callerStore = new AsyncLocalStorage<Caller>()
 
 function viewerCaller(): { id: string; name: string } | null {
@@ -207,6 +207,12 @@ function viewerCaller(): { id: string; name: string } | null {
 function agentCaller(): AgentIdentity | null {
   const c = callerStore.getStore()
   return c?.kind === 'agent' ? c : null
+}
+
+/** The launch a project agent's call comes from (its token's), or null for another caller. */
+function agentCallerRun(): string | null {
+  const c = callerStore.getStore()
+  return c?.kind === 'agent' ? c.runId : null
 }
 
 function assistantCaller(): string | null {
@@ -2199,6 +2205,22 @@ route('POST', '/v1/metrics/mcp', async ({ body }) => {
   return { accepted, refused: calls.length + (body?.catalog ? 1 : 0) - accepted }
 })
 
+/**
+ * The hive MCP bridge says its CLI has connected it (#865): the launch whose token it calls with may be given Hive's
+ * lines now (sessions.hiveToolsConnected). An agent's or the Assistant's own token only, for its own launch: a token
+ * names one launch, so a bridge left from an earlier one is refused (its token has stopped working).
+ */
+route('POST', '/v1/launch/connected', async () => {
+  const agent = agentCaller()
+  if (agent) return { ok: sessions.hiveToolsConnected(agent.projectPath, agent.agentId, agentCallerRun() ?? undefined) }
+  const ws = assistantCaller()
+  const token = assistantCallerToken()
+  if (!ws || !token) throw new HttpError(403, "Only the hive MCP bridge says it has connected, with an agent's or the Assistant's token")
+  // The Assistant's token is its running launch's (a new one each start): an earlier launch's no longer matches.
+  if (!assistant.isCurrentToken(ws, token)) throw new HttpError(403, "That is an earlier launch's token")
+  return { ok: sessions.hiveToolsConnected(assistant.assistantHome(ws), ASSISTANT_AGENT_ID) }
+})
+
 route('GET', '/v1/mcp', async () => (await inWorkspace(requireWorkspace(), () => listMcp())).map(({ name, def, globallyEnabled, error }) => ({ name, description: def?.description ?? '', globallyEnabled, error })))
 
 route('POST', '/v1/notify', async ({ body }) => {
@@ -2476,8 +2498,9 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
   const r = routes.find((x) => x.method === req.method && x.pattern.test(url.pathname))
   if (!r) return send(res, 404, { error: `No route for ${req.method} ${url.pathname}` })
   m.route = r.template
-  // The bridge's reports about its tool calls are bookkeeping, not traffic: counting them would count every call twice.
-  if (r.template === '/v1/metrics/mcp') m.skip = true
+  // The bridge's reports about its tool calls are bookkeeping, not traffic: counting them would count every call twice
+  // (and its word that it has connected, #865, is the same).
+  if (r.template === '/v1/metrics/mcp' || r.template === '/v1/launch/connected') m.skip = true
   try {
     // Counted as received (a body the client stops sending, or one too large, is counted as far as it came).
     const raw = req.method === 'GET' ? '' : await readBody(req, (bytes) => (m.requestBytes += bytes))
@@ -2501,7 +2524,7 @@ async function serveApi(req: IncomingMessage, res: ServerResponse, url: URL): Pr
     // the hive tools add the line to their reply. (The bridge's own reports about its calls aren't the agent's.) Its
     // cards as they were when the call began count too, so the call that moves a card on (to Review, say) still hears
     // of a decision it hasn't read, unless the call read it.
-    const flagged = r.template !== '/v1/metrics/mcp'
+    const flagged = r.template !== '/v1/metrics/mcp' && r.template !== '/v1/launch/connected'
     const began = Date.now()
     const before = flagged ? await decisionsNew(ws) : null
     const result = ws ? await inWorkspace(ws, run) : await run()

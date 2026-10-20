@@ -113,6 +113,8 @@ module.exports = async function run(provider) {
       // Copilot asks whether to trust the folder first (Codex's test home trusts it already).
       if (provider === 'copilot' && (await lib.until(async () => /Do you trust the files in this folder/.test(lib.plainText(await inv('pty:buffer', lib.ptyKey(proj, id)).catch(() => ''))), HUNG_MS, 300))) await inv('pty:write', lib.ptyKey(proj, id), '\r')
       check(`${provider} starts and is ready`, !!(await lib.until(idle, HUNG_MS, 300)), JSON.stringify(await live()))
+      // Hive types nothing into it until its CLI has connected Hive's tools (#865: a second or two after it is ready).
+      check(`${provider} connects Hive's tools`, !!(await lib.until(() => hiveLog().split('\n').some((l) => l.includes(id) && l.includes('hive tools connected')), HUNG_MS, 300)))
     })
 
     for (const [i, pause] of PAUSES.entries()) {
