@@ -115,9 +115,21 @@
     "defaultMessage": "#{n} is in Doing with another agent, who is working on it: newer work is in progress, so it can't be moved to {column, select, review {Review} passed {Passed} done {Done} other {{column}}} by another agent. Leave it where it is; another agent moves it to Review when done, and the user can move it.",
     "description": "An error: an agent tried to move card #{n} (a number) on to {column} (select: a board column; translate each), but the card is in Doing with another agent (whose name isn't known), whose work is in progress. Doing and Review are board columns."
   },
+  "tasks.error.labelFieldList": {
+    "defaultMessage": "{field} must be a list",
+    "description": "An error: the call gave the labels to add or remove as something other than a list. {field} is the name of the call's field (\"addLabels\" or \"removeLabels\"): keep it as it is."
+  },
+  "tasks.error.labelsAddedAndRemoved": {
+    "defaultMessage": "A label can't be both added and removed: {labels}.",
+    "description": "An error: the call named the same labels ({labels}, separated by commas) both to add to the card and to take off it."
+  },
   "tasks.error.labelsList": {
     "defaultMessage": "labels must be a list",
     "description": "An error: the call gave the card's labels as something other than a list. \"labels\" is the name of the call's field: keep it as it is."
+  },
+  "tasks.error.labelsMixed": {
+    "defaultMessage": "labels replaces a card's labels: give it alone, or addLabels and removeLabels to change only those.",
+    "description": "An error: the call gave the card's labels in full (labels, which replaces them) and also labels to add or take off. \"labels\", \"addLabels\" and \"removeLabels\" are the names of the call's fields: keep them as they are."
   },
   "tasks.error.needsTitle": {
     "defaultMessage": "A card needs a title.",
@@ -343,9 +355,21 @@
     "defaultMessage": "Labels: {labels}",
     "description": "A line in a card's history: the card's labels were set to these ({labels}: the user's labels, separated by commas)."
   },
+  "tasks.history.labelsAdded": {
+    "defaultMessage": "Labels: added {labels}",
+    "description": "A line in a card's history: these labels were added to the card, its other labels kept ({labels}: the user's labels, separated by commas)."
+  },
+  "tasks.history.labelsAddedTakenOff": {
+    "defaultMessage": "Labels: added {added}; removed {removed}",
+    "description": "A line in a card's history: in one change, the labels {added} were added to the card and the labels {removed} taken off, its other labels kept (each: the user's labels, separated by commas)."
+  },
   "tasks.history.labelsRemoved": {
     "defaultMessage": "Removed the labels",
     "description": "A line in a card's history: the card's labels were all removed."
+  },
+  "tasks.history.labelsTakenOff": {
+    "defaultMessage": "Labels: removed {labels}",
+    "description": "A line in a card's history: these labels were taken off the card, its other labels kept ({labels}: the user's labels, separated by commas)."
   },
   "tasks.history.linked": {
     "defaultMessage": "Linked to {cards}",

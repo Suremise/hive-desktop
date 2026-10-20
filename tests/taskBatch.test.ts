@@ -84,6 +84,54 @@ describe('batch card changes (hive_update_tasks)', () => {
     }
   })
 
+  // #1131: labels replaces a card's labels; addLabels and removeLabels change only those named, per card.
+  it('adds and removes labels without replacing the others; one there already, or one missing, is no change (#1131)', async () => {
+    const c = await run(() => tasks.createTask({ title: 'Tagged', project: 'batch', labels: ['ui', 'bug'] }, user))
+    const n = c.number
+    const change = async (patch: Parameters<typeof tasks.updateTask>[1]) => {
+      const said: string[] = []
+      const card = await run(() => tasks.updateTask(n, patch, user, { said }))
+      return { labels: card.labels, said, last: card.history.at(-1)?.what, entries: card.history.length }
+    }
+    // Normalised as labels is: trimmed, each once.
+    expect(await change({ addLabels: ['0.9.4', 'ui', ' 0.9.4 '] })).toMatchObject({ labels: ['ui', 'bug', '0.9.4'], said: ['Labels: added 0.9.4'], last: 'Labels: added 0.9.4' })
+    expect(await change({ removeLabels: [' bug', 'nope'] })).toMatchObject({ labels: ['ui', '0.9.4'], said: ['Labels: removed bug'] })
+    const before = (await cardOf(n)).history.length
+    expect(await change({ addLabels: ['ui'], removeLabels: ['nope'] })).toMatchObject({ labels: ['ui', '0.9.4'], said: [], entries: before })
+    expect(await change({ addLabels: [], removeLabels: [] })).toMatchObject({ labels: ['ui', '0.9.4'], said: [], entries: before })
+    expect(await change({ addLabels: ['p1', 'p2'], removeLabels: ['ui'] })).toMatchObject({ labels: ['0.9.4', 'p1', 'p2'], said: ['Labels: added p1, p2; removed ui'] })
+    // labels still replaces them all.
+    expect(await change({ labels: ['only'] })).toMatchObject({ labels: ['only'], said: ['Labels: only'] })
+  })
+
+  // #1131 round 1: labels were cut to 40 characters after repeats were removed, so two alike in their first 40 were kept
+  // twice, and a card with 11 labels was refused one more.
+  it('counts labels alike once they are cut to 40 characters as one, for labels, addLabels and removeLabels (#1131)', async () => {
+    const x = 'x'.repeat(40)
+    expect(tasks.labelChange(['keep'], [`${x}a`, `${x}b`], [])?.labels).toEqual(['keep', x])
+    expect(tasks.labelChange(['keep'], [`${x}a  `, ` ${'y'.repeat(39)} z`], [])?.labels).toEqual(['keep', x, 'y'.repeat(39)])
+    const eleven = Array.from({ length: 11 }, (_, i) => `own-${i}`)
+    const c = await run(() => tasks.createTask({ title: 'Eleven labels', project: 'batch', labels: eleven }, user))
+    const added = await run(() => tasks.updateTask(c.number, { addLabels: [`${x}a`, `${x}b`] }, user))
+    expect(added.labels).toEqual([...eleven, x])
+    expect(added.history.at(-1)?.what).toBe(`Labels: added ${x}`)
+    // Taken off by a label that is the same once cut.
+    expect((await run(() => tasks.updateTask(c.number, { removeLabels: [`${x}zzz`] }, user))).labels).toEqual(eleven)
+    expect((await run(() => tasks.updateTask(c.number, { labels: [`${x}a`, `${x}b`, 'keep'] }, user))).labels).toEqual([x, 'keep'])
+  })
+
+  it('refuses labels with addLabels or removeLabels, a label both added and removed, and more labels than a card has room for (#1131)', async () => {
+    const c = await run(() => tasks.createTask({ title: 'Refusals', project: 'batch', labels: ['keep'] }, user))
+    await expect(run(() => tasks.updateTask(c.number, { labels: ['a'], addLabels: ['b'] }, user))).rejects.toThrow(/labels replaces a card's labels/)
+    await expect(run(() => tasks.updateTask(c.number, { labels: ['a'], removeLabels: ['keep'] }, user))).rejects.toThrow(/labels replaces a card's labels/)
+    await expect(run(() => tasks.updateTask(c.number, { addLabels: ['x', 'keep'], removeLabels: [' keep '] }, user))).rejects.toThrow(/both added and removed: keep/)
+    await expect(run(() => tasks.updateTask(c.number, { addLabels: 'x' as never }, user))).rejects.toThrow(/addLabels must be a list/)
+    await expect(run(() => tasks.updateTask(c.number, { addLabels: Array.from({ length: 30 }, (_, i) => `l${i}`) }, user))).rejects.toThrow(/up to \d+ labels/)
+    const after = await cardOf(c.number)
+    expect(after.labels).toEqual(['keep'])
+    expect(after.history).toHaveLength(1)
+  })
+
   it('refuses a card the caller may not change (missing, or another project), as a missing card is refused, and applies the rest', async () => {
     const mine = await make('Alpha card', 'alpha')
     const theirs = await make('Beta card', 'beta')
@@ -215,6 +263,20 @@ describe("the Hive Assistant's batch (through its change boundary)", () => {
     }
     return n
   }
+
+  // #1131: tagging 50 cards took two messages' limit, card by card with each one's labels typed again; a bulk labels
+  // wiped the cards' other labels.
+  it('tags 50 cards in one change with addLabels, each keeping its own labels, and takes one off them all with removeLabels (#1131)', async () => {
+    await fresh()
+    const cards = await Promise.all(Array.from({ length: 50 }, (_, i) => run(() => tasks.createTask({ title: `Tag ${i + 1}`, project: 'batch', labels: [`own-${i}`] }, user))))
+    const numbers = cards.map((c) => c.number)
+    const items = await run(() => assistantBatch(wsPath, token, numbers, { addLabels: ['0.9.4'] }, assistant))
+    expect(items.every((i, k) => i.error === null && JSON.stringify(i.card?.labels) === JSON.stringify([`own-${k}`, '0.9.4']) && i.said.join() === 'Labels: added 0.9.4')).toBe(true)
+    expect(control.actionsLeft(wsPath)).toBe(control.MAX_ACTIONS_PER_TURN - 1)
+    const off = await run(() => assistantBatch(wsPath, token, numbers, { removeLabels: ['0.9.4'] }, assistant))
+    expect(off.every((i, k) => JSON.stringify(i.card?.labels) === JSON.stringify([`own-${k}`]) && i.said.join() === 'Labels: removed 0.9.4')).toBe(true)
+    expect(control.actionsLeft(wsPath)).toBe(control.MAX_ACTIONS_PER_TURN - 2)
+  })
 
   it('applies a 27-card batch as one change, and lists each card once', async () => {
     await fresh()
@@ -443,6 +505,14 @@ describe('batch requests', () => {
     expect(() => batchRequest({ numbers: [1], labels: 'bug' })).toThrow(/labels is a list/)
     expect(() => batchRequest({ numbers: [1], blocked: 3 })).toThrow(/blocked is the reason/)
     expect(() => batchRequest({ numbers: [], column: 'todo' })).toThrow(/^cards:/)
+  })
+
+  it('takes addLabels and removeLabels as lists of text, and refuses them beside labels before any card changes (#1131)', () => {
+    expect(batchRequest({ numbers: [1], addLabels: ['a'], removeLabels: ['b'] }).patch).toEqual({ addLabels: ['a'], removeLabels: ['b'] })
+    expect(() => batchRequest({ numbers: [1], addLabels: 'a' })).toThrow(/addLabels is a list/)
+    expect(() => batchRequest({ numbers: [1], removeLabels: [3] })).toThrow(/removeLabels is a list/)
+    expect(() => batchRequest({ numbers: [1], labels: ['a'], addLabels: ['b'] })).toThrow(ChangeRefused)
+    expect(() => batchRequest({ numbers: [1], labels: ['a'], removeLabels: ['b'] })).toThrow(/labels replaces each card's labels/)
   })
 
   it('reads the card numbers with or without #, and an empty agent takes the agent away', () => {

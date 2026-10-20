@@ -1,7 +1,7 @@
 import { basename } from 'path'
 import { config } from './config'
 import { sessions } from './sessions'
-import { allTasks } from './tasks'
+import { allTasks, cardHolds, type CardHolds } from './tasks'
 import { listLanes } from './lanes'
 import { inWorkspace, type WorkspaceService } from './workspace'
 import { projectAgents } from '../shared/defaults'
@@ -65,7 +65,7 @@ function usedIn(list: SessionSlice[], spans: Span[]): CostPart {
 }
 
 /** A card's holds: kept on it, or (a card no change has saved since #602) from its history. */
-const holdsOfCard = (c: TaskCard): TaskHold[] => c.held ?? holdsFromHistory(c)
+const holdsOfCard = (c: CardHolds): TaskHold[] => c.held ?? holdsFromHistory(c)
 
 /** Reads the projects' sessions once each, by the project's folder name. */
 async function sessionReader(ws: WorkspaceService): Promise<(project: string) => Promise<AgentSessions | null>> {
@@ -85,7 +85,7 @@ async function sessionReader(ws: WorkspaceService): Promise<(project: string) =>
 type HeldIndex = Map<string, Map<number, Span[]>>
 const heldKey = (project: string, name: string): string => `${project.toLowerCase()}|${name.toLowerCase()}`
 
-function heldIndex(cards: TaskCard[], now: number): HeldIndex {
+function heldIndex(cards: CardHolds[], now: number): HeldIndex {
   const raw = new Map<string, Map<number, Span[]>>()
   for (const c of cards) {
     for (const h of holdsOfCard(c)) {
@@ -150,19 +150,23 @@ export async function cardCosts(ws: WorkspaceService, o: { numbers?: number[]; p
   return inWorkspace(ws, async () => {
     const now = Date.now()
     const want = o.numbers ? new Set(o.numbers) : null
-    const all = await allTasks(ws)
-    const cards = all.filter((c) => (want ? want.has(c.number) : !o.project || c.project.toLowerCase() === o.project.toLowerCase()))
+    // Every card's holds (#1107: not the cards in full), then only the cards wanted read in full.
+    const all = await cardHolds(ws)
+    const held = all.filter((c) => {
+      if (want ? !want.has(c.number) : o.project && c.project.toLowerCase() !== o.project.toLowerCase()) return false
+      const holds = holdsOfCard(c)
+      if (!holds.length) return false
+      if (want || (o.from === undefined && o.to === undefined)) return true
+      const from = o.from ?? 0
+      const to = o.to ?? now
+      return holds.some((h) => ms(h.from, now) < to && ms(h.to, now) >= from)
+    })
+    const cards = await allTasks(ws, { numbers: held.map((c) => c.number) })
     const index = heldIndex(all, now)
     const read = await sessionReader(ws)
     const out: CardCost[] = []
     for (const c of cards) {
-      const holds = holdsOfCard(c)
-      if (!holds.length) continue
-      if (!want && (o.from !== undefined || o.to !== undefined)) {
-        const from = o.from ?? 0
-        const to = o.to ?? now
-        if (!holds.some((h) => ms(h.from, now) < to && ms(h.to, now) >= from)) continue
-      }
+      if (!holdsOfCard(c).length) continue
       out.push(costOf(c, c.project ? await read(c.project) : null, now, index))
     }
     return out
@@ -178,7 +182,7 @@ export async function laneCosts(ws: WorkspaceService, ids?: string[]): Promise<L
     const now = Date.now()
     const lanes = (await listLanes(ws, { all: !!ids })).filter((l) => !ids || ids.includes(l.id))
     if (!lanes.length) return []
-    const cards = await allTasks(ws)
+    const cards = await cardHolds(ws)
     const read = await sessionReader(ws)
     const out: LaneCost[] = []
     for (const l of lanes) {

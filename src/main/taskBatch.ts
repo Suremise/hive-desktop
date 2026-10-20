@@ -10,12 +10,12 @@ import { cardAgent, knownAgent } from './activityTargets'
  * The fields a batch takes besides its card numbers and reply. A title, comment, decision or link is one card's: a batch
  * never archives, edits a decision or deletes (those stay the user's, on one card).
  */
-const BATCH_FIELDS = ['numbers', 'column', 'position', 'blocked', 'labels', 'agent', 'reply']
+const BATCH_FIELDS = ['numbers', 'column', 'position', 'blocked', 'labels', 'addLabels', 'removeLabels', 'agent', 'reply']
 
 /** The card numbers and the fields of a batch request, checked before anything changes or is counted. */
 export function batchRequest(body: any): { numbers: number[]; patch: tasks.BatchPatch } {
   const other = Object.keys(body ?? {}).filter((k) => !BATCH_FIELDS.includes(k))
-  if (other.length) throw new ChangeRefused(400, `A batch sets column, position, blocked, labels or agent on its cards: ${other.join(', ')} goes on one card (hive_update_task).`)
+  if (other.length) throw new ChangeRefused(400, `A batch sets column, position, blocked, labels, addLabels, removeLabels or agent on its cards: ${other.join(', ')} goes on one card (hive_update_task).`)
   const numbers = tasks.batchNumbers(body?.numbers)
   const patch: tasks.BatchPatch = {}
   if (body.column !== undefined) {
@@ -34,8 +34,15 @@ export function batchRequest(body: any): { numbers: number[]; patch: tasks.Batch
     if (!Array.isArray(body.labels) || !body.labels.every((x: unknown) => typeof x === 'string')) throw new ChangeRefused(400, 'labels is a list of text.')
     patch.labels = body.labels
   }
+  // #1131: labels added to or taken off each card, its other labels kept; beside labels, refused before any card changes.
+  for (const k of ['addLabels', 'removeLabels'] as const) {
+    if (body[k] === undefined) continue
+    if (!Array.isArray(body[k]) || !body[k].every((x: unknown) => typeof x === 'string')) throw new ChangeRefused(400, `${k} is a list of text.`)
+    if (body.labels !== undefined) throw new ChangeRefused(400, "labels replaces each card's labels: give it alone, or addLabels and removeLabels to change only those.")
+    patch[k] = body[k]
+  }
   if (body.agent !== undefined) patch.agent = body.agent ? String(body.agent) : null
-  if (!Object.keys(patch).length) throw new ChangeRefused(400, 'Give what to change on the cards: column, position, blocked, labels or agent.')
+  if (!Object.keys(patch).length) throw new ChangeRefused(400, 'Give what to change on the cards: column, position, blocked, labels, addLabels, removeLabels or agent.')
   return { numbers, patch }
 }
 

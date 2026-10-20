@@ -317,6 +317,41 @@ describe('lane watches (main/watches.ts, #531)', async () => {
     await disposeWorkspaceService(w)
   }, MANY_CARDS_HUNG_MS)
 
+  // #1107: a busy board's archived cards are most of it (945 of 1058, 13 MB): a lane watch reads its lanes' cards by
+  // number, and the live cards only for an agent waiting for the user, never the archived ones beside them.
+  it("reads only its lanes' cards (one archived mid-lane still found) and live cards for a wait, never the archived cards beside them (#1107)", async () => {
+    const { w, alpha, home } = await open()
+    const st = fake(alpha, home)
+    const [a, b] = await newCards(w, 'b1', 2)
+    const [doing] = await newCards(w, 'b2', 1)
+    const marker = 'ARCHIVED-NOT-IN-A-LANE-1107'
+    const old = (await inWorkspace(w, () => tasks.createTask({ title: 'Old', project: 'alpha', description: marker }, user))).number
+    await inWorkspace(w, () => tasks.archiveTask(old, true))
+    await lanes.startLane(w, { project: 'alpha', builder: 'b1', reviewer: 'r1', cards: [a, b], by: 'B1 (alpha)', name: 'reads' })
+    await watchAll(w, home, st)
+    const parse = vi.spyOn(JSON, 'parse')
+    const parsedOld = (): boolean => parse.mock.calls.some(([text]) => typeof text === 'string' && text.includes(marker))
+    try {
+      // A lane card archived mid-lane: still the lane's, so a failed review of the other is told with the lane.
+      await inWorkspace(w, () => tasks.archiveTask(b, true))
+      await inWorkspace(w, () => tasks.updateTask(a, { column: 'review' }, agent('b1')))
+      await fail(w, a, 'r1')
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.told).toHaveLength(1), { timeout: HUNG_MS })
+      expect(st.told[0]).toMatch(new RegExp(`^\\[Hive\\] Lane B1 / R1 \\(reads\\): #${a} failed review`))
+      // An agent waiting for the user: its card found among the live cards.
+      await watchAll(w, home, st)
+      status(alpha, st, 'b2', 'waiting', 'Claude needs your permission to use Bash')
+      await watches.evaluateWatches(w)
+      await vi.waitFor(() => expect(st.told).toHaveLength(2), { timeout: HUNG_MS })
+      expect(st.told[1]).toContain(`B2 (alpha) is waiting for the user on #${doing}`)
+      expect(parsedOld()).toBe(false)
+    } finally {
+      parse.mockRestore()
+    }
+    await disposeWorkspaceService(w)
+  })
+
   it('seven lanes, 28 cards, in one watch: each lane followed, one wake for the lane that changed (#531 card)', async () => {
     const { w, alpha, home } = await open(7)
     const st = fake(alpha, home)

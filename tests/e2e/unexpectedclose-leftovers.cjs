@@ -132,10 +132,12 @@ const notice = (page) => page.evaluate(() => [...document.querySelectorAll('.toa
       ;[node] = pidsIn(lingerFile)
       check('the agent left a node running, and still runs', !!node && lib.processRunning(node) && !!(await live()), String(node))
       // A command left running through hive-progress, as a test run is: cmd → hive-progress → a node. Started late, as on
-      // a machine under load (#1100: the three processes took longer than the turn, and the marker missed them).
+      // a machine under load (#1100: the three processes took longer than the turn, and the marker missed them), and the
+      // turn ends before it starts (#1134): the processes joining the launch's job have the marker written again, not
+      // only at the next minute's heartbeat.
       const progressFile = path.join(home, 'fake-progress-linger.jsonl')
       fs.writeFileSync(path.join(home, 'fake-progress-delay-ms.txt'), '5000')
-      await lib.sendPrompt(inv, key, 'progress-linger', { submitted: async () => (await live())?.status === 'working' || pidsIn(progressFile).length > 0 })
+      await lib.sendPrompt(inv, key, 'progress-linger nowait', { submitted: async () => (await live())?.status === 'working' || pidsIn(progressFile).length > 0 })
       await lib.until(async () => pidsIn(progressFile).length === 1 && (await live())?.status === 'finished', START_MS)
       ;[progressNode] = pidsIn(progressFile)
       check('…and a node through hive-progress', !!progressNode && lib.processRunning(progressNode), String(progressNode))
