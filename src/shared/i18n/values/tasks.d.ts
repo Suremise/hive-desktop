@@ -30,7 +30,10 @@ interface HiveMessageValues {
   'tasks.error.holdNew': undefined
   'tasks.error.inDoingWith': { n: string | number; agent: string | number; column: string }
   'tasks.error.inDoingWithAnother': { n: string | number; column: string }
+  'tasks.error.labelFieldList': { field: string | number }
+  'tasks.error.labelsAddedAndRemoved': { labels: string | number }
   'tasks.error.labelsList': undefined
+  'tasks.error.labelsMixed': undefined
   'tasks.error.needsTitle': undefined
   'tasks.error.noCard': { n: string | number }
   'tasks.error.noWorkspace': undefined
@@ -87,7 +90,10 @@ interface HiveMessageValues {
   'tasks.history.given': { agent: string | number }
   'tasks.history.imported': { project: string | number; was: string | number }
   'tasks.history.labels': { labels: string | number }
+  'tasks.history.labelsAdded': { labels: string | number }
+  'tasks.history.labelsAddedTakenOff': { added: string | number; removed: string | number }
   'tasks.history.labelsRemoved': undefined
+  'tasks.history.labelsTakenOff': { labels: string | number }
   'tasks.history.linked': { cards: string | number }
   'tasks.history.linksRemoved': undefined
   'tasks.history.loopWake': { agent: string | number; kind: string }

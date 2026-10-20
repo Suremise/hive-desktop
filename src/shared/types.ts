@@ -819,7 +819,12 @@ export interface TaskPatch {
   before?: number | null
   /** At the top or the bottom of the column (instead of before). */
   position?: 'top' | 'bottom'
+  /** Replaces the card's labels. Not with addLabels or removeLabels. */
   labels?: string[]
+  /** Labels added where missing, keeping the others (#1131). */
+  addLabels?: string[]
+  /** Labels taken off where present, keeping the others (#1131). */
+  removeLabels?: string[]
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
