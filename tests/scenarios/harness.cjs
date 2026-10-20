@@ -336,7 +336,10 @@ async function runScenario(sc, providerKey, opts = {}) {
       return { status: res.status, body: parsed, text }
     }
     // The guidance and skills Hive has before the scenario's setup (the session's own, after it, are recorded below).
-    result.guidance = { atStart: (await api('GET', '/v1/status')).body?.guidance ?? null, delivered: null }
+    const first = await api('GET', '/v1/status')
+    // A refused token here is another Hive answering on this port, not this one's API (#1127): say so, not "card a: …".
+    if (first.status === 401) throw new Error(`the Agent API on port ${port} refused this test Hive's token: another Hive is listening on that port`)
+    result.guidance = { atStart: first.body?.guidance ?? null, delivered: null }
 
     if (p.extraArgs) await inv('project:updateConfig', alpha, { providers: { [p.provider]: { extraArgs: p.extraArgs } } })
     // The project's agents: the one under test (Coder), and another that did earlier work (Implementer, never started).
@@ -356,7 +359,7 @@ async function runScenario(sc, providerKey, opts = {}) {
       cards: {},
       /** A card: { title, description, project (alpha), column, agent ('coder' | 'implementer'), labels, comments: [text] }. */
       card: async (key, c) => {
-        const r = await api('POST', '/v1/tasks', { title: c.title, description: c.description ?? '', project: c.project ?? 'alpha', labels: c.labels ?? [], ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })
+        const r = await api('POST', '/v1/tasks', { title: c.title, description: c.description ?? '', project: c.project ?? 'alpha', labels: c.labels ?? [], ...(c.context ? { context: c.context } : {}), ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })
         if (r.status !== 200) throw new Error(`card ${key}: ${r.text}`)
         for (const text of c.comments ?? []) await api('POST', `/v1/tasks/${r.body.number}/comments`, { text })
         if (c.column && c.column !== 'todo') await inv('tasks:update', r.body.number, { column: c.column, ...(c.agent ? { agent: ctx.agents[c.agent].id } : {}) })

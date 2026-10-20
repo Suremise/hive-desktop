@@ -15,6 +15,8 @@ export const ASSISTANT_READ_TOOLS = [
   'hive_session_usage',
   'hive_list_shared_notes',
   'hive_read_shared_note',
+  'hive_doc_outline',
+  'hive_read_section',
   'hive_read_latest_handover',
   'hive_list_skills',
   'hive_agent_activity',
@@ -69,7 +71,7 @@ export function assistantTools(level: AssistantControlLevel | string | undefined
 
 /** Every tool the hive MCP server has (a test checks it against hive-mcp.ts): the only tool names metrics record. */
 export const HIVE_TOOLS: readonly string[] = [
-  'hive_list_projects', 'hive_project_status', 'hive_session_usage', 'hive_list_shared_notes', 'hive_read_shared_note', 'hive_write_shared_note',
+  'hive_list_projects', 'hive_project_status', 'hive_session_usage', 'hive_list_shared_notes', 'hive_read_shared_note', 'hive_write_shared_note', 'hive_doc_outline', 'hive_read_section',
   'hive_read_latest_handover', 'hive_create_handover', 'hive_notify', 'hive_list_providers', 'hive_agent_activity', 'hive_wait_for_agents',
   'hive_create_project', 'hive_activate_project', 'hive_add_agent', 'hive_update_agent', 'hive_start_agent', 'hive_stop_agent', 'hive_prompt_agent',
   'hive_message_agent', 'hive_hand_over', 'hive_list_tasks', 'hive_read_task', 'hive_create_task', 'hive_update_task', 'hive_update_tasks', 'hive_reorder_tasks', 'hive_start_task', 'hive_list_skills', 'hive_wait_for_tasks',

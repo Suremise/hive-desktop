@@ -57,6 +57,68 @@ and a report flagging two (one of them the changed screen's); the project's READ
   safeguard for Hive's own language runs (about 370 screenshots a language), where builders and reviewers opened every
   image (#899). It costs nothing measurable in the fakes.
 
+## Tagging cards: fake, Claude Code (haiku), Codex (its default model), fixtures v66, 20 October 2026
+
+#1131: `hive_update_task(s)` and the Agent API take `addLabels` and `removeLabels` (labels added or taken off, the
+others kept); `labels` still replaces them, and its description now points to the new two for tagging. One new
+scenario, **tag-cards**: three cards with labels of their own, and the prompt "Tag cards #a, #b and #c with the label
+0.9.4". Checks: each has 0.9.4 and kept its own, every change used `addLabels` and never `labels`, in one
+`hive_update_tasks` call, and no card moved.
+- **Fakes**: the whole set before and after the description change (baseline `hb2-1131-before` against
+  `2026-10-20T01-08-41-fake`): 398 pass both times, check for check; the tool list +600 bytes (20,351 → 20,951). The new
+  scenario passes with the fake Claude Code (`2026-10-20T01-43-11-fake`).
+- **Codex**: 2 of 2 (`2026-10-20T01-44-06-codex`): one `hive_update_tasks` with `addLabels`, every card's own labels kept.
+- **Claude Code (haiku)**: 2 of 2 (`2026-10-20T01-46-16-claude-code`): the same.
+
+## A card's reference that no longer resolves: fake, Claude Code (haiku), Codex (its default model), fixtures v63–v64 (v65 once merged with main, which also reached v64), 19 October 2026
+
+#819: the start prompt names a reference that doesn't resolve, why and the closest headings ("This reference no
+longer resolves: DESIGN.md#retry-policies (no such heading; closest: #retry-policy). Ask the user which section is
+meant, or read the closest."). One new scenario, **card-read-first-broken**: checks that the agent reads the closest
+section or asks, never the whole document, and does the work from it or waits on the user.
+- **Fake**: passes. The prompt is unchanged for references that resolve, so the other scenarios aren't affected.
+- **Codex**: 2 of 2 (`2026-10-19T22-54-27-codex`): hive_doc_outline, then hive_read_section on the closest
+  (`#retry-policy`), RETRY.md right, Review.
+- **Claude Code (haiku)**: 2 of 2 (`2026-10-19T22-58-45-claude-code`): the closest section, by hive_read_section in one
+  sample and a ranged read in the other; never the whole file.
+- **Round 2, fixtures v64** (the prompt says to read the closest with `from: "project"` also when none resolves; a new
+  check that every hive_read_section call names it): fake passes; Codex 2 of 2 (`2026-10-19T23-16-37-codex`), each
+  reading `#retry-policy` with `from: "project"`; Claude Code (haiku) 1 of 1 that ran (`2026-10-19T23-18-49-claude-code`,
+  the same); its second sample never took a turn: the test account was at 99% of its weekly limit (an environment
+  skip, so no more Claude Code trials were run).
+
+## A card's Read first references: fakes, Claude Code (haiku), Codex (its default model), fixtures v62, 19 October 2026
+
+#818: a card's `context` (doc sections to read first) is listed in its start prompt with each section's size, and the
+card-loop skill has the builder read them first and the reviewer check against them. One new scenario,
+**card-read-first**: a card with `DESIGN.md#retry-policy` as its reference, started with the prompt Hive gives (the
+reference and size, not the text); the work (RETRY.md) needs that section.
+- **Fakes**: the whole set passes before and after (baseline `hb3-818-before` against `hb3-818-after`: none fails;
+  measures the same but for the tool list, +0.8 KB for `context` on hive_create_task and hive_update_task, and the
+  card-loop skill, +45 bytes). The new scenario passes with the fake Claude Code.
+- **Codex**: 3 of 3 (`2026-10-19T22-13-57-codex`): it read the section with hive_read_section, never the whole file,
+  wrote RETRY.md from it and moved the card to Review.
+- **Claude Code (haiku)**: 3 of 3 that ran (`2026-10-19T22-19-07-claude-code` sample 1, `2026-10-19T22-24-54-claude-code`
+  both): hive_read_section for the section, then the work. One sample in the first run never took a turn (no tool call,
+  no reported cost: the session, not the guidance) and stopped that run at its budget check.
+- **Round 2** (the prompt names `from: "project"`, the copy the card was briefed from, and a whole file's empty heading):
+  Codex 2 of 2 (`2026-10-19T22-39-02-codex`), Claude Code (haiku) 2 of 2 (`2026-10-19T22-41-09-claude-code`); both
+  passed `from: "project"` to hive_read_section in every sample.
+
+## Long documents by section: fakes, Claude Code (haiku), Codex (its default model), fixtures v59 (v61 once merged with main), 19 October 2026
+
+#817: two hive tools read Markdown by section (hive_doc_outline, hive_read_section), and both session contracts say to
+use them on documents over about 20 KB. One new scenario, **long-doc-section**: a question answered by one section
+(Retry policy) of a 58,000-character DESIGN.md in the project.
+- **Fakes**: the whole set passes before and after the guidance change (baseline `hb3-817-before`, fixtures v58, against
+  `hb3-817-after`: 355 checks pass, none fails; measures the same but for the guidance, +119 characters, and the tool
+  list, +1,624 bytes for the two tools). The new scenario passes with the fake Claude Code.
+- **Codex**: 3 of 3 (`2026-10-19T20-47-42-codex`): each called hive_doc_outline and then hive_read_section, never read
+  the whole file, and answered right ($0.04–0.05 a sample).
+- **Claude Code (haiku)**: 3 of 3 (`2026-10-19T20-53-36-claude-code`): it searched the file (Grep) and read a line range
+  around the answer, not the hive tools, and never the whole file: as good for a document in its own folder, which Claude
+  Code can read by range (Codex and Copilot can't, the card's reason for the tools). An earlier run
+  (`2026-10-19T20-44-11-claude-code`) did the same, failed by checks that took a ranged Read for a whole one; fixed.
 ## Licence audit: fakes, Claude Code (its default model), Codex (its default model), fixtures v64, 20 October 2026
 
 #410: a general agents' skill, **licence-audit**: inventory what ships (runtime dependencies, bundled libraries, vendored

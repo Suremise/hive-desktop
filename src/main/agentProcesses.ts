@@ -97,6 +97,27 @@ public static class HiveJobs {
   static IntPtr port = IntPtr.Zero;
   static Dictionary<ulong, string> byKey = new Dictionary<ulong, string>();
   static ulong nextKey = 1;
+  /**
+   * Where a process joining a job (or taken into one) is told, as a line "new" (#1134: main writes its running marker
+   * again); null tells nothing (the unit tests' own scripts). Told once per job until that job is listed again or its
+   * launch starts (told), so a build starting hundreds of processes says it once per marker write. A notice due (tell)
+   * is written outside the turn (Tell), and listing never takes one back: listing one job says nothing of another's
+   * process that joined just before (round 1 of #1134).
+   */
+  public static System.IO.TextWriter Notices;
+  static HashSet<string> told = new HashSet<string>();
+  static bool tell = false;
+  /** Public for the unit tests, which give joins and listings in an order of their own. Under the turn. */
+  public static void Joined(string id) { if (told.Add(id)) tell = true; }
+  /** What joins job id after this is told again: what joined before is in its listing. Under the turn. */
+  static void Untold(string id) { told.Remove(id); }
+  /** Writes the notice due, if any. Public for the unit tests. */
+  public static void Tell() {
+    bool t;
+    lock (turn) { t = tell; tell = false; }
+    var w = Notices;
+    if (t && w != null) try { w.WriteLine("new"); w.Flush(); } catch { }
+  }
   class Held { public string job; public IntPtr h; public long created; }
   /**
    * The jobs' processes, each held open from joining until it ends: while held, its id can't name another process, and
@@ -145,6 +166,7 @@ public static class HiveJobs {
           if (owner.ContainsKey(kv.Key) || tried.Contains(kv.Key) || !owner.TryGetValue(kv.Value, out id)) continue;
           tried.Add(kv.Key);
           if (!Take(id, kv.Key, kv.Value, at)) continue;
+          Joined(id);
           owner[kv.Key] = id;
           int c; adopted.TryGetValue(id, out c); adopted[id] = c + 1;
           n++;
@@ -419,7 +441,7 @@ public static class HiveJobs {
   public static void Notify(string id, uint message, int pid) {
     lock (turn) {
       // JOB_OBJECT_MSG_NEW_PROCESS
-      if (message == 6) { Hold(id, pid); return; }
+      if (message == 6) { if (Hold(id, pid)) Joined(id); return; }
       // JOB_OBJECT_MSG_EXIT_PROCESS, JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS
       if (message != 7 && message != 8) return;
       Held h;
@@ -472,10 +494,13 @@ public static class HiveJobs {
           if (byKey.TryGetValue(key.ToUInt64(), out id)) Notify(id, message, pid);
         }
       } catch { }
+      Tell();
     }
   }
   public static string Add(string id, int pid) {
-    if (sweeper == null) sweeper = new System.Threading.Timer(_ => { try { Sweep(); } catch { } }, null, ${SWEEP_MS}, ${SWEEP_MS});
+    if (sweeper == null) sweeper = new System.Threading.Timer(_ => { try { Sweep(); Tell(); } catch { } }, null, ${SWEEP_MS}, ${SWEEP_MS});
+    // A new launch: its CLI joining is told, whatever was told before (main may not have listed it since).
+    lock (turn) Untold(id);
     if (port == IntPtr.Zero) {
       port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
       if (port != IntPtr.Zero) new System.Threading.Thread(Listen) { IsBackground = true }.Start();
@@ -541,6 +566,7 @@ public static class HiveJobs {
     CloseHandle(job);
     jobs.Remove(id);
     adopted.Remove(id);
+    told.Remove(id);
     foreach (var k in new List<ulong>(byKey.Keys)) if (byKey[k] == id) byKey.Remove(k);
     foreach (var pid in new List<int>(held.Keys)) if (held[pid].job == id) { CloseHandle(held[pid].h); held.Remove(pid); }
     foreach (var pid in new List<int>(followed.Keys)) if (followed[pid].job == id) { CloseHandle(followed[pid].h); followed.Remove(pid); }
@@ -566,6 +592,8 @@ public static class HiveJobs {
   }
   public static string Describe(string id, int max) {
     Sweep();
+    // What joins it from here on is told again: what joined before is in this listing.
+    lock (turn) Untold(id);
     int[] all = Members(id);
     int took; adopted.TryGetValue(id, out took);
     var b = new StringBuilder("{\"total\":" + all.Length + ",\"adopted\":" + took + ",\"processes\":[");
@@ -619,7 +647,7 @@ public static class HiveJobs {
 
 /**
  * The host's loop: one request per line ("<n> <command> <job> [pid]"), one reply per line ("<n> <JSON>"), all in the
- * C#. No cmdlet but Add-Type, so PowerShell loads no other module (and writes no module cache, which goes into the
+ * C#; between them, a line "new" when a process has joined a job (Notices, #1134). No cmdlet but Add-Type, so PowerShell loads no other module (and writes no module cache, which goes into the
  * working folder when LOCALAPPDATA is unset). The C# comes first on its input, a line of base64 (HOST_INPUT): a command
  * line holds at most 32,767 characters, and -EncodedCommand doubles them and more.
  */
@@ -627,6 +655,7 @@ const HOST_SCRIPT = `
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
 Add-Type -ReferencedAssemblies System.Management -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadLine())))
+[HiveJobs]::Notices = [Console]::Out
 [Console]::Out.WriteLine('ready')
 while ($null -ne ($line = [Console]::In.ReadLine())) { [Console]::Out.WriteLine([HiveJobs]::Answer($line)) }
 `
@@ -728,6 +757,10 @@ class JobHost {
             resolve(true)
             continue
           }
+          if (line === 'new') {
+            processJoined()
+            continue
+          }
           const sp = line.indexOf(' ')
           const n = Number(line.slice(0, sp))
           const done = this.waiting.get(n)
@@ -827,6 +860,30 @@ class JobHost {
 }
 
 const host = new JobHost()
+
+/** Told when a process joins a launch's job (the host's "new"): the running marker (lastRun.ts) is written again. */
+const joinedListeners = new Set<() => void>()
+
+function processJoined(): void {
+  for (const fn of joinedListeners) {
+    try {
+      fn()
+    } catch (e) {
+      log.warn('a listener for processes joining a launch failed', e)
+    }
+  }
+}
+
+/**
+ * Calls fn when a process joins a running launch's job, or is taken into it (#1134: one the agent started after its
+ * turn's status was written, slow to start or started by a process it left). The host tells it once per launch until
+ * that launch's processes are listed again (runningProcesses) or it starts, so it comes at most once per launch and
+ * listing however many processes start. Returns a function that stops it.
+ */
+export function onLaunchProcessJoined(fn: () => void): () => void {
+  joinedListeners.add(fn)
+  return () => joinedListeners.delete(fn)
+}
 
 /** A launch whose processes are tracked: its job is named by its run id. */
 interface Launch {

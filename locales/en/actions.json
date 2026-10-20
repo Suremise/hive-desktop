@@ -255,6 +255,14 @@
     "defaultMessage": "Could not update the server",
     "description": "An error's title: turning an MCP server on or off in the workspace failed."
   },
+  "actions.pane.edge": {
+    "defaultMessage": "{agent} can't move further {dir, select, left {left} right {right} up {up} other {down}}",
+    "description": "Said to screen readers when an agent's pane is moved from the keyboard but is already at that edge of the layout."
+  },
+  "actions.pane.moved": {
+    "defaultMessage": "{agent}: {pages, select, one {} other {page {page}, }}row {row}, column {column}{other, select, none {} other {, swapped with {other}}}",
+    "description": "Said to screen readers when an agent's pane is moved from the keyboard (Move Agent Left/Right/Up/Down): where it is now ({pages}: one when the project has a single page, so the page isn't said), and the agent it swapped places with ({other}; none: nothing)."
+  },
   "actions.project.activateFailed": {
     "defaultMessage": "Could not activate project",
     "description": "An error's title: marking a project active failed."

@@ -6,12 +6,14 @@ import { englishText, forAgents, withValues, type Text } from '../shared/advance
 import { msg, tr } from '../shared/i18n'
 import { COLUMN_CHOICES, TASK_COLUMNS, cardMatches, isTaskColumn, restoreOrders, sortCards } from '../shared/tasks'
 import { HISTORY, storedLineText, storedText } from '../shared/taskHistory'
+import { MAX_CONTEXT, MAX_CONTEXT_REF, parseDocRef } from '../shared/docRefs'
+import { contextProblems } from './docSections'
 import { providerMessage } from '../shared/providers'
-import type { ArchiveBatch, ArchiveRequest, ArchiveResult, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
+import type { ArchiveBatch, ArchiveRequest, ArchiveResult, ContextProblem, SetAsideCard, StoredText, TaskCard, TaskDecision, TaskColumn, TaskComment, TaskHistoryEntry, TaskPatch, UnarchiveResult } from '../shared/types'
 import { returnRound } from '../shared/watch'
 import { holdsOf, trackHolds } from '../shared/cardCosts'
 import { isProjectId, projectIdNamed, projectNameOf, projectNow, savedProjectName, type ProjectIdIndex } from '../shared/projectIds'
-import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
+import { afterBoardWrite, archiveBatchDocs, archivedSummaryDocs, boardChanged, boardWrite, cardDoc, cardDocs, cardNumbers, cardPlaces, deleteCard, hasCard, holdDocs, putCard, setArchiveBatches, setAsideAdded, setAsideFile, setAsideFiles, SET_ASIDE, takeNumber, type CardQuery } from './boardStore'
 import { config } from './config'
 import { HiveError, hiveError } from './hiveError'
 import { createLogger, userText } from './logger'
@@ -162,6 +164,9 @@ function clean(raw: Partial<TaskCard> & { projectId?: unknown }, n: number, ids?
     column: isTaskColumn(raw.column) ? raw.column : 'todo',
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : n,
     labels: strs(raw.labels),
+    // Absent when it has none (#818), so a card's JSON doesn't grow for it.
+    ...(strs(raw.context).length ? { context: strs(raw.context).slice(0, MAX_CONTEXT) } : {}),
+    ...problemsOf(raw.contextProblems),
     blocked: typeof raw.blocked === 'string' && raw.blocked.trim() ? raw.blocked : null,
     blockedBy: nums(raw.blockedBy),
     links: nums(raw.links),
@@ -219,7 +224,7 @@ export async function allTasks(ws: WorkspaceService = workspace, q: CardQuery = 
   if (!ws.path) return []
   const docs = cardDocs(ws, q)
   // References to cards that are gone are left out: every number the board has, when only some cards were read.
-  const numbers = q.archived === undefined && !q.numbers && !q.agents ? new Set(docs.map((d) => d.number)) : cardNumbers(ws)
+  const numbers = q.archived === undefined && !q.numbers && !q.agents && !q.reviewers ? new Set(docs.map((d) => d.number)) : cardNumbers(ws)
   return sortCards(docs.map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x))))
 }
 
@@ -235,6 +240,23 @@ export async function windowTasks(ws: WorkspaceService = workspace, full = false
   const live = cardDocs(ws, { archived: false }).map((d) => withoutGone(clean(d.doc, d.number, ids), (x) => numbers.has(x)))
   const short = archivedSummaryDocs(ws).map((d): TaskCard => ({ ...clean(d.doc, d.number, ids), summary: true }))
   return sortCards([...live, ...short])
+}
+
+/** A card's holds, project, agent and reviewer, for costs; its history only when it keeps no holds (holdsFromHistory). */
+export type CardHolds = Pick<TaskCard, 'number' | 'project' | 'held' | 'history' | 'agent' | 'agentName' | 'review'>
+
+/**
+ * Every card's holds (archived ones too), for costs (#602): only those fields of each document, made in the query
+ * (#1107), so a card's comments are never parsed for it.
+ */
+export async function cardHolds(ws: WorkspaceService): Promise<CardHolds[]> {
+  if (!ws.path) return []
+  const ids = await ws.projectIds()
+  if (!ws.path) return []
+  return holdDocs(ws).map(({ number, doc }) => {
+    const c = clean(doc as Partial<TaskCard> & { projectId?: unknown }, number, ids)
+    return { number, project: c.project, held: c.held, history: c.history, agent: c.agent, agentName: c.agentName, review: c.review }
+  })
 }
 
 /** A card's place on the board: all that placing another card needs of it (#458). */
@@ -530,11 +552,98 @@ const text = (v: unknown, max: number, what: TextField): string => {
   return s
 }
 
+/** The folder a card's project files are read from (#818): its project's, or none for a card about the workspace. */
+const cardProject = (card: Pick<TaskCard, 'project'>, ws: WorkspaceService = workspace): string | null => (card.project && ws.path ? join(ws.path, card.project) : null)
+
+/** A stored card's context problems (#819) that are well formed, or none (absent). */
+function problemsOf(raw: unknown): { contextProblems?: ContextProblem[] } {
+  const list = Array.isArray(raw) ? raw.filter((p): p is ContextProblem => !!p && typeof p.ref === 'string' && typeof p.problem === 'string').slice(0, MAX_CONTEXT) : []
+  return list.length ? { contextProblems: list.map((p) => ({ ref: p.ref, problem: p.problem, ...(Array.isArray(p.closest) ? { closest: p.closest.filter((x): x is string => typeof x === 'string').slice(0, 5) } : {}) })) } : {}
+}
+
+/** Sets or clears a card's context problems (#819). */
+function withProblems(card: TaskCard, problems: ContextProblem[]): void {
+  if (problems.length) card.contextProblems = problems
+  else delete card.contextProblems
+}
+
+/**
+ * What a card's context references came to when it was started (#819), recorded on it as Hive: the problems, or none.
+ * No history line: the card shows them while they last. `checked`: the card as the check was made for it (its Start's:
+ * its references, project, agent and column), compared under the board's lock with the card as it is: one changed
+ * meanwhile in any of those, archived, or gone (deleted) keeps what it has, and the reply is false, so its Start stops
+ * rather than giving the agent a card that isn't its to start any more. Other changes (labels, a comment) don't count.
+ */
+export async function setContextProblems(n: number, problems: ContextProblem[], checked: { context: readonly string[]; project: string; agent?: string | null; column?: TaskColumn }, ws: WorkspaceService = workspace): Promise<boolean> {
+  return boardLock(ws, async () => {
+    const card = await getTask(n, ws).catch(() => null)
+    if (!card || card.archived || card.project !== checked.project || (card.context ?? []).join('\n') !== checked.context.join('\n')) return false
+    if ((checked.agent !== undefined && card.agent !== checked.agent) || (checked.column !== undefined && card.column !== checked.column)) return false
+    if (JSON.stringify(card.contextProblems ?? []) === JSON.stringify(problems)) return true
+    withProblems(card, problems)
+    await saveCard(ws, n, card)
+    changed(ws)
+    return true
+  })
+}
+
+/** A card's context references (#818), checked: a list of Markdown files with an optional #slug, never line numbers. */
+function contextOf(v: unknown): string[] {
+  if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.contextList', defaultMessage: 'context must be a list', description: `An error: the call gave the card's context (the doc sections to read first) as something other than a list. "context" is the name of the call's field: keep it as it is.` }), undefined, { kind: 'invalid' })
+  const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))]
+  if (out.length > MAX_CONTEXT) throw hiveError(msg({ id: 'tasks.error.tooManyContext', defaultMessage: 'A card can have up to {max} doc sections to read first.', description: 'An error: a card was given more context references (doc sections the agent reads first) than it may have ({max}, a number).' }), { max: MAX_CONTEXT }, { kind: 'invalid' })
+  const bad = out.find((r) => r.length > MAX_CONTEXT_REF || !parseDocRef(r))
+  if (bad !== undefined) throw hiveError(msg({ id: 'tasks.error.contextRef', defaultMessage: `"{ref}" isn't a doc section: give a Markdown file, optionally with # and a heading's slug ("docs/PLAN.md#setup", "shared:plans/notes.md#open-questions"), never a line number.`, description: `An error: one of the card's context references isn't a Markdown file with an optional #heading-slug. Keep the examples in quotes as they are.` }), { ref: bad.slice(0, 80) }, { kind: 'invalid' })
+  return out
+}
+
+const LABELS_MIXED = msg({ id: 'tasks.error.labelsMixed', defaultMessage: "labels replaces a card's labels: give it alone, or addLabels and removeLabels to change only those.", description: 'An error: the call gave the card\'s labels in full (labels, which replaces them) and also labels to add or take off. "labels", "addLabels" and "removeLabels" are the names of the call\'s fields: keep them as they are.' })
+const TOO_MANY_LABELS = msg({ id: 'tasks.error.tooManyLabels', defaultMessage: 'A card can have up to {max} labels.', description: 'An error: a card was given more labels than it may have ({max}, a number).' })
+
+/**
+ * Labels as a card keeps them: each cut to 40 characters and trimmed, empty ones dropped, then each once (#1131 round 1:
+ * cut after removing repeats, two labels alike in their first 40 characters were kept twice).
+ */
+function normalLabels(v: readonly unknown[]): string[] {
+  return [...new Set(v.map((x) => String(x).trim().slice(0, 40).trim()).filter(Boolean))]
+}
+
 function labelsOf(v: unknown): string[] {
   if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelsList', defaultMessage: 'labels must be a list', description: 'An error: the call gave the card\'s labels as something other than a list. "labels" is the name of the call\'s field: keep it as it is.' }), undefined, { kind: 'invalid' })
-  const out = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))].map((l) => l.slice(0, 40))
-  if (out.length > MAX_LABELS) throw hiveError(msg({ id: 'tasks.error.tooManyLabels', defaultMessage: 'A card can have up to {max} labels.', description: 'An error: a card was given more labels than it may have ({max}, a number).' }), { max: MAX_LABELS }, { kind: 'invalid' })
+  const out = normalLabels(v)
+  if (out.length > MAX_LABELS) throw hiveError(TOO_MANY_LABELS, { max: MAX_LABELS }, { kind: 'invalid' })
   return out
+}
+
+/** addLabels or removeLabels, read as labels is (normalLabels). */
+function someLabels(v: unknown, field: 'addLabels' | 'removeLabels'): string[] {
+  if (v === undefined) return []
+  if (!Array.isArray(v)) throw hiveError(msg({ id: 'tasks.error.labelFieldList', defaultMessage: '{field} must be a list', description: 'An error: the call gave the labels to add or remove as something other than a list. {field} is the name of the call\'s field ("addLabels" or "removeLabels"): keep it as it is.' }), { field }, { kind: 'invalid' })
+  return normalLabels(v)
+}
+
+/**
+ * A card's labels with some added and some taken off (#1131: tagging cards without replacing their other labels): those
+ * added where missing, at the end in the order given, and those taken off where present; the others stay as they are.
+ * Null when nothing changes (a label there already, one missing). Refused beside labels, which replaces them, and for a
+ * label both added and removed.
+ */
+export function labelChange(labels: readonly string[], add: unknown, remove: unknown): { labels: string[]; said: StoredText } | null {
+  const plus = someLabels(add, 'addLabels')
+  const minus = someLabels(remove, 'removeLabels')
+  const both = plus.filter((l) => minus.includes(l))
+  if (both.length) throw hiveError(msg({ id: 'tasks.error.labelsAddedAndRemoved', defaultMessage: "A label can't be both added and removed: {labels}.", description: 'An error: the call named the same labels ({labels}, separated by commas) both to add to the card and to take off it.' }), { labels: both.join(', ') }, { kind: 'invalid' })
+  const added = plus.filter((l) => !labels.includes(l))
+  const removed = minus.filter((l) => labels.includes(l))
+  if (!added.length && !removed.length) return null
+  const next = [...labels.filter((l) => !removed.includes(l)), ...added]
+  if (next.length > MAX_LABELS) throw hiveError(TOO_MANY_LABELS, { max: MAX_LABELS }, { kind: 'invalid' })
+  const said = !removed.length
+    ? storedText(HISTORY.labelsAdded, { labels: added.join(', ') })
+    : !added.length
+      ? storedText(HISTORY.labelsTakenOff, { labels: removed.join(', ') })
+      : storedText(HISTORY.labelsAddedTakenOff, { added: added.join(', '), removed: removed.join(', ') })
+  return { labels: next, said }
 }
 
 /**
@@ -680,7 +789,7 @@ async function reorderTasksLocked(column: TaskColumn, numbers: unknown, actor: T
   }
   log.info(`${W} put in order by ${userText(by)}: ${nums.map((x) => `#${x}`).join(', ')}`)
   changed(ws)
-  return (await allTasks(ws)).filter((c) => c.column === column && !c.archived && inScope(c, scope))
+  return (await allTasks(ws, { archived: false })).filter((c) => c.column === column && inScope(c, scope))
 }
 
 /** Words quoted in a history line, cut short. */
@@ -734,7 +843,7 @@ export function createTask(...args: Parameters<typeof createTaskLocked>): Promis
 }
 
 async function createTaskLocked(
-  input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[] },
+  input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; blocked?: string | null; blockedBy?: number[]; links?: number[]; context?: string[] },
   actor: TaskActor
 ): Promise<TaskCard> {
   if (!workspace.path) throw hiveError(ERR.noWorkspace, undefined, { kind: 'conflict' })
@@ -756,6 +865,8 @@ async function createTaskLocked(
   const now = new Date().toISOString()
   const blockedBy = input.blockedBy ? await cardRefs(input.blockedBy, null, 'blockedBy', scope) : []
   const links = input.links ? await cardRefs(input.links, null, 'links', scope) : []
+  const context = input.context ? contextOf(input.context) : []
+  const problems = context.length ? await contextProblems(project && workspace.path ? join(workspace.path, project) : null, workspace.sharedDir, context) : []
   const n = await nextNumber(ws)
   const card: TaskCard = {
     number: n,
@@ -770,6 +881,8 @@ async function createTaskLocked(
     blocked: input.blocked?.trim() ? text(input.blocked.trim(), 1000, 'blockedReason') : null,
     blockedBy,
     links,
+    ...(context.length ? { context } : {}),
+    ...(problems.length ? { contextProblems: problems } : {}),
     comments: [],
     history: [entryOf(now, by, storedText(HISTORY.created, { column }))],
     archived: false,
@@ -918,9 +1031,25 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
       card.decisions = [...list, { id: entryId(), text: t, decidedBy: 'user', recordedBy: by, at: new Date().toISOString() }]
       said.push(storedText(HISTORY.decision, { decision: clip(t) }))
     }
+    if (patch.context !== undefined) {
+      const refs = contextOf(patch.context)
+      if (refs.join('\n') !== (card.context ?? []).join('\n')) said.push(refs.length ? storedText(HISTORY.context, { refs: refs.join(', ') }) : storedText(HISTORY.contextRemoved))
+      if (refs.length) card.context = refs
+      else delete card.context
+      // Checked as they are saved (#819): what doesn't resolve shows on the card.
+      withProblems(card, await contextProblems(cardProject(card), workspace.sharedDir, refs))
+    }
     if (patch.labels !== undefined) {
       card.labels = labelsOf(patch.labels)
       said.push(card.labels.length ? storedText(HISTORY.labels, { labels: card.labels.join(', ') }) : storedText(HISTORY.labelsRemoved))
+    }
+    if (patch.addLabels !== undefined || patch.removeLabels !== undefined) {
+      if (patch.labels !== undefined) throw hiveError(LABELS_MIXED, undefined, { kind: 'invalid' })
+      const change = labelChange(card.labels, patch.addLabels, patch.removeLabels)
+      if (change) {
+        card.labels = change.labels
+        said.push(change.said)
+      }
     }
     if (patch.blocked !== undefined) {
       const b = patch.blocked?.trim() ? text(patch.blocked.trim(), 1000, 'blockedReason') : null
@@ -966,7 +1095,7 @@ async function updateTaskLocked(n: number, patch: TaskPatch, actor: TaskActor, o
 export const MAX_CHANGE_BATCH = 100
 
 /** The fields a batch sets on every card it names (hive_update_tasks): comments, decisions and titles stay on the single call. */
-export type BatchPatch = Pick<TaskPatch, 'column' | 'position' | 'blocked' | 'labels' | 'agent'>
+export type BatchPatch = Pick<TaskPatch, 'column' | 'position' | 'blocked' | 'labels' | 'addLabels' | 'removeLabels' | 'agent'>
 
 /** What a batch did with one card: its change's history lines, or why it was refused (the card left as it was). */
 export interface BatchItem {
@@ -1086,7 +1215,7 @@ export function endReviews(project: string, agentId: string, why: ReviewEnd, ws:
 }
 
 async function endReviewsUnbatched(project: string, agentId: string, why: ReviewEnd, ws: WorkspaceService): Promise<number[]> {
-  const mine = (await allTasks(ws)).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
+  const mine = (await allTasks(ws, { reviewers: [agentId] })).filter((c) => c.review?.agent === agentId && c.project.toLowerCase() === project.toLowerCase())
   const out: number[] = []
   for (const c of mine) {
     const ended = await (async () => {
@@ -1454,8 +1583,8 @@ async function archiveOldDoneUnbatched(ws: WorkspaceService, now: number): Promi
   if (!ws.path || days <= 0) return []
   const cutoff = now - days * 86_400_000
   const out: number[] = []
-  for (const c of await allTasks(ws)) {
-    if (c.archived || c.column !== 'done' || doneSince(c) > cutoff) continue
+  for (const c of await allTasks(ws, { archived: false })) {
+    if (c.column !== 'done' || doneSince(c) > cutoff) continue
     await (async () => {
       // As it is now: moved out of Done or archived meanwhile, it stays.
       const fresh = await getTask(c.number, ws).catch(() => null)

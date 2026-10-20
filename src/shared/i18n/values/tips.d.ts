@@ -89,6 +89,8 @@ interface HiveMessageValues {
   'tips.cardLoop.title': undefined
   'tips.cardMove.text': undefined
   'tips.cardMove.title': undefined
+  'tips.cardReadFirst.text': undefined
+  'tips.cardReadFirst.title': undefined
   'tips.cardSummaries.text': undefined
   'tips.cardSummaries.title': undefined
   'tips.closeWindow.text': { key: string | number }
@@ -194,6 +196,8 @@ interface HiveMessageValues {
   'tips.ownShortcuts.title': undefined
   'tips.palette.text': { key: string | number }
   'tips.palette.title': undefined
+  'tips.paneCells.text': undefined
+  'tips.paneCells.title': undefined
   'tips.pasteScreenshot.text': undefined
   'tips.pasteScreenshot.title': undefined
   'tips.perfCompare.text': undefined

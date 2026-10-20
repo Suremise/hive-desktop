@@ -74,6 +74,7 @@ interface HiveMessageValues {
   'board.card.blockedTip': { reason: string | number }
   'board.card.bringBack': undefined
   'board.card.collapse': { card: string | number }
+  'board.card.contextBroken': { n: number; refs: string | number }
   'board.card.decisionsCount': { n: string | number }
   'board.card.decisionsTip': { n: string | number; decisions: string | number }
   'board.card.dependsOn': { cards: string | number }
@@ -109,6 +110,11 @@ interface HiveMessageValues {
   'board.columns.expandCards': undefined
   'board.columns.expandTip': { column: string | number; description: string | number }
   'board.columns.more': { column: string | number }
+  'board.context.close': undefined
+  'board.context.loading': undefined
+  'board.context.open': undefined
+  'board.context.openNote': undefined
+  'board.context.problem': { why: string; closest: string }
   'board.cost.cardLine': { cost: string | number; rounds: number }
   'board.cost.nothingUsed': undefined
   'board.cost.perFinished': { estimated: string; cost: string | number; unpriced: string }
@@ -186,6 +192,8 @@ interface HiveMessageValues {
   'board.dialog.comment': undefined
   'board.dialog.commentPlaceholder': undefined
   'board.dialog.comments': { n: string | number }
+  'board.dialog.context': undefined
+  'board.dialog.contextPlaceholder': undefined
   'board.dialog.creatingWorktree': undefined
   'board.dialog.delete': undefined
   'board.dialog.dependsOn': undefined
@@ -259,6 +267,7 @@ interface HiveMessageValues {
   'board.field.blocked': undefined
   'board.field.blockedBy': undefined
   'board.field.column': undefined
+  'board.field.context': undefined
   'board.field.description': undefined
   'board.field.labels': undefined
   'board.field.links': undefined

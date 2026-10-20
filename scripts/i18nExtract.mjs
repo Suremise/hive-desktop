@@ -160,18 +160,20 @@ export function extractDrift(root = ROOT, messages = extractMessages(root)) {
   return [...stale, ...gone].sort()
 }
 
+/** Writes text (with \n endings) to a file unless it already says that, line endings aside, keeping the ending the file on disk has (\n for a new one). Returns whether it wrote. */
+export function writeKeepingEndings(file, text) {
+  const old = existsSync(file) ? readFileSync(file, 'utf8') : null
+  if (old !== null && toLf(old) === text) return false
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, old?.includes('\r\n') ? text.replace(/\n/g, '\r\n') : text)
+  return true
+}
+
 /** Writes the generated files that changed (with the line endings the file on disk has; \n for a new one) and removes those of areas that have no messages left. */
 export function writeGenerated(root = ROOT, messages = extractMessages(root)) {
   const { want, gone } = generatedFiles(root, messages)
   const written = []
-  for (const [rel, text] of want) {
-    const file = join(root, rel)
-    const old = existsSync(file) ? readFileSync(file, 'utf8') : null
-    if (old !== null && toLf(old) === text) continue
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, old?.includes('\r\n') ? text.replace(/\n/g, '\r\n') : text)
-    written.push(rel)
-  }
+  for (const [rel, text] of want) if (writeKeepingEndings(join(root, rel), text)) written.push(rel)
   for (const rel of gone) {
     rmSync(join(root, rel))
     written.push(`${rel} (removed)`)

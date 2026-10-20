@@ -1,8 +1,9 @@
 import { basename } from './util'
 import { call, errorMessage } from './api'
 import { agentLimit } from './advanced'
-import { agentOf, agentProviderOf, choose, closeTile, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
-import { MANY_AGENTS, agentLimitText, chosenLayout, moveAgentTo, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
+import { agentOf, agentProviderOf, choose, paneCells, shownLayout, closeTile, confirm, findProject, focusAfterRemoving, focusAgent, runOnce, isAssistantPath, setAssistantOpen, focusedAgentId, get, notify, prompt, revealAgent, set, setActivity, setProjectTab, showAgent, showView, useStore } from './store'
+import { MANY_AGENTS, agentLimitText, chosenLayout, layoutColumns, layoutPanes, moveAgentTo, projectLayout, projectSessionView, sessionInAgentFolder, swapAgentsIn } from '@shared/defaults'
+import { moveToCell, neighbourCell, orderByCells, type CellDirection } from '@shared/paneCells'
 import { defaultProviderPending, isProviderEnabled, projectDefaultProvider, providerName } from '@shared/providers'
 import { agentsToResume, resumeAll, stalledOnSignIn } from '@shared/resumeAll'
 import { eachAgent, sessionsToArchive, type BatchResult } from '@shared/startAll'
@@ -981,10 +982,67 @@ export function nudgeAgent(delta: -1 | 1, path: string | null = get().selectedPr
   if (!agentId && tileNudge?.(delta)) return
   const p = path ? project(path) : undefined
   const id = agentId ?? (p ? focusedAgentId(p) : null)
-  if (!p || !id || p.agents.length < 2) return
+  if (!p || !id) return
+  // Panes side by side (#762): to the next cell, empty or not, rather than the next place in the order; a lone agent too.
+  if (panesPlaced(p)) return void moveAgentPane(delta < 0 ? 'left' : 'right', p.path, id)
+  if (p.agents.length < 2) return
   const i = p.agents.findIndex((a) => a.id === id)
   if (i < 0 || i + delta < 0 || i + delta >= p.agents.length) return
   void moveAgent(p.path, id, i + delta)
+}
+
+/** Whether a project's agents are shown in panes side by side, which the user places cell by cell (#762). */
+export function panesPlaced(p: ProjectInfo): boolean {
+  return !isAssistantPath(p.path) && projectSessionView(p.config, get().settings) === 'panes' && shownLayout(p) !== 'single'
+}
+
+/**
+ * Moves an agent's pane to cell `target` of the layout shown (#762), across pages too: onto an empty cell it moves there,
+ * onto another agent's the two swap. Shown at once, then saved for that layout, with the agents' order as the cells read
+ * (an automatic layout becomes the one shown, chosen); the agent keeps focus, so the view goes to its page. Returns whether it moved.
+ */
+export function placeAgent(path: string, agentId: string, target: number): boolean {
+  const p = project(path)
+  if (!p || !agentOf(p, agentId) || !panesPlaced(p)) return false
+  const layout = shownLayout(p)
+  const before = paneCells(p)
+  const cells = moveToCell(before, agentId, target, layoutPanes(layout))
+  if (cells.length === before.length && cells.every((c, k) => c === before[k])) return false
+  const config = { ...p.config, placement: { ...p.config.placement, [layout]: cells }, ...(p.config.layout === 'auto' ? { layout: projectLayout(p.config) } : {}) }
+  const agents = orderByCells(p.agents, cells)
+  set((s) => ({ workspace: s.workspace && { ...s.workspace, projects: s.workspace.projects.map((x) => (x.path === path ? { ...x, config, agents } : x)) } }))
+  focusAgent(path, agentId)
+  void attempt(moveFailed(), () => call('agents:place', path, layout, cells)).then((saved) => {
+    // Puts the panes back as saved; the move's own error was already shown.
+    if (!saved) void refreshWorkspace()
+  })
+  return true
+}
+
+/** "Agent B1: page 1, row 2, column 1", said when a pane moves from the keyboard (#762). */
+const PANE_SAID = msg({ id: 'actions.pane.moved', defaultMessage: '{agent}: {pages, select, one {} other {page {page}, }}row {row}, column {column}{other, select, none {} other {, swapped with {other}}}', description: "Said to screen readers when an agent's pane is moved from the keyboard (Move Agent Left/Right/Up/Down): where it is now ({pages}: one when the project has a single page, so the page isn't said), and the agent it swapped places with ({other}; none: nothing)." })
+const PANE_EDGE = msg({ id: 'actions.pane.edge', defaultMessage: "{agent} can't move further {dir, select, left {left} right {right} up {up} other {down}}", description: "Said to screen readers when an agent's pane is moved from the keyboard but is already at that edge of the layout." })
+
+/**
+ * Moves an agent's pane (the focused one, or `agentId`) to the next cell left, right, up or down (#762): left and right
+ * across pages at their ends, up and down within the page. Said to screen readers. Panes side by side only.
+ */
+export function moveAgentPane(dir: CellDirection, path: string | null = get().selectedProject, agentId?: string): void {
+  const p = path ? project(path) : undefined
+  const id = agentId ?? (p ? focusedAgentId(p) : null)
+  const a = p && id ? agentOf(p, id) : null
+  if (!p || !a || !panesPlaced(p)) return
+  const layout = shownLayout(p)
+  const cells = paneCells(p)
+  const target = neighbourCell(cells.indexOf(a.id), dir, layout, cells.length)
+  const other = target === null ? null : agentOf(p, cells[target] ?? '')
+  const said = (text: string): void => set((s) => ({ paneSaid: { text, n: (s.paneSaid?.n ?? 0) + 1 } }))
+  if (target === null || !placeAgent(p.path, a.id, target)) return said(tr(PANE_EDGE, { agent: a.name, dir }))
+  const now = paneCells(project(p.path) ?? p)
+  const k = now.indexOf(a.id)
+  const n = layoutPanes(layout)
+  const cols = layoutColumns(layout)
+  said(tr(PANE_SAID, { agent: a.name, pages: Math.ceil(now.length / n) > 1 ? 'many' : 'one', page: Math.floor(k / n) + 1, row: Math.floor((k % n) / cols) + 1, column: (k % n) % cols + 1, other: other?.name ?? 'none' }))
 }
 
 // ---------------------------------------------------------------------------

@@ -48,7 +48,7 @@ import { CLI_LOG, fingerprint, readCliLog, realCliHomes, realCliVersions, record
 import { LANG_SUITE, isRealCli, keepLimits, needsDevBuild, packagedStatus, parentSuite, parseArgs, portBase, realNotRun, repeatStatus, resultLines, selectSuites, suiteOutcome } from './runner.mjs'
 import { devBuild, ensureBuild } from './build.mjs'
 import { FAILED_KEEP_MS, finishRunDirs, keepSuiteFiles, logsRootFor, markRunFailed, newRunDir, omittedLine, pruneRunDirsReleasing } from './logs.mjs'
-import { LANES, describeHolder, laneWaitLine, laneWork, waitForLane } from './lanes.mjs'
+import { LANES, describeHolder, laneWaitLine, lanesFirst, laneWork, waitForLane } from './lanes.mjs'
 import { describeClaim, heavySlots, needsSlot, preMerge, waitForSlot, waitLine } from './slots.mjs'
 import { usesCodexHome, waitForCodexHome } from './codexHomeLock.mjs'
 import { autoClean, holdLane } from './clean.mjs'
@@ -163,6 +163,7 @@ if (!nested) {
   let said = ''
   const got = await waitForLane(runContext.LANES_DIR, {
     root,
+    portsFrom: lanesFirst(runContext.OWN_LANES),
     what: `e2e: ${chosen.length} suite${chosen.length === 1 ? '' : 's'}${opts.repeat > 1 ? ` × ${opts.repeat}` : ''}`,
     wait: !opts.noWait,
     onWait: (look) => {

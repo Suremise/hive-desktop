@@ -153,6 +153,21 @@ const prose = (seed, n) => {
   check('notes: one path a line', /^notes\/note-1\.md \(\d{4}-\d\d-\d\d\)$/m.test(notes), notes)
   const note = measure('hive_read_shared_note', tool('hive_read_shared_note', { path: 'notes/note-1.md' }))
   check('a note reads as its text, with its revision', /^notes\/note-1\.md \(revision [0-9a-f]{12}\)\n\n## Why\n/.test(note), note.slice(0, 80))
+  // Documents by section (#817): a long plan (~70k characters: 8 parts of 5 sections), as a shared note and a project file.
+  const longDoc = `# Long plan\n\n${Array.from({ length: 8 }, (_, p) => `## Part ${p + 1}\n\n${Array.from({ length: 5 }, (__, s) => `### Section ${p + 1}.${s + 1}\n\n${prose(600 + p * 5 + s, 1700).replaceAll('## ', '')}\n`).join('\n')}`).join('\n')}`
+  await api('PUT', `/v1/shared/file?path=${encodeURIComponent('plans/long.md')}`, { content: longDoc })
+  fs.mkdirSync(path.join(alpha, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(alpha, 'docs', 'LONG.md'), longDoc)
+  const outlined = measure('hive_doc_outline', tool('hive_doc_outline', { path: 'shared:plans/long.md' }), 3000)
+  check('an outline: a line per heading with its slug and size', outlined.includes('\n    ### Section 3.2 [section-32] 1.') && outlined.length < longDoc.length / 20, outlined.slice(0, 300))
+  measure('hive_doc_outline (project file, depth 2)', tool('hive_doc_outline', { path: 'docs/LONG.md', depth: 2 }), 800)
+  const sectionRead = measure('hive_read_section', tool('hive_read_section', { path: 'docs/LONG.md', heading: 'section-32' }), 2200)
+  check('a section: its own text only', sectionRead.startsWith('docs/LONG.md#section-32 (') && !sectionRead.includes('### Section 3.3'), sectionRead.slice(0, 200))
+  const partial = measure('hive_read_section (long: its subsections)', tool('hive_read_section', { path: 'shared:plans/long.md', heading: 'Long plan' }), 1500)
+  check('a section over 30,000 characters: its outline instead', partial.includes('## Part 8 [part-8]') && partial.endsWith('or this whole section with full=true.'), partial.slice(0, 300))
+  const unknown = tool('hive_read_section', { path: 'docs/LONG.md', heading: 'part nine' })
+  measure('hive_read_section (unknown)', unknown)
+  check('an unknown section: an error naming the closest, short', unknown.isError && unknown.text.includes('Closest: ') && unknown.text.length <= 400, unknown.text)
   check('writing a note confirms it', /^Wrote notes\/new\.md \([\d,]+ characters, revision [0-9a-f]{12}\)\.$/.test(measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200)), texts.hive_write_shared_note)
   const written = texts.hive_write_shared_note.match(/revision ([0-9a-f]{12})/)?.[1]
   measure('hive_write_shared_note (append)', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(301, 500), append: true }), 200)
@@ -213,6 +228,10 @@ const prose = (seed, n) => {
   const batched = measure('hive_update_tasks (3 cards)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], labels: ['perf'] }), 400)
   const batchLines = batched.split('\n')
   check('a batch confirms each card and its change', batchLines[0] === '3 cards changed:' && batchLines.length === 4 && batchLines.slice(1).every((l) => /^#\d+ .+: Labels: perf\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), batched)
+  // #1131: tagging says only the label added, not each card's labels.
+  const tagged = measure('hive_update_tasks (3 cards, addLabels)', tool('hive_update_tasks', { numbers: [todo[20], todo[21], todo[22]], addLabels: ['0.9.4'] }), 400)
+  const tagLines = tagged.split('\n')
+  check('tagging says only the label added', tagLines[0] === '3 cards changed:' && tagLines.length === 4 && tagLines.slice(1).every((l) => /^#\d+ .+: Labels: added 0\.9\.4\. Now in Todo \(\d+\w+ of \d+\)(, [^,]+)?\.$/.test(l)), tagged)
   // Lanes (#483): a start, a join (a lane made for a builder that hasn't registered yet), the listing and an end.
   const laneStarted = measure('hive_lane (start)', tool('hive_lane', { action: 'start', cards: [todo[0], todo[1], todo[2]], reviewer: 'Tester', rounds: 10, waitMinutes: 360, name: 'measured lane' }), 400)
   check('a lane start: its pair, state, cards and id', /^Lane started: Coder \/ Tester \(alpha\) measured lane: active, on #\d+; .+; rounds 10, wait 6 h\. lane-[0-9a-f]+$/.test(laneStarted), laneStarted)

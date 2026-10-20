@@ -18,7 +18,7 @@ import { AGENT_WAIT_MAX_SECONDS, WAIT_MAX_SECONDS } from '../../shared/watch'
 import { LANE_EVENTS } from '../../shared/laneWatch'
 import { CLAIM_WAIT_MAX_SECONDS, CLAIM_WAIT_SECONDS } from '../../shared/mergeSlot'
 import { REPLY_MS, agentApiCall } from './agentApiCall'
-import { MAX_ROWS, agentWatchText, journalEntryText, journalRecallText, type JournalEntryDetail, type JournalRow, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
+import { MAX_ROWS, agentWatchText, journalEntryText, journalRecallText, type JournalEntryDetail, type JournalRow, batchText, consoleEventsText, consoleSourcesText, changedText, claimText, createdText, docOutlineText, docSectionText, type DocHeadingRow, mergeSlotText, noteText, notesListText, noteWrittenText, projectListText, releaseText, reorderText, settingChangedText, settingListText, settingText, skillListText, taskListText, taskWaitText, type NoteEntry, type ProjectRow, type SettingDetail, type SettingRow, type SkillRow, type TaskBatch, type TaskChange, type TaskReorder, type TaskRow } from '../../shared/toolReplies'
 import type { LaneInfo, MergeSlotInfo } from '../../shared/types'
 import { laneChangeText, laneEndText, lanesText, type LaneChange } from '../../shared/lanes'
 import { OVERDUE_MINUTES, ackText, inboxText, type InboxItem } from '../../shared/deliveries'
@@ -131,6 +131,20 @@ const proj = (a: Record<string, any>): string => {
   if (!p) throw new Error('project is required')
   return enc(p)
 }
+/** A document read by section (#817): its path, and the project (this one unless named). */
+const docQuery = (a: Record<string, any>): string => {
+  const p = a.project || PROJECT
+  return `path=${enc(String(a.path ?? ''))}${p ? `&project=${enc(p)}` : ''}${a.from === 'project' ? '&from=project' : ''}`
+}
+/** Which copy of a project file (#818): the agent's own folder's by default, or the project folder's. */
+const fromArg = { type: 'string', enum: ['project'], description: "project: read the project folder's copy, not your worktree's (as a card's Read first references are given)." }
+
+/** A card's context (#818): the doc sections its agent reads first, given in its start prompt. */
+const contextArg = {
+  type: 'array',
+  items: { type: 'string' },
+  description: 'Doc sections to read first, by file and heading slug (as hive_doc_outline lists them), never line numbers: "docs/PLAN.md#setup", "shared:plans/notes.md#open-questions", or a whole file. Replaces the list; [] clears it.'
+}
 
 const tools: Tool[] = [
   {
@@ -165,6 +179,20 @@ const tools: Tool[] = [
     description: 'Read a shared note by its path relative to .hive/shared (e.g. "handovers/2026-01-01-auth.md"), with its revision.',
     inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
     run: async (a) => noteText((await api('GET', `/v1/shared/file?path=${enc(a.path)}`)) as { path: string; content: string; revision?: string })
+  },
+  {
+    name: 'hive_doc_outline',
+    description:
+      'The headings of a Markdown document, each with its slug and its section\'s size in characters (subsections included), to read only the sections you need with hive_read_section. path: a file of your project, relative to the folder you work in ("docs/PLAN.md"), or a shared note as "shared:<path>" ("shared:plans/i18n.md"). from: "project" reads the project folder\'s copy instead of your worktree\'s. depth: only headings down to that level (2: # and ##).',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, depth: { type: 'number' }, from: fromArg, project: projectArg }, required: ['path'] },
+    run: async (a) => docOutlineText((await api('GET', `/v1/docs/outline?${docQuery(a)}`)) as { path: string; size: number; headings: DocHeadingRow[] }, Number(a.depth) || undefined)
+  },
+  {
+    name: 'hive_read_section',
+    description:
+      'One section of a Markdown document, with its subsections. path: as for hive_doc_outline. heading: "#" and a slug from the outline ("#core-contracts"; two "Setup" headings are "#setup" and "#setup-1"), or the heading\'s text (several sections with that text: it lists their slugs). An unknown heading replies with the closest ones; no heading reads the whole document. A section over 30,000 characters comes as its text before its subsections and their outline; full=true gives all of it. from: as for hive_doc_outline.',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' }, heading: { type: 'string' }, full: { type: 'boolean' }, from: fromArg, project: projectArg }, required: ['path'] },
+    run: async (a) => docSectionText((await api('GET', `/v1/docs/section?${docQuery(a)}${a.heading ? `&heading=${enc(a.heading)}` : ''}${a.full ? '&full=true' : ''}`)) as Parameters<typeof docSectionText>[0])
   },
   {
     name: 'hive_write_shared_note',
@@ -505,11 +533,12 @@ const tools: Tool[] = [
         labels: { type: 'array', items: { type: 'string' } },
         blocked: { type: 'string', description: "Why it can't go on yet." },
         blockedBy: cardsArg('Cards that have to be done first.'),
-        links: cardsArg('Related cards.')
+        links: cardsArg('Related cards.'),
+        context: contextArg
       },
       required: ['title']
     },
-    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, reply: 'short' })) as TaskChange)
+    run: async (a) => createdText((await api('POST', '/v1/tasks', { title: a.title, description: a.description, project: a.project ?? PROJECT, agent: a.agent, column: a.column, labels: a.labels, blocked: a.blocked, blockedBy: a.blockedBy, links: a.links, context: a.context, reply: 'short' })) as TaskChange)
   },
   {
     name: 'hive_update_task',
@@ -529,9 +558,12 @@ const tools: Tool[] = [
         description: { type: 'string' },
         ...(ASSISTANT ? { project: { type: 'string' } } : {}),
         agent: { type: 'string', description: 'Agent name or id; empty takes it from its agent.' },
-        labels: { type: 'array', items: { type: 'string' } },
+        labels: { type: 'array', items: { type: 'string' }, description: 'Replaces its labels. To tag it, use addLabels and removeLabels.' },
+        addLabels: { type: 'array', items: { type: 'string' }, description: 'Labels added, its others kept.' },
+        removeLabels: { type: 'array', items: { type: 'string' }, description: 'Labels taken off, its others kept.' },
         blockedBy: cardsArg('Cards that have to be done first (replaces the list).'),
         links: cardsArg('Related cards (replaces the list).'),
+        context: contextArg,
         decision: { type: 'string', description: "Records a decision the user made about the card (scope, wording, a default), in a sentence; it is attributed to the user. Only what the user decided, never your own choice. Only the user changes or removes decisions." },
         ...(ASSISTANT ? {} : { review: { type: 'string', enum: ['start', 'passed', 'failed'] } })
       },
@@ -539,15 +571,15 @@ const tools: Tool[] = [
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'blockedBy', 'links', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['comment', 'column', 'position', 'before', 'blocked', 'title', 'description', 'project', 'agent', 'labels', 'addLabels', 'removeLabels', 'blockedBy', 'links', 'context', 'decision', 'review']) if (a[k] !== undefined) body[k] = a[k]
       return changedText((await api('PATCH', `/v1/tasks/${enc(String(a.number))}`, body)) as TaskChange)
     }
   },
   {
     name: 'hive_update_tasks',
     description: ASSISTANT
-      ? "Change up to 100 cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (unknown, archived, in Doing with another agent...) is left as it was and the rest still change. The call counts as one change toward this message's limit, however many cards it has. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused."
-      : "Change up to 100 of your project's cards in one call, each with the same column, position, blocked, labels or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (another project's or unknown, archived, in Doing with another agent...) is left as it was and the rest still change. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused.",
+      ? "Change up to 100 cards in one call, each with the same column, position, blocked, labels (added, removed or replaced) or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (unknown, archived, in Doing with another agent...) is left as it was and the rest still change. The call counts as one change toward this message's limit, however many cards it has. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused."
+      : "Change up to 100 of your project's cards in one call, each with the same column, position, blocked, labels (added, removed or replaced) or agent, with a history line for each card. Each card is changed as hive_update_task would change it: one it can't change (another project's or unknown, archived, in Doing with another agent...) is left as it was and the rest still change. position applies to each card in turn, so the last listed ends at the top: put cards in an order with hive_reorder_tasks. Titles, comments, decisions and links stay on hive_update_task. Replies with each card's change and any refused.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -555,14 +587,16 @@ const tools: Tool[] = [
         column: columnArg,
         position: { type: 'string', enum: ['top', 'bottom'], description: "The top or bottom of each card's column, in turn." },
         blocked: { type: 'string', description: 'Why they are blocked, for each card (empty clears it).' },
-        labels: { type: 'array', items: { type: 'string' }, description: "Replaces each card's labels." },
+        labels: { type: 'array', items: { type: 'string' }, description: "Replaces each card's labels. To tag cards, use addLabels and removeLabels." },
+        addLabels: { type: 'array', items: { type: 'string' }, description: "Labels added to each card, its others kept." },
+        removeLabels: { type: 'array', items: { type: 'string' }, description: "Labels taken off each card, its others kept." },
         agent: { type: 'string', description: 'Agent name or id, given to each card (empty takes it from each).' }
       },
       required: ['numbers']
     },
     run: async (a) => {
       const body: Record<string, unknown> = { reply: 'short' }
-      for (const k of ['numbers', 'column', 'position', 'blocked', 'labels', 'agent']) if (a[k] !== undefined) body[k] = a[k]
+      for (const k of ['numbers', 'column', 'position', 'blocked', 'labels', 'addLabels', 'removeLabels', 'agent']) if (a[k] !== undefined) body[k] = a[k]
       return batchText((await api('POST', '/v1/tasks/batch', body)) as TaskBatch)
     }
   },

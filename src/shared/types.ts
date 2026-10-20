@@ -627,6 +627,14 @@ export interface TaskHistoryEntry {
   id?: string
 }
 
+/** A card's context reference that doesn't resolve (#819): the reference, why, and the closest headings' slugs (without #). */
+export interface ContextProblem {
+  ref: string
+  /** outside, hidden, notMarkdown, notFound, tooBig (its file), invalid (not a reference), noHeading or ambiguous (its heading). */
+  problem: 'outside' | 'hidden' | 'notMarkdown' | 'notFound' | 'tooBig' | 'invalid' | 'noHeading' | 'ambiguous'
+  closest?: string[]
+}
+
 export interface TaskCard {
   /** #number, unique in the workspace and never reused. */
   number: number
@@ -654,6 +662,16 @@ export interface TaskCard {
   blockedBy: number[]
   /** Related cards. */
   links: number[]
+  /**
+   * Doc sections the agent reads first (#818): references by file and heading, never by line (`docs/PLAN.md#setup`,
+   * `shared:plans/notes.md#open-questions`; shared/docRefs.ts). Absent when none.
+   */
+  context?: string[]
+  /**
+   * Its context references that didn't resolve when they were last checked (#819: when the list was edited, and when the
+   * card was started): which, why, and the closest headings' slugs. Absent when all did.
+   */
+  contextProblems?: ContextProblem[]
   comments: TaskComment[]
   history: TaskHistoryEntry[]
   /** Hidden from the board, kept and searchable. */
@@ -801,10 +819,17 @@ export interface TaskPatch {
   before?: number | null
   /** At the top or the bottom of the column (instead of before). */
   position?: 'top' | 'bottom'
+  /** Replaces the card's labels. Not with addLabels or removeLabels. */
   labels?: string[]
+  /** Labels added where missing, keeping the others (#1131). */
+  addLabels?: string[]
+  /** Labels taken off where present, keeping the others (#1131). */
+  removeLabels?: string[]
   blocked?: string | null
   blockedBy?: number[]
   links?: number[]
+  /** The doc sections to read first (#818), replacing the list; [] clears it. */
+  context?: string[]
   /** Records a decision the user made (#357), attributed to the user whoever records it. Editing or removing one is the user's (tasks:editDecision). */
   decision?: string
 }
@@ -870,6 +895,11 @@ export interface ProjectConfig {
   agents: AgentDef[]
   /** The Session tab's layout (one for the project, #134); its pages hold as many agents as it has panes. */
   layout: PageLayout
+  /**
+   * Where the user put each agent's pane, per layout (#762): its cells page after page, an agent's id or null for an
+   * empty cell (shared/paneCells.ts). A layout without one shows the agents in order.
+   */
+  placement?: Partial<Record<SessionLayout, (string | null)[]>>
   /** The Session tab's view, once chosen with its Panes | Tiles toggle (#975); absent, Settings → Sessions → Default session view. */
   sessionView?: SessionView
   /** Where the project folder was last opened (#146), as workspace.json's lastPath. */

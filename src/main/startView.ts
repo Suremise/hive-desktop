@@ -35,7 +35,7 @@ export async function assistantStartView(ws: WorkspaceService, live: LiveSession
   if (!settings.enabled) return null
   const projects = (await ws.listProjectPaths()).map((p) => ({ path: p.toLowerCase(), name: basename(p) }))
   const nameOf = (p: string): string | null => projects.find((x) => x.path === p.toLowerCase())?.name ?? null
-  const cards = (await allTasks(ws)).filter((c) => !c.archived)
+  const cards = await allTasks(ws, { archived: false })
   const counts = new Map<string, Record<string, number>>()
   for (const c of cards) {
     const k = c.project || '(workspace)'
