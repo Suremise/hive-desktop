@@ -183,6 +183,30 @@ describe('the usage worker', () => {
     await t.close()
   })
 
+  it('never erases a charge the provider reported: a rewrite without its report, same counts or more', async () => {
+    const t = await setup()
+    const req = (rid: string, input: number, output: number): string => JSON.stringify({ type: 'assistant', requestId: rid, timestamp: new Date(T0).toISOString(), message: { model: 'claude-opus-5-5', usage: { input_tokens: input, output_tokens: output } } }) + '\n'
+    const charge = JSON.stringify({ type: 'cost-state', timestamp: new Date(T0 + 1000).toISOString(), totalCostUSD: 5 }) + '\n'
+    const cost = async (): Promise<number> => {
+      const s = (await t.stored())!
+      return usageFromRows(s.summary, s.rows, DEFAULT_SETTINGS).costUsd!
+    }
+    writeFileSync(t.transcript, req('r1', 100, 1) + charge)
+    await t.ingest()
+    expect(await cost()).toBeCloseTo(5, 6)
+    // Rewritten without the report: the same request and a new prompt (the same counts, bar the prompt).
+    writeFileSync(t.transcript, req('r1', 100, 1) + prompt(5))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await cost()).toBeGreaterThanOrEqual(5)
+    // And grown: another request, still without the report.
+    appendFileSync(t.transcript, req('r2', 50, 2))
+    expect((await t.ingest()).status).toBe('written')
+    expect(await cost()).toBeGreaterThanOrEqual(5)
+    const rows = (await t.stored())!.rows
+    expect([rows.reduce((n, r) => n + r.inputTokens, 0), rows.reduce((n, r) => n + r.requests, 0)]).toEqual([150, 2])
+    await t.close()
+  })
+
   it.runIf(process.platform === 'win32')('says a file it could not read failed, not unchanged: a delete must not take what is recorded as all of it', async () => {
     const t = await setup()
     writeFileSync(t.transcript, prompt(0) + line(1))

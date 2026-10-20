@@ -108,6 +108,31 @@ describe("the usage history's import", () => {
     expect(outputOf(await run(() => sessions.keptUsage(p)), deletedEarly)).toBe(40)
   })
 
+  it('a list reads only the history: sessions it has none of yet (the import not there yet), stopped or running, are queued, never read here', async () => {
+    const [stopped, running] = [newId(), newId()]
+    for (const id of [stopped, running]) {
+      await run(() => workspace.upsertSession(p, { id, agent: 'claude-code', agentId: 'c1', name: 'not imported yet', lastActiveAt: at }))
+      write(backup(id), transcript(id, Array.from({ length: 200 }, () => 5)))
+    }
+    const s = sessions as unknown as { live: Map<string, unknown> }
+    s.live.set(`${p.toLowerCase()}#c1`, { state: { provider: 'claude-code', runId: 'run-c', projectPath: p, agentId: 'c1', sessionId: running, status: 'working' } })
+    const usageFor = vi.spyOn(sessions as unknown as { usageFor: () => Promise<unknown> }, 'usageFor')
+    try {
+      const items = await run(() => sessions.list(p))
+      expect([stopped, running].map((id) => items.find((i) => i.id === id)?.usage ?? null)).toEqual([null, null])
+      expect(usageFor).not.toHaveBeenCalled()
+      // The queued reads land in the worker: the next list has them, still read from the history.
+      await vi.waitFor(async () => {
+        const later = await run(() => sessions.list(p))
+        expect([stopped, running].map((id) => outputOf(later, id))).toEqual([1000, 1000])
+      }, { timeout: 10_000 })
+      expect(usageFor).not.toHaveBeenCalled()
+    } finally {
+      usageFor.mockRestore()
+      s.live.clear()
+    }
+  })
+
   it("isn't recorded as done when a session fails to import: nothing is retired, and the next try imports what is left", async () => {
     const h = usageHistory as unknown as { importKept: (...a: unknown[]) => Promise<unknown> }
     const real = h.importKept.bind(usageHistory)

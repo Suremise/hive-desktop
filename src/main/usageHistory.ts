@@ -294,6 +294,18 @@ class UsageHistory {
    * the caller has it (a sweep), else found as the session list finds it.
    */
   ingest(projectPath: string, sessionId: string, o: { priority: Priority; keepState: IngestJob['keepState']; path?: string }): Promise<IngestResult | null> {
+    return this.told(projectPath, sessionId, this.ingestJob(projectPath, sessionId, o))
+  }
+
+  /** A job's result, the window told when it recorded something (a list showing the session without it reads it again). */
+  private told(projectPath: string, sessionId: string, job: Promise<IngestResult | null>): Promise<IngestResult | null> {
+    return job.then((r) => {
+      if (r?.status === 'written') emit({ type: 'usage-changed', projectPath, sessionId })
+      return r
+    })
+  }
+
+  private ingestJob(projectPath: string, sessionId: string, o: { priority: Priority; keepState: IngestJob['keepState']; path?: string }): Promise<IngestResult | null> {
     return this.enqueue<IngestResult>(`ingest|${projectPath.toLowerCase()}|${sessionId}`, o.priority, async () => {
       const ws = workspaceFor(projectPath)
       if (!ws?.path) return null
@@ -312,13 +324,13 @@ class UsageHistory {
    * next time rather than its transcript; it never counts in totals.
    */
   ingestExternal(projectPath: string, ext: { id: string; provider: ProviderId; transcriptPath: string }): Promise<IngestResult | null> {
-    return this.enqueue<IngestResult>(`ingest|${projectPath.toLowerCase()}|${ext.id}`, 2, async () => {
+    return this.told(projectPath, ext.id, this.enqueue<IngestResult>(`ingest|${projectPath.toLowerCase()}|${ext.id}`, 2, async () => {
       const ws = workspaceFor(projectPath)
       if (!ws?.path) return null
       const { workspace, scope } = await ws.sessionScope(projectPath)
       const job: IngestJob = { scope, session: ext.id, provider: ext.provider, path: ext.transcriptPath, holds: [], holdsKey: null, keepState: 'no', external: true }
       return { type: 'ingest', file: usageFile(workspace), job }
-    })
+    }))
   }
 
   /**

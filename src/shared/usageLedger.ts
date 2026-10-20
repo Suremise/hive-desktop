@@ -315,18 +315,20 @@ export function baselineOfUsage(usage: SessionUsage): BaselineDay[] {
   return days.filter(([day]) => !!day).map(([day, d]) => ({ day, model, inputTokens: d.inputTokens, outputTokens: d.outputTokens, cacheWriteTokens: d.cacheWriteTokens, cacheReadTokens: d.cacheReadTokens, requests: d.requests, prompts: d.prompts, compactions: d.compactions, costUsd: d.costUsd, costEstimated: d.costEstimated }))
 }
 
-/** Rows' days as a baseline, their cost priced now (null where none is known). */
-export function baselineOfRows(rows: LedgerRow[], provider: ProviderId, settings?: Pick<AppSettings, 'providers'> | null): BaselineDay[] {
+/** What of a row's cost the provider reported (a charge it was given; never Hive's estimate, which follows the prices). */
+const reported = (r: LedgerRow): number => (r.fixedEstimated ? 0 : r.fixedUsd)
+
+/**
+ * Rows' days as a baseline: their counts, and the charges the provider reported for them (round 4: a charge once recorded
+ * is never erased by a read that lacks its report; estimates aren't kept, they are priced again when shown).
+ */
+export function baselineOfRows(rows: LedgerRow[]): BaselineDay[] {
   const by = new Map<string, BaselineDay & { most: number }>()
   for (const r of rows) {
     let b = by.get(r.day)
     if (!b) by.set(r.day, (b = { day: r.day, model: r.model, ...ZERO(), requests: 0, prompts: 0, compactions: 0, costUsd: null, costEstimated: false, most: -1 }))
     for (const k of COUNTS) b[k] += r[k]
-    const c = rowCost(r, provider, settings)
-    if (c.usd !== null) {
-      b.costUsd = (b.costUsd ?? 0) + c.usd
-      if (c.estimated) b.costEstimated = true
-    }
+    if (reported(r) > 0) b.costUsd = (b.costUsd ?? 0) + reported(r)
     // The day's model: the one with the most tokens.
     if (tokenSum(r) > b.most) {
       b.most = tokenSum(r)
@@ -366,7 +368,9 @@ export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provide
     const day = rows.filter((r) => r.day === b.day)
     const r = emptyRow(b.day, b.model, 0, 'kept')
     for (const k of COUNTS) r[k] = Math.max(0, b[k] - day.reduce((n, x) => n + x[k], 0))
-    const has = day.reduce((n, x) => n + (rowCost(x, provider, settings).usd ?? 0), 0)
+    // A reported charge against the rows' reported charges (an estimate never stands in for one); a kept usage's cost,
+    // estimated when it was kept, against what the rows cost now.
+    const has = day.reduce((n, x) => n + (b.costEstimated ? (rowCost(x, provider, settings).usd ?? 0) : reported(x)), 0)
     if (b.costUsd !== null && b.costUsd > has) {
       // Its tokens are the baseline's, so its cost is what they were counted at: covered, not estimated again.
       r.fixedUsd = b.costUsd - has
@@ -378,13 +382,18 @@ export function applyBaseline(all: LedgerRow[], baseline: BaselineDay[], provide
   return out
 }
 
-/** Whether rows count at least what other rows did, every day, in each count (what replacing them would keep). */
+/**
+ * Whether rows count at least what other rows did, every day, in each count and in the charges the provider reported
+ * (what replacing them would keep).
+ */
 export function dominates(rows: LedgerRow[], before: LedgerRow[]): boolean {
-  const sums = (list: LedgerRow[]): Map<string, Record<(typeof COUNTS)[number], number>> => {
-    const m = new Map<string, Record<(typeof COUNTS)[number], number>>()
+  type Sums = Record<(typeof COUNTS)[number] | 'reported', number>
+  const sums = (list: LedgerRow[]): Map<string, Sums> => {
+    const m = new Map<string, Sums>()
     for (const r of list) {
-      const s = m.get(r.day) ?? { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 0, prompts: 0, compactions: 0 }
+      const s = m.get(r.day) ?? { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, requests: 0, prompts: 0, compactions: 0, reported: 0 }
       for (const k of COUNTS) s[k] += r[k]
+      s.reported += reported(r)
       m.set(r.day, s)
     }
     return m
@@ -392,7 +401,7 @@ export function dominates(rows: LedgerRow[], before: LedgerRow[]): boolean {
   const now = sums(rows)
   for (const [day, s] of sums(before)) {
     const n = now.get(day)
-    if (!n || COUNTS.some((k) => n[k] < s[k])) return false
+    if (!n || COUNTS.some((k) => n[k] < s[k]) || n.reported < s.reported - 1e-9) return false
   }
   return true
 }

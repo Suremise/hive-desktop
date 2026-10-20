@@ -4584,6 +4584,12 @@ class SessionManager {
       const stored = (ctx?.stored ?? (await usageHistory.storedUsage(projectPath).catch(() => null)))?.get(sessionId)
       if (stored) usage = this.titled(stored.usage)
     }
+    if (!usage && ctx?.stored) {
+      // A list only reads the history (round 4): one it doesn't have yet (its import under way, a session just started) is
+      // queued for the worker, which tells the window when it has it; meanwhile its kept usage, or none yet.
+      if (rec) void usageHistory.ingest(projectPath, sessionId, { priority: 2, keepState: 'no' }).catch(() => undefined)
+      return rec?.keptUsage ? withScreenStopsIn(rec.keptUsage, rec.screenStops) : null
+    }
     if (!usage) {
       const p = await this.anyTranscript(projectPath, sessionId, ctx)
       if (!p) return rec?.keptUsage ?? null
@@ -4615,7 +4621,7 @@ class SessionManager {
     projectPath = workspace.assertSessionHost(projectPath)
     const file = await workspace.sessionsFile(projectPath)
     // Read once for the whole list, not once per session.
-    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath), stored: await usageHistory.storedUsage(projectPath).catch(() => undefined) }
+    const ctx: ListContext = { records: file.sessions, cfg: await workspace.projectConfig(projectPath), stored: await usageHistory.storedUsage(projectPath).catch(() => new Map()) }
     const ttl = config.settings.sessions.cacheTtl
     const items: SessionListItem[] = []
     // Deleted sessions stay hidden, though the CLI still has their transcripts.
@@ -4659,24 +4665,26 @@ class SessionManager {
         for (const ext of await adapter.listSessions(folder).catch(() => [])) {
           if (known.has(ext.id) || (i > 0 && !(ext.sub?.parentId && items.some((x) => x.id === ext.sub!.parentId)))) continue
           known.add(ext.id)
-          // From the usage history while its file is as it was read (#1106), else read here and recorded for next time.
+          // From the usage history only (#1106): one it doesn't have, or has from before its file changed, is queued for the
+          // worker (the window is told when it has it), and shows as the history has it meanwhile, or not yet.
           const st = await stat(ext.transcriptPath).catch(() => null)
           const kept = ctx.stored?.get(ext.id)
           const same = !!st && !!kept?.read.path && samePlace(kept.read.path, ext.transcriptPath) && kept.read.size === st.size && kept.read.mtime === st.mtimeMs
-          const usage = same ? this.titled(kept.usage) : await this.usageFor(ext.transcriptPath, ext.id, adapter.id)
-          if (!same && usage) void usageHistory.ingestExternal(projectPath, { id: ext.id, provider: adapter.id, transcriptPath: ext.transcriptPath }).catch(() => undefined)
-          if (!usage || usage.requests === 0) continue
+          const usage = kept ? this.titled(kept.usage) : null
+          if (!same) void usageHistory.ingestExternal(projectPath, { id: ext.id, provider: adapter.id, transcriptPath: ext.transcriptPath }).catch(() => undefined)
+          // Known to be empty: not listed. Not known yet: listed without figures until the worker has it.
+          if (usage && usage.requests === 0) continue
           items.push({
             id: ext.id,
             provider: adapter.id,
             source: 'external',
-            title: usage.title,
-            lastActivity: usage.lastActivity ?? ext.modified,
+            title: usage?.title ?? null,
+            lastActivity: usage?.lastActivity ?? ext.modified,
             hasTranscript: true,
             hasBackup: false,
             transcriptBytes: st?.size ?? null,
             usage,
-            recache: adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
+            recache: usage && adapter.descriptor.capabilities.promptCacheTtl ? recacheEstimate(usage, ttl) : null,
             ...(ext.sub ? { sub: ext.sub } : {})
           })
         }

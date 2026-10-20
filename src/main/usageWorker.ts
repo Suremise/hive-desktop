@@ -219,7 +219,7 @@ async function ingest(file: string, job: IngestJob): Promise<IngestResult> {
   let grew = false
   if (stored && !dominates(rows, stored.rows)) {
     // Less of something than recorded: what was recorded joins the baseline, and neither is lost.
-    baseline = mergeBaselines(baseline, baselineOfRows(stored.rows, job.provider, settings))
+    baseline = mergeBaselines(baseline, baselineOfRows(stored.rows))
     rows = applyBaseline(read, baseline, job.provider, settings)
     grew = true
     log('info', `usage history: ${job.session} read less of something than recorded: what was recorded is kept beside it`, job.path)
