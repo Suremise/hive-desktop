@@ -6,7 +6,8 @@ import { agentDoingCards } from '@shared/tasks'
 import { cardsText } from '@shared/agentTable'
 import { modelCaps } from '@shared/models'
 import { agentChoosesMcp, agentMcpText } from '@shared/agentMcp'
-import { SESSION_LAYOUTS, agentLimitText, agentPageCount, agentsPerPage, pageEndIndex, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, pageAgents, pageOfAgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { SESSION_LAYOUTS, agentLimitText, agentsPerPage, compactThreshold, contextPercent, agentModelShown, effortLabel, isCompacting, layoutPanes, mergeBlocked, mostUrgent, projectLayout, sessionInAgentFolder, transcriptWarnLimit, unmergedWork } from '@shared/defaults'
+import { cellPage, cellPageCount, neighbourCell, pageCells, pageIds, type CellDirection } from '@shared/paneCells'
 import { agentLimit, useAgentLimit } from '../advanced'
 import type { AgentInfo, LiveSessionState, PageLayout, ProjectInfo, SessionLayout, SessionListItem, SessionUsage, SessionView } from '@shared/types'
 import { TEMPLATE_SCOPES, shownProblem, type TemplateEntry } from '@shared/templates'
@@ -18,7 +19,7 @@ import { formatDateTime, formatWhen } from '@shared/dates'
 import * as actions from '../actions'
 import { HAND_OVER_TEXT, handOverNow, onRunningLane } from '@shared/handOver'
 import { call, errorMessage } from '../api'
-import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
+import { NO_IDS, NO_PROJECTS, agentPage, agentProviderOf, clearStartFailure, closeTile, focusAgent, focusedAgentId, isAssistantPath, notify, openInSessionsTab, paneAssignment, paneCells, projectKey, prompt, revealAgent, seenAgents, set, setProjectTab, showAgent, showGit, showInOverview, showPage, shownLayout, useLanguage, useStore } from '../store'
 import { useLiveUsage, useLiveUsageState } from '../usage'
 import { commandKeybinding } from '../commands'
 import { cx, formatKeybinding, formatTokens, sessionLabel, timeAgo } from '../util'
@@ -247,7 +248,8 @@ function sessionItems(project: ProjectInfo, live: LiveSessionState | null | unde
 const AGENT_DRAG = 'application/x-hive-agent'
 
 export function agentDragProps(project: ProjectInfo, a: AgentInfo) {
-  if (project.agents.length < 2 || isAssistantPath(project.path)) return {}
+  // A lone agent too, in panes side by side: it can go to any cell (#762).
+  if (isAssistantPath(project.path) || (project.agents.length < 2 && !actions.panesPlaced(project))) return {}
   return {
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
@@ -270,6 +272,13 @@ export function dropAgent(project: ProjectInfo, index: number): void {
   const id = useStore.getState().agentDrag?.id
   set({ agentDrag: null })
   if (id) void actions.moveAgent(project.path, id, index)
+}
+
+/** A dragged agent dropped on a cell of the panes (#762): it moves there, swapping with the agent there if any. */
+export function placeDrop(project: ProjectInfo, cell: number): void {
+  const id = useStore.getState().agentDrag?.id
+  set({ agentDrag: null })
+  if (id) actions.placeAgent(project.path, id, cell)
 }
 
 /** A dragged agent dropped on another's pane or tile: they swap places (#135, #993). */
@@ -358,21 +367,41 @@ const CANCEL_WATCH_FAILED = msg({ id: 'panes.watchCancel.failed', defaultMessage
 const FROM_TEMPLATE = msg({ id: 'panes.add.fromTemplate', defaultMessage: 'Add Agent from Template', description: "Menu item (+ Add ▾ in the session toolbar, and the Add Agent button's ▾): adds one agent of a saved template." })
 const CONFIGURE_AGENT = msg({ id: 'panes.add.configure', defaultMessage: 'Configure Agent and Add…', description: 'Menu item (+ Add ▾ in the session toolbar, and the Add Agent button\'s ▾): opens the Add Agent dialog (provider, where it works, settings).' })
 
+const MOVE_LEFT = msg({ id: 'panes.menu.moveLeft', defaultMessage: 'Move Left', description: "Menu item (an agent's menu): moves the agent one place left among the project's agents (its pane one cell left, panes side by side)." })
+const MOVE_RIGHT = msg({ id: 'panes.menu.moveRight', defaultMessage: 'Move Right', description: "Menu item (an agent's menu): moves the agent one place right among the project's agents (its pane one cell right, panes side by side)." })
+
 /**
  * Move Left / Move Right, for a project with several agents (they cross pages at the edges). `nudge`: how it moves (the
  * Tiles view's follows the tile to its page).
  */
-export function moveItems(project: ProjectInfo, a: AgentInfo, nudge = (delta: -1 | 1): void => actions.nudgeAgent(delta, project.path, a.id)): MenuEntry[] {
-  if (project.agents.length < 2 || isAssistantPath(project.path)) return []
+export function moveItems(project: ProjectInfo, a: AgentInfo, nudge?: (delta: -1 | 1) => void): MenuEntry[] {
+  if (isAssistantPath(project.path)) return []
   const i = project.agents.findIndex((x) => x.id === a.id)
   const kb = (id: string): string | undefined => {
     const k = commandKeybinding(id)
     return k ? formatKeybinding(k) : undefined
   }
+  // Panes side by side (#762): to the next cell, left, right and, in a grid, up and down; unavailable at an edge.
+  if (!nudge && actions.panesPlaced(project)) {
+    const layout = shownLayout(project)
+    const cells = paneCells(project)
+    const k = cells.indexOf(a.id)
+    const item = (dir: CellDirection, label: string, icon: string, command: string): MenuEntry => ({ label, icon, disabled: k < 0 || neighbourCell(k, dir, layout, cells.length) === null, keybinding: kb(command), onClick: () => actions.moveAgentPane(dir, project.path, a.id) })
+    const grid = layout === 'grid' || layout === 'grid6'
+    if (k < 0) return []
+    return [
+      { separator: true },
+      item('left', tr(MOVE_LEFT), 'arrow-left', 'agent.moveLeft'),
+      item('right', tr(MOVE_RIGHT), 'arrow-right', 'agent.moveRight'),
+      ...(grid ? [item('up', tr(msg({ id: 'panes.menu.moveUp', defaultMessage: 'Move Up', description: "Menu item (an agent's menu, a grid layout): moves the agent's pane one cell up." })), 'arrow-up', 'agent.moveUp'), item('down', tr(msg({ id: 'panes.menu.moveDown', defaultMessage: 'Move Down', description: "Menu item (an agent's menu, a grid layout): moves the agent's pane one cell down." })), 'arrow-down', 'agent.moveDown')] : [])
+    ]
+  }
+  if (project.agents.length < 2) return []
+  const move = nudge ?? ((delta: -1 | 1): void => actions.nudgeAgent(delta, project.path, a.id))
   return [
     { separator: true },
-    { label: tr(msg({ id: 'panes.menu.moveLeft', defaultMessage: 'Move Left', description: "Menu item (an agent's menu): moves the agent one place left among the project's agents." })), icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => nudge(-1) },
-    { label: tr(msg({ id: 'panes.menu.moveRight', defaultMessage: 'Move Right', description: "Menu item (an agent's menu): moves the agent one place right among the project's agents." })), icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => nudge(1) }
+    { label: tr(MOVE_LEFT), icon: 'arrow-left', disabled: i <= 0, keybinding: kb('agent.moveLeft'), onClick: () => move(-1) },
+    { label: tr(MOVE_RIGHT), icon: 'arrow-right', disabled: i >= project.agents.length - 1, keybinding: kb('agent.moveRight'), onClick: () => move(1) }
   ]
 }
 
@@ -734,7 +763,7 @@ const TOOLBAR_FOLDS = 5
 
 /** The width the session toolbar needs: its controls on one row, the summary chip whole (`useFolds`, #886). */
 function toolbarNeed(el: HTMLElement): number | null {
-  const items = [...el.children].filter((c) => !c.classList.contains('grow') && !c.classList.contains('menu')) as HTMLElement[]
+  const items = [...el.children].filter((c) => !c.classList.contains('grow') && !c.classList.contains('menu') && !c.classList.contains('visually-hidden')) as HTMLElement[]
   if (!items.length) return null
   const gap = parseFloat(getComputedStyle(el).columnGap) || 0
   const chip = el.querySelector<HTMLElement>('.summary-chip-text')
@@ -820,16 +849,20 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   const layout = projectLayout(project.config)
   const shown = useStore((s) => shownLayout(project, s))
   const perPage = agentsPerPage(shown)
-  const pages = agentPageCount(project.agents.length, perPage)
+  // Where the user put the panes in the layout shown (#762), else the agents in order.
+  const cells = paneCells(project)
+  const pages = cellPageCount(cells, perPage)
+  const onPageOf = (k: number): AgentInfo[] => pageIds(cells, k, perPage).flatMap((id) => project.agents.find((a) => a.id === id) ?? [])
+  const said = useStore((s) => s.paneSaid)
   const many = project.agents.length > 1
   const pageKb = commandKeybinding('agent.nextPage')
   const fresh = useStore((s) => s.newAgents[project.path] ?? NO_IDS)
   // Agents the Assistant added on the page shown are seen.
   useEffect(() => {
     if (!panesView) return
-    const here = pageAgents(project.agents, page, perPage).map((a) => a.id).filter((id) => fresh.includes(id))
+    const here = pageIds(paneCells(project), page, perPage).filter((id) => fresh.includes(id))
     if (here.length) seenAgents(project.path, here)
-  }, [fresh, page, perPage, project.agents, project.path, panesView])
+  }, [fresh, page, perPage, project, panesView])
   const dragging = useAgentDrag(project)
   const removing = useStore((s) => s.running)
   const tasks = useStore((s) => s.tasks)
@@ -914,23 +947,24 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
    * pages, #562).
    */
   const pageButton = (i: number, as?: { label: string; name: string }): ReactNode => {
-    const onPage = pageAgents(project.agents, i, perPage)
+    const onPage = onPageOf(i)
     // Another page's most urgent agent shows on its button, or one the Assistant added there.
     const state = page === i ? null : mostUrgent(onPage.map((a) => a.live))
     const added = page !== i && onPage.some((a) => fresh.includes(a.id))
-    // A drop here moves the agent to this page's last place: not a target where it already is (#238). Held over,
-    // the button still shows its page, to drop on a pane there.
-    const moves = !!dragging && pageEndIndex(project.agents.length, i, perPage) !== project.agents.findIndex((a) => a.id === dragging)
+    // A drop here moves the agent to this page's first empty cell (#762): not a target for an agent already on it (#238)
+    // or a page with no empty cell. Held over, the button still shows its page, to drop on a pane there.
+    const empty = pageCells(cells, i, perPage).indexOf(null)
+    const moves = !!dragging && empty >= 0 && cellPage(cells, dragging, perPage) !== i
     return (
       <Tooltip
         key={as ? as.name : i}
         content={tr(
           msg({
-            id: 'panes.pages.tip',
-            defaultMessage: '{button, select, none {Page {page}} other {{button} (page {page})}}: {count, plural, one {agent {first}} other {agents {first}–{last}}}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}',
-            description: "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the agents on it by position ({first}–{last}), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
+            id: 'panes.pages.agentsTip',
+            defaultMessage: '{button, select, none {Page {page}} other {{button} (page {page})}}: {agents}{added, select, yes {, with an agent the Assistant added} other {}}{key, select, none {} other { ({key} for the next page)}}',
+            description: "Tooltip of a page button in the session toolbar: which page ({page}), or the ‹ › button's name ({button}; none for a numbered button), the names of the agents on it ({agents}: \"B1, B2 and R1\"), whether the Assistant added one there, and the shortcut for the next page ({key}: \"Ctrl+Alt+PageDown\"; none: leave that branch empty)."
           }),
-          { button: as ? as.name : 'none', page: i + 1, count: onPage.length, first: i * perPage + 1, last: i * perPage + onPage.length, added: added ? 'yes' : 'no', key: pageKb ? formatKeybinding(pageKb) : 'none' }
+          { button: as ? as.name : 'none', page: i + 1, agents: fmt.list(onPage.map((a) => a.name)), added: added ? 'yes' : 'no', key: pageKb ? formatKeybinding(pageKb) : 'none' }
         )}
       >
         <button
@@ -958,7 +992,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
             e.preventDefault()
             if (pageHover.current) clearTimeout(pageHover.current.timer)
             pageHover.current = null
-            if (moves) dropAgent(project, pageEndIndex(project.agents.length, i, perPage))
+            if (moves) placeDrop(project, i * perPage + empty)
           }}
         >
           {as ? as.label : i + 1}
@@ -974,7 +1008,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   const addIcon = folds >= 4
   const viewIcons = folds >= 5
   // Every other page's most urgent agent, for the compact pager's menu button.
-  const elsewhere = compactPager ? mostUrgent(project.agents.filter((_, k) => pageOfAgent(k, perPage) !== page).map((a) => a.live)) : null
+  const elsewhere = compactPager ? mostUrgent(project.agents.filter((a) => cellPage(cells, a.id, perPage) !== page).map((a) => a.live)) : null
   const pageMenu = (el: Element, keyboard: boolean): void => {
     const r = el.getBoundingClientRect()
     menu.openAt(
@@ -983,7 +1017,7 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
       Array.from({ length: pages }, (_, k) => ({
         label: tr(msg({ id: 'panes.pages.item', defaultMessage: 'Page {page}', description: "An item of the session toolbar's page menu (many pages); its detail lists the page's agents." }), { page: k + 1 }),
         icon: k === page ? 'check' : undefined,
-        detail: pageAgents(project.agents, k, perPage).map((a) => a.name).join(', '),
+        detail: fmt.list(onPageOf(k).map((a) => a.name)),
         onClick: () => showPage(project, k)
       })),
       keyboard
@@ -992,6 +1026,11 @@ export function SessionToolbar({ project, view }: { project: ProjectInfo; view: 
   const urgent = mostUrgentState(states)
   return (
     <div className="session-toolbar" ref={barRef} data-folded={folds > 0 || undefined}>
+      {/* Where a pane moved from the keyboard went (#762), for screen readers. */}
+      <span className="visually-hidden" role="status">
+        {/* Every other one ends in a no-break space: the same words twice in a row are still a change, and said again. */}
+        {said && `${said.text}${said.n % 2 ? ' ' : ''}`}
+      </span>
       {/* Panes | Tiles (#975), remembered per project; the hook for the Tiles view is AgentTiles (#976). */}
       {/* A radio group (#975): one tab stop, on the chosen view; the arrow keys (round, Home, End) move to the other and choose it. */}
       <div
@@ -1609,20 +1648,52 @@ const notRunningText = (agent: string): ReactNode[] => tRich<ReactNode>(msg({ id
 /** "Works in its own worktree on <code>hive/b1</code>." */
 const ownWorktreeText = (branch: string): ReactNode[] => tRich<ReactNode>(msg({ id: 'panes.body.worktree', defaultMessage: 'Works in its own worktree on <code>{branch}</code>.', description: "A stopped worktree agent's pane: its branch ({branch}, shown as code; keep the <code> tags around it)." }), { branch, code: (chunks) => <code key="code">{chunks}</code> })
 
+/**
+ * An empty cell of the panes (#762): a quiet placeholder to drop an agent on, Move Agent Here ▾ to bring one from another
+ * page (moving one on this page leaves its own cell empty, so only other pages' are offered), and Add Agent.
+ */
+function EmptyCell({ project, cell, canAdd }: { project: ProjectInfo; cell: number; canAdd: boolean }) {
+  useLanguage()
+  const menu = useContextMenu()
+  const perPage = layoutPanes(useStore((s) => shownLayout(project, s)))
+  const cells = paneCells(project)
+  const page = Math.floor(cell / perPage)
+  const others = project.agents.filter((a) => cellPage(cells, a.id, perPage) !== page)
+  const placed = actions.panesPlaced(project)
+  const label = tr(msg({ id: 'panes.empty.moveHere', defaultMessage: 'Move Agent Here', description: "Button on an empty pane (#762): opens a list of the agents on other pages, to move one into this pane." }))
+  return (
+    <div className="pane-placeholder empty-cell">
+      <p className="faint">{placed && project.agents.length > 0 ? tr(msg({ id: 'panes.empty.drop', defaultMessage: 'Drop an agent here', description: "An empty pane (#762): the user can drag an agent's pane header onto it to move the agent there." })) : tr(msg({ id: 'panes.body.empty', defaultMessage: 'Empty pane', description: 'A pane with no agent in it (the layout has more panes than the page has agents).' }))}</p>
+      <div className="btns">
+        {placed && others.length > 0 && (
+          <button
+            className="btn subtle small"
+            aria-haspopup="menu"
+            aria-expanded={menu.shown}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              menu.openAt(r.left, r.bottom + 2, others.map((a) => ({ label: a.name, detail: tr(msg({ id: 'panes.empty.onPage', defaultMessage: 'Page {page}', description: "The detail of an agent in an empty pane's Move Agent Here list: the page it is on now." }), { page: cellPage(cells, a.id, perPage) + 1 }), onClick: () => void actions.placeAgent(project.path, a.id, cell) })), e.detail === 0)
+            }}
+          >
+            <Icon name="arrow-swap" /> {label} <Icon name="chevron-down" />
+          </button>
+        )}
+        {canAdd && <AddAgentButton project={project} className="subtle small" />}
+      </div>
+      {menu.element}
+    </div>
+  )
+}
+
 /** What a pane shows when its agent has no terminal yet, or when the pane is empty. */
-function PaneBody({ project, a, hasTerminal, single }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean }) {
+function PaneBody({ project, a, hasTerminal, single, cell }: { project: ProjectInfo; a: AgentInfo | null; hasTerminal: boolean; single: boolean; cell: number }) {
   useLanguage()
   const failure = useStartFailure(project, a)
   const limit = useAgentLimit()
   if (!a) {
     // A single empty pane is a project without agents: its "No agents yet" (SessionEmpty) shows, not covered (#227).
     if (single) return null
-    return (
-      <div className="pane-placeholder">
-        <p className="faint">{tr(msg({ id: 'panes.body.empty', defaultMessage: 'Empty pane', description: 'A pane with no agent in it (the layout has more panes than the page has agents).' }))}</p>
-        {project.agents.length < limit && <AddAgentButton project={project} className="subtle small" />}
-      </div>
-    )
+    return <EmptyCell project={project} cell={cell} canAdd={project.agents.length < limit} />
   }
   const setupPending = !!a.worktree && a.needsSetup && !!project.config.worktreeSetup.trim()
   if (a.live) return null
@@ -1689,8 +1760,8 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
   const dragging = useAgentDrag(project)
   const [over, setOver] = useState<string | null>(null)
   useEffect(() => setOver(null), [dragging])
-  // An empty pane moves the dragged agent to the end: nothing to do for the last one (#238).
-  const draggingLast = !!dragging && project.agents.at(-1)?.id === dragging
+  // The page shown's first cell (#762): a pane's cell is this plus its place on the page.
+  const first = single ? 0 : agentPage(project, focused ?? null) * panes.length
   return (
     <>
       {panes.map((id, i) => {
@@ -1706,15 +1777,14 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
             {/* One agent or several: every agent pane has the same header and footer. */}
             {a && <PaneHeader project={project} a={a} focused={!single && focused === a.id} />}
             <div className="agent-pane-body" style={{ top: a ? PANE_HEADER : 0, bottom: a ? PANE_FOOTER : 0 }}>
-              <PaneBody project={project} a={a} hasTerminal={hasTerminal} single={single} />
+              <PaneBody project={project} a={a} hasTerminal={hasTerminal} single={single} cell={first + i} />
             </div>
             {a && <PaneFooter project={project} a={a} />}
             {/*
-              While an agent is dragged (#135): drop it on another agent's pane to swap their places, or on an empty pane
-              (the last page's spare ones) to move it there. Not where it would do nothing: its own pane, or an empty one
-              when it is already last.
+              While an agent is dragged (#135): drop it on another agent's pane to swap their places, or on an empty cell
+              to move it there (#762). Not on its own pane, where it would do nothing.
             */}
-            {dragging && a?.id !== dragging && (a || !draggingLast) && (
+            {dragging && !single && a?.id !== dragging && (
               <div
                 className={cx('pane-drop', over === (a?.id ?? `empty:${i}`) && 'over')}
                 onDragOver={(e) => {
@@ -1725,8 +1795,7 @@ export function PaneChrome({ project, panes }: { project: ProjectInfo; panes: (s
                 onDragLeave={() => setOver((o) => (o === (a?.id ?? `empty:${i}`) ? null : o))}
                 onDrop={(e) => {
                   e.preventDefault()
-                  if (a) swapDrop(project, a.id)
-                  else dropAgent(project, project.agents.length - 1)
+                  placeDrop(project, first + i)
                 }}
               >
                 <span>

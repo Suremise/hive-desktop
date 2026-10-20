@@ -79,6 +79,7 @@ import type {
   AttachmentPlan,
   Attached,
   AttachmentContent,
+  SessionLayout,
   SessionListItem,
   WorkspaceUsage,
   WorkspaceStorage,
@@ -294,7 +295,9 @@ export interface HiveRequests {
   'tasks:setAside': () => SetAsideCard[]
   'tasks:addSetAside': (file: string) => TaskCard
   'tasks:discardSetAside': (file: string) => void
-  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[] }) => TaskCard
+  'tasks:create': (input: { title: string; description?: string; project?: string; agent?: string | null; column?: TaskColumn; labels?: string[]; context?: string[] }) => TaskCard
+  /** A card's context reference (#818): its section's text and heading line, or why it doesn't resolve. projectPath: the card's project's (null: a card about the workspace). */
+  'docs:section': (projectPath: string | null, ref: string) => { ref: string; content: string; line: number } | { ref: string; problem: string; closest?: string[] }
   'tasks:update': (n: number, patch: TaskPatch) => TaskCard
   'tasks:comment': (n: number, text: string) => TaskCard
   /** Changes the words of one of a card's decisions, or removes it (text null): the user's (#357). */
@@ -408,6 +411,8 @@ export interface HiveRequests {
   'agents:move': (projectPath: string, agentId: string, index: number) => string[]
   /** Swaps two agents' places in the project's order (one dropped on another's pane); returns the agents' ids in order. */
   'agents:swap': (projectPath: string, agentId: string, otherId: string) => string[]
+  /** Saves where the panes are in one layout (#762): its cells page after page, an agent's id or null; returns them as saved. */
+  'agents:place': (projectPath: string, layout: SessionLayout, cells: (string | null)[]) => (string | null)[]
   /** Agent templates (#126): the workspace's and the project's. */
   'templates:list': (projectPath: string) => TemplateEntry[]
   /** Saves the project's agents and layout; a name already there is replaced only with `overwrite` (else `exists`). */

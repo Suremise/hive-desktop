@@ -63,6 +63,8 @@
   "actions.mcp.replaceMessage": "工作区中已有名为 {name} 的服务器。",
   "actions.mcp.replaceTitle": "替换 {name}？",
   "actions.mcp.updateFailed": "无法更新服务器",
+  "actions.pane.edge": "{agent} 无法再向{dir, select, left {左} right {右} up {上} other {下}}移动",
+  "actions.pane.moved": "{agent}：{pages, select, one {} other {第 {page} 页，}}第 {row} 行，第 {column} 列{other, select, none {} other {，已与 {other} 交换}}",
   "actions.project.activateFailed": "无法启用项目",
   "actions.project.create": "创建",
   "actions.project.createFailed": "无法创建项目",

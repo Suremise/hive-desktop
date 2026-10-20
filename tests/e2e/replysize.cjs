@@ -153,6 +153,21 @@ const prose = (seed, n) => {
   check('notes: one path a line', /^notes\/note-1\.md \(\d{4}-\d\d-\d\d\)$/m.test(notes), notes)
   const note = measure('hive_read_shared_note', tool('hive_read_shared_note', { path: 'notes/note-1.md' }))
   check('a note reads as its text, with its revision', /^notes\/note-1\.md \(revision [0-9a-f]{12}\)\n\n## Why\n/.test(note), note.slice(0, 80))
+  // Documents by section (#817): a long plan (~70k characters: 8 parts of 5 sections), as a shared note and a project file.
+  const longDoc = `# Long plan\n\n${Array.from({ length: 8 }, (_, p) => `## Part ${p + 1}\n\n${Array.from({ length: 5 }, (__, s) => `### Section ${p + 1}.${s + 1}\n\n${prose(600 + p * 5 + s, 1700).replaceAll('## ', '')}\n`).join('\n')}`).join('\n')}`
+  await api('PUT', `/v1/shared/file?path=${encodeURIComponent('plans/long.md')}`, { content: longDoc })
+  fs.mkdirSync(path.join(alpha, 'docs'), { recursive: true })
+  fs.writeFileSync(path.join(alpha, 'docs', 'LONG.md'), longDoc)
+  const outlined = measure('hive_doc_outline', tool('hive_doc_outline', { path: 'shared:plans/long.md' }), 3000)
+  check('an outline: a line per heading with its slug and size', outlined.includes('\n    ### Section 3.2 [section-32] 1.') && outlined.length < longDoc.length / 20, outlined.slice(0, 300))
+  measure('hive_doc_outline (project file, depth 2)', tool('hive_doc_outline', { path: 'docs/LONG.md', depth: 2 }), 800)
+  const sectionRead = measure('hive_read_section', tool('hive_read_section', { path: 'docs/LONG.md', heading: 'section-32' }), 2200)
+  check('a section: its own text only', sectionRead.startsWith('docs/LONG.md#section-32 (') && !sectionRead.includes('### Section 3.3'), sectionRead.slice(0, 200))
+  const partial = measure('hive_read_section (long: its subsections)', tool('hive_read_section', { path: 'shared:plans/long.md', heading: 'Long plan' }), 1500)
+  check('a section over 30,000 characters: its outline instead', partial.includes('## Part 8 [part-8]') && partial.endsWith('or this whole section with full=true.'), partial.slice(0, 300))
+  const unknown = tool('hive_read_section', { path: 'docs/LONG.md', heading: 'part nine' })
+  measure('hive_read_section (unknown)', unknown)
+  check('an unknown section: an error naming the closest, short', unknown.isError && unknown.text.includes('Closest: ') && unknown.text.length <= 400, unknown.text)
   check('writing a note confirms it', /^Wrote notes\/new\.md \([\d,]+ characters, revision [0-9a-f]{12}\)\.$/.test(measure('hive_write_shared_note', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(300, 2500) }), 200)), texts.hive_write_shared_note)
   const written = texts.hive_write_shared_note.match(/revision ([0-9a-f]{12})/)?.[1]
   measure('hive_write_shared_note (append)', tool('hive_write_shared_note', { path: 'notes/new.md', content: prose(301, 500), append: true }), 200)

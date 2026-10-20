@@ -1,4 +1,5 @@
 {
+  "worktrees.agent.badPlacement": "このレイアウトではペインをそのように配置できません。",
   "worktrees.agent.chooseMove": "エージェントの移動先を選んでください。",
   "worktrees.agent.chooseTree": "ワークツリーを選んでください。",
   "worktrees.agent.detached": "そのワークツリーはブランチ上にありません（detached HEAD）。",

@@ -1,4 +1,5 @@
 {
+  "worktrees.agent.badPlacement": "Die Bereiche lassen sich in diesem Layout nicht so anordnen.",
   "worktrees.agent.chooseMove": "Wähle, wohin der Agent verschoben werden soll.",
   "worktrees.agent.chooseTree": "Wähle einen Worktree.",
   "worktrees.agent.detached": "Dieser Worktree ist auf keinem Branch (detached HEAD).",

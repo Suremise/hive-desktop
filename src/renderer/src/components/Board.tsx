@@ -21,6 +21,8 @@ import { SET_ASIDE_ITEM } from './SetAside'
 import { useNow } from '../usage'
 import { ProviderIcon } from './ProviderIcon'
 import { CardCostLine } from './CardCost'
+import { DocRefViewer, problemLines } from './DocRefViewer'
+import { parseDocRef, splitDocRefs } from '@shared/docRefs'
 
 const NO_TASKS: TaskCard[] = []
 const NO_FOLD: BoardFold = {}
@@ -251,6 +253,7 @@ const FIELD_NAMES: Record<string, Msg> = {
   labels: msg({ id: 'board.field.labels', defaultMessage: 'labels', description: "A card's field, named in a list (\"Your labels replaced the change made meanwhile\"). Lower case." }),
   blocked: msg({ id: 'board.field.blocked', defaultMessage: 'blocked', description: "A card's field, named in a list (\"Your blocked replaced the change made meanwhile\"): why it can't go on. Lower case." }),
   blockedBy: msg({ id: 'board.field.blockedBy', defaultMessage: 'dependencies', description: "A card's field, named in a list (\"Your dependencies replaced the change made meanwhile\"): the cards it depends on (the dialog's Depends on). Lower case." }),
+  context: msg({ id: 'board.field.context', defaultMessage: 'doc sections to read first', description: "A card's field, named in a list (\"Your doc sections to read first replaced the change made meanwhile\"): its Read first references. Lower case." }),
   links: msg({ id: 'board.field.links', defaultMessage: 'links', description: "A card's field, named in a list (\"Your links replaced the change made meanwhile\"): its related cards. Lower case." })
 }
 /** The New card buttons' tooltip. */
@@ -449,6 +452,17 @@ function CardTile({
             <div className="task-blocked">
               <Icon name="circle-slash" />
               <span className="task-note-text">{c.blocked}</span>
+            </div>
+          </Tooltip>
+        )}
+        {/* Read first references that didn't resolve when last checked (#819): named, why on hover. */}
+        {!!c.contextProblems?.length && (
+          <Tooltip block content={problemLines(c.contextProblems).join('\n')}>
+            <div className="task-stalled task-context-broken">
+              <Icon name="warning" />
+              <span className="task-note-text">
+                {tr(msg({ id: 'board.card.contextBroken', defaultMessage: '{n, plural, one {Read first no longer resolves: {refs}} other {# Read first references no longer resolve: {refs}}}', description: "A warning on a card (#819): its Read first references (doc sections) that didn't resolve when last checked: how many ({n}) and which ({refs}: references such as \"docs/PLAN.md#setup\", separated by commas; keep them as they are). The tooltip says why." }), { n: c.contextProblems.length, refs: c.contextProblems.map((p) => p.ref).join(', ') })}
+              </span>
             </div>
           </Tooltip>
         )}
@@ -1410,6 +1424,12 @@ export function TaskDialog() {
   const [blocked, setBlocked] = useState('')
   const [blockedBy, setBlockedBy] = useState('')
   const [links, setLinks] = useState('')
+  // Its doc sections to read first (#818), one reference a line.
+  const [context, setContext] = useState('')
+  // The saved references that didn't resolve when last checked (#819), while they are still in the box.
+  const broken = (card?.contextProblems ?? []).filter((p) => splitDocRefs(context).includes(p.ref))
+  // A reference being read in the section viewer.
+  const [viewRef, setViewRef] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
   const [comment, setComment] = useState('')
   // A decision being written, one being changed (with its words before) and whether one is being saved (#357): the
@@ -1448,6 +1468,7 @@ export function TaskDialog() {
     setBlocked(c?.blocked ?? '')
     setBlockedBy(c?.blockedBy.map((n) => `#${n}`).join(' ') ?? '')
     setLinks(c?.links.map((n) => `#${n}`).join(' ') ?? '')
+    setContext(c?.context?.join('\n') ?? '')
     orig.current = {
       title: c?.title ?? '',
       description: c?.description ?? '',
@@ -1457,7 +1478,8 @@ export function TaskDialog() {
       labels: c?.labels.join(', ') ?? '',
       blocked: c?.blocked ?? '',
       blockedBy: c?.blockedBy.map((n) => `#${n}`).join(' ') ?? '',
-      links: c?.links.map((n) => `#${n}`).join(' ') ?? ''
+      links: c?.links.map((n) => `#${n}`).join(' ') ?? '',
+      context: c?.context?.join('\n') ?? ''
     }
     setOpened((n) => n + 1)
     setPreview(!!c?.description)
@@ -1481,15 +1503,15 @@ export function TaskDialog() {
     .split(',')
     .map((l) => l.trim())
     .filter(Boolean)
-  const fields: Record<string, string> = { title, description, project, agent, column, labels, blocked, blockedBy, links }
+  const fields: Record<string, string> = { title, description, project, agent, column, labels, blocked, blockedBy, links, context }
   // Edits not saved yet: the fields as they opened, or a comment being written.
   const edited = Object.keys(fields).filter((k) => fields[k] !== (orig.current[k] ?? ''))
   const decisionChanged = !!decisionEdit && decisionEdit.text.trim() !== decisionEdit.was
   const unsaved = edited.length > 0 || !!comment.trim() || !!decision.trim() || decisionChanged
 
-  /** Closing (Escape, ×, outside, Cancel): asks first when something would be lost. */
-  const tryClose = async (): Promise<void> => {
-    if (action.busy || decisionBusy) return
+  /** Closing (Escape, ×, outside, Cancel, or going to a Read first reference): asks first when something would be lost; says whether it closed. */
+  const tryClose = async (): Promise<boolean> => {
+    if (action.busy || decisionBusy) return false
     if (unsaved) {
       const what = [
         edited.length ? (isNew ? tr(msg({ id: 'board.discard.newCard', defaultMessage: 'this new card', description: 'What closing the card dialog would lose, in "Closing loses {what}.": a card not added yet. Lower case.' })) : tr(msg({ id: 'board.discard.changes', defaultMessage: 'your changes to the card', description: 'What closing the card dialog would lose, in "Closing loses {what}.": changed fields. Lower case.' }))) : '',
@@ -1505,9 +1527,10 @@ export function TaskDialog() {
           { label: tr(msg({ id: 'board.discard.keep', defaultMessage: 'Keep Editing', description: 'Button: goes back to the card dialog, nothing lost.' })), value: 'keep' }
         ]
       })
-      if (choice !== 'discard') return
+      if (choice !== 'discard') return false
     }
     close()
+    return true
   }
 
   /**
@@ -1517,7 +1540,7 @@ export function TaskDialog() {
   const persist = async (hold = false): Promise<void> => {
     if (!title.trim()) throw new Error(tr(NEEDS_TITLE))
     if (isNew) {
-      const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList })
+      const c = await call('tasks:create', { title, description, project, agent: agent || null, column, labels: labelList, ...(splitDocRefs(context).length ? { context: splitDocRefs(context) } : {}) })
       const extra: TaskPatch = {}
       if (blocked.trim()) extra.blocked = blocked
       if (refs(blockedBy).length) extra.blockedBy = refs(blockedBy)
@@ -1535,6 +1558,7 @@ export function TaskDialog() {
       if (blocked !== was.blocked) patch.blocked = blocked.trim() || null
       if (blockedBy !== was.blockedBy) patch.blockedBy = refs(blockedBy)
       if (links !== was.links) patch.links = refs(links)
+      if (context !== was.context) patch.context = splitDocRefs(context)
       // Someone else changed a field the user also changed: the user's choice wins, but they are told.
       const now: Record<string, string> = {
         title: card.title,
@@ -1545,7 +1569,8 @@ export function TaskDialog() {
         labels: card.labels.join(', '),
         blocked: card.blocked ?? '',
         blockedBy: card.blockedBy.map((n) => `#${n}`).join(' '),
-        links: card.links.map((n) => `#${n}`).join(' ')
+        links: card.links.map((n) => `#${n}`).join(' '),
+        context: card.context?.join('\n') ?? ''
       }
       const clashed = Object.keys(patch).filter((k) => now[k] !== was[k])
       // A card that changes project leaves its agent; one of the new project's agents is given it afterwards.
@@ -1654,178 +1679,213 @@ export function TaskDialog() {
   }
 
   return (
-    <Modal
-      title={isNew ? tr(NEW_CARD) : `#${card!.number}`}
-      icon="checklist"
-      wide
-      onClose={() => void tryClose()}
-      busy={!!action.busy || decisionBusy}
-      error={action.error}
-      footer={
-        <>
-          {card && (
-            <>
-              <button className="btn subtle danger-text" onClick={() => void remove(card).then((ok) => ok && close())}>
-                <Icon name="trash" /> {tr(msg({ id: 'board.dialog.delete', defaultMessage: 'Delete', description: "Button in the card dialog: deletes the card (after asking)." }))}
-              </button>
-              <BusyButton
-                className="subtle"
-                busy={action.busy === 'archive'}
-                busyLabel={card.archived ? tr(msg({ id: 'board.dialog.bringingBack', defaultMessage: 'Bringing back…', description: 'The Bring Back button while the archived card is being brought back.' })) : tr(ARCHIVING)}
-                onClick={() =>
-                  void action
-                    .run('archive', async () => {
-                      await call('tasks:archive', card.number, !card.archived)
-                      await loadTasks()
-                    })
-                    .then((r) => r && close())
-                }
-              >
-                <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? tr(BRING_BACK) : tr(ARCHIVE)}
-              </BusyButton>
-              {!card.archived && (
-                <Tooltip content={!card.project ? tr(NEEDS_PROJECT) : edited.length ? tr(msg({ id: 'board.dialog.startTipSave', defaultMessage: 'Save your changes, then give it to an agent with the card as its prompt.', description: "Tooltip on the card dialog's Save and Start… button." })) : tr(msg({ id: 'board.dialog.startTip', defaultMessage: 'Give it to an agent, with the card as its prompt.', description: "Tooltip on the card dialog's Start… button." }))}>
-                  <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel={tr(SAVING)} disabled={!card.project || !title.trim()} onClick={() => void start()}>
-                    <Icon name="play" /> {edited.length ? tr(msg({ id: 'board.dialog.saveAndStart', defaultMessage: 'Save and Start…', description: 'Button in the card dialog with unsaved changes: saves them, then asks which agent starts the card.' })) : tr(msg({ id: 'board.dialog.start', defaultMessage: 'Start…', description: 'Button in the card dialog: asks which agent starts the card.' }))}
-                  </BusyButton>
-                </Tooltip>
-              )}
-            </>
-          )}
-          <div className="grow" />
-          <button className="btn subtle" onClick={() => void tryClose()}>
-            {tr(CANCEL)}
-          </button>
-          <BusyButton className="primary" busy={action.busy === 'save'} busyLabel={isNew ? tr(ADDING) : tr(SAVING)} disabled={!title.trim() || card?.archived} onClick={() => void save()}>
-            {isNew ? tr(msg({ id: 'board.dialog.addCard', defaultMessage: 'Add Card', description: 'The New Card dialog\'s main button: adds the card.' })) : tr(SAVE)}
-          </BusyButton>
-        </>
-      }
-    >
-      {card?.archived && (
-        <div className="banner info">
-          <Icon name="archive" />{' '}
-          {tr(msg({ id: 'board.dialog.archivedBanner', defaultMessage: '{cause, select, hidden {Archived when {project} was hidden.} removed {Archived when {project} was removed from Hive.} done {Archived automatically after its days in Done (Settings → Board).} other {Archived.}} Bring it back to change it.', description: "A banner in an archived card's dialog: why it was archived (its project {project} hidden or removed, or after its days in the Done column: Settings → Board is where that is set), and that it must be brought back to be changed." }), { cause: card.archivedFor === 'project-hidden' ? 'hidden' : card.archivedFor === 'project-removed' ? 'removed' : card.archivedFor === 'done' ? 'done' : 'user', project: card.project })}
-        </div>
-      )}
-      <input ref={titleRef} className="input task-title-input" placeholder={tr(msg({ id: 'board.dialog.titlePlaceholder', defaultMessage: 'Title', description: "Placeholder of the card dialog's title box." }))} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-      <div className="agent-form task-form">
-        <label>{tr(msg({ id: 'board.dialog.project', defaultMessage: 'Project', description: "A field label in the card dialog: the card's project." }))}</label>
-        <select
-          className="select"
-          value={project}
-          onChange={(e) => {
-            setProject(e.target.value)
-            setAgent('')
-          }}
-        >
-          <option value="">{tr(msg({ id: 'board.dialog.noProject', defaultMessage: 'None (about the workspace)', description: "The card dialog's project choice for a card of no project: it is about the whole workspace." }))}</option>
-          {projects.map((p) => (
-            <option key={p.path} value={p.name}>
-              {p.name}
-            </option>
-          ))}
-          {project && !proj && <option value={project}>{tr(msg({ id: 'board.dialog.projectGone', defaultMessage: '{project} (not in the workspace)', description: "The card dialog's project choice when the card's project ({project}) is no longer in the workspace." }), { project })}</option>}
-        </select>
-        <label>{tr(msg({ id: 'board.dialog.agent', defaultMessage: 'Agent', description: "A field label in the card dialog: the agent the card is given to." }))}</label>
-        <select className="select" value={agent} disabled={!proj} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">{tr(NOBODY_YET)}</option>
-          {proj?.agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.live ? tr(msg({ id: 'board.dialog.agentStatus', defaultMessage: '{agent} ({status})', description: "An agent in the card dialog's agent choice, with what it is doing ({status}: \"Working…\")." }), { agent: a.name, status: statusText(a.live) }) : a.name}
-            </option>
-          ))}
-          {agent && proj && !proj.agents.some((a) => a.id === agent) && <option value={agent}>{tr(REMOVED_AGENT, { agent: card?.agentName ?? agent })}</option>}
-        </select>
-        <label>{tr(msg({ id: 'board.dialog.column', defaultMessage: 'Column', description: 'A field label in the card dialog: the board column the card is in.' }))}</label>
-        <select className="select" value={column} onChange={(e) => setColumn(e.target.value as TaskColumn)}>
-          {TASK_COLUMNS.map((c) => (
-            <option key={c.id} value={c.id}>
-              {tr(COLUMN_TEXT[c.id].label)}
-            </option>
-          ))}
-        </select>
-        <label>{tr(msg({ id: 'board.dialog.labels', defaultMessage: 'Labels', description: "A field label in the card dialog: the card's labels." }))}</label>
-        <input className="input" placeholder={tr(msg({ id: 'board.dialog.labelsPlaceholder', defaultMessage: 'Comma separated, e.g. bug, ui', description: "Placeholder of the card dialog's labels box: labels separated by commas (bug and ui are examples)." }))} value={labels} onChange={(e) => setLabels(e.target.value)} />
-        <label>{tr(BLOCKED_FIELD)}</label>
-        {/* One line of text, wrapped to show all of a long reason (#372): Enter adds no line break. */}
-        <textarea
-          className="input task-blocked-input"
-          rows={1}
-          aria-label={tr(BLOCKED_FIELD)}
-          placeholder={tr(msg({ id: 'board.dialog.blockedPlaceholder', defaultMessage: "Why it can't go on (empty: not blocked)", description: "Placeholder of the card dialog's Blocked box: why the card can't go on; empty means it isn't blocked." }))}
-          value={blocked}
-          onChange={(e) => setBlocked(e.target.value.replace(/\s*[\r\n]+\s*/g, ' '))}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) e.preventDefault()
-          }}
-        />
-        <label>{tr(msg({ id: 'board.dialog.dependsOn', defaultMessage: 'Depends on', description: 'A field label in the card dialog: the cards to finish before this one.' }))}</label>
-        <input className="input" placeholder={tr(msg({ id: 'board.dialog.dependsOnPlaceholder', defaultMessage: 'Cards to finish first, e.g. #3 #5', description: "Placeholder of the card dialog's Depends on box: card numbers (#3 #5 are examples)." }))} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} />
-        <label>{tr(msg({ id: 'board.dialog.related', defaultMessage: 'Related', description: 'A field label in the card dialog: related cards.' }))}</label>
-        <input className="input" placeholder={tr(msg({ id: 'board.dialog.relatedPlaceholder', defaultMessage: 'Related cards, e.g. #7', description: "Placeholder of the card dialog's Related box: card numbers (#7 is an example)." }))} value={links} onChange={(e) => setLinks(e.target.value)} />
-      </div>
-      <div className="task-section-h">
-        {tr(msg({ id: 'board.dialog.description', defaultMessage: 'Description', description: "A heading in the card dialog: the card's description." }))}
-        <span className="grow" />
-        <button className={cx('btn small subtle', !preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(false)}>
-          {tr(msg({ id: 'board.dialog.write', defaultMessage: 'Write', description: "A tab button in the card dialog: edit the description's Markdown." }))}
-        </button>
-        <button className={cx('btn small subtle', preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(true)}>
-          {tr(msg({ id: 'board.dialog.preview', defaultMessage: 'Preview', description: 'A tab button in the card dialog: show the description as it reads (Markdown rendered).' }))}
-        </button>
-      </div>
-      {preview ? (
-        <div className="task-description" onDoubleClick={() => setPreview(false)}>
-          {description.trim() ? <Markdown source={description} /> : <span className="faint">{tr(msg({ id: 'board.dialog.noDescription', defaultMessage: 'No description. Double-click to write one.', description: "The card dialog's description preview when there is none." }))}</span>}
-        </div>
-      ) : (
-        <textarea className="input task-description-input" placeholder={tr(msg({ id: 'board.dialog.descriptionPlaceholder', defaultMessage: "What to do, and how to tell it's done (Markdown). Whoever starts the card reads only this.", description: "Placeholder of the card dialog's description box." }))} value={description} onChange={(e) => setDescription(e.target.value)} />
-      )}
-      {card && (
-        <>
-          <Decisions card={card} draft={decision} setDraft={setDecision} editing={decisionEdit} setEditing={setDecisionEdit} setBusy={setDecisionBusy} />
-          <div className="task-section-h">{tr(msg({ id: 'board.dialog.comments', defaultMessage: 'Comments ({n})', description: "A heading in the card dialog: the card's comments, and how many ({n})." }), { n: card.comments.length })}</div>
-          {card.comments.map((c, i) => (
-            <div key={i} className="task-comment">
-              <div className="task-comment-by">
-                <strong>{byText(c.by)}</strong> <span className="faint">{timeAgo(c.at)}</span>
-              </div>
-              <Markdown source={storedLine(c.text, c.hiveText)} />
-            </div>
-          ))}
-          {!card.archived && (
-            <div className="task-comment-new">
-              <textarea className="input" aria-label={tr(msg({ id: 'board.dialog.newComment', defaultMessage: 'New comment', description: 'Accessible name of the box where a comment is written (card dialog).' }))} placeholder={tr(msg({ id: 'board.dialog.commentPlaceholder', defaultMessage: 'Add a comment', description: "Placeholder of the card dialog's comment box." }))} value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
-              <div className="task-new-actions">
-                {comment.trim() && <span className="faint">{tr(msg({ id: 'board.dialog.savePostsIt', defaultMessage: 'Save posts it too', description: "Beside the Comment button once something is written: the card dialog's Save button posts the comment as well." }))}</span>}
-                <BusyButton className={cx('small', comment.trim() && 'primary')} busy={action.busy === 'comment'} busyLabel={tr(msg({ id: 'board.dialog.posting', defaultMessage: 'Posting…', description: 'The Comment button while the comment is being posted.' }))} disabled={!comment.trim()} onClick={() => void addComment()}>
-                  <Icon name="comment" /> {tr(msg({ id: 'board.dialog.comment', defaultMessage: 'Comment', description: 'Button in the card dialog: posts the comment written above.' }))}
+    <>
+      <Modal
+        title={isNew ? tr(NEW_CARD) : `#${card!.number}`}
+        icon="checklist"
+        wide
+        onClose={() => void tryClose()}
+        busy={!!action.busy || decisionBusy}
+        error={action.error}
+        footer={
+          <>
+            {card && (
+              <>
+                <button className="btn subtle danger-text" onClick={() => void remove(card).then((ok) => ok && close())}>
+                  <Icon name="trash" /> {tr(msg({ id: 'board.dialog.delete', defaultMessage: 'Delete', description: "Button in the card dialog: deletes the card (after asking)." }))}
+                </button>
+                <BusyButton
+                  className="subtle"
+                  busy={action.busy === 'archive'}
+                  busyLabel={card.archived ? tr(msg({ id: 'board.dialog.bringingBack', defaultMessage: 'Bringing back…', description: 'The Bring Back button while the archived card is being brought back.' })) : tr(ARCHIVING)}
+                  onClick={() =>
+                    void action
+                      .run('archive', async () => {
+                        await call('tasks:archive', card.number, !card.archived)
+                        await loadTasks()
+                      })
+                      .then((r) => r && close())
+                  }
+                >
+                  <Icon name={card.archived ? 'discard' : 'archive'} /> {card.archived ? tr(BRING_BACK) : tr(ARCHIVE)}
                 </BusyButton>
+                {!card.archived && (
+                  <Tooltip content={!card.project ? tr(NEEDS_PROJECT) : edited.length ? tr(msg({ id: 'board.dialog.startTipSave', defaultMessage: 'Save your changes, then give it to an agent with the card as its prompt.', description: "Tooltip on the card dialog's Save and Start… button." })) : tr(msg({ id: 'board.dialog.startTip', defaultMessage: 'Give it to an agent, with the card as its prompt.', description: "Tooltip on the card dialog's Start… button." }))}>
+                    <BusyButton className="subtle" busy={action.busy === 'start'} busyLabel={tr(SAVING)} disabled={!card.project || !title.trim()} onClick={() => void start()}>
+                      <Icon name="play" /> {edited.length ? tr(msg({ id: 'board.dialog.saveAndStart', defaultMessage: 'Save and Start…', description: 'Button in the card dialog with unsaved changes: saves them, then asks which agent starts the card.' })) : tr(msg({ id: 'board.dialog.start', defaultMessage: 'Start…', description: 'Button in the card dialog: asks which agent starts the card.' }))}
+                    </BusyButton>
+                  </Tooltip>
+                )}
+              </>
+            )}
+            <div className="grow" />
+            <button className="btn subtle" onClick={() => void tryClose()}>
+              {tr(CANCEL)}
+            </button>
+            <BusyButton className="primary" busy={action.busy === 'save'} busyLabel={isNew ? tr(ADDING) : tr(SAVING)} disabled={!title.trim() || card?.archived} onClick={() => void save()}>
+              {isNew ? tr(msg({ id: 'board.dialog.addCard', defaultMessage: 'Add Card', description: 'The New Card dialog\'s main button: adds the card.' })) : tr(SAVE)}
+            </BusyButton>
+          </>
+        }
+      >
+        {card?.archived && (
+          <div className="banner info">
+            <Icon name="archive" />{' '}
+            {tr(msg({ id: 'board.dialog.archivedBanner', defaultMessage: '{cause, select, hidden {Archived when {project} was hidden.} removed {Archived when {project} was removed from Hive.} done {Archived automatically after its days in Done (Settings → Board).} other {Archived.}} Bring it back to change it.', description: "A banner in an archived card's dialog: why it was archived (its project {project} hidden or removed, or after its days in the Done column: Settings → Board is where that is set), and that it must be brought back to be changed." }), { cause: card.archivedFor === 'project-hidden' ? 'hidden' : card.archivedFor === 'project-removed' ? 'removed' : card.archivedFor === 'done' ? 'done' : 'user', project: card.project })}
+          </div>
+        )}
+        <input ref={titleRef} className="input task-title-input" placeholder={tr(msg({ id: 'board.dialog.titlePlaceholder', defaultMessage: 'Title', description: "Placeholder of the card dialog's title box." }))} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
+        <div className="agent-form task-form">
+          <label>{tr(msg({ id: 'board.dialog.project', defaultMessage: 'Project', description: "A field label in the card dialog: the card's project." }))}</label>
+          <select
+            className="select"
+            value={project}
+            onChange={(e) => {
+              setProject(e.target.value)
+              setAgent('')
+            }}
+          >
+            <option value="">{tr(msg({ id: 'board.dialog.noProject', defaultMessage: 'None (about the workspace)', description: "The card dialog's project choice for a card of no project: it is about the whole workspace." }))}</option>
+            {projects.map((p) => (
+              <option key={p.path} value={p.name}>
+                {p.name}
+              </option>
+            ))}
+            {project && !proj && <option value={project}>{tr(msg({ id: 'board.dialog.projectGone', defaultMessage: '{project} (not in the workspace)', description: "The card dialog's project choice when the card's project ({project}) is no longer in the workspace." }), { project })}</option>}
+          </select>
+          <label>{tr(msg({ id: 'board.dialog.agent', defaultMessage: 'Agent', description: "A field label in the card dialog: the agent the card is given to." }))}</label>
+          <select className="select" value={agent} disabled={!proj} onChange={(e) => setAgent(e.target.value)}>
+            <option value="">{tr(NOBODY_YET)}</option>
+            {proj?.agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.live ? tr(msg({ id: 'board.dialog.agentStatus', defaultMessage: '{agent} ({status})', description: "An agent in the card dialog's agent choice, with what it is doing ({status}: \"Working…\")." }), { agent: a.name, status: statusText(a.live) }) : a.name}
+              </option>
+            ))}
+            {agent && proj && !proj.agents.some((a) => a.id === agent) && <option value={agent}>{tr(REMOVED_AGENT, { agent: card?.agentName ?? agent })}</option>}
+          </select>
+          <label>{tr(msg({ id: 'board.dialog.column', defaultMessage: 'Column', description: 'A field label in the card dialog: the board column the card is in.' }))}</label>
+          <select className="select" value={column} onChange={(e) => setColumn(e.target.value as TaskColumn)}>
+            {TASK_COLUMNS.map((c) => (
+              <option key={c.id} value={c.id}>
+                {tr(COLUMN_TEXT[c.id].label)}
+              </option>
+            ))}
+          </select>
+          <label>{tr(msg({ id: 'board.dialog.labels', defaultMessage: 'Labels', description: "A field label in the card dialog: the card's labels." }))}</label>
+          <input className="input" placeholder={tr(msg({ id: 'board.dialog.labelsPlaceholder', defaultMessage: 'Comma separated, e.g. bug, ui', description: "Placeholder of the card dialog's labels box: labels separated by commas (bug and ui are examples)." }))} value={labels} onChange={(e) => setLabels(e.target.value)} />
+          <label>{tr(BLOCKED_FIELD)}</label>
+          {/* One line of text, wrapped to show all of a long reason (#372): Enter adds no line break. */}
+          <textarea
+            className="input task-blocked-input"
+            rows={1}
+            aria-label={tr(BLOCKED_FIELD)}
+            placeholder={tr(msg({ id: 'board.dialog.blockedPlaceholder', defaultMessage: "Why it can't go on (empty: not blocked)", description: "Placeholder of the card dialog's Blocked box: why the card can't go on; empty means it isn't blocked." }))}
+            value={blocked}
+            onChange={(e) => setBlocked(e.target.value.replace(/\s*[\r\n]+\s*/g, ' '))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) e.preventDefault()
+            }}
+          />
+          <label>{tr(msg({ id: 'board.dialog.dependsOn', defaultMessage: 'Depends on', description: 'A field label in the card dialog: the cards to finish before this one.' }))}</label>
+          <input className="input" placeholder={tr(msg({ id: 'board.dialog.dependsOnPlaceholder', defaultMessage: 'Cards to finish first, e.g. #3 #5', description: "Placeholder of the card dialog's Depends on box: card numbers (#3 #5 are examples)." }))} value={blockedBy} onChange={(e) => setBlockedBy(e.target.value)} />
+          <label>{tr(msg({ id: 'board.dialog.related', defaultMessage: 'Related', description: 'A field label in the card dialog: related cards.' }))}</label>
+          <input className="input" placeholder={tr(msg({ id: 'board.dialog.relatedPlaceholder', defaultMessage: 'Related cards, e.g. #7', description: "Placeholder of the card dialog's Related box: card numbers (#7 is an example)." }))} value={links} onChange={(e) => setLinks(e.target.value)} />
+          <label>{tr(msg({ id: 'board.dialog.context', defaultMessage: 'Read first', description: "A field label in the card dialog (#818): doc sections the card's agent reads before starting, given in its start prompt." }))}</label>
+          <div className="task-context">
+            <textarea
+              className="input"
+              rows={Math.min(4, Math.max(1, splitDocRefs(context).length))}
+              placeholder={tr(msg({ id: 'board.dialog.contextPlaceholder', defaultMessage: 'Doc sections, one a line: docs/PLAN.md#setup, shared:plans/notes.md#open-questions', description: "Placeholder of the card dialog's Read first box (#818): references to doc sections, one a line (keep the examples as they are)." }))}
+              value={context}
+              onChange={(e) => setContext(e.target.value)}
+            />
+            {/* Each reference opens its section in Hive's viewer (#818). */}
+            {splitDocRefs(context).some((r) => parseDocRef(r)) && (
+              <div className="task-context-links">
+                {splitDocRefs(context)
+                  .filter((r) => parseDocRef(r))
+                  .map((r) => (
+                    <button key={r} className={cx('link-button', broken.some((p) => p.ref === r) && 'broken')} onClick={() => setViewRef(r)}>
+                      {r}
+                    </button>
+                  ))}
               </div>
-            </div>
-          )}
-          <div className="task-section-h clickable" onClick={() => setShowHistory(!showHistory)}>
-            <Icon name={showHistory ? 'chevron-down' : 'chevron-right'} /> {tr(msg({ id: 'board.dialog.history', defaultMessage: 'History ({n})', description: "A heading in the card dialog (click to show or hide): the card's history of changes, and how many entries ({n})." }), { n: card.history.length })}
+            )}
+            {/* What didn't resolve when it was last checked (saved, or the card started, #819): why, and the closest headings. */}
+            {broken.length > 0 && (
+              <div className="task-context-problems" role="status">
+                {problemLines(broken).map((line) => (
+                  <div key={line}>
+                    <Icon name="warning" /> {line}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {showHistory && (
-            <div className="task-history">
-              {[...card.history].reverse().map((h, i) => (
-                <div key={i}>
-                  <span className="faint">{formatDateTime(h.at)}</span> <strong>{byText(h.by)}</strong> {storedLine(h.what, h.whatText)}
+        </div>
+        <div className="task-section-h">
+          {tr(msg({ id: 'board.dialog.description', defaultMessage: 'Description', description: "A heading in the card dialog: the card's description." }))}
+          <span className="grow" />
+          <button className={cx('btn small subtle', !preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(false)}>
+            {tr(msg({ id: 'board.dialog.write', defaultMessage: 'Write', description: "A tab button in the card dialog: edit the description's Markdown." }))}
+          </button>
+          <button className={cx('btn small subtle', preview && 'active') /* i18n-ignore: class names, not text */} onClick={() => setPreview(true)}>
+            {tr(msg({ id: 'board.dialog.preview', defaultMessage: 'Preview', description: 'A tab button in the card dialog: show the description as it reads (Markdown rendered).' }))}
+          </button>
+        </div>
+        {preview ? (
+          <div className="task-description" onDoubleClick={() => setPreview(false)}>
+            {description.trim() ? <Markdown source={description} /> : <span className="faint">{tr(msg({ id: 'board.dialog.noDescription', defaultMessage: 'No description. Double-click to write one.', description: "The card dialog's description preview when there is none." }))}</span>}
+          </div>
+        ) : (
+          <textarea className="input task-description-input" placeholder={tr(msg({ id: 'board.dialog.descriptionPlaceholder', defaultMessage: "What to do, and how to tell it's done (Markdown). Whoever starts the card reads only this.", description: "Placeholder of the card dialog's description box." }))} value={description} onChange={(e) => setDescription(e.target.value)} />
+        )}
+        {card && (
+          <>
+            <Decisions card={card} draft={decision} setDraft={setDecision} editing={decisionEdit} setEditing={setDecisionEdit} setBusy={setDecisionBusy} />
+            <div className="task-section-h">{tr(msg({ id: 'board.dialog.comments', defaultMessage: 'Comments ({n})', description: "A heading in the card dialog: the card's comments, and how many ({n})." }), { n: card.comments.length })}</div>
+            {card.comments.map((c, i) => (
+              <div key={i} className="task-comment">
+                <div className="task-comment-by">
+                  <strong>{byText(c.by)}</strong> <span className="faint">{timeAgo(c.at)}</span>
                 </div>
-              ))}
+                <Markdown source={storedLine(c.text, c.hiveText)} />
+              </div>
+            ))}
+            {!card.archived && (
+              <div className="task-comment-new">
+                <textarea className="input" aria-label={tr(msg({ id: 'board.dialog.newComment', defaultMessage: 'New comment', description: 'Accessible name of the box where a comment is written (card dialog).' }))} placeholder={tr(msg({ id: 'board.dialog.commentPlaceholder', defaultMessage: 'Add a comment', description: "Placeholder of the card dialog's comment box." }))} value={comment} onChange={(e) => setComment(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && void addComment()} />
+                <div className="task-new-actions">
+                  {comment.trim() && <span className="faint">{tr(msg({ id: 'board.dialog.savePostsIt', defaultMessage: 'Save posts it too', description: "Beside the Comment button once something is written: the card dialog's Save button posts the comment as well." }))}</span>}
+                  <BusyButton className={cx('small', comment.trim() && 'primary')} busy={action.busy === 'comment'} busyLabel={tr(msg({ id: 'board.dialog.posting', defaultMessage: 'Posting…', description: 'The Comment button while the comment is being posted.' }))} disabled={!comment.trim()} onClick={() => void addComment()}>
+                    <Icon name="comment" /> {tr(msg({ id: 'board.dialog.comment', defaultMessage: 'Comment', description: 'Button in the card dialog: posts the comment written above.' }))}
+                  </BusyButton>
+                </div>
+              </div>
+            )}
+            <div className="task-section-h clickable" onClick={() => setShowHistory(!showHistory)}>
+              <Icon name={showHistory ? 'chevron-down' : 'chevron-right'} /> {tr(msg({ id: 'board.dialog.history', defaultMessage: 'History ({n})', description: "A heading in the card dialog (click to show or hide): the card's history of changes, and how many entries ({n})." }), { n: card.history.length })}
             </div>
-          )}
-          <CardCostLine card={card} />
-          <div className="faint task-created">
-            {card.createdBy
-              ? tr(msg({ id: 'board.dialog.added', defaultMessage: '{who, select, you {Added by you} assistant {Added by the Assistant} repair {Added by Repair} other {Added by {by}}} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({who}: you, the user; assistant, the Hive Assistant; repair, Hive's Repair, which gives cards back to a moved project; other: an agent, {by} its name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { who: addedBy(card.createdBy), by: card.createdBy, added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
-              : tr(msg({ id: 'board.dialog.addedUnknown', defaultMessage: 'Added by unknown {added} · changed {changed}', description: "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})." }), { added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })}
-          </div>
-        </>
-      )}
-    </Modal>
+            {showHistory && (
+              <div className="task-history">
+                {[...card.history].reverse().map((h, i) => (
+                  <div key={i}>
+                    <span className="faint">{formatDateTime(h.at)}</span> <strong>{byText(h.by)}</strong> {storedLine(h.what, h.whatText)}
+                  </div>
+                ))}
+              </div>
+            )}
+            <CardCostLine card={card} />
+            <div className="faint task-created">
+              {card.createdBy
+                ? tr(msg({ id: 'board.dialog.added', defaultMessage: '{who, select, you {Added by you} assistant {Added by the Assistant} repair {Added by Repair} other {Added by {by}}} {added} · changed {changed}', description: "At the foot of the card dialog: who added the card ({who}: you, the user; assistant, the Hive Assistant; repair, Hive's Repair, which gives cards back to a moved project; other: an agent, {by} its name), when ({added}: \"3 days ago\"), and when it last changed ({changed})." }), { who: addedBy(card.createdBy), by: card.createdBy, added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })
+                : tr(msg({ id: 'board.dialog.addedUnknown', defaultMessage: 'Added by unknown {added} · changed {changed}', description: "At the foot of the card dialog when who added the card isn't known: when it was added ({added}: \"3 days ago\") and last changed ({changed})." }), { added: timeAgo(card.createdAt), changed: timeAgo(card.updatedAt) })}
+            </div>
+          </>
+        )}
+      </Modal>
+      {viewRef && <DocRefViewer projectPath={projects.find((p) => p.name === project)?.path ?? null} docRef={viewRef} onClose={() => setViewRef(null)} onOpen={(go) => void tryClose().then((closed) => closed && go())} />}
+    </>
   )
 }
 

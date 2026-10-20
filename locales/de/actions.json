@@ -63,6 +63,8 @@
   "actions.mcp.replaceMessage": "Der Arbeitsbereich hat bereits einen Server namens {name}.",
   "actions.mcp.replaceTitle": "{name} ersetzen?",
   "actions.mcp.updateFailed": "Server konnte nicht aktualisiert werden",
+  "actions.pane.edge": "{agent} kann nicht weiter {dir, select, left {nach links} right {nach rechts} up {nach oben} other {nach unten}}",
+  "actions.pane.moved": "{agent}: {pages, select, one {} other {Seite {page}, }}Zeile {row}, Spalte {column}{other, select, none {} other {, getauscht mit {other}}}",
   "actions.project.activateFailed": "Projekt konnte nicht aktiviert werden",
   "actions.project.create": "Erstellen",
   "actions.project.createFailed": "Projekt konnte nicht erstellt werden",

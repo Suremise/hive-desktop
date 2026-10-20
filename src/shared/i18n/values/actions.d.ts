@@ -65,6 +65,8 @@ interface HiveMessageValues {
   'actions.mcp.replaceMessage': { name: string | number }
   'actions.mcp.replaceTitle': { name: string | number }
   'actions.mcp.updateFailed': undefined
+  'actions.pane.edge': { agent: string | number; dir: string }
+  'actions.pane.moved': { agent: string | number; pages: string; page: string | number; row: string | number; column: string | number; other: string }
   'actions.project.activateFailed': undefined
   'actions.project.create': undefined
   'actions.project.createFailed': undefined

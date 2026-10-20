@@ -6,7 +6,8 @@ import type { StartFailure } from '@shared/startFailure'
 import type { AdvancedState } from '@shared/advanced'
 import type { AgentLeftovers } from '@shared/agentProcesses'
 import { EMPTY_TIPS_STATE, type TipsState } from '@shared/tips'
-import { agentPtyKey, agentsPerPage, layoutFitting, layoutPanes, mostUrgent, pageAgents, pageOfAgent, projectLayout, projectSessionView } from '@shared/defaults'
+import { agentPtyKey, agentsPerPage, layoutFitting, layoutPanes, mostUrgent, projectLayout, projectSessionView } from '@shared/defaults'
+import { cellPage, cellPageCount, pageCells, pageIds, placedCells, type PaneCells } from '@shared/paneCells'
 import { projectAgentStates, type AgentState } from '@shared/agentState'
 import { tileOrder, tilePageOf, tilePageShown, tilesOnPage } from '@shared/tiles'
 import { agentProvider, providersInUse, providerWarnings, setInstalledCheck } from '@shared/providers'
@@ -340,6 +341,8 @@ interface State {
   focusedAgent: Record<string, string>
   /** An agent being dragged (its strip tab or pane header) to move it in its project's order. */
   agentDrag: { project: string; id: string } | null
+  /** Said to screen readers when a pane moves from the keyboard (#762); `n` counts them, so the same words are said again. */
+  paneSaid: { text: string; n: number } | null
   /** Actions without a dialog that are running (runOnce): their buttons show a spinner and ignore clicks. */
   running: Record<string, true>
   /** Per project and agent page ("<path>#<page>"): the agent last focused there, focused again on going back. */
@@ -506,6 +509,7 @@ export const useStore = create<State>(() => ({
   projectSettingsJump: null,
   focusedAgent: {},
   agentDrag: null,
+  paneSaid: null,
   running: {},
   pageFocus: {},
   tileFocus: {},
@@ -652,8 +656,8 @@ export function projectState(p: ProjectInfo | null | undefined) {
 export function focusAgent(path: string, agentId: string): void {
   set((s) => {
     const p = findProject(s, path)
-    const i = p?.agents.findIndex((a) => a.id === agentId) ?? -1
-    return { focusedAgent: { ...s.focusedAgent, [path]: agentId }, ...(p && i >= 0 ? { pageFocus: { ...s.pageFocus, [`${path}#${pageOfAgent(i, shownPerPage(p, s))}`]: agentId } } : {}) }
+    const on = p?.agents.some((a) => a.id === agentId)
+    return { focusedAgent: { ...s.focusedAgent, [path]: agentId }, ...(p && on ? { pageFocus: { ...s.pageFocus, [`${path}#${cellPage(paneCells(p, s), agentId, shownPerPage(p, s))}`]: agentId } } : {}) }
   })
 }
 
@@ -668,21 +672,31 @@ export function shownLayout(p: Pick<ProjectInfo, 'config'>, s: Pick<State, 'pane
 /** How many agents a page of a project's panes holds, in the layout shown (#134, #1037). */
 export const shownPerPage = (p: Pick<ProjectInfo, 'config'>, s: Pick<State, 'paneColumns'> = get()): number => agentsPerPage(shownLayout(p, s))
 
-/** The agent page a project shows: the focused agent's (a page holds as many agents as the layout has panes, #134). */
+/**
+ * The cells of a project's panes in the layout shown (#762): where the user put each agent in that layout, else the
+ * agents in order. Its pages hold as many cells as the layout has panes (#134).
+ */
+export function paneCells(p: Pick<ProjectInfo, 'config' | 'agents'>, s: Pick<State, 'paneColumns'> = get()): PaneCells {
+  const layout = shownLayout(p, s)
+  return placedCells(p.agents.map((a) => a.id), layout === 'single' ? undefined : p.config.placement?.[layout], agentsPerPage(layout))
+}
+
+/** How many agent pages a project's panes take, in the layout shown. */
+export const panePageCount = (p: Pick<ProjectInfo, 'config' | 'agents'>, s: Pick<State, 'paneColumns'> = get()): number => cellPageCount(paneCells(p, s), shownPerPage(p, s))
+
+/** The agent page a project shows: the focused agent's (a page holds as many cells as the layout has panes, #134). */
 export function agentPage(p: ProjectInfo, focused: string | null): number {
-  const i = p.agents.findIndex((a) => a.id === focused)
-  return i < 0 ? 0 : pageOfAgent(i, shownPerPage(p))
+  return cellPage(paneCells(p), focused, shownPerPage(p))
 }
 
 /**
- * Which agent each pane shows: the focused agent's page's agents, in their order (a pane each, #134), the last page's
- * spare panes empty (null). One at a time (Single) shows the focused agent.
+ * Which agent each pane shows: the focused agent's page's cells (a pane each, #134, placed by the user, #762), empty
+ * ones null. One at a time (Single) shows the focused agent.
  */
 export function paneAssignment(p: ProjectInfo, focused: string | null): (string | null)[] {
   const n = layoutPanes(shownLayout(p))
   if (n === 1) return [focused]
-  const ids = pageAgents(p.agents, agentPage(p, focused), shownPerPage(p)).map((a) => a.id)
-  return [...ids, ...Array<null>(Math.max(0, n - ids.length)).fill(null)]
+  return pageCells(paneCells(p), agentPage(p, focused), n)
 }
 
 /**
@@ -767,7 +781,7 @@ export function focusAfterRemoving(p: ProjectInfo, agentId: string): void {
 
 /** Goes to one of a project's agent pages, focusing the agent last focused there (else its first). */
 export function showPage(p: ProjectInfo, page: number): void {
-  const ids = pageAgents(p.agents, page, shownPerPage(p)).map((a) => a.id)
+  const ids = pageIds(paneCells(p), page, shownPerPage(p))
   if (!ids.length) return
   const last = get().pageFocus[`${p.path}#${page}`]
   focusAgent(p.path, last && ids.includes(last) ? last : ids[0])
