@@ -479,6 +479,14 @@
     "defaultMessage": "Save a memory snapshot if Hive is about to run out of memory",
     "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
   },
+  "settings.advanced.hive.mcp.connectSeconds.desc": {
+    "defaultMessage": "How long Hive waits, once an agent is ready, for its CLI to connect Hive's tools before it tells the agent of new work anyway. A resumed session can be ready before its tools are, and a message then is a turn spent without them (#865). Lower it if messages reach agents late when their CLI doesn't connect Hive's tools.",
+    "description": "What the advanced setting \"hive tools: wait to connect\" is for, and what goes wrong when it is wrong (Settings → Advanced)."
+  },
+  "settings.advanced.hive.mcp.connectSeconds.title": {
+    "defaultMessage": "hive tools: wait to connect",
+    "description": "An advanced setting's title (Settings → Advanced), listed under its CLI or Hive."
+  },
   "settings.advanced.hive.mcp.replySeconds.desc": {
     "defaultMessage": "How long the hive MCP server waits for Hive to answer one of its tools (a wait's own time comes on top). Raise it when a slow or very busy machine makes hive tools fail with \"Hive didn't reply within 300 s\" (#371).",
     "description": "What the advanced setting \"hive tools: reply timeout\" is for, and what goes wrong when it is wrong (Settings → Advanced)."

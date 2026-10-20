@@ -109,6 +109,26 @@ const HUNG_MS = 10000
   await row('code.ts').click()
   await lib.until(async () => (await pane.locator('.monaco .view-lines').innerText().catch(() => '')).replace(/\u00a0/g, ' ').includes('draft = true'), 10000)
   check('draft: edits restored when coming back', (await pane.locator('.monaco .view-lines').innerText()).replace(/ /g, ' ').includes('draft = true'))
+  // A hover's Markdown goes through Monaco's sanitiser (domSanitize: Hive's DOMPurify since #1141): the type of
+  // `answer`, rendered.
+  const hoverText = () => page.locator('.monaco-hover:not(.hidden) .monaco-hover-content').first().innerText().catch(() => '')
+  // Where `answer` is drawn in its line (the editor's spans split a line as its tokens fall).
+  const word = await pane.locator('.monaco .view-lines').first().evaluate((lines) => {
+    const walk = document.createTreeWalker(lines, NodeFilter.SHOW_TEXT)
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const at = n.textContent.indexOf('answer')
+      if (at < 0) continue
+      const r = document.createRange()
+      r.setStart(n, at)
+      r.setEnd(n, at + 'answer'.length)
+      const b = r.getBoundingClientRect()
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
+    }
+    return null
+  })
+  if (word) await page.mouse.move(word.x, word.y)
+  check("hover: Monaco's Markdown hover renders (its sanitiser)", !!(await lib.until(async () => /answer/.test(await hoverText()), HUNG_MS)))
+  await page.mouse.move(5, 5)
 
   // Conflict: file changes on disk while edited.
   w('code.ts', 'export const answer = 43 // changed outside\n')

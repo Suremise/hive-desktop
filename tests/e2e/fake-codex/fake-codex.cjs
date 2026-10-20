@@ -28,12 +28,13 @@
 //   handover) is its prompt, anything else (a wake, a message) is logged in fake-wakes.jsonl in CODEX_HOME.
 // - Each prompt is a turn with its own id, which its hooks carry (turn_id) and its rollout records (task_started,
 //   task_complete after Stop), as Codex 0.162.1 does.
+// - It connects the launch's hive MCP server as it starts (#865: the real server, which tells Hive it has connected).
 // - A first prompt as its last plain argument (after "resume <id>" too) is its first turn, as Codex starts on one.
 // - Ctrl+C twice ends it with SessionEnd.
 const fs = require('fs')
 const path = require('path')
 const { randomUUID } = require('crypto')
-const { callHiveTool, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
+const { callHiveTool, connectHive, fromCodexTable, parseHiveStep, isDoorbell, doorbellIsWork, inboxRows } = require('../fake-bridge.cjs')
 
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
@@ -421,6 +422,8 @@ process.stdin.on('data', (data) => {
 })
 
 out('OpenAI Codex (fake, for Hive tests)\r\n')
+// Its MCP servers connect as it starts (#865): the launch's hive server, through the real server, which tells Hive.
+void connectHive(hiveServer())
 setTitle(project)
 promptLine()
 if (firstPrompt) void runPrompt(firstPrompt)

@@ -119,6 +119,8 @@
   "settings.advanced.hive.disableHardwareAcceleration.title": "ハードウェアアクセラレーションを無効にする",
   "settings.advanced.hive.heapSnapshotNearLimit.desc": "Hiveのメインプロセスがメモリの上限に近づくと、終了する前にメモリのスナップショットをHiveのプロファイルのheapフォルダーに書き込み、何がメモリを使い切ったかを調べられるようにします。スナップショットは数ギガバイトになることがあり、Hiveがメモリに持っていたもの（カードのテキスト、トランスクリプト、場合によってはトークン）をすべて含み、このPCに保存されます。Hiveは新しいものを2つ残します。Hiveの再起動後に適用されます。",
   "settings.advanced.hive.heapSnapshotNearLimit.title": "Hiveのメモリが不足しそうなときにメモリスナップショットを保存",
+  "settings.advanced.hive.mcp.connectSeconds.desc": "エージェントの準備ができてから、そのCLIがHiveのツールに接続するのをHiveが待つ時間です。この時間が過ぎると、接続を待たずに新しい作業を知らせます。再開したセッションはツールより先に準備ができることがあり、その時点のメッセージはツールなしのターンになります（#865）。CLIがHiveのツールに接続しないエージェントにメッセージが遅れて届く場合は、値を下げてください。",
+  "settings.advanced.hive.mcp.connectSeconds.title": "hiveツール：接続の待機",
   "settings.advanced.hive.mcp.replySeconds.desc": "hive MCPサーバーが、ツールへのHiveの応答を待つ時間です（待機ツール自体の時間はこれに加わります）。遅いマシンや非常に忙しいマシンで、hiveツールが「Hive didn't reply within 300 s」で失敗する場合に増やしてください（#371）。",
   "settings.advanced.hive.mcp.replySeconds.title": "hiveツール：応答のタイムアウト",
   "settings.advanced.hive.progress.lanesShown.desc": "進捗パネルで、スクロールせずに表示するカードループのレーン数です。セクションの上端をドラッグすると変わります（ドラッグした高さはワークスペースごとに保存されます）。多くのレーンを同時に実行するワークスペースでは、独自の値を設定できます。",
