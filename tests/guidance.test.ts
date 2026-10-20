@@ -190,7 +190,7 @@ describe('triage-report', () => {
     expect(skill.text).toMatch(/## 2\. Find the cause before the card/)
     expect(skill.text).toMatch(/\*\*Passed\*\* too \(reviewed, not merged yet\), and work on branches not merged yet/)
     for (const part of ['What the user saw', 'Likely cause', 'Evidence', 'Fix direction', 'Done when']) expect(skill.text, part).toContain(`**${part}**`)
-    expect(readFileSync(join(ROOT, 'resources/personas/qa-triager.md'), 'utf8')).toMatch(/Triage each report with the \*\*triage-report\*\* skill/)
+    expect(readFileSync(join(ROOT, 'resources/modes/qa-triager.md'), 'utf8')).toMatch(/Triage each report with the \*\*triage-report\*\* skill/)
   })
 })
 

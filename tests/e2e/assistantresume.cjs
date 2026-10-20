@@ -48,14 +48,14 @@ if (!signedIn) lib.skip(`environment: Claude Code isn't signed in to its test ho
 // New codewords each run, so nothing from an earlier run (or a cache) can answer for this one.
 const word = (w) => `${w}-${randomBytes(3).toString('hex').toUpperCase()}`
 const modes = { alpha: { name: 'Codeword Alpha', word: word('ALPHA') }, bravo: { name: 'Codeword Bravo', word: word('BRAVO') }, charlie: { name: 'Codeword Charlie', word: word('CHARLIE') } }
-const persona = ({ name, word: w }) =>
+const mode = ({ name, word: w }) =>
   `---\nname: ${name}\ndescription: A test mode.\nicon: 🧪\nsummary: Answer in as few words as you can.\n---\n\nYou are in **${name}** mode. Your codeword is ${w}. When asked for your codeword, reply with exactly that codeword and nothing else.\n`
 
 ;(async () => {
   for (const d of [userData, ws]) fs.rmSync(d, { recursive: true, force: true })
   lib.gitProject(path.join(ws, 'demo'), { 'README.md': '# Demo\n' })
-  fs.mkdirSync(path.join(ws, '.hive', 'personas'), { recursive: true })
-  for (const [id, m] of Object.entries(modes)) fs.writeFileSync(path.join(ws, '.hive', 'personas', `codeword-${id}.md`), persona(m))
+  fs.mkdirSync(path.join(ws, '.hive', 'modes'), { recursive: true })
+  for (const [id, m] of Object.entries(modes)) fs.writeFileSync(path.join(ws, '.hive', 'modes', `codeword-${id}.md`), mode(m))
   lib.enableProviders(userData)
   const env = lib.hiveEnv({ HIVE_USER_DATA: userData, HIVE_API_PORT: lib.port(47926), CLAUDE_CONFIG_DIR: CLAUDE_TEST_HOME })
   const app = await _electron.launch({ executablePath: lib.ELECTRON, args: [lib.ROOT], cwd: lib.ROOT, env })
@@ -124,13 +124,13 @@ const persona = ({ name, word: w }) =>
   // The mode menu in the Assistant panel's header.
   const panel = page.locator('.assistant-panel')
   const menu = async (label) => {
-    await panel.locator('.assistant-persona').click()
+    await panel.locator('.assistant-mode').click()
     await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
     await page.locator('.menu .menu-item', { hasText: label }).first().click()
   }
 
   await inv('settings:update', { assistant: { providers: { 'claude-code': { model: 'haiku', ...(control ? { extraArgs: '--system-prompt-snapshot on' } : {}) } } } })
-  await inv('agents:update', home, 'assistant', { persona: 'codeword-alpha' })
+  await inv('agents:update', home, 'assistant', { mode: 'codeword-alpha' })
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+I')
   await lib.until(async () => (await panel.locator('.assistant-header').count()) === 1, 5000)
@@ -164,7 +164,7 @@ const persona = ({ name, word: w }) =>
 
   // --- Switched while it is stopped, then resumed: told the mode once, and on Charlie's instructions.
   await menu(modes.charlie.name)
-  check('switching while it is stopped saves the mode', !!(await lib.until(async () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'project.json'), 'utf8')).agents?.[0]?.persona === 'codeword-charlie', 5000)))
+  check('switching while it is stopped saves the mode', !!(await lib.until(async () => JSON.parse(fs.readFileSync(path.join(home, '.hive', 'project.json'), 'utf8')).agents?.[0]?.mode === 'codeword-charlie', 5000)))
   await inv('session:start', home, { resumeId: session, agentId: 'assistant' })
   await lib.cliStep('resumed after a switch while stopped', { session: key }, async () => {
     check('Claude Code resumes the conversation', !!(await idle()) && (await live())?.sessionId === session, (await live())?.sessionId)

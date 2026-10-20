@@ -315,7 +315,7 @@ export interface Artifact {
   summary?: ExportSummary
 }
 
-const COMPONENT_KEYS = ['coreBytes', 'customBytes', 'roleBytes', 'personaBytes', 'catalogBytes', 'coreChars', 'customChars', 'roleChars', 'personaChars', 'toolBytes', 'toolListBytes']
+const COMPONENT_KEYS = ['coreBytes', 'customBytes', 'roleBytes', 'modeBytes', 'catalogBytes', 'coreChars', 'customChars', 'roleChars', 'modeChars', 'toolBytes', 'toolListBytes']
 const DERIVED = new Set(['contextBytes', 'guidanceBytes', 'guidanceChars', 'seconds'])
 const MEASURE_KEYS = new Set([...SCENARIO_MEASURES.map((m) => m.key).filter((k) => !DERIVED.has(k)), ...COMPONENT_KEYS, 'toolMs', 'launches', 'skillsDelivered', 'skillsUnmeasured', 'toolListStarts', 'skillTooLarge', 'dropped', 'skillsRead'])
 const USAGE_KEYS = new Set([...USAGE_MEASURES.map((m) => m.key), 'contextTokens'])
@@ -330,6 +330,13 @@ const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === '
 const arr = (v: unknown, max: number): unknown[] => (Array.isArray(v) ? v.slice(0, max) : [])
 const iso = (v: unknown): string => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : '')
 const sum = (m: Measures, keys: string[]): number | null => (keys.every((k) => typeof m[k] === 'number') ? keys.reduce((n, k) => n + m[k], 0) : null)
+
+/** Measures saved before 0.9.3, when the Assistant's mode was its persona (#1084), under their names now. */
+function withModeNames(m: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!m || !('personaBytes' in m || 'personaChars' in m)) return m
+  const { personaBytes, personaChars, ...rest } = m
+  return { ...rest, modeBytes: rest.modeBytes ?? personaBytes, modeChars: rest.modeChars ?? personaChars }
+}
 
 /** Known measures with valid values only (unknown keys and bad values left out, never guessed or zero-filled). */
 function readMeasures(v: unknown, keys: Set<string>): Measures | null {
@@ -351,11 +358,11 @@ function readMeasures(v: unknown, keys: Set<string>): Measures | null {
 function readSample(v: unknown): Sample | null {
   const o = obj(v)
   if (!o) return null
-  const raw = obj(o.measures)
+  const raw = withModeNames(obj(o.measures))
   let measures = raw ? readMeasures(raw, MEASURE_KEYS) : null
   if (measures) {
-    const guidance = sum(measures, ['coreBytes', 'customBytes', 'roleBytes', 'personaBytes', 'catalogBytes'])
-    const guidanceChars = sum(measures, ['coreChars', 'customChars', 'roleChars', 'personaChars'])
+    const guidance = sum(measures, ['coreBytes', 'customBytes', 'roleBytes', 'modeBytes', 'catalogBytes'])
+    const guidanceChars = sum(measures, ['coreChars', 'customChars', 'roleChars', 'modeChars'])
     if (guidance !== null) {
       measures.guidanceBytes = guidance
       const ctx = sum(measures, ['toolListBytes', 'toolBytes'])
@@ -523,7 +530,7 @@ function partTotals(p: unknown, t: Measures, unknown: Set<string>): void {
         add('toolChars', x.chars)
       } else {
         add('launches', x.launches)
-        const parts = [x.guidanceBytes, x.customBytes ?? 0, x.roleBytes ?? 0, x.personaBytes ?? 0, x.skillCatalogBytes].map(num)
+        const parts = [x.guidanceBytes, x.customBytes ?? 0, x.roleBytes ?? 0, x.modeBytes ?? x.personaBytes ?? 0, x.skillCatalogBytes].map(num)
         if (parts.some((n) => n === null)) unknown.add('guidanceBytes')
         else t.guidanceBytes += (parts as number[]).reduce((a, b) => a + b, 0)
       }

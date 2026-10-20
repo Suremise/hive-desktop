@@ -159,6 +159,7 @@ interface HiveMessageValues {
   'assistant.panel.modeHeader': undefined
   'assistant.panel.modeHeaderLive': undefined
   'assistant.panel.modeLater': undefined
+  'assistant.panel.modeTip': { name: string | number; description: string | number }
   'assistant.panel.modeTitle': { name: string | number }
   'assistant.panel.modeTold': undefined
   'assistant.panel.more': undefined
@@ -178,7 +179,6 @@ interface HiveMessageValues {
   'assistant.panel.nothingToCompact': undefined
   'assistant.panel.openCard': { known: string; number: string | number; column: string | number }
   'assistant.panel.openNow': undefined
-  'assistant.panel.personaTip': { name: string | number; description: string | number }
   'assistant.panel.progress': { hasStep: string; run: string | number; step: string | number }
   'assistant.panel.provider': { provider: string | number }
   'assistant.panel.railLabel': undefined

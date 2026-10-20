@@ -1,25 +1,25 @@
-import { DEFAULT_PERSONA, assistantPersona } from '@shared/assistant'
-import type { PersonaInfo } from '@shared/types'
+import { DEFAULT_MODE, assistantModeId } from '@shared/assistant'
+import type { ModeInfo } from '@shared/types'
 import * as actions from '../actions'
 import { call } from '../api'
 import { clearEditorDraftsUnder } from '../editorDrafts'
 import { confirm, prompt, set, useStore } from '../store'
 import { cx } from '../util'
-import { choosePersona, personaDescription, personaName, usePersonas } from './Assistant'
+import { chooseMode, modeDescription, modeName, useModes } from './Assistant'
 import { DocEditor } from './DocEditor'
 import { Icon, IconButton, Tooltip } from './ui'
 import { msg, tr } from '@shared/i18n'
 
 /**
- * The Hive Assistant's modes (personas in code): the workspace's Markdown files in .hive/personas, each how the
+ * The Hive Assistant's modes: the workspace's Markdown files in .hive/modes, each how the
  * Assistant works, in its own words. Listed in the sidebar and edited in the main area; Hive's own four can be restored.
  */
 
-export const PERSONAS_TIP = msg({ id: 'assistant.modes.tip', defaultMessage: "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/personas). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default.", description: 'Tooltip on the Modes section of the Assistant view. Keep .hive/personas as it is.' })
+export const MODES_TIP = msg({ id: 'assistant.modes.tip', defaultMessage: "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/modes). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default.", description: 'Tooltip on the Modes section of the Assistant view. Keep .hive/modes as it is.' })
 
 const M = {
   newTitle: msg({ id: 'assistant.modes.newTitle', defaultMessage: 'New Mode', description: "The title of the dialog that creates an Assistant mode (a Markdown file)." }),
-  newMessage: msg({ id: 'assistant.modes.newMessage', defaultMessage: 'Creates {file} in the workspace, to describe in your own words how the Assistant should work.', description: 'The New Mode dialog. {file} is .hive/personas/<name>.md, <name> standing for the name you type.' }),
+  newMessage: msg({ id: 'assistant.modes.newMessage', defaultMessage: 'Creates {file} in the workspace, to describe in your own words how the Assistant should work.', description: 'The New Mode dialog. {file} is .hive/modes/<name>.md, <name> standing for the name you type.' }),
   namePlaceholder: msg({ id: 'assistant.modes.namePlaceholder', defaultMessage: 'Mode name', description: "The New Mode dialog: the name box's placeholder." }),
   create: msg({ id: 'assistant.modes.create', defaultMessage: 'Create', description: 'The New Mode dialog: its button.' }),
   lettersOrNumbers: msg({ id: 'assistant.modes.lettersOrNumbers', defaultMessage: 'Use letters or numbers.', description: "The New Mode dialog: a name with neither letters nor numbers can't be used." }),
@@ -50,65 +50,65 @@ const M = {
   chooseHere: msg({ id: 'assistant.modes.useHere', defaultMessage: 'Use in This Workspace', description: "A button that makes a mode the workspace Assistant's." })
 }
 
-export async function createPersona(): Promise<void> {
+export async function createMode(): Promise<void> {
   const name = await prompt({
     title: tr(M.newTitle),
-    message: tr(M.newMessage, { file: '.hive/personas/<name>.md' }),
+    message: tr(M.newMessage, { file: '.hive/modes/<name>.md' }),
     placeholder: tr(M.namePlaceholder),
     confirmLabel: tr(M.create),
     validate: (v) => (/[a-z0-9]/i.test(v) ? null : tr(M.lettersOrNumbers))
   })
   if (!name) return
-  const p = await actions.attempt(tr(M.createFailed), () => call('personas:create', name))
-  if (p) set((s) => ({ selectedPersona: p.path, assistantSection: 'personas', personasVersion: s.personasVersion + 1 }))
+  const p = await actions.attempt(tr(M.createFailed), () => call('modes:create', name))
+  if (p) set((s) => ({ selectedMode: p.path, assistantSection: 'modes', modesVersion: s.modesVersion + 1 }))
 }
 
-async function deletePersona(p: PersonaInfo): Promise<void> {
-  const ok = await confirm({ title: tr(M.deleteTitle, { name: personaName(p) }), message: tr(M.deleteMessage, { file: `${p.id}.md`, bundled: p.bundled ? 'yes' : 'no' }), confirmLabel: tr(M.delete), danger: true })
+async function deleteMode(p: ModeInfo): Promise<void> {
+  const ok = await confirm({ title: tr(M.deleteTitle, { name: modeName(p) }), message: tr(M.deleteMessage, { file: `${p.id}.md`, bundled: p.bundled ? 'yes' : 'no' }), confirmLabel: tr(M.delete), danger: true })
   if (!ok) return
-  if (!(await actions.attempt(tr(M.deleteFailed), () => call('personas:delete', p.id).then(() => true)))) return
+  if (!(await actions.attempt(tr(M.deleteFailed), () => call('modes:delete', p.id).then(() => true)))) return
   clearEditorDraftsUnder(p.path)
-  set((s) => ({ selectedPersona: s.selectedPersona === p.path ? null : s.selectedPersona, personasVersion: s.personasVersion + 1 }))
+  set((s) => ({ selectedMode: s.selectedMode === p.path ? null : s.selectedMode, modesVersion: s.modesVersion + 1 }))
 }
 
-async function restorePersona(p: PersonaInfo): Promise<void> {
+async function restoreMode(p: ModeInfo): Promise<void> {
   if (p.bundled === 'changed') {
-    const ok = await confirm({ title: tr(M.revertTitle, { name: personaName(p) }), message: tr(M.revertMessage), confirmLabel: tr(M.revert) })
+    const ok = await confirm({ title: tr(M.revertTitle, { name: modeName(p) }), message: tr(M.revertMessage), confirmLabel: tr(M.revert) })
     if (!ok) return
   }
-  const r = await actions.attempt(tr(M.restoreFailed), () => call('personas:restore', p.id))
+  const r = await actions.attempt(tr(M.restoreFailed), () => call('modes:restore', p.id))
   if (r) clearEditorDraftsUnder(p.path)
-  if (r) set((s) => ({ selectedPersona: r.path, personasVersion: s.personasVersion + 1 }))
+  if (r) set((s) => ({ selectedMode: r.path, modesVersion: s.modesVersion + 1 }))
 }
 
-/** The personas, in the Assistant view's sidebar: select one to read or edit it in the main area. */
-export function PersonaList() {
-  const selected = useStore((s) => (s.assistantSection === 'personas' ? s.selectedPersona : null))
+/** The modes, in the Assistant view's sidebar: select one to read or edit it in the main area. */
+export function ModeList() {
+  const selected = useStore((s) => (s.assistantSection === 'modes' ? s.selectedMode : null))
   const settings = useStore((s) => s.settings)
   const agent = useStore((s) => s.workspace?.assistant?.agents[0] ?? null)
-  const personas = usePersonas()
-  const inUse = assistantPersona(agent, settings)
-  const byDefault = settings?.assistant.persona || DEFAULT_PERSONA
+  const modes = useModes()
+  const inUse = assistantModeId(agent, settings)
+  const byDefault = settings?.assistant.mode || DEFAULT_MODE
   return (
     <>
-      {personas.map((p) => (
-          <div key={p.id} className={cx(/* i18n-ignore: class names */ 'row tall persona-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} data-persona={p.id} onClick={() => set({ selectedPersona: p.path, assistantSection: 'personas' })}>
-            <span className="persona-icon">{p.icon || '🐝'}</span>
+      {modes.map((p) => (
+          <div key={p.id} className={cx(/* i18n-ignore: class names */ 'row tall mode-row', selected === p.path && 'selected', p.bundled === 'missing' && 'missing')} data-mode={p.id} onClick={() => set({ selectedMode: p.path, assistantSection: 'modes' })}>
+            <span className="mode-icon">{p.icon || '🐝'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="label with-badges">
-                <span className="row-name">{personaName(p)}</span>
+                <span className="row-name">{modeName(p)}</span>
                 {p.id === inUse && p.bundled !== 'missing' && <span className="badge success">{tr(M.inUseBadge)}</span>}
                 {p.id === byDefault && <span className="badge">{tr(M.defaultBadge)}</span>}
               </div>
               <div className="desc" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {p.bundled === 'missing' ? tr(M.shipsMissing) : personaDescription(p)}
+                {p.bundled === 'missing' ? tr(M.shipsMissing) : modeDescription(p)}
               </div>
             </div>
             <div className="row-actions" onClick={(e) => e.stopPropagation()}>
               {p.bundled === 'missing' ? (
-                <IconButton icon="history" title={tr(M.restoreTip)} onClick={() => void restorePersona(p)} />
+                <IconButton icon="history" title={tr(M.restoreTip)} onClick={() => void restoreMode(p)} />
               ) : (
-                <IconButton icon="trash" title={tr(M.deleteTip)} onClick={() => void deletePersona(p)} />
+                <IconButton icon="trash" title={tr(M.deleteTip)} onClick={() => void deleteMode(p)} />
               )}
             </div>
           </div>
@@ -120,13 +120,13 @@ export function PersonaList() {
   )
 }
 
-/** The selected persona's file, in the editor (unsaved edits are kept like any other editor's). */
-export function PersonaView() {
-  const selected = useStore((s) => s.selectedPersona)
-  const personas = usePersonas()
+/** The selected mode's file, in the editor (unsaved edits are kept like any other editor's). */
+export function ModeView() {
+  const selected = useStore((s) => s.selectedMode)
+  const modes = useModes()
   const agent = useStore((s) => s.workspace?.assistant?.agents[0] ?? null)
   const settings = useStore((s) => s.settings)
-  const p = personas.find((x) => x.path === selected)
+  const p = modes.find((x) => x.path === selected)
   if (!selected || !p) {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
@@ -139,22 +139,22 @@ export function PersonaView() {
     return (
       <div className="empty-state" style={{ paddingTop: '18vh' }}>
         <span style={{ fontSize: 32 }}>{p.icon || '🐝'}</span>
-        <strong>{personaName(p)}</strong>
-        <span className="faint">{personaDescription(p)}</span>
-        <button className="btn primary" onClick={() => void restorePersona(p)}>
+        <strong>{modeName(p)}</strong>
+        <span className="faint">{modeDescription(p)}</span>
+        <button className="btn primary" onClick={() => void restoreMode(p)}>
           <Icon name="history" /> {tr(M.restoreHere)}
         </button>
       </div>
     )
   }
-  const inUse = assistantPersona(agent, settings) === p.id
+  const inUse = assistantModeId(agent, settings) === p.id
   return (
     <div className="split">
       <DocEditor
         key={p.path}
         path={p.path}
-        title={`${p.icon ? `${p.icon} ` : ''}${personaName(p)}`}
-        onSaved={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))}
+        title={`${p.icon ? `${p.icon} ` : ''}${modeName(p)}`}
+        onSaved={() => set((s) => ({ modesVersion: s.modesVersion + 1 }))}
         toolbarExtra={
           <>
             {p.updateAvailable && (
@@ -164,17 +164,17 @@ export function PersonaView() {
             )}
             {p.bundled === 'changed' && (
               <Tooltip content={tr(M.revertTip)}>
-                <button className="btn small subtle" onClick={() => void restorePersona(p)}>
+                <button className="btn small subtle" onClick={() => void restoreMode(p)}>
                   <Icon name="discard" /> {tr(M.revertButton)}
                 </button>
               </Tooltip>
             )}
             <Tooltip content={tr(inUse ? M.inUseTip : M.makeItTip)}>
-              <button className="btn small subtle" disabled={inUse} onClick={() => void choosePersona(p)}>
+              <button className="btn small subtle" disabled={inUse} onClick={() => void chooseMode(p)}>
                 <Icon name={inUse ? 'check' : 'person'} /> {tr(inUse ? M.inUse : M.chooseHere)}
               </button>
             </Tooltip>
-            <IconButton icon="trash" title={tr(M.deleteTip)} onClick={() => void deletePersona(p)} />
+            <IconButton icon="trash" title={tr(M.deleteTip)} onClick={() => void deleteMode(p)} />
           </>
         }
       />

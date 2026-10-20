@@ -208,8 +208,8 @@ function handleEvent(e: HiveEvent): void {
     case 'skills-changed':
       set((s) => ({ skillsVersion: s.skillsVersion + 1 }))
       break
-    case 'personas-changed':
-      set((s) => ({ personasVersion: s.personasVersion + 1 }))
+    case 'modes-changed':
+      set((s) => ({ modesVersion: s.modesVersion + 1 }))
       break
     case 'journal-changed':
       if (e.workspacePath.toLowerCase() === get().workspace?.path.toLowerCase()) set((s) => ({ journalVersion: s.journalVersion + 1 }))

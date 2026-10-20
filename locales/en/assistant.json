@@ -417,7 +417,7 @@
   },
   "assistant.modes.newMessage": {
     "defaultMessage": "Creates {file} in the workspace, to describe in your own words how the Assistant should work.",
-    "description": "The New Mode dialog. {file} is .hive/personas/<name>.md, <name> standing for the name you type."
+    "description": "The New Mode dialog. {file} is .hive/modes/<name>.md, <name> standing for the name you type."
   },
   "assistant.modes.newTitle": {
     "defaultMessage": "New Mode",
@@ -496,8 +496,8 @@
     "description": "Under a mode of Hive's own that was deleted from the workspace."
   },
   "assistant.modes.tip": {
-    "defaultMessage": "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/personas). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default.",
-    "description": "Tooltip on the Modes section of the Assistant view. Keep .hive/personas as it is."
+    "defaultMessage": "A mode is how the Hive Assistant works: what it puts first and how it hands things back, in a Markdown file in the workspace (.hive/modes). The panel's mode menu switches between them at once, keeping the conversation; Settings → Assistant sets the default.",
+    "description": "Tooltip on the Modes section of the Assistant view. Keep .hive/modes as it is."
   },
   "assistant.modes.updateBadge": {
     "defaultMessage": "Update available",
@@ -631,6 +631,10 @@
     "defaultMessage": "The Assistant will be told as soon as it has finished what it is doing.",
     "description": "Under Mode: …, when the Assistant is busy."
   },
+  "assistant.panel.modeTip": {
+    "defaultMessage": "{name}: {description}",
+    "description": "Tooltip on the Assistant's mode button: the mode and what it is for."
+  },
   "assistant.panel.modeTitle": {
     "defaultMessage": "Mode: {name}",
     "description": "A notice after the Assistant's mode was switched ({name}: the mode, Advisor…)."
@@ -706,10 +710,6 @@
   "assistant.panel.openNow": {
     "defaultMessage": "open now",
     "description": "Beside a past conversation in the menu: it is the one running. Lower case: it follows when it was active."
-  },
-  "assistant.panel.personaTip": {
-    "defaultMessage": "{name}: {description}",
-    "description": "Tooltip on the Assistant's mode button: the mode and what it is for."
   },
   "assistant.panel.progress": {
     "defaultMessage": "{hasStep, select, yes {Progress: {run} ({step})} other {Progress: {run}}}",

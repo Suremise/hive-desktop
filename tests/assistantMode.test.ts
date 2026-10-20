@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // main/assistantMode.ts with its services stood in for: what the Assistant is told when (#259, #334). A gate holds a
-// persona read or a prompt being typed, so a switch can land in the middle of a resume's check or of a delivery.
+// mode read or a prompt being typed, so a switch can land in the middle of a resume's check or of a delivery.
 const st = vi.hoisted(() => ({
   home: 'C:\\ws\\.hive\\assistant',
   live: null as { runId: string; status: string; sessionId: string } | null,
@@ -21,16 +21,16 @@ const st = vi.hoisted(() => ({
 vi.mock('../src/main/logger', () => ({ createLogger: () => ({ info: () => undefined, warn: () => undefined, debug: () => undefined }), userText: (s: string) => s }))
 vi.mock('../src/main/config', () => ({ config: { settings: {} } }))
 vi.mock('../src/main/events', () => ({ onHiveEvent: (fn: (e: unknown) => void) => (st.onStatus = fn) }))
-vi.mock('../src/main/personas', () => ({
-  readPersona: async (id: string) => {
+vi.mock('../src/main/modes', () => ({
+  readMode: async (id: string) => {
     if (st.holdRead?.id === id) await st.holdRead.until
     return { id, name: id.toUpperCase(), summary: `Habits of ${id}.`, body: '' }
   }
 }))
 vi.mock('../src/main/workspace', () => {
   const ws = {
-    sessionsFile: async () => ({ sessions: [{ id: 's1', persona: st.record }] }),
-    projectConfig: async () => ({ agents: [{ id: 'assistant', persona: st.saved }] })
+    sessionsFile: async () => ({ sessions: [{ id: 's1', mode: st.record }] }),
+    projectConfig: async () => ({ agents: [{ id: 'assistant', mode: st.saved }] })
   }
   return {
     workspace: {
@@ -38,13 +38,13 @@ vi.mock('../src/main/workspace', () => {
         return st.home
       },
       // As Hive's: one writer at a time, each reading the file inside the lock.
-      mutateProjectConfig: async (_home: string, fn: (cfg: { agents: { id: string; name: string; persona?: string }[] }) => { agents?: { id: string; persona?: string }[] }) => {
+      mutateProjectConfig: async (_home: string, fn: (cfg: { agents: { id: string; name: string; mode?: string }[] }) => { agents?: { id: string; mode?: string }[] }) => {
         const hold = st.holdSave
         st.holdSave = null
         if (hold) await hold
         const run = st.lock.then(async () => {
-          const next = fn({ agents: [{ id: 'assistant', name: 'Hive Assistant', persona: st.saved }] })
-          if (next.agents) st.saved = next.agents[0].persona ?? ''
+          const next = fn({ agents: [{ id: 'assistant', name: 'Hive Assistant', mode: st.saved }] })
+          if (next.agents) st.saved = next.agents[0].mode ?? ''
         })
         st.lock = run.catch(() => undefined)
         await run
@@ -72,8 +72,8 @@ vi.mock('../src/main/sessions', () => ({
         st.delivering = false
       }
     },
-    modeGiven: async (_home: string, _agent: string, runId: string, persona: string) => {
-      if (st.live?.runId === runId) st.recorded.push(persona)
+    modeGiven: async (_home: string, _agent: string, runId: string, mode: string) => {
+      if (st.live?.runId === runId) st.recorded.push(mode)
     }
   }
 }))
@@ -138,7 +138,7 @@ const settle = (ms = 20): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 type Mod = typeof import('../src/main/assistantMode')
 let mod: Mod
-let sessions: { onAssistantResumed: (home: string, runId: string, sessionId: string, persona: string) => void }
+let sessions: { onAssistantResumed: (home: string, runId: string, sessionId: string, mode: string) => void }
 beforeEach(async () => {
   Object.assign(st, { live: { runId: 'r1', status: 'ready', sessionId: 's1' }, saved: 'launch', record: undefined, told: [], recorded: [], delivering: false, holdRead: null, holdSend: null, holdSave: null, lock: Promise.resolve() })
   vi.resetModules()

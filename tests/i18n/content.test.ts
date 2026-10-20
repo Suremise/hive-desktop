@@ -22,7 +22,7 @@ const { providerService } = await import('../../src/main/providerService')
 const mcp = await import('../../src/main/mcp')
 const skills = await import('../../src/main/skills')
 const notes = await import('../../src/main/notes')
-const personas = await import('../../src/main/personas')
+const modes = await import('../../src/main/modes')
 const templates = await import('../../src/main/templates')
 const { switchMode } = await import('../../src/main/assistantMode')
 const { shownError, windowError } = await import('../../src/main/hiveError')
@@ -30,12 +30,12 @@ const { apiErrorReply, handOverFailedToast, handoverCreatedToast } = await impor
 
 const ROOT = resolve(__dirname, '../..')
 const EN = JSON.parse(readFileSync(join(ROOT, 'locales/en/content.json'), 'utf8')) as Record<string, { defaultMessage: string; description: string }>
-const FILES = ['assistantMode.ts', 'mcp.ts', 'notes.ts', 'personas.ts', 'skills.ts', 'templates.ts']
+const FILES = ['assistantMode.ts', 'mcp.ts', 'notes.ts', 'modes.ts', 'skills.ts', 'templates.ts']
 
 /** A German translation of some of the area's messages, as a language file gives them (the rest stays English). */
 const GERMAN: Record<string, string> = {
   'content.mode.unknown': 'In diesem Arbeitsbereich gibt es keinen Modus „{mode}“.',
-  'content.persona.badName': 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.',
+  'content.mode.badName': 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.',
   'content.notes.nameRequired': 'Ein Name ist nötig',
   'content.notes.outside': 'Der Pfad liegt außerhalb des Ordners der geteilten Notizen',
   'content.skill.badName': 'Skill-Namen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen).',
@@ -107,7 +107,7 @@ describe('refusals: English for agents and the log as before, the window in its 
     setLanguage('de', GERMAN)
     const cases: [Error, string, number, string | null][] = [
       [await caught(() => switchMode('nope')), 'There is no mode "nope" in this workspace.', 404, 'In diesem Arbeitsbereich gibt es keinen Modus „nope“.'],
-      [await caught(() => personas.createPersona('!!!')), 'Give the mode a name with letters or numbers.', 400, 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.'],
+      [await caught(() => modes.createMode('!!!')), 'Give the mode a name with letters or numbers.', 400, 'Gib dem Modus einen Namen mit Buchstaben oder Ziffern.'],
       [await caught(() => notes.createNote('  ', false)), 'Name is required', 400, 'Ein Name ist nötig'],
       [await caught(() => notes.createNote('../outside.md', false)), 'Path is outside the shared notes folder', 500, 'Der Pfad liegt außerhalb des Ordners der geteilten Notizen'],
       [await caught(() => skills.createSkill('no spaces allowed', '')), 'Skill names may contain letters, numbers, "-" and "_" (max 64 characters).', 400, 'Skill-Namen dürfen Buchstaben, Ziffern, „-“ und „_“ enthalten (höchstens 64 Zeichen).'],
@@ -262,9 +262,9 @@ describe("lists in the language's way, never joined with English commas", () => 
 describe("the Assistant's instructions stay English", () => {
   it("puts a mode's name under an English heading whatever language Hive shows", async () => {
     setLanguage('de', GERMAN)
-    await run(() => personas.createPersona('Tester'))
-    const told = await run(() => personas.assistantInstructions('tester'))
-    expect(told.personaText.startsWith('# Your mode: Tester\n\n')).toBe(true)
+    await run(() => modes.createMode('Tester'))
+    const told = await run(() => modes.assistantInstructions('tester'))
+    expect(told.modeText.startsWith('# Your mode: Tester\n\n')).toBe(true)
     expect(told.text).toContain('You are the Hive Assistant')
   })
 })

@@ -143,7 +143,7 @@ const M = {
   core: msg({ id: 'performance.guidance.core', defaultMessage: 'Core', description: "Column header of the Guidance at launch table: Hive's session contract's size per launch." }),
   projectBytes: msg({ id: 'performance.guidance.project', defaultMessage: 'Project', description: 'Column header of the Guidance at launch table: the size of what Hive adds for the project, per launch.' }),
   role: msg({ id: 'performance.guidance.role', defaultMessage: 'Role', description: "Column header of the Guidance at launch table: the size of the Assistant's role, per launch." }),
-  mode: msg({ id: 'performance.guidance.mode', defaultMessage: 'Mode', description: "Column header of the Guidance at launch table: the size of the Assistant's mode (persona), per launch." }),
+  mode: msg({ id: 'performance.guidance.mode', defaultMessage: 'Mode', description: "Column header of the Guidance at launch table: the size of the Assistant's mode, per launch." }),
   skills: msg({ id: 'performance.guidance.skills', defaultMessage: 'Skills', description: 'Column header of the Guidance at launch table: how many skills each launch got, on average.' }),
   catalog: msg({ id: 'performance.guidance.catalog', defaultMessage: 'Catalog', description: "Column header of the Guidance at launch table: the size of the skills' names and descriptions, per launch." }),
   onDisk: msg({ id: 'performance.guidance.onDisk', defaultMessage: 'On disk', description: "Column header of the Guidance at launch table: the size of the skills' delivered copies, per launch." }),
@@ -454,7 +454,7 @@ function PerformancePage({ workspacePath, scope, filters, setFilters, projects, 
                   <Card title={tr(M.toolReplies)} value={num(t.toolChars)} sub={tr(M.toolRepliesSub, { calls: t.toolCalls, size: formatBytes(t.toolBytes) })} tip={tr(M.toolRepliesTip)} />
                   <Card
                     title={tr(M.guidance)}
-                    value={formatBytes(t.avgGuidanceBytes + t.avgCustomBytes + t.avgRoleBytes + t.avgPersonaBytes + t.avgSkillCatalogBytes)}
+                    value={formatBytes(t.avgGuidanceBytes + t.avgCustomBytes + t.avgRoleBytes + t.avgModeBytes + t.avgSkillCatalogBytes)}
                     sub={tr(M.guidanceSub, { launches: t.launches, core: formatBytes(t.avgGuidanceBytes), catalog: formatBytes(t.avgSkillCatalogBytes) })}
                     tip={tr(M.guidanceTip)}
                   />
@@ -739,7 +739,7 @@ const guidanceColumns = (): DataColumn<GuidanceSeries>[] => [
   perLaunchColumn('core', tr(M.core), (g) => g.guidanceBytes),
   perLaunchColumn('project', tr(M.projectBytes), (g) => g.customBytes),
   perLaunchColumn('roleBytes', tr(M.role), (g) => g.roleBytes),
-  perLaunchColumn('persona', tr(M.mode), (g) => g.personaBytes),
+  perLaunchColumn('mode', tr(M.mode), (g) => g.modeBytes),
   { key: 'skills', header: tr(M.skills), num: true, descFirst: true, cell: (g) => (g.launches ? fmt.figure(g.skills / g.launches, 1) : '—'), sortValue: (g) => (g.launches ? g.skills / g.launches : null) },
   perLaunchColumn('catalog', tr(M.catalog), (g) => g.skillCatalogBytes),
   perLaunchColumn('disk', tr(M.onDisk), (g) => g.skillBytes),

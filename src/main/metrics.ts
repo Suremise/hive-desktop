@@ -123,10 +123,10 @@ function drop(b: Bucket, owner: string, n = 1): void {
 }
 const SKILL_COUNTS = ['sharedScans', 'hits', 'misses', 'invalidations', 'tooLarge', 'files', 'bytes', 'headerBytes', 'entries'] as const
 const emptySkills = (): SkillServiceSeries => ({ scans: emptyTimed(), sharedScans: 0, hits: 0, misses: 0, invalidations: 0, tooLarge: 0, files: 0, bytes: 0, headerBytes: 0, entries: 0 })
-const GUIDANCE_COUNTS = ['launches', 'guidanceBytes', 'guidanceChars', 'customBytes', 'customChars', 'roleBytes', 'roleChars', 'personaBytes', 'personaChars', 'skills', 'skillCatalogBytes', 'skillBytes', 'skillsNotDelivered', 'skillsUnmeasured'] as const
+const GUIDANCE_COUNTS = ['launches', 'guidanceBytes', 'guidanceChars', 'customBytes', 'customChars', 'roleBytes', 'roleChars', 'modeBytes', 'modeChars', 'skills', 'skillCatalogBytes', 'skillBytes', 'skillsNotDelivered', 'skillsUnmeasured'] as const
 const CATALOG_COUNTS = ['starts', 'tools', 'toolsBytes'] as const
 const newBucket = (start: number, span: Bucket['span']): Bucket => ({ start, span, projects: dict(), workspace: emptyPart(), skills: emptySkills(), dropped: 0, droppedBy: dict(), series: 0 })
-const emptyGuidance = (provider: string, role: GuidanceSeries['role']): GuidanceSeries => ({ provider, role, launches: 0, guidanceBytes: 0, guidanceChars: 0, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
+const emptyGuidance = (provider: string, role: GuidanceSeries['role']): GuidanceSeries => ({ provider, role, launches: 0, guidanceBytes: 0, guidanceChars: 0, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skills: 0, skillCatalogBytes: 0, skillBytes: 0, skillsNotDelivered: 0, skillsUnmeasured: 0 })
 
 // ---------------------------------------------------------------------------
 // Labels: each from a fixed set. Anything else is "(other)", so a label never grows or carries what it shouldn't.
@@ -234,8 +234,10 @@ function readPart(v: unknown, b: Bucket, owner: string): PartData {
     had.chars += sizes.chars
     had.bytes += sizes.bytes
   })
-  each(o.guidance, (s) => {
-    const c = readCounts(s, GUIDANCE_COUNTS, ['skillsNotDelivered', 'skillsUnmeasured', 'customBytes', 'customChars', 'roleBytes', 'roleChars', 'personaBytes', 'personaChars'])
+  each(o.guidance, (saved) => {
+    // Saved before 0.9.3, when the Assistant's mode was its persona (#1084).
+    const s: Record<string, unknown> = { ...saved, modeBytes: saved.modeBytes ?? saved.personaBytes, modeChars: saved.modeChars ?? saved.personaChars }
+    const c = readCounts(s, GUIDANCE_COUNTS, ['skillsNotDelivered', 'skillsUnmeasured', 'customBytes', 'customChars', 'roleBytes', 'roleChars', 'modeBytes', 'modeChars'])
     if (!c || (s.role !== 'agent' && s.role !== 'assistant')) return
     const provider = inSet(PROVIDER_IDS, s.provider)
     const key = `${provider} ${s.role}`
@@ -1039,7 +1041,7 @@ function trendOf(inRange: Bucket[], from: number, to: number, parts: (b: Bucket)
       }
       for (const g of Object.values(part.guidance)) {
         pt.launches += g.launches
-        pt.guidanceBytes += g.guidanceBytes + g.customBytes + g.roleBytes + g.personaBytes + g.skillCatalogBytes
+        pt.guidanceBytes += g.guidanceBytes + g.customBytes + g.roleBytes + g.modeBytes + g.skillCatalogBytes
       }
     }
   }

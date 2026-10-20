@@ -1,4 +1,4 @@
-// Hive's bundled skills and personas in a workspace (src/main/bundled.ts): new ones are added, untouched copies of
+// Hive's bundled skills and modes in a workspace (src/main/bundled.ts): new ones are added, untouched copies of
 // older versions updated, edited copies and same-name folders of the user's kept, deleted ones left deleted; a swap
 // never leaves a half-copied folder; the recorded versions cover what ships (scripts/bundled-history.mjs).
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'fs'
@@ -21,7 +21,7 @@ describe('what to do with a bundled item', () => {
     expect(act({ copy: null, given: undefined })).toBe('add')
     // A workspace from before the manifest gets the ones that are new since.
     expect(act({ copy: null, given: undefined, manifest: false, shippedBefore: false })).toBe('add')
-    // A workspace from before personas has no personas folder: it was never given them.
+    // A workspace from before modes has no modes folder: it was never given them.
     expect(act({ copy: null, given: undefined, manifest: false, folder: false })).toBe('add')
   })
 
@@ -49,14 +49,14 @@ describe('what to do with a bundled item', () => {
 })
 
 describe('recorded versions', () => {
-  it('include the version of each bundled skill and persona that ships now, as its latest', async () => {
-    const history = HISTORY as Record<'skills' | 'personas', Record<string, string[]>>
+  it('include the version of each bundled skill and mode that ships now, as its latest', async () => {
+    const history = HISTORY as Record<'skills' | 'modes', Record<string, string[]>>
     for (const name of readdirSync(join(RES, 'skills'))) {
       expect(history.skills[name]?.at(-1), `${name}: run npm run bundled-history`).toBe(await contentHash(join(RES, 'skills', name)))
     }
-    for (const f of readdirSync(join(RES, 'personas'))) {
+    for (const f of readdirSync(join(RES, 'modes'))) {
       const id = f.replace(/\.md$/, '')
-      expect(history.personas[id]?.at(-1), `${id}: run npm run bundled-history`).toBe(await contentHash(join(RES, 'personas', f)))
+      expect(history.modes[id]?.at(-1), `${id}: run npm run bundled-history`).toBe(await contentHash(join(RES, 'modes', f)))
     }
   })
 
@@ -152,27 +152,35 @@ describe('a workspace', () => {
   const skillsDir = (ws: string) => join(ws, '.hive', 'skills')
   const OLD_HANDOVER = '---\nname: handover\ndescription: An older handover skill.\n---\n\nOld text.\n'
   const OLD_OVERSEER = '---\nname: Overseer\ndescription: A lighthouse keeper.\nicon: 🗼\n---\n\nYou keep the light.\n'
+  const OLD_COORDINATOR = '---\nname: Coordinator\ndescription: An older coordinator.\nicon: 🧭\n---\n\nOld text.\n'
   let mod: typeof import('../src/main/bundled')
   let wsMod: typeof import('../src/main/workspace')
   let skills: typeof import('../src/main/skills')
+  let modesMod: typeof import('../src/main/modes')
   let oldHash = ''
+  let oldCoordinator = ''
 
   beforeAll(async () => {
     // The history this Hive "shipped": an older handover, then today's of each.
     const old = join(base, 'old-handover')
     mkdirSync(old, { recursive: true })
     writeFileSync(join(old, 'SKILL.md'), OLD_HANDOVER)
-    const history = structuredClone(HISTORY) as Record<'skills' | 'personas', Record<string, string[]>>
+    const history = structuredClone(HISTORY) as Record<'skills' | 'modes', Record<string, string[]>>
     oldHash = await contentHash(old)
     history.skills.handover = [oldHash, ...history.skills.handover]
     // An Overseer persona this Hive "shipped" before working modes replaced it (#259).
     writeFileSync(join(base, 'old-overseer.md'), OLD_OVERSEER)
-    history.personas.overseer = [...(history.personas.overseer ?? []), await contentHash(join(base, 'old-overseer.md'))]
+    history.modes.overseer = [...(history.modes.overseer ?? []), await contentHash(join(base, 'old-overseer.md'))]
+    // An older Coordinator, so a copy of it is an untouched one to update.
+    writeFileSync(join(base, 'old-coordinator.md'), OLD_COORDINATOR)
+    oldCoordinator = await contentHash(join(base, 'old-coordinator.md'))
+    history.modes.coordinator = [oldCoordinator, ...history.modes.coordinator]
     vi.resetModules()
     vi.doMock('../src/main/bundledHistory.json', () => ({ default: history }))
     mod = await import('../src/main/bundled')
     wsMod = await import('../src/main/workspace')
     skills = await import('../src/main/skills')
+    modesMod = await import('../src/main/modes')
   })
   afterAll(() => rmSync(base, { recursive: true, force: true }))
 
@@ -182,14 +190,14 @@ describe('a workspace', () => {
     return w
   }
 
-  it('a new one gets every bundled skill and persona, and the manifest records them', async () => {
+  it('a new one gets every bundled skill and mode, and the manifest records them', async () => {
     const ws = join(base, 'fresh')
     mkdirSync(ws, { recursive: true })
     const w = await opened(ws)
     try {
       await wsMod.inWorkspace(w, () => mod.syncBundled({ fresh: true }))
       expect(readdirSync(skillsDir(ws)).sort()).toEqual(readdirSync(join(RES, 'skills')).sort())
-      expect(readdirSync(join(ws, '.hive', 'personas')).sort()).toEqual(readdirSync(join(RES, 'personas')).sort())
+      expect(readdirSync(join(ws, '.hive', 'modes')).sort()).toEqual(readdirSync(join(RES, 'modes')).sort())
       const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
       expect(m.skills['work-on-card'].from).toBe(await contentHash(join(RES, 'skills', 'work-on-card')))
     } finally {
@@ -199,7 +207,7 @@ describe('a workspace', () => {
 
   it('an older one: untouched copies updated, edited ones and the user’s kept, deleted ones left, new ones added', async () => {
     const ws = join(base, 'older')
-    // Hive 0.3's workspace: skills (one untouched old, one edited, one deleted, one a user folder) and no personas folder.
+    // Hive 0.3's workspace: skills (one untouched old, one edited, one deleted, one a user folder) and no modes folder.
     mkdirSync(join(ws, '.hive', 'skills', 'handover'), { recursive: true })
     writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), OLD_HANDOVER.replace(/\n/g, '\r\n'))
     mkdirSync(join(skillsDir(ws), 'merge-ready'), { recursive: true })
@@ -215,7 +223,7 @@ describe('a workspace', () => {
       expect(text('merge-ready')).toContain('My own steps.')
       expect(existsSync(join(skillsDir(ws), 'pick-up'))).toBe(false)
       expect(existsSync(join(skillsDir(ws), 'work-on-card', 'SKILL.md'))).toBe(true)
-      expect(readdirSync(join(ws, '.hive', 'personas')).length).toBe(readdirSync(join(RES, 'personas')).length)
+      expect(readdirSync(join(ws, '.hive', 'modes')).length).toBe(readdirSync(join(RES, 'modes')).length)
 
       // The views: the edited copy is "changed", the deleted one "missing" (Restore), the rest Hive's.
       const listed = await wsMod.inWorkspace(w, () => skills.hiveSkills(true))
@@ -239,27 +247,80 @@ describe('a workspace', () => {
 
   it('retires the old personas (#259): an untouched copy goes, an edited one stays, and an Assistant that used one moves to its mode', async () => {
     const ws = join(base, 'retired')
-    const personas = join(ws, '.hive', 'personas')
-    mkdirSync(personas, { recursive: true })
-    writeFileSync(join(personas, 'overseer.md'), OLD_OVERSEER.replace(/\n/g, '\r\n'))
-    writeFileSync(join(personas, 'reviewer.md'), '---\nname: Reviewer\n---\n\nMy own reviewer.\n')
+    const modes = join(ws, '.hive', 'modes')
+    mkdirSync(modes, { recursive: true })
+    writeFileSync(join(modes, 'overseer.md'), OLD_OVERSEER.replace(/\n/g, '\r\n'))
+    writeFileSync(join(modes, 'reviewer.md'), '---\nname: Reviewer\n---\n\nMy own reviewer.\n')
     // The workspace's Assistant chose the Overseer.
     mkdirSync(join(ws, '.hive', 'assistant', '.hive'), { recursive: true })
-    writeFileSync(join(ws, '.hive', 'assistant', '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'assistant', name: 'Assistant', persona: 'overseer' }] }))
+    writeFileSync(join(ws, '.hive', 'assistant', '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'assistant', name: 'Assistant', mode: 'overseer' }] }))
     const w = await opened(ws)
     try {
       await wsMod.inWorkspace(w, () => mod.syncBundled())
-      expect(existsSync(join(personas, 'overseer.md'))).toBe(false)
-      expect(readFileSync(join(personas, 'reviewer.md'), 'utf8')).toContain('My own reviewer.')
+      expect(existsSync(join(modes, 'overseer.md'))).toBe(false)
+      expect(readFileSync(join(modes, 'reviewer.md'), 'utf8')).toContain('My own reviewer.')
       // The new modes are added (Planner, which shipped before as a persona, counts as deleted here: no manifest).
-      for (const mode of ['coordinator', 'qa-triager', 'release-manager']) expect(existsSync(join(personas, `${mode}.md`)), mode).toBe(true)
+      for (const mode of ['coordinator', 'qa-triager', 'release-manager']) expect(existsSync(join(modes, `${mode}.md`)), mode).toBe(true)
       const cfg = await wsMod.inWorkspace(w, () => w.projectConfig(w.assistantHome))
-      expect(cfg.agents.find((a) => a.id === 'assistant')?.persona).toBe('coordinator')
+      expect(cfg.agents.find((a) => a.id === 'assistant')?.mode).toBe('coordinator')
       const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
-      expect(m.personas.overseer).toBeUndefined()
+      expect(m.modes.overseer).toBeUndefined()
       // Again: nothing more to do (the edited one is the user's).
       await wsMod.inWorkspace(w, () => mod.syncBundled())
-      expect(existsSync(join(personas, 'reviewer.md'))).toBe(true)
+      expect(existsSync(join(modes, 'reviewer.md'))).toBe(true)
+    } finally {
+      await wsMod.disposeWorkspaceService(w)
+    }
+  })
+
+  it('moves .hive/personas from before 0.9.3 to .hive/modes (#1084): edits kept, the copies still tracked, the chosen mode kept', async () => {
+    const ws = join(base, 'personas')
+    const legacy = join(ws, '.hive', 'personas')
+    const modes = join(ws, '.hive', 'modes')
+    mkdirSync(legacy, { recursive: true })
+    // Hive 0.9.2's workspace: an untouched older Coordinator, an edited Planner, the user's own mode, QA triager deleted.
+    writeFileSync(join(legacy, 'coordinator.md'), OLD_COORDINATOR)
+    writeFileSync(join(legacy, 'planner.md'), '---\nname: Planner\n---\n\nMy own planning.\n')
+    writeFileSync(join(legacy, 'my-own.md'), '---\nname: My own\n---\n\nMine.\n')
+    const planner = await contentHash(join(RES, 'modes', 'planner.md'))
+    writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify({ skills: {}, personas: { coordinator: { from: oldCoordinator }, planner: { from: planner }, 'qa-triager': { from: null } } }))
+    // Its Assistant chose the user's mode, in the agent's `persona` of then.
+    mkdirSync(join(ws, '.hive', 'assistant', '.hive'), { recursive: true })
+    writeFileSync(join(ws, '.hive', 'assistant', '.hive', 'project.json'), JSON.stringify({ version: 2, agents: [{ id: 'assistant', name: 'Assistant', persona: 'my-own' }] }))
+    // As Hive opens it: the bundled copies are brought up to date before its folders are watched (ipc.ts).
+    let before: { dir: string; mode: string | undefined } | null = null
+    wsMod.WorkspaceService.onOpened = async () => {
+      // Before the move (or while it can't be made), the modes are read where they are.
+      before = { dir: wsMod.workspace.modesDir, mode: (await modesMod.readMode('my-own'))?.body }
+      await mod.syncBundled()
+    }
+    const w = await opened(ws).finally(() => (wsMod.WorkspaceService.onOpened = null))
+    try {
+      expect(before).toEqual({ dir: legacy, mode: expect.stringContaining('Mine.') })
+      expect(existsSync(legacy)).toBe(false)
+      expect(w.modesDir).toBe(modes)
+      expect(readFileSync(join(modes, 'coordinator.md'), 'utf8')).toBe(readFileSync(join(RES, 'modes', 'coordinator.md'), 'utf8'))
+      expect(readFileSync(join(modes, 'planner.md'), 'utf8')).toContain('My own planning.')
+      expect(readFileSync(join(modes, 'my-own.md'), 'utf8')).toContain('Mine.')
+      expect(existsSync(join(modes, 'qa-triager.md'))).toBe(false)
+      expect(existsSync(join(modes, 'release-manager.md'))).toBe(true)
+      const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
+      expect(m.personas).toBeUndefined()
+      expect(m.modes).toMatchObject({ coordinator: { from: await contentHash(join(RES, 'modes', 'coordinator.md')) }, planner: { from: planner }, 'qa-triager': { from: null } })
+      const listed = Object.fromEntries((await wsMod.inWorkspace(w, () => modesMod.listModes())).map((p) => [p.id, p.bundled]))
+      expect(listed).toMatchObject({ coordinator: 'same', planner: 'changed', 'qa-triager': 'missing' })
+      expect(listed['my-own']).toBeUndefined()
+      const cfg = await wsMod.inWorkspace(w, () => w.projectConfig(w.assistantHome))
+      expect(cfg.agents.find((a) => a.id === 'assistant')).toMatchObject({ mode: 'my-own' })
+      expect(cfg.agents.find((a) => a.id === 'assistant')).not.toHaveProperty('persona')
+
+      // An older Hive opening it again makes .hive/personas once more: it is left alone, and .hive/modes is used.
+      mkdirSync(legacy, { recursive: true })
+      writeFileSync(join(legacy, 'coordinator.md'), OLD_COORDINATOR)
+      await wsMod.inWorkspace(w, () => mod.syncBundled())
+      expect(w.modesDir).toBe(modes)
+      expect(readFileSync(join(legacy, 'coordinator.md'), 'utf8')).toBe(OLD_COORDINATOR)
+      expect(readFileSync(join(modes, 'planner.md'), 'utf8')).toContain('My own planning.')
     } finally {
       await wsMod.disposeWorkspaceService(w)
     }
@@ -314,21 +375,21 @@ describe('a workspace', () => {
       await wsMod.inWorkspace(w, () => mod.syncBundled({ fresh: true }))
       // Another Hive (newer, sharing the workspace) gave its own versions, which this one doesn't know.
       writeFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'A newer handover.\n')
-      writeFileSync(join(ws, '.hive', 'personas', 'planner.md'), '---\nname: Planner\n---\nA newer planner.\n')
+      writeFileSync(join(ws, '.hive', 'modes', 'planner.md'), '---\nname: Planner\n---\nA newer planner.\n')
       const m = JSON.parse(readFileSync(join(ws, '.hive', 'bundled.json'), 'utf8'))
       m.skills.handover.from = 'feedfacefeedface'
-      m.personas.planner.from = 'feedfacefeedface'
+      m.modes.planner.from = 'feedfacefeedface'
       writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify(m))
       await wsMod.inWorkspace(w, () => mod.syncBundled())
       expect(readFileSync(join(skillsDir(ws), 'handover', 'SKILL.md'), 'utf8')).toBe('A newer handover.\n')
       const h = (await wsMod.inWorkspace(w, () => skills.hiveSkills(true))).find((x) => x.name === 'handover')!
       expect([h.bundled, h.updateAvailable]).toEqual(['changed', undefined])
-      const status = await wsMod.inWorkspace(w, () => mod.bundledStatus('personas', 'planner', join(ws, '.hive', 'personas', 'planner.md')))
+      const status = await wsMod.inWorkspace(w, () => mod.bundledStatus('modes', 'planner', join(ws, '.hive', 'modes', 'planner.md')))
       expect(status).toEqual({ bundled: 'changed' })
-      // From a version this Hive knows to be older, an update is offered (personas too).
-      m.personas.planner.from = (HISTORY as { personas: Record<string, string[]> }).personas.planner[0]
+      // From a version this Hive knows to be older, an update is offered (modes too).
+      m.modes.planner.from = (HISTORY as { modes: Record<string, string[]> }).modes.planner[0]
       writeFileSync(join(ws, '.hive', 'bundled.json'), JSON.stringify(m))
-      expect(await wsMod.inWorkspace(w, () => mod.bundledStatus('personas', 'planner', join(ws, '.hive', 'personas', 'planner.md')))).toEqual({ bundled: 'changed', updateAvailable: true })
+      expect(await wsMod.inWorkspace(w, () => mod.bundledStatus('modes', 'planner', join(ws, '.hive', 'modes', 'planner.md')))).toEqual({ bundled: 'changed', updateAvailable: true })
     } finally {
       await wsMod.disposeWorkspaceService(w)
     }

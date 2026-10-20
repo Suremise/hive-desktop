@@ -58,7 +58,7 @@ export interface LaunchContext {
   privateDir: string
   /** Hive's guidance for the agent (the hive MCP server's instructions), for providers that don't show MCP instructions themselves. */
   guidance: string
-  /** More instructions for this launch, over the provider's own (the Hive Assistant's role and persona). */
+  /** More instructions for this launch, over the provider's own (the Hive Assistant's role and mode). */
   instructions?: string
   /** Tools of the hive MCP server this launch may use without asking, for providers that can pre-approve tools. */
   trustedHiveTools?: string[]

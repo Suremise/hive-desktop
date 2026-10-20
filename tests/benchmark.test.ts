@@ -92,11 +92,30 @@ describe('scenario benchmarks', () => {
     }
   })
 
+  it("a benchmark saved before 0.9.3 counts its persona's size as its mode's (#1084)", () => {
+    const now = variant((b) => {
+      const m = sampleOf(b, 'card-detail').measures
+      m.modeBytes = 50
+      m.modeChars = 40
+    })
+    const old = variant((b) => {
+      const m = sampleOf(b, 'card-detail').measures
+      delete m.modeBytes
+      delete m.modeChars
+      m.personaBytes = 50
+      m.personaChars = 40
+    })
+    const measures = (a: Artifact) => a.scenarios!.find((x) => x.id === 'card-detail')!.samples[0].measures!
+    expect(measures(old)).toEqual(measures(now))
+    expect(measures(old)).toMatchObject({ modeBytes: 50, modeChars: 40 })
+    expect(scenario(compareArtifacts(now, old), 'card-detail').status).toBe('same')
+  })
+
   it('what wasn’t measured stays unknown: no zero-filled totals, no judgement on a partial measurement', () => {
     const base = bench('baseline')
     const missing = variant((b) => {
       const m = sampleOf(b, 'card-detail').measures
-      for (const k of ['coreBytes', 'customBytes', 'roleBytes', 'personaBytes', 'catalogBytes', 'toolListBytes', 'toolBytes']) delete m[k]
+      for (const k of ['coreBytes', 'customBytes', 'roleBytes', 'modeBytes', 'catalogBytes', 'toolListBytes', 'toolBytes']) delete m[k]
     })
     const s = scenario(compareArtifacts(base, missing), 'card-detail')
     expect(s.measures.find((m) => m.key === 'contextBytes')).toMatchObject({ incomplete: true, delta: null })
@@ -214,7 +233,7 @@ function exportFile(opts: { scope?: any; sanitized?: boolean; own?: boolean; obs
   const to = Date.parse('2026-10-03T12:00:00Z')
   const from = to - hours * 3_600_000
   const api = (n: number) => (opts.brokenApi ? {} : [{ route: '/v1/tasks', method: 'GET', role: 'agent', outcome: 'ok', count: n, totalMs: n, maxMs: 1, histogram: [], requestBytes: 0, responseBytes: n * 100 }])
-  const part = (n: number) => ({ api: api(n), mcp: [{ tool: 'hive_list_tasks', role: 'agent', mode: 'compact', outcome: 'ok', count: n, totalMs: 0, maxMs: 0, histogram: [], chars: n * 50, bytes: n * 50 }], guidance: [{ provider: 'claude-code', role: 'agent', launches: 1, guidanceBytes: 1000, customBytes: 50, roleBytes: 0, personaBytes: 0, skillCatalogBytes: 300 }], catalog: [] })
+  const part = (n: number) => ({ api: api(n), mcp: [{ tool: 'hive_list_tasks', role: 'agent', mode: 'compact', outcome: 'ok', count: n, totalMs: 0, maxMs: 0, histogram: [], chars: n * 50, bytes: n * 50 }], guidance: [{ provider: 'claude-code', role: 'agent', launches: 1, guidanceBytes: 1000, customBytes: 50, roleBytes: 0, modeBytes: 0, skillCatalogBytes: 300 }], catalog: [] })
   const reqs = opts.requests ?? { alpha: 10, beta: 20 }
   const scope = opts.scope ?? { kind: 'workspace' }
   const report = {
@@ -354,7 +373,7 @@ describe('the scenario harness writes what the app reads (tests/scenarios/benchm
   const { benchmarkOf, pruneResults, saveBaseline, resultsFolder, measuresOf, LIMITS } = require_('./scenarios/benchmark.cjs')
   const meta = { fixturesVersion: 5, provider: 'fake-codex', model: '(default)', effort: '(default)', mode: 'full-access', repeats: 2, source: { head: 'abc1234', dirty: null }, guidance: 'g1', when: '2026-10-03T12:00:00.000Z', spentUsd: 0, budgetUsd: 2 }
   /** A metrics report as GET /v1/metrics answers, with `n` of each thing (and the harness's own role-api requests). */
-  const report = (n: number) => ({ projects: { alpha: { api: [{ role: 'agent', outcome: 'ok', count: n, requestBytes: n, responseBytes: n * 10, totalMs: n }, { role: 'api', outcome: 'ok', count: 100, requestBytes: 1, responseBytes: 1, totalMs: 1 }], mcp: [{ mode: 'compact', outcome: 'ok', count: n, chars: n * 5, bytes: n * 6, totalMs: 1 }], guidance: [{ launches: n ? 1 : 0, guidanceBytes: n * 100, guidanceChars: n * 90, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, personaBytes: 0, personaChars: 0, skillCatalogBytes: n * 20, skillBytes: n * 1000, skills: 8, skillsNotDelivered: 0, skillsUnmeasured: 0 }], catalog: [{ starts: n ? 1 : 0, toolsBytes: n * 50 }] } }, workspace: { api: [], mcp: [], guidance: [], catalog: [] }, skills: { scans: { count: n }, hits: n, misses: 0, invalidations: 0, bytes: 0, tooLarge: 0 }, dropped: 0, recording: true })
+  const report = (n: number) => ({ projects: { alpha: { api: [{ role: 'agent', outcome: 'ok', count: n, requestBytes: n, responseBytes: n * 10, totalMs: n }, { role: 'api', outcome: 'ok', count: 100, requestBytes: 1, responseBytes: 1, totalMs: 1 }], mcp: [{ mode: 'compact', outcome: 'ok', count: n, chars: n * 5, bytes: n * 6, totalMs: 1 }], guidance: [{ launches: n ? 1 : 0, guidanceBytes: n * 100, guidanceChars: n * 90, customBytes: 0, customChars: 0, roleBytes: 0, roleChars: 0, modeBytes: 0, modeChars: 0, skillCatalogBytes: n * 20, skillBytes: n * 1000, skills: 8, skillsNotDelivered: 0, skillsUnmeasured: 0 }], catalog: [{ starts: n ? 1 : 0, toolsBytes: n * 50 }] } }, workspace: { api: [], mcp: [], guidance: [], catalog: [] }, skills: { scans: { count: n }, hits: n, misses: 0, invalidations: 0, bytes: 0, tooLarge: 0 }, dropped: 0, recording: true })
   const result = (id: string, sample: number, extra: object = {}) => ({
     scenario: id,
     title: `Café “${id}” 🐝`,

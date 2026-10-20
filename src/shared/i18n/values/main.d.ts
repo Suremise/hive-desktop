@@ -77,6 +77,8 @@ interface HiveMessageValues {
   'main.mergeSlot.leftBody': { branch: string | number; hasCards: string; cards: string | number; folder: string | number }
   'main.mergeSlot.leftBodyGone': { branch: string | number; hasCards: string; cards: string | number; project: string | number; folder: string | number }
   'main.mergeSlot.leftTitle': { agent: string | number }
+  'main.modes.retiredBody': { moved: string | number }
+  'main.modes.retiredTitle': undefined
   'main.move.adoptFailed': { why: string | number }
   'main.move.already': undefined
   'main.move.alsoMoved': { n: number; things: string | number; from: string | number; to: string | number }
@@ -109,8 +111,6 @@ interface HiveMessageValues {
   'main.move.watches': { n: number }
   'main.move.workingMoved': { projects: string | number }
   'main.move.workingRenamed': { n: number; projects: string | number }
-  'main.personas.retiredBody': { moved: string | number }
-  'main.personas.retiredTitle': undefined
   'main.plan.close': undefined
   'main.plan.pause': undefined
   'main.plan.resetsAt': { time: string | number }

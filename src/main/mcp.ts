@@ -242,7 +242,7 @@ export async function saveMcp(name: string, text: string, expected?: string): Pr
 export async function deleteMcp(name: string): Promise<void> {
   if (!validMcpName(name)) throw hiveError(M.invalidName)
   return inTurn(async () => {
-    // To the Recycle Bin, like files, skills, personas and sessions.
+    // To the Recycle Bin, like files, skills, modes and sessions.
     const file = join(workspace.mcpDir, `${name}.json`)
     // Its folder too, when its definition runs what is in it (a server added from a .zip, #550). A definition that
     // can't be read as one (broken JSON, not an object) says nothing about a folder: only the file goes.

@@ -761,7 +761,7 @@ The panel's **⋯** menu opens the same view with **All Conversations…** or **
 
 ### Modes
 
-A **mode** is how the Assistant works: what it puts first, its habits, and the shape of what it hands back. It is written as instructions in a Markdown file in the workspace's `.hive/personas` folder. Hive comes with four:
+A **mode** is how the Assistant works: what it puts first, its habits, and the shape of what it hands back. It is written as instructions in a Markdown file in the workspace's `.hive/modes` folder (`.hive/personas` before Hive 0.9.3: Hive moves it, with your edits, when the workspace opens). Hive comes with four:
 
 - 🧭 **Coordinator** (the default): runs the work across your agents. It checks the board and the agents before acting, reports in short status tables, starts agents on settled cards, follows the lanes until they end, checks what agents report, and asks you only for real decisions. With a team (three or more agents, builder and reviewer pairs, or agents in worktrees) it plans lanes by the files they touch, briefs each builder and reviewer in full and watches every lane to its end; with one or two agents it stays light, and at most suggests more structure in a line. Either way you can still use card loops, reviews and everything else.
 - 🗺️ **Planner**: shapes work before anyone starts it. It leads with the open design questions (a recommendation each), compares options, splits the work into lanes by the files it touches, and writes complete cards.

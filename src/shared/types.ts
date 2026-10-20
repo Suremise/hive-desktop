@@ -269,12 +269,12 @@ export interface AppSettings {
 
 export type AssistantPanelSide = 'right' | 'left'
 
-/** The Hive Assistant's defaults: its provider, its persona and, per provider, its model, effort, mode and arguments. */
+/** The Hive Assistant's defaults: its provider, its mode and, per provider, its model, effort, mode and arguments. */
 export interface AssistantSettings {
   /** '' follows the default provider. */
   provider: ProviderId | ''
-  /** The persona new conversations use (a file in the workspace's .hive/personas, without .md). */
-  persona: string
+  /** The mode new conversations use (a file in the workspace's .hive/modes, without .md). */
+  mode: string
   /** What the Assistant may do beyond looking (see AssistantControl). */
   control: AssistantControl
   /**
@@ -363,17 +363,17 @@ export interface AssistantProviderSettings {
   use200kContext: '' | 'on' | 'off'
 }
 
-/** A persona the Hive Assistant can take: a Markdown file of instructions in the workspace's .hive/personas. */
-export interface PersonaInfo {
+/** A mode the Hive Assistant can take: a Markdown file of instructions in the workspace's .hive/modes. */
+export interface ModeInfo {
   /** The file name without .md. */
   id: string
   name: string
   description: string
   /** An emoji or short mark shown beside the name. */
   icon: string
-  /** The file; for a bundled persona missing from the workspace, its copy in Hive's installation. */
+  /** The file; for a bundled mode missing from the workspace, its copy in Hive's installation. */
   path: string
-  /** Personas that ship with Hive: the workspace copy matches Hive's, was changed, or isn't in the workspace. */
+  /** Modes that ship with Hive: the workspace copy matches Hive's, was changed, or isn't in the workspace. */
   bundled?: 'same' | 'changed' | 'missing'
   /** A changed copy of an older version of Hive's: reverting it also brings in this version's. */
   updateAvailable?: true
@@ -971,8 +971,8 @@ export interface AgentDef {
   lastSessionId?: string
   /** The worktree's setup command hasn't run successfully yet. */
   needsSetup?: boolean
-  /** The Hive Assistant only: this workspace's persona, over Settings → Assistant. */
-  persona?: string
+  /** The Hive Assistant only: this workspace's mode, over Settings → Assistant. */
+  mode?: string
   /** What the agent is for ("builder", "reviewer"; free text, #126): saved in templates; empty, its name is its role. */
   role?: string
   /**
@@ -983,7 +983,7 @@ export interface AgentDef {
 }
 
 /** A change to an agent's settings: empty values (null for use200kContext and mcpServers) clear an override so it follows the project. */
-export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'persona' | 'role'>> & { use200kContext?: boolean | null; mcpServers?: string[] | null }
+export type AgentPatch = Partial<Pick<AgentDef, 'name' | 'provider' | 'model' | 'effort' | 'permissionMode' | 'mode' | 'role'>> & { use200kContext?: boolean | null; mcpServers?: string[] | null }
 
 /** What loading a template into a project would do (#126), and what stops it now. */
 /**
@@ -1253,10 +1253,10 @@ export interface SessionRecord {
   /** A session the CLI started for another one (e.g. a Codex guardian review), kept when it was adopted. */
   sub?: SubSession
   /**
-   * A Hive Assistant conversation's mode (a persona id) it was last given: the one it started in, or the last one Hive
+   * A Hive Assistant conversation's mode (its id) it was last given: the one it started in, or the last one Hive
    * told it. A resume in another mode (or with none recorded) tells it the mode once (#334).
    */
-  persona?: string
+  mode?: string
 }
 
 /**
@@ -2386,7 +2386,7 @@ export type HiveEvent =
   /** Files changed in a project that has a Files or Images tab open. dirs are relative, '' is the root. */
   | { type: 'files-changed'; projectPath: string; dirs: string[] }
   | { type: 'skills-changed' }
-  | { type: 'personas-changed' }
+  | { type: 'modes-changed' }
   /** A workspace's Assistant journal changed (#1033: its browser reads it again). */
   | { type: 'journal-changed'; workspacePath: string }
   /** The Hive Assistant acted, or asks the user something (its home's path names the window). */

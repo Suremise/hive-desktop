@@ -81,9 +81,9 @@ const { unusedWorktreesNamed } = await import('../src/main/unusedWorktrees')
 describe('the template format', () => {
   const agents: AgentDef[] = [
     { id: 'a1', name: 'Builder', role: 'builder', provider: 'claude-code', model: 'opus', effort: 'high', permissionMode: 'acceptEdits', use200kContext: true, lastSessionId: 's1', worktree: { path: 'C:/w/b', branch: 'hive/builder', base: 'main' }, needsSetup: true },
-    { id: 'a2', name: 'Reviewer', persona: 'x' } as AgentDef
+    { id: 'a2', name: 'Reviewer', mode: 'x' } as AgentDef
   ]
-  it("saves each agent's settings, role, provider and whether it has a worktree, and the layout; never sessions, paths, setup state or personas", () => {
+  it("saves each agent's settings, role, provider and whether it has a worktree, and the layout; never sessions, paths, setup state or modes", () => {
     const t = templateFrom('  Build and review ', agents, 'columns2', () => 'codex', new Date('2026-10-05T10:00:00Z'))
     expect(t).toEqual({
       version: TEMPLATE_VERSION,
@@ -96,7 +96,7 @@ describe('the template format', () => {
         { name: 'Reviewer', provider: 'codex', worktree: false }
       ]
     })
-    expect(JSON.stringify(t)).not.toMatch(/s1|C:\/w\/b|hive\/builder|needsSetup|persona|"id"/)
+    expect(JSON.stringify(t)).not.toMatch(/s1|C:\/w\/b|hive\/builder|needsSetup|"mode"|"id"/)
     expect(readAny(JSON.parse(JSON.stringify(t)))).toEqual(t)
   })
 
@@ -418,7 +418,7 @@ describe('saving and loading templates', () => {
     expect(basename(file)).toBe('Solo act.hive-template.json')
     await run(() => templates.exportTemplate({ scope: 'workspace', file: 'solo-act.json' }, file))
     const text = readFileSync(file, 'utf8')
-    expect(text).not.toMatch(/[A-Za-z]:\\\\|hive-templates-|"id"|lastSessionId|worktree"\s*:\s*\{|needsSetup|persona/)
+    expect(text).not.toMatch(/[A-Za-z]:\\\\|hive-templates-|"id"|lastSessionId|worktree"\s*:\s*\{|needsSetup|"mode"/)
     const exported = JSON.parse(text)
     expect(Object.keys(exported).sort()).toEqual(['agents', 'layout', 'name', 'savedAt', 'version'])
     const before = (await run(() => templates.listAllTemplates())).find((t) => t.scope === 'workspace' && t.file === 'solo-act.json')!

@@ -1,6 +1,6 @@
-// Records each version of Hive's bundled skills and personas (resources/skills, resources/personas) in
+// Records each version of Hive's bundled skills and modes (resources/skills, resources/modes) in
 // src/main/bundledHistory.json, oldest first, so a workspace's untouched copy of an older version can be told from one
-// the user changed (src/main/bundled.ts). Run it after changing a bundled skill or persona: `npm run bundled-history`
+// the user changed (src/main/bundled.ts). Run it after changing a bundled skill or mode: `npm run bundled-history`
 // (tests/bundled.test.ts fails until the current versions are recorded). Entries are only ever appended.
 // `--from-git` also walks the git history for versions not yet recorded (how the file was first made).
 import { execFileSync } from 'child_process'
@@ -31,7 +31,7 @@ function filesOnDisk(path) {
     for (const e of readdirSync(rel ? join(path, rel) : path, { withFileTypes: true })) {
       const r = rel ? `${rel}/${e.name}` : e.name
       // contentHash() counts a link as one (never following it); Hive ships none, so none may be recorded either.
-      if (e.isSymbolicLink()) throw new Error(`${path}/${r} is a link: bundled skills and personas are plain files`)
+      if (e.isSymbolicLink()) throw new Error(`${path}/${r} is a link: bundled skills and modes are plain files`)
       if (e.isDirectory()) walk(r)
       else if (e.isFile() && !SKIP.has(e.name)) files.push([r, readFileSync(join(path, r))])
     }
@@ -56,7 +56,7 @@ function gitVersions(rel, isFile) {
 }
 
 const fromGit = process.argv.includes('--from-git')
-const history = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { skills: {}, personas: {} }
+const history = existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : { skills: {}, modes: {} }
 let added = 0
 const record = (kind, id, h) => {
   const list = (history[kind][id] ??= [])
@@ -65,7 +65,7 @@ const record = (kind, id, h) => {
     added++
   }
 }
-for (const [kind, dir, isFile] of [['skills', 'resources/skills', false], ['personas', 'resources/personas', true]]) {
+for (const [kind, dir, isFile] of [['skills', 'resources/skills', false], ['modes', 'resources/modes', true]]) {
   for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
     if (isFile ? !e.isFile() || !e.name.endsWith('.md') : !e.isDirectory() || !existsSync(join(root, dir, e.name, 'SKILL.md'))) continue
     const id = isFile ? e.name.slice(0, -3) : e.name
@@ -75,5 +75,5 @@ for (const [kind, dir, isFile] of [['skills', 'resources/skills', false], ['pers
   }
 }
 const sorted = (o) => Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]]))
-writeFileSync(out, JSON.stringify({ skills: sorted(history.skills), personas: sorted(history.personas) }, null, 2) + '\n')
+writeFileSync(out, JSON.stringify({ skills: sorted(history.skills), modes: sorted(history.modes) }, null, 2) + '\n')
 console.log(added ? `Recorded ${added} new version(s) in src/main/bundledHistory.json` : 'Every bundled version is already recorded.')

@@ -7159,11 +7159,11 @@ button.mode-badge.badge:hover {
   flex-shrink: 0;
 }
 /* The mode as a pill (its menu): it gives way first, with an ellipsis. */
-.assistant-header > .tip-wrap:has(> .assistant-persona) {
+.assistant-header > .tip-wrap:has(> .assistant-mode) {
   min-width: 0;
   flex-shrink: 1;
 }
-.assistant-persona {
+.assistant-mode {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -7179,18 +7179,18 @@ button.mode-badge.badge:hover {
   font-size: 11px;
   cursor: pointer;
 }
-.assistant-persona:hover {
+.assistant-mode:hover {
   color: var(--fg);
   background: var(--bg-hover);
 }
-.assistant-persona .codicon {
+.assistant-mode .codicon {
   font-size: 12px;
   flex-shrink: 0;
 }
-.assistant-persona-icon {
+.assistant-mode-icon {
   flex-shrink: 0;
 }
-.assistant-persona-name {
+.assistant-mode-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -7675,16 +7675,16 @@ body.pane-resizing-v .monaco-editor {
   border-radius: 50%;
   background: var(--accent);
 }
-.persona-row .persona-icon {
+.mode-row .mode-icon {
   width: 20px;
   text-align: center;
   font-size: 15px;
   flex-shrink: 0;
 }
-.persona-row.missing {
+.mode-row.missing {
   opacity: 0.6;
 }
-.persona-row .badge {
+.mode-row .badge {
   margin-left: 6px;
 }
 

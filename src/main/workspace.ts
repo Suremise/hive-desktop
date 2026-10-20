@@ -7,7 +7,7 @@ import { closeJournal } from './journal'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { BrowserWindow } from 'electron'
 import chokidar, { type FSWatcher } from 'chokidar'
-import { ASSISTANT_DIR, ASSISTANT_NAME, PERSONAS_DIR, assistantProjectConfig } from '../shared/assistant'
+import { ASSISTANT_DIR, ASSISTANT_NAME, LEGACY_MODES_DIR, MODES_DIR, assistantProjectConfig } from '../shared/assistant'
 import { DEFAULT_PROJECT_CONFIG, DEFAULT_WORKSPACE_CONFIG, HIVE_DIR, mergeDefaults, migrateProjectConfig, projectAgents, withLegacyProjectFields, withoutSkillSwitches } from '../shared/defaults'
 import { settlePlacements } from '../shared/paneCells'
 import { migratedProjectMcp, migratedWorkspaceMcp } from '../shared/agentMcp'
@@ -210,9 +210,12 @@ export class WorkspaceService {
     return join(this.hiveDir, 'shared')
   }
 
-  /** The Hive Assistant's personas. */
-  get personasDir(): string {
-    return join(this.hiveDir, PERSONAS_DIR)
+  /** The Hive Assistant's modes: their folder from before 0.9.3 while the workspace has only that one (LEGACY_MODES_DIR). */
+  get modesDir(): string {
+    const dir = join(this.hiveDir, MODES_DIR)
+    if (existsSync(dir)) return dir
+    const legacy = join(this.hiveDir, LEGACY_MODES_DIR)
+    return existsSync(legacy) ? legacy : dir
   }
 
   /** The Hive Assistant's home: its one-agent config, sessions and backups (its agent works in the workspace folder). */
@@ -420,7 +423,7 @@ export class WorkspaceService {
       const rel = this.path ? p.slice(this.path.length + 1).replace(/\\/g, '/') : ''
       if (rel.startsWith(`${HIVE_DIR}/shared`)) this.emit({ type: 'notes-changed' })
       else if (rel.startsWith(`${HIVE_DIR}/skills`) || rel.startsWith(`${HIVE_DIR}/mcp`)) this.emit({ type: 'skills-changed' })
-      else if (rel.startsWith(`${HIVE_DIR}/${PERSONAS_DIR}`)) this.emit({ type: 'personas-changed' })
+      else if (rel.startsWith(`${HIVE_DIR}/${MODES_DIR}`) || rel.startsWith(`${HIVE_DIR}/${LEGACY_MODES_DIR}`)) this.emit({ type: 'modes-changed' })
       else if (rel === `${HIVE_DIR}/workspace.json`) void this.reloadConfig()
     })
     this.watcher.on('error', (e) => log.warn('watcher error', e))

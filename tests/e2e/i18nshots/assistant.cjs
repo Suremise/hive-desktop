@@ -69,7 +69,7 @@ async function moreMenu(ctx) {
 
 /** Its mode menu. */
 async function modeMenu(ctx) {
-  await ctx.page.locator('.assistant-header .assistant-persona').first().click()
+  await ctx.page.locator('.assistant-header .assistant-mode').first().click()
   return menuShown(ctx)
 }
 
@@ -87,24 +87,24 @@ async function rail(ctx) {
 
 // --- The Assistant view and its modes.
 
-/** The modes Hive ships, by their files (resources/personas): their names are the window's, their files Hive's. */
+/** The modes Hive ships, by their files (resources/modes): their names are the window's, their files Hive's. */
 const SHIPPED_MODES = ['coordinator', 'planner', 'qa-triager', 'release-manager']
 
 /** A mode's name as its row shows it (the badges after it aside). */
-const modeName = (ctx, id) => ctx.page.locator(`.sidebar .persona-row[data-persona="${id}"] .label`).first().evaluate((el) => el.firstChild?.textContent ?? '')
+const modeName = (ctx, id) => ctx.page.locator(`.sidebar .mode-row[data-mode="${id}"] .label`).first().evaluate((el) => el.firstChild?.textContent ?? '')
 
 /** A mode file's own name (its front matter). */
-const fileName = (ctx, id) => /^name:\s*(.+)$/m.exec(fs.readFileSync(path.join(ctx.workspace, '.hive', 'personas', `${id}.md`), 'utf8'))?.[1].trim()
+const fileName = (ctx, id) => /^name:\s*(.+)$/m.exec(fs.readFileSync(path.join(ctx.workspace, '.hive', 'modes', `${id}.md`), 'utf8'))?.[1].trim()
 
 /**
  * The Assistant view: what it has used, its modes (one of the user's own among them), its conversations. Under the
  * pseudo-locale the shipped modes' names are translated while the user's keeps its own, and no file changes (#806).
  */
 async function assistantView(ctx) {
-  const own = await ctx.inv('personas:create', 'Night owl')
+  const own = await ctx.inv('modes:create', 'Night owl')
   await ctx.command('view.assistant')
   await shown(ctx, ctx.page.locator('.sidebar .assistant-summary'), 'the Assistant view')
-  await shown(ctx, ctx.page.locator(`.sidebar .persona-row[data-persona="${own.id}"]`), 'its modes, with the new one')
+  await shown(ctx, ctx.page.locator(`.sidebar .mode-row[data-mode="${own.id}"]`), 'its modes, with the new one')
   if (ctx.lang === 'en-XA') {
     for (const id of SHIPPED_MODES) {
       const name = await modeName(ctx, id)
@@ -121,7 +121,7 @@ async function assistantView(ctx) {
 
 /** A mode, open in the editor. */
 async function mode(ctx) {
-  await ctx.page.locator('.sidebar .persona-row').first().click()
+  await ctx.page.locator('.sidebar .mode-row').first().click()
   await shown(ctx, ctx.page.locator('.split .editor-toolbar'), 'the mode, open')
   return windowShot()
 }

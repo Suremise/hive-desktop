@@ -7,6 +7,7 @@ import { readKeptJson, writeKeptJson } from './fsutil'
 import { createLogger, userText } from './logger'
 import { keepAsBackup, openStore, readStore, rowKeys, withStoreLock, writeStore, type StoreData, type StoreRow } from './storeRows'
 import { transaction } from './db'
+import { withMode } from '../shared/defaults'
 
 const log = createLogger('sessions')
 
@@ -72,7 +73,8 @@ function recordsOf(records: Row[], read: (kind: 'd:' | 'u:') => Row[]): Sessions
   const f: SessionsFile = EMPTY()
   for (const r of records) {
     const p = parsed(r)
-    if (p.ok) f.sessions.push(p.doc as SessionsFile['sessions'][number])
+    // A record from before 0.9.3 has the Assistant's mode as its persona (#1084).
+    if (p.ok) f.sessions.push((p.doc && typeof p.doc === 'object' && 'persona' in p.doc ? withMode(p.doc as Record<string, unknown>) : p.doc) as SessionsFile['sessions'][number])
   }
   const used = { deleted: false, usage: false }
   lazyLists.set(f, used)

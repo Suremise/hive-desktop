@@ -214,14 +214,14 @@ describe('the sentences once built by hand read as before, in English', () => {
 })
 
 describe("the modes Hive ships: their names are window text, their files aren't", () => {
-  it('each shipped mode has a message for its name, matching the name its file ships with (what personaName compares)', () => {
-    const shipped = readdirSync(join(ROOT, 'resources/personas')).filter((f) => f.endsWith('.md'))
+  it('each shipped mode has a message for its name, matching the name its file ships with (what modeName compares)', () => {
+    const shipped = readdirSync(join(ROOT, 'resources/modes')).filter((f) => f.endsWith('.md'))
     expect(shipped.length).toBeGreaterThan(0)
     const names = Object.entries(CATALOGUE)
       .filter(([id]) => id.startsWith('assistant.modes.shipped.'))
       .map(([, c]) => c.defaultMessage)
     for (const f of shipped) {
-      const name = /^name:\s*(.+)$/m.exec(readFileSync(join(ROOT, 'resources/personas', f), 'utf8'))?.[1].trim()
+      const name = /^name:\s*(.+)$/m.exec(readFileSync(join(ROOT, 'resources/modes', f), 'utf8'))?.[1].trim()
       expect(names, f).toContain(name)
     }
     expect(names).toHaveLength(shipped.length)

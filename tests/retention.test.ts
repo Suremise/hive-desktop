@@ -1,5 +1,5 @@
 // What a workspace's revision inventory keeps (src/main/revisions.ts RETENTION): at the largest supported catalog (the
-// skills folder's 1000 entries, plus personas), unchanged scans, one at a time or ten at once, read no file contents and
+// skills folder's 1000 entries, plus modes), unchanged scans, one at a time or ten at once, read no file contents and
 // no headers; past the retention limits the least recently used entries go one at a time, never the whole inventory.
 // MEASURE=1 prints files, bytes, header bytes and time per scan (docs/ARCHITECTURE.md records them).
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'fs'
@@ -20,10 +20,10 @@ const { readStats } = await import('../src/main/fsutil')
 type WS = ReturnType<typeof createWorkspaceService>
 
 /**
- * A workspace with Hive's skills and personas, then skills up to `entries` in the skills folder (s0, s1…: `added` of
- * them, however many Hive ships), and `personas` more.
+ * A workspace with Hive's skills and modes, then skills up to `entries` in the skills folder (s0, s1…: `added` of
+ * them, however many Hive ships), and `modes` more.
  */
-async function workspace(name: string, entries: number, personas: number, body = 'Step.\n'): Promise<{ w: WS; ws: string; personaPaths: string[]; added: number }> {
+async function workspace(name: string, entries: number, modes: number, body = 'Step.\n'): Promise<{ w: WS; ws: string; modePaths: string[]; added: number }> {
   const ws = join(base, name)
   mkdirSync(ws, { recursive: true })
   const w = createWorkspaceService()
@@ -35,16 +35,16 @@ async function workspace(name: string, entries: number, personas: number, body =
     mkdirSync(join(skills, `s${i}`))
     writeFileSync(join(skills, `s${i}`, 'SKILL.md'), `---\nname: s${i}\ndescription: Skill ${i}.\n---\n\n${body}`)
   }
-  const dir = join(ws, '.hive', 'personas')
-  for (let i = 0; i < personas; i++) writeFileSync(join(dir, `p${i}.md`), `---\nname: P${i}\n---\n\nA persona.\n`)
-  const personaPaths = (await import('fs')).readdirSync(dir).map((f) => join(dir, f))
-  return { w, ws, personaPaths, added: entries - have }
+  const dir = join(ws, '.hive', 'modes')
+  for (let i = 0; i < modes; i++) writeFileSync(join(dir, `p${i}.md`), `---\nname: P${i}\n---\n\nA mode.\n`)
+  const modePaths = (await import('fs')).readdirSync(dir).map((f) => join(dir, f))
+  return { w, ws, modePaths, added: entries - have }
 }
 
-/** One scan as Hive does it: every skill's header and revision (the status), and every persona's revision. */
-const scan = (w: WS, personas: string[]) => inWorkspace(w, async () => {
+/** One scan as Hive does it: every skill's header and revision (the status), and every mode's revision. */
+const scan = (w: WS, modes: string[]) => inWorkspace(w, async () => {
   await skillRevisions()
-  for (const p of personas) await revisionOf(p)
+  for (const p of modes) await revisionOf(p)
 })
 
 async function measure(label: string, fn: () => Promise<unknown>): Promise<{ files: number; bytes: number; metaBytes: number; ms: number }> {
@@ -59,23 +59,23 @@ const nothing = (m: { files: number; bytes: number; metaBytes: number }) => ({ f
 
 describe('the largest supported catalog', () => {
   for (const entries of [999, 1000]) {
-    it(`${entries} skill folders and 14 personas: warm scans read nothing, one at a time or ten at once`, async () => {
-      const { w, personaPaths } = await workspace(`full-${entries}`, entries, 10)
-      const cold = await measure(`${entries} skills, cold`, () => scan(w, personaPaths))
+    it(`${entries} skill folders and 14 modes: warm scans read nothing, one at a time or ten at once`, async () => {
+      const { w, modePaths } = await workspace(`full-${entries}`, entries, 10)
+      const cold = await measure(`${entries} skills, cold`, () => scan(w, modePaths))
       expect(cold.files).toBeGreaterThanOrEqual(entries)
-      expect(nothing(await measure(`${entries} skills, warm`, () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
-      expect(nothing(await measure(`${entries} skills, warm again`, () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
-      expect(nothing(await measure(`${entries} skills, 10 at once`, () => Promise.all(Array.from({ length: 10 }, () => scan(w, personaPaths)))))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      expect(nothing(await measure(`${entries} skills, warm`, () => scan(w, modePaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      expect(nothing(await measure(`${entries} skills, warm again`, () => scan(w, modePaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+      expect(nothing(await measure(`${entries} skills, 10 at once`, () => Promise.all(Array.from({ length: 10 }, () => scan(w, modePaths)))))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
       await disposeWorkspaceService(w)
     }, 180_000)
   }
 
   it('with larger bodies (64 KB each, 300 skills): warm scans still read nothing', async () => {
-    const { w, personaPaths, added } = await workspace('bodies', 300, 0, 'Words. '.repeat(64 * 1024 / 7))
-    const cold = await measure('300 skills of 64 KB, cold', () => scan(w, personaPaths))
+    const { w, modePaths, added } = await workspace('bodies', 300, 0, 'Words. '.repeat(64 * 1024 / 7))
+    const cold = await measure('300 skills of 64 KB, cold', () => scan(w, modePaths))
     // Every big one read (64 KB less a few bytes each), besides Hive's own.
     expect(cold.bytes).toBeGreaterThan(added * 65_000)
-    expect(nothing(await measure('300 skills of 64 KB, warm', () => scan(w, personaPaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
+    expect(nothing(await measure('300 skills of 64 KB, warm', () => scan(w, modePaths)))).toEqual({ files: 0, bytes: 0, metaBytes: 0 })
     await disposeWorkspaceService(w)
   }, 180_000)
 })

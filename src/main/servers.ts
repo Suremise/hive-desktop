@@ -67,7 +67,7 @@ import { lastCardRead, newDecisions, noteCardRead, noticeText } from './decision
 import { appMetrics, clock as metricsClock, knownRoute, metricsHandle, recordApi, recordCatalog, recordMcp, MCP_REPORT_LIMITS, type MetricsHandle } from './metrics'
 import { metricsReport } from './metricsUsage'
 import { apiLabel, beginWork, hookLabel } from './mainStalls'
-import type { MetricOutcome, MetricsQuery } from '../shared/metrics'
+import type { GuidanceSeries, MetricOutcome, MetricsPart, MetricsQuery, MetricsReport } from '../shared/metrics'
 import { agentForToken, agentToken, agentTokenFile, type AgentIdentity } from './agentTokens'
 import { API_EVENTS, apiEventFor, publicRun } from './apiEvents'
 import { clearDiscovery, writeDiscovery } from './apiDiscovery'
@@ -2270,7 +2270,7 @@ route('GET', '/v1/metrics', async ({ query }) => {
   if (scope.kind === 'project' && !scope.project) throw new HttpError(400, 'scope=project needs project')
   const role = query.get('role') ?? undefined
   if (role !== undefined && role !== 'agent' && role !== 'assistant' && role !== 'api') throw new HttpError(400, 'role must be agent, assistant or api')
-  return metricsReport(w, { scope, from: query.get('from') ?? undefined, to: query.get('to') ?? undefined, trend: query.get('trend') === '1', role, provider: query.get('provider') || undefined, own: query.get('own') === '1' }).then(metricsForAgents, (e) => {
+  return metricsReport(w, { scope, from: query.get('from') ?? undefined, to: query.get('to') ?? undefined, trend: query.get('trend') === '1', role, provider: query.get('provider') || undefined, own: query.get('own') === '1' }).then((r) => metricsForAgents(withPersonaAliases(r)), (e) => {
     throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
   })
 })
@@ -2694,6 +2694,15 @@ export function apiErrorReply(e: unknown): { status: number; body: Record<string
 /** A card's history entry or comment: without its id (replies stay lean) or its text as data. */
 export const entryForAgents = <T extends { id?: string; whatText?: unknown; hiveText?: unknown }>({ id: _id, whatText: _what, hiveText: _hive, ...rest }: T): Omit<T, 'id' | 'whatText' | 'hiveText'> => rest
 /** A metrics report: its lists of what wasn't measured or filtered in English only. */
+/**
+ * /v1/metrics in 0.9.3 only (#1084; deprecated, gone in the next release): each guidance series also under its names from before 0.9.3, when the
+ * Assistant's mode was its persona (`personaBytes`, `personaChars`).
+ */
+export function withPersonaAliases(r: MetricsReport): MetricsReport {
+  const part = (p: MetricsPart): MetricsPart => ({ ...p, guidance: p.guidance.map((g) => ({ ...g, personaBytes: g.modeBytes, personaChars: g.modeChars }) as GuidanceSeries) })
+  return { ...r, projects: Object.fromEntries(Object.entries(r.projects).map(([k, p]) => [k, part(p)])), ...(r.workspace ? { workspace: part(r.workspace) } : {}) }
+}
+
 export function metricsForAgents<R extends { notMeasuredText?: unknown; providersNoteText?: unknown; filters?: { notFilteredText?: unknown } }>(r: R): Omit<R, 'notMeasuredText' | 'providersNoteText'> {
   const { notMeasuredText: _m, providersNoteText: _p, ...rest } = r
   if (!rest.filters) return rest

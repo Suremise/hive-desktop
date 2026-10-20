@@ -454,7 +454,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   if (workspace.isAssistantHome(projectPath)) {
     delete patch.name
     delete patch.mcpServers
-  } else delete patch.persona
+  } else delete patch.mode
   const cfg = await workspace.projectConfig(projectPath)
   const agents = projectAgents(cfg)
   if (patch.name !== undefined) {
@@ -467,7 +467,7 @@ export async function updateAgent(projectPath: string, agentId: string, patch: A
   if ('role' in clean) clean.role = cleanRole(clean.role) || undefined
   // null: all of the project's servers again (#537).
   if (mcpServers !== undefined) clean.mcpServers = cleanMcpServers(mcpServers)
-  for (const k of ['model', 'effort', 'permissionMode', 'persona'] as const) if (k in clean && !clean[k]) clean[k] = undefined
+  for (const k of ['model', 'effort', 'permissionMode', 'mode'] as const) if (k in clean && !clean[k]) clean[k] = undefined
   if (use200kContext !== undefined) clean.use200kContext = typeof use200kContext === 'boolean' ? use200kContext : undefined
   if (patch.provider !== undefined) {
     const current = agents.find((a) => a.id === agentId)

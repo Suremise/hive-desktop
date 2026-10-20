@@ -26,7 +26,7 @@ const check = (name, ok, extra = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok || !extra ? '' : ` (${extra})`}`)
 }
 const until = (fn, ms = 15000) => lib.until(fn, ms, 150)
-const LONG = 'Coordinator out of the box: fold the coordinator playbook into the Assistant persona and its skills, with a long title that wraps'
+const LONG = 'Coordinator out of the box: fold the coordinator playbook into the Assistant mode and its skills, with a long title that wraps'
 
 ;(async () => {
   for (const d of [userData, ws, shots]) fs.rmSync(d, { recursive: true, force: true })

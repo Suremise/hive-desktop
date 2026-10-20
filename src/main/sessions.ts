@@ -346,7 +346,7 @@ interface LiveSession {
   turnSeen?: object
   /** This launch resumes a conversation (a failed start's Retry resumes it again). */
   resumed?: boolean
-  /** The Hive Assistant's mode (a persona id) its conversation was last given, started in or told: recorded with it. */
+  /** The Hive Assistant's mode (its id) its conversation was last given, started in or told: recorded with it. */
   mode?: string
   /** Prompts the CLI has reported submitted in this launch (UserPromptSubmit), for sendPrompt's confirm and a wake's (#376). */
   prompts?: number
@@ -760,13 +760,13 @@ class SessionManager {
   onAssistantExit: (projectPath: string) => void = () => undefined
   /** When the user last typed in each terminal (by pty key), so nothing else types over them. */
   private userInput = new Map<string, { at: number; enter: boolean }>()
-  /** The Hive Assistant's instructions for a launch (who it is, and its persona's), and the persona's name and id. */
-  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; persona: string; personaId: string; personaText: string }> = async () => ({ text: '', persona: '', personaId: '', personaText: '' })
+  /** The Hive Assistant's instructions for a launch (who it is, and its mode's), and the mode's name and id. */
+  assistantInstructions: (projectPath: string, agent: AgentDef) => Promise<{ text: string; mode: string; modeId: string; modeText: string }> = async () => ({ text: '', mode: '', modeId: '', modeText: '' })
   /**
-   * A Hive Assistant conversation was resumed in the mode `persona` (an id): main/assistantMode.ts tells it that mode
+   * A Hive Assistant conversation was resumed in the mode `modeId`: main/assistantMode.ts tells it that mode
    * once it is idle, if the conversation was last given another (#334).
    */
-  onAssistantResumed: (projectPath: string, runId: string, sessionId: string, persona: string) => void = () => undefined
+  onAssistantResumed: (projectPath: string, runId: string, sessionId: string, modeId: string) => void = () => undefined
   /** An agent's wake-on-change watch, if it has one (main/watches.ts sets this). */
   watchFor: (projectPath: string, agentId: string) => TaskWatchInfo | null = () => null
 
@@ -1310,7 +1310,7 @@ class SessionManager {
     // Providers that choose their own session id report it once started (see the start hook).
     const sessionId = opts.resumeId ?? (adapter.descriptor.capabilities.fixedSessionId ? randomUUID() : '')
 
-    const persona = assistant ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.persona : undefined
+    const mode = assistant ? (await this.assistantInstructions(projectPath, agent).catch(() => null))?.mode : undefined
     // A /rename in the CLI since the session was last named in Hive is the newer name: Hive takes it, and so passes
     // it back with --name rather than its own.
     let adopted: string | null = null
@@ -1322,7 +1322,7 @@ class SessionManager {
         log.info(`Session ${existing.id} takes the name ${userText(adopted)} it was given in the CLI`)
       }
     }
-    const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${persona ? ` · ${persona}` : ''} · ${formatDateTime(new Date())}` : autoName(projectPath, agent, count))
+    const sessionName = adopted || opts.name?.trim() || existing?.name || (assistant ? `${ASSISTANT_NAME}${mode ? ` · ${mode}` : ''} · ${formatDateTime(new Date())}` : autoName(projectPath, agent, count))
     const key = this.key(projectPath, agentId)
     const runId = randomBytes(12).toString('hex')
     const state: LiveSessionState = {
@@ -1493,7 +1493,7 @@ class SessionManager {
     if (!workspace.isAssistantHome(projectPath)) await newAgentToken({ workspace: workspaceOf(projectPath).path!, projectPath, agentId: agent.id }, state.runId)
     const assistantText = workspace.isAssistantHome(projectPath) ? await this.assistantInstructions(projectPath, agent).catch(() => null) : null
     // A new conversation starts in its mode; a resumed one is told it if it was last given another (below).
-    l.mode = !resume ? assistantText?.personaId || undefined : undefined
+    l.mode = !resume ? assistantText?.modeId || undefined : undefined
     // This launch's own hook token (#345): in its environment for HTTP hooks, in a file outside the project for hook commands.
     const hookAuth = await newHookToken(state.runId)
     const ctx = {
@@ -1645,7 +1645,7 @@ class SessionManager {
     }, 5000)
     // The process runs now: failing to record it (a full disk) must not leave it untracked.
     if (state.sessionId) await this.recordSession(projectPath, agent, l).catch((e) => log.warn(`${userText(this.label(state))}: could not record session ${state.sessionId}`, e))
-    if (resume && state.sessionId && assistantText?.personaId) this.onAssistantResumed(projectPath, state.runId, state.sessionId, assistantText.personaId)
+    if (resume && state.sessionId && assistantText?.modeId) this.onAssistantResumed(projectPath, state.runId, state.sessionId, assistantText.modeId)
 
     // Launched as active: starting a session implies working on the project.
     if (!workspace.isAssistantHome(projectPath) && !workspaceOf(projectPath).activeNames().includes(basename(projectPath))) workspace.setActive(projectPath, true)
@@ -1685,7 +1685,7 @@ class SessionManager {
       agentId: agent.id,
       agentName: agent.name,
       // The Assistant's mode its conversation was last given (a resumed one's is unknown until it is told: assistantMode.ts).
-      ...(l.mode ? { persona: l.mode } : {}),
+      ...(l.mode ? { mode: l.mode } : {}),
       // Providers that choose their own ids file transcripts by date, not folder: remember where.
       ...(l.transcriptPath && !l.adapter.descriptor.capabilities.fixedSessionId ? { transcriptPath: l.transcriptPath } : {}),
       // Where it ran, when not the project folder (a worktree, or the Assistant's workspace folder).
@@ -2293,14 +2293,14 @@ class SessionManager {
   }
 
   /**
-   * The run `runId` of the Hive Assistant was told its mode `persona` (an id): its conversation records it, so a resume
+   * The run `runId` of the Hive Assistant was told its mode `modeId`: its conversation records it, so a resume
    * tells it again only after another switch (#334).
    */
-  async modeGiven(projectPath: string, agentId: string, runId: string, persona: string): Promise<void> {
+  async modeGiven(projectPath: string, agentId: string, runId: string, modeId: string): Promise<void> {
     const l = this.live.get(liveId(projectPath, agentId))
     if (!l || l.state.runId !== runId) return
-    l.mode = persona
-    if (l.state.sessionId) await workspace.upsertSession(projectPath, { id: l.state.sessionId, persona })
+    l.mode = modeId
+    if (l.state.sessionId) await workspace.upsertSession(projectPath, { id: l.state.sessionId, mode: modeId })
   }
 
   /** When the user last typed in an agent's terminal (ms since the epoch), or 0. */

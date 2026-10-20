@@ -2,21 +2,21 @@ import { fmt, msg, tr } from '../shared/i18n'
 import { existsSync } from 'original-fs'
 import { lstat, readdir } from 'original-fs/promises'
 import { join } from 'path'
-import { cleanSwaps, contentHash, readJson, SwapAbandoned, swapIn, swapOut, withFileLock, writeJsonAtomic } from './fsutil'
+import { cleanSwaps, contentHash, readJson, renameRetrying, SwapAbandoned, swapIn, swapOut, withFileLock, writeJsonAtomic } from './fsutil'
 import { createLogger, userText } from './logger'
 import { resourcesDir } from './paths'
 import { revisionOf } from './revisions'
 import { workspace } from './workspace'
 import HISTORY from './bundledHistory.json'
 import { RETIRED_PERSONAS, projectAgents } from '../shared/defaults'
-import { ASSISTANT_AGENT_ID } from '../shared/assistant'
+import { ASSISTANT_AGENT_ID, LEGACY_MODES_DIR, MODES_DIR } from '../shared/assistant'
 import { toast } from './events'
 
 /**
- * Keeps a workspace's copies of Hive's bundled skills and personas up to date, without overriding the user:
+ * Keeps a workspace's copies of Hive's bundled skills and the Assistant's modes up to date, without overriding the user:
  * - a bundled item the workspace was never given is added (a new workspace, or one Hive added since);
  * - a copy the user never changed (a version Hive shipped, older than this one) is updated in place;
- * - a copy the user changed is kept as it is (the Skills and Personas views offer Revert, and say when the copy
+ * - a copy the user changed is kept as it is (the Skills and Modes views offer Revert, and say when the copy
  *   came from an older version);
  * - an item the user deleted stays deleted (the views offer Restore).
  * `.hive/bundled.json` records which items the workspace has been given and the version each copy came from.
@@ -25,18 +25,18 @@ import { toast } from './events'
 
 const log = createLogger('bundled')
 
-export type BundledKind = 'skills' | 'personas'
+export type BundledKind = 'skills' | 'modes'
 
 /** What `.hive/bundled.json` holds: per item, the shipped version its copy was made from (null: not Hive's copy). */
 interface Manifest {
   skills: Record<string, { from: string | null }>
-  personas: Record<string, { from: string | null }>
+  modes: Record<string, { from: string | null }>
 }
 
 /** Items that shipped before Hive kept a manifest: missing from a workspace without one, they were deleted by the user. */
 const BEFORE_MANIFEST: Record<BundledKind, string[]> = {
   skills: ['handover', 'merge-ready', 'pick-up', 'review-agent-work', 'split-work', 'workspace-note'],
-  personas: ['orchestrator', 'overseer', 'planner', 'reviewer']
+  modes: ['orchestrator', 'overseer', 'planner', 'reviewer']
 }
 
 const history = HISTORY as Record<BundledKind, Record<string, string[]>>
@@ -45,7 +45,7 @@ export function bundledDir(kind: BundledKind): string {
   return join(resourcesDir(), kind)
 }
 
-/** A bundled item's path: a skill's folder, a persona's file. */
+/** A bundled item's path: a skill's folder, a mode's file. */
 const itemPath = (dir: string, kind: BundledKind, id: string): string => join(dir, kind === 'skills' ? id : `${id}.md`)
 
 /** The items this version of Hive ships. */
@@ -74,7 +74,7 @@ export interface BundledInput {
   versions: string[]
   /** Whether it shipped before the manifest existed. */
   shippedBefore: boolean
-  /** Whether the folder that holds these exists (a workspace from before personas has no personas folder). */
+  /** Whether the folder that holds these exists (a workspace from before modes has no modes folder). */
   folder: boolean
 }
 
@@ -94,7 +94,7 @@ export function bundledAction(i: BundledInput): BundledAction {
   return was >= 0 && was < i.versions.lastIndexOf(i.shipped) ? 'update' : 'keep'
 }
 
-/** How a workspace copy compares with what this Hive ships, for the Skills and Personas views. */
+/** How a workspace copy compares with what this Hive ships, for the Skills and Modes views. */
 export interface BundledStatus {
   bundled: 'same' | 'changed'
   /** A changed copy made from an older version than this one: Revert also brings in the newer version. */
@@ -107,23 +107,24 @@ async function readManifest(): Promise<Manifest | null> {
   const m = await readJson<Partial<Manifest> | null>(manifestPath(), null)
   if (!m || typeof m !== 'object') return null
   const part = (v: unknown): Manifest['skills'] => (v && typeof v === 'object' ? (v as Manifest['skills']) : {})
-  return { skills: part(m.skills), personas: part(m.personas) }
+  // Until 0.9.3 the modes were personas, and so was their key (#1084).
+  return { skills: part(m.skills), modes: part(m.modes ?? (m as { personas?: unknown }).personas) }
 }
 
 /** Changes the manifest under its lock (another window's sync or a Restore may be writing it). */
 function changeManifest(fn: (m: Manifest) => void): Promise<void> {
   const path = manifestPath()
   return withFileLock(path, async () => {
-    const m = (await readManifest()) ?? { skills: {}, personas: {} }
+    const m = (await readManifest()) ?? { skills: {}, modes: {} }
     fn(m)
     await writeJsonAtomic(path, m)
   })
 }
 
-const folderOf = (kind: BundledKind): string => (kind === 'skills' ? workspace.skillsDir : workspace.personasDir)
+const folderOf = (kind: BundledKind): string => (kind === 'skills' ? workspace.skillsDir : workspace.modesDir)
 
 /**
- * Puts this Hive's version of an item in the workspace (swapIn: a skill's folder or a persona's file, all at once). An
+ * Puts this Hive's version of an item in the workspace (swapIn: a skill's folder or a mode's file, all at once). An
  * automatic update or add passes what the copy was when it was decided (its contentHash, or null: none): if the user
  * changed, deleted or replaced it since, SwapAbandoned, and theirs stays. Restore and Revert, which the user asked for,
  * pass nothing.
@@ -138,15 +139,16 @@ function shippedVersion(kind: BundledKind): (old: string, name: string) => Promi
 }
 
 /**
- * Brings the workspace's bundled skills and personas up to date (each time it opens; `fresh` for a workspace Hive has
+ * Brings the workspace's bundled skills and modes up to date (each time it opens; `fresh` for a workspace Hive has
  * just set up). One item that can't be updated (a file in it open) is left as it is until the next time; the others go
  * ahead.
  */
 export async function syncBundled(opts: { fresh?: boolean } = {}): Promise<void> {
   await withFileLock(manifestPath(), async () => {
+    await moveLegacyModes()
     const before = await readManifest()
-    const m: Manifest = before ?? { skills: {}, personas: {} }
-    for (const kind of ['skills', 'personas'] as const) {
+    const m: Manifest = before ?? { skills: {}, modes: {} }
+    for (const kind of ['skills', 'modes'] as const) {
       const folder = folderOf(kind)
       // A workspace Hive has just set up has empty folders: nothing in it was deleted.
       const hadFolder = !opts.fresh && existsSync(folder)
@@ -164,7 +166,7 @@ export async function syncBundled(opts: { fresh?: boolean } = {}): Promise<void>
             // Only over the copy this was decided on (or into an empty place): a change of the user's meanwhile wins.
             await install(kind, id, copy)
             m[kind][id] = { from: shipped }
-            log.info(`${action === 'add' ? 'Added' : 'Updated'} the bundled ${kind === 'skills' ? 'skill' : 'persona'} ${userText(id)}`)
+            log.info(`${action === 'add' ? 'Added' : 'Updated'} the bundled ${kind === 'skills' ? 'skill' : 'mode'} ${userText(id)}`)
           } else if (action === 'deleted') m[kind][id] ??= { from: null }
           else if (copy === shipped) m[kind][id] = { from: shipped }
           // A changed copy keeps the version it came from; one Hive never gave (a same-name folder of the user's) has none.
@@ -172,16 +174,35 @@ export async function syncBundled(opts: { fresh?: boolean } = {}): Promise<void>
         } catch (e) {
           // The user changed it meanwhile: it is theirs now, as the next scan will see; the manifest isn't changed.
           if (e instanceof SwapAbandoned) {
-            log.info(`Left the bundled ${kind === 'skills' ? 'skill' : 'persona'} ${userText(id)} as it is: it changed while Hive was ${action === 'add' ? 'adding' : 'updating'} it`)
+            log.info(`Left the bundled ${kind === 'skills' ? 'skill' : 'mode'} ${userText(id)} as it is: it changed while Hive was ${action === 'add' ? 'adding' : 'updating'} it`)
             continue
           }
-          log.warn(`Could not ${action === 'add' ? 'add' : 'update'} the bundled ${kind === 'skills' ? 'skill' : 'persona'} ${userText(id)}; trying again next time`, e)
+          log.warn(`Could not ${action === 'add' ? 'add' : 'update'} the bundled ${kind === 'skills' ? 'skill' : 'mode'} ${userText(id)}; trying again next time`, e)
         }
       }
     }
     await retirePersonas(m)
     await writeJsonAtomic(manifestPath(), m)
   })
+}
+
+/**
+ * Until 0.9.3 the modes were personas, in .hive/personas (#1084): the folder is moved to .hive/modes as it is, the
+ * user's edits and the copies bundled.json tracks with it, as the workspace opens (before its folders are watched, which
+ * would hold them). One that can't be moved now (a file in it open) is used where it is (workspace.modesDir) and moved
+ * the next time; one an older Hive made again beside .hive/modes is left alone.
+ */
+async function moveLegacyModes(): Promise<void> {
+  const from = join(workspace.hiveDir, LEGACY_MODES_DIR)
+  const to = join(workspace.hiveDir, MODES_DIR)
+  if (existsSync(to) || !existsSync(from)) return
+  try {
+    // A moment's lock (an indexer, a virus scan) is waited out; a file held open fails it.
+    await renameRetrying(from, to)
+    log.info("Moved the Assistant's modes from .hive/personas to .hive/modes")
+  } catch (e) {
+    log.warn('Could not move .hive/personas to .hive/modes: its modes are used where they are until the next time', e)
+  }
 }
 
 /**
@@ -194,11 +215,11 @@ async function retirePersonas(m: Manifest): Promise<void> {
   // The modes' own names, as their files name them.
   const name = (id: string): string => (id === 'qa-triager' ? 'QA triager' : id.charAt(0).toUpperCase() + id.slice(1)) // i18n-ignore: a mode's name
   for (const [id, mode] of Object.entries(RETIRED_PERSONAS)) {
-    const dest = itemPath(workspace.personasDir, 'personas', id)
+    const dest = itemPath(workspace.modesDir, 'modes', id)
     const present = await lstat(dest).then(() => true, () => false)
     if (present) {
       const copy = await contentHash(dest).catch(() => 'unreadable')
-      if (!(history.personas[id] ?? []).includes(copy)) continue
+      if (!(history.modes[id] ?? []).includes(copy)) continue
       try {
         // Only while it is still that copy: an edit or a replacement of the user's meanwhile stays (swapOut).
         await swapOut(dest, copy)
@@ -209,7 +230,7 @@ async function retirePersonas(m: Manifest): Promise<void> {
         continue
       }
     }
-    delete m.personas[id]
+    delete m.modes[id]
     // One of the user's in its place meanwhile (made while it was being removed): theirs, and the choice of it stays.
     if (await lstat(dest).then(() => true, () => false)) continue
     if (await chooseModeFor(id, mode)) moved.push(`${name(id)} → ${name(mode)}`)
@@ -218,8 +239,8 @@ async function retirePersonas(m: Manifest): Promise<void> {
   if (moved.length)
     toast(
       'info',
-      tr(msg({ id: 'main.personas.retiredTitle', defaultMessage: "The Assistant's personas are now working modes", description: "A notice once, after an update: the Assistant's character personas became working modes." })),
-      tr(msg({ id: 'main.personas.retiredBody', defaultMessage: "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.", description: 'The notice that personas became working modes. The four names are the modes\' own names: keep them. {moved} lists which persona became which mode ("Pirate → Coordinator").' }), { moved: fmt.list(moved) })
+      tr(msg({ id: 'main.modes.retiredTitle', defaultMessage: "The Assistant's personas are now working modes", description: "A notice once, after an update: the Assistant's character personas became working modes." })),
+      tr(msg({ id: 'main.modes.retiredBody', defaultMessage: "Coordinator, Planner, QA triager and Release manager replace Hive's character personas ({moved}). Switch modes from the Assistant's header; your own personas are unchanged.", description: 'The notice that personas became working modes. The four names are the modes\' own names: keep them. {moved} lists which persona became which mode ("Pirate → Coordinator").' }), { moved: fmt.list(moved) })
     )
 }
 
@@ -230,14 +251,14 @@ async function retirePersonas(m: Manifest): Promise<void> {
 async function chooseModeFor(id: string, mode: string): Promise<boolean> {
   const home = workspace.assistantHome
   // Most workspaces never chose it: nothing is written then.
-  if ((await workspace.projectConfig(home).catch(() => null))?.agents?.find((a) => a.id === ASSISTANT_AGENT_ID)?.persona !== id) return false
+  if ((await workspace.projectConfig(home).catch(() => null))?.agents?.find((a) => a.id === ASSISTANT_AGENT_ID)?.mode !== id) return false
   let moved = false
   await workspace
     .mutateProjectConfig(home, (cfg) => {
       const agents = projectAgents(cfg)
-      if (agents.find((a) => a.id === ASSISTANT_AGENT_ID)?.persona !== id) return {}
+      if (agents.find((a) => a.id === ASSISTANT_AGENT_ID)?.mode !== id) return {}
       moved = true
-      return { agents: agents.map((a) => (a.id === ASSISTANT_AGENT_ID ? { ...a, persona: mode } : a)) }
+      return { agents: agents.map((a) => (a.id === ASSISTANT_AGENT_ID ? { ...a, mode } : a)) }
     })
     .catch((e) => log.warn('moving the Assistant to its mode', e))
   return moved

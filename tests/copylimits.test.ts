@@ -217,14 +217,14 @@ describe('writes that take less than they are given', () => {
     expect(out.rich).toEqual({ revision: await contentHash(s) })
   })
 
-  it("a file swap (a persona's) is completed byte for byte too", async () => {
+  it("a file swap (a mode's) is completed byte for byte too", async () => {
     const root = join(base, 'short-file')
     mkdirSync(root, { recursive: true })
     const src = join(root, 'src.md')
     writeFileSync(src, '日本語 🐝 '.repeat(30000))
     hooks.writes = 'short'
-    const revision = await swapIn(src, join(root, 'persona.md'))
-    expect(readFileSync(join(root, 'persona.md')).equals(readFileSync(src))).toBe(true)
+    const revision = await swapIn(src, join(root, 'mode.md'))
+    expect(readFileSync(join(root, 'mode.md')).equals(readFileSync(src))).toBe(true)
     expect(revision).toBe(await contentHash(src))
   })
 

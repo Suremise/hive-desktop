@@ -71,7 +71,7 @@ const check = (name, ok, extra = '') => {
   }
   const record = (id) => sessionsOf(home).sessions.find((s) => s.id === id) ?? {}
   const modeMenu = async () => {
-    await panel.locator('.assistant-persona').click()
+    await panel.locator('.assistant-mode').click()
     await lib.until(async () => (await page.locator('.menu .menu-item').count()) > 0, HUNG_MS)
   }
   const pick = async (label) => {
@@ -83,13 +83,13 @@ const check = (name, ok, extra = '') => {
   await page.evaluate(() => document.activeElement?.blur())
   await page.keyboard.press('Control+Alt+I')
   await lib.until(async () => (await panel.locator('.assistant-header').count()) === 1, 5000)
-  check('the header shows Coordinator, the default mode', !!(await lib.until(async () => (await panel.locator('.assistant-persona').innerText()).includes('Coordinator'), 5000)), await panel.locator('.assistant-persona').innerText())
+  check('the header shows Coordinator, the default mode', !!(await lib.until(async () => (await panel.locator('.assistant-mode').innerText()).includes('Coordinator'), 5000)), await panel.locator('.assistant-mode').innerText())
   await panel.locator('.assistant-header').getByRole('button', { name: 'Start', exact: true }).click()
   check('the Assistant runs', !!(await lib.until(async () => (await live())?.status === 'ready', 20000)))
   const session = (await live()).sessionId
   const given = fs.readFileSync(path.join(home, '.hive', 'launch-assistant', 'instructions.md'), 'utf8')
   check('its instructions are the mode, and say it may suggest another', given.includes('# Your mode: Coordinator') && /suggest switching in one short line; never switch or insist/.test(given), given.slice(-400))
-  check('…its conversation records the mode it started in', record(session).persona === 'coordinator', JSON.stringify(record(session)))
+  check('…its conversation records the mode it started in', record(session).mode === 'coordinator', JSON.stringify(record(session)))
   check('…and its first request records Coordinator as its system prompt', (await promptMode(session)) === 'Coordinator')
 
   // --- The menu: the four modes, switching keeps the conversation.
@@ -112,8 +112,8 @@ const check = (name, ok, extra = '') => {
   check('switching to Planner tells it at once, in its conversation', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: Planner (chosen by the user). Lead with the open design questions'), lib.TURN_HUNG_MS)), (await buffer()).slice(-400))
   check('…ending with Hive\'s own sentence', !!(await lib.until(async () => (await buffer()).includes('Your tools and permissions are unchanged.'), 10000)), JSON.stringify((await buffer()).slice(-600)))
   check('…without a restart: the same session', (await live())?.sessionId === session, `${session} → ${(await live())?.sessionId}`)
-  check('…saved for the workspace, and the header shows it', !!(await lib.until(async () => agentFile().persona === 'planner' && (await panel.locator('.assistant-persona').innerText()).includes('Planner'), 10000)), `${JSON.stringify(agentFile())}; header: ${await panel.locator('.assistant-persona').innerText()}`)
-  check('…and recorded as the mode its conversation was last given', !!(await lib.until(async () => record(session).persona === 'planner', 5000)), JSON.stringify(record(session)))
+  check('…saved for the workspace, and the header shows it', !!(await lib.until(async () => agentFile().mode === 'planner' && (await panel.locator('.assistant-mode').innerText()).includes('Planner'), 10000)), `${JSON.stringify(agentFile())}; header: ${await panel.locator('.assistant-mode').innerText()}`)
+  check('…and recorded as the mode its conversation was last given', !!(await lib.until(async () => record(session).mode === 'planner', 5000)), JSON.stringify(record(session)))
 
   // --- Working: told once it has finished.
   const working = await prompts.type('work 6')
@@ -121,7 +121,7 @@ const check = (name, ok, extra = '') => {
   await pick('QA triager')
   await lib.sleep(1000) // on purpose: nothing is typed into a working Assistant
   check('switching while it works types nothing yet', !(await buffer()).includes('[Hive] Mode: QA triager'))
-  check('…and is saved at once', agentFile().persona === 'qa-triager', JSON.stringify(agentFile()))
+  check('…and is saved at once', agentFile().mode === 'qa-triager', JSON.stringify(agentFile()))
   check('…then told once it has finished', !!(await lib.until(async () => (await buffer()).includes('[Hive] Mode: QA triager (chosen by the user). Take a report'), lib.TURN_HUNG_MS)))
   check('…and sent (in its conversation once)', !!(await lib.until(async () => told(session, 'QA triager') === 1, lib.TURN_HUNG_MS)), String(told(session, 'QA triager')))
   check('…still the same session', (await live())?.sessionId === session)
@@ -144,7 +144,7 @@ const check = (name, ok, extra = '') => {
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)
   await pick('Release manager')
-  check('switching while it is stopped saves the mode for its next launch', !!(await lib.until(async () => agentFile().persona === 'release-manager', 5000)), JSON.stringify(agentFile()))
+  check('switching while it is stopped saves the mode for its next launch', !!(await lib.until(async () => agentFile().mode === 'release-manager', 5000)), JSON.stringify(agentFile()))
   check('…and tells nothing yet', told(session, 'Release manager') === 0)
 
   // --- Resumed after a switch while it was stopped: told the mode once it is idle, once (#334). The fake loses Enter
@@ -157,7 +157,7 @@ const check = (name, ok, extra = '') => {
   check('…the same conversation', (await live())?.sessionId === session)
   const resumedMode = await promptMode(session)
   check("…and its system prompt is the mode's", resumedMode === 'Release manager', resumedMode)
-  check('…recorded as the mode it was last given', record(session).persona === 'release-manager', JSON.stringify(record(session)))
+  check('…recorded as the mode it was last given', record(session).mode === 'release-manager', JSON.stringify(record(session)))
   await inv('session:stop', home, 'assistant')
   await lib.until(async () => !(await live()), 15000)
   await inv('session:start', home, { resumeId: session, agentId: 'assistant' })

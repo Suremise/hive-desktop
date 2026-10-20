@@ -6,7 +6,7 @@ import { currentWorkspace, workspaceFor, type WorkspaceService } from './workspa
 import { metricsHandle, recordSkills } from './metrics'
 
 /**
- * The revisions (contentHash) of skills and personas, and their SKILL.md headers (headerOf), kept so a status poll doesn't read every file again: one
+ * The revisions (contentHash) of skills and modes, and their SKILL.md headers (headerOf), kept so a status poll doesn't read every file again: one
  * inventory per open workspace, and one for what ships with Hive. A kept revision is used only while its path's
  * treeSignature (sizes, times, file ids; no file contents) is the one it was taken with, so an edit, a new file or a
  * restore is hashed again on the next call and a stale revision is never given. A workspace's inventory goes when it
@@ -21,7 +21,7 @@ interface Kept {
 }
 
 /**
- * How much each inventory keeps. Revisions: the workspace's skills (at most MAX_SKILL_FOLDERS, 1000) and personas,
+ * How much each inventory keeps. Revisions: the workspace's skills (at most MAX_SKILL_FOLDERS, 1000) and modes,
  * with room to spare. Headers: those, plus the user's, plugin and projects' local skills Hive lists, and a byte budget,
  * since a description can be long. Within them a repeated scan reads nothing; past them the least recently used entries
  * go one at a time, never all at once.
@@ -118,7 +118,7 @@ function inventoryFor(path: string): Inventory {
 }
 
 /**
- * A skill's or persona's revision (contentHash), hashed again only when its signature has changed. Rejects like
+ * A skill's or mode's revision (contentHash), hashed again only when its signature has changed. Rejects like
  * contentHash: a missing path, ContentTooLarge, or the workspace closing.
  *
  * Too big is decided without reading where it can be: over the entry or depth limit, the signature's walk stops (a

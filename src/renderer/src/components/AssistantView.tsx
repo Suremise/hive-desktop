@@ -7,7 +7,7 @@ import { cx, formatNumber, formatTokens } from '../util'
 import { SessionsTab } from '../views/SessionsTab'
 import { AttachmentsTab } from '../views/FilesTab'
 import { PERIODS, costText, periodFrom, sumUsage, useSessions, type Period } from '../views/ProjectTabs'
-import { PERSONAS_TIP, PersonaList, PersonaView, createPersona } from './Personas'
+import { MODES_TIP, ModeList, ModeView, createMode } from './Modes'
 import { Section } from './Sidebar'
 import { Icon, IconButton, InfoTip, Tooltip } from './ui'
 import { JournalView } from './JournalView'
@@ -68,16 +68,16 @@ export function AssistantSidePanel() {
             <AssistantSummary assistant={a} />
             <Section
               title={tr(M.modes)}
-              tip={tr(PERSONAS_TIP)}
+              tip={tr(MODES_TIP)}
               buttons={
                 <>
-                  <IconButton icon="add" title={tr(M.newMode)} onClick={() => void createPersona()} />
-                  <IconButton icon="refresh" title={tr(M.refresh)} onClick={() => set((s) => ({ personasVersion: s.personasVersion + 1 }))} />
-                  <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\personas`)} />
+                  <IconButton icon="add" title={tr(M.newMode)} onClick={() => void createMode()} />
+                  <IconButton icon="refresh" title={tr(M.refresh)} onClick={() => set((s) => ({ modesVersion: s.modesVersion + 1 }))} />
+                  <IconButton icon="folder-opened" title={tr(M.openFolder)} onClick={() => void call('app:openPath', `${workspace.path}\\.hive\\modes`)} />
                 </>
               }
             >
-              <PersonaList />
+              <ModeList />
             </Section>
             <Section title={tr(M.conversations)}>
               <NavRow section="conversations" shown={section} icon="comment-discussion" label={tr(M.allConversations)} />
@@ -96,7 +96,7 @@ export function AssistantSidePanel() {
   )
 }
 
-type ViewSection = 'conversations' | 'personas' | 'images' | 'journal' | 'digests'
+type ViewSection = 'conversations' | 'modes' | 'images' | 'journal' | 'digests'
 
 /** A row that shows a section in the main area: a tab stop, Enter or Space shows it, the one shown is the current page (#1033 round 2). */
 function NavRow({ section, shown, icon, label }: { section: ViewSection; shown: ViewSection; icon: string; label: string }) {
@@ -162,11 +162,11 @@ function Stat({ label, value, tip }: { label: string; value: string; tip?: strin
   return tip ? <Tooltip content={tip}>{body}</Tooltip> : body
 }
 
-/** The main area: the conversation browser, the attachments, the journal (#1033), or the selected persona. */
+/** The main area: the conversation browser, the attachments, the journal (#1033), or the selected mode. */
 export function AssistantMain() {
   const a = useStore((s) => s.workspace?.assistant ?? null)
   const section = useStore((s) => s.assistantSection)
-  if (section === 'personas') return <PersonaView />
+  if (section === 'modes') return <ModeView />
   if (section === 'journal' || section === 'digests') return <JournalView key={section} digests={section === 'digests'} />
   if (section === 'images' && a) return <AttachmentsTab project={a} assistant />
   if (!a) {

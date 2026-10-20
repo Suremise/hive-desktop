@@ -145,11 +145,11 @@ interface HiveMessageValues {
   'shell.command.view.devTools': undefined
   'shell.command.view.fullScreen': undefined
   'shell.command.view.mcp': undefined
+  'shell.command.view.modes': undefined
   'shell.command.view.notes': undefined
   'shell.command.view.notifications': undefined
   'shell.command.view.overview': undefined
   'shell.command.view.performance': undefined
-  'shell.command.view.personas': undefined
   'shell.command.view.projects': undefined
   'shell.command.view.reload': undefined
   'shell.command.view.skills': undefined

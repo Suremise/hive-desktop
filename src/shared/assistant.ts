@@ -14,10 +14,15 @@ export const ASSISTANT_DIR = 'assistant'
 /** Its agent's id (the home's only agent). */
 export const ASSISTANT_AGENT_ID = 'assistant'
 export const ASSISTANT_NAME = 'Assistant'
-/** Where the workspace's personas are, in its .hive folder. */
-export const PERSONAS_DIR = 'personas'
-/** The mode (a persona file) new conversations use unless Settings or the workspace chooses another (#259). */
-export const DEFAULT_PERSONA = 'coordinator'
+/** Where the workspace's modes are, in its .hive folder. */
+export const MODES_DIR = 'modes'
+/**
+ * Where they were until 0.9.3, when modes were called personas (#1084): moved to MODES_DIR as the workspace opens, and
+ * still read while there is no MODES_DIR (an older Hive may make it again), in 0.9.3 only.
+ */
+export const LEGACY_MODES_DIR = 'personas'
+/** The mode (a file in MODES_DIR) new conversations use unless Settings or the workspace chooses another (#259). */
+export const DEFAULT_MODE = 'coordinator'
 
 export { RETIRED_PERSONAS } from './defaults'
 
@@ -60,16 +65,16 @@ export function assistantProjectConfig(cfg: ProjectConfig, settings: Pick<AppSet
   }
 }
 
-/** The persona a new Assistant conversation takes: the workspace's choice, else Settings → Assistant's. */
-export function assistantPersona(agent: { persona?: string } | null | undefined, settings: Pick<AppSettings, 'assistant'> | null | undefined): string {
-  return agent?.persona || settings?.assistant?.persona || DEFAULT_PERSONA
+/** The mode a new Assistant conversation takes: the workspace's choice, else Settings → Assistant's. */
+export function assistantModeId(agent: { mode?: string } | null | undefined, settings: Pick<AppSettings, 'assistant'> | null | undefined): string {
+  return agent?.mode || settings?.assistant?.mode || DEFAULT_MODE
 }
 
 /**
- * A persona (mode) file's header (name, description, icon, and summary: its habits in a few lines, on one line or as
+ * A mode file's header (name, description, icon, and summary: its habits in a few lines, on one line or as
  * an indented `summary: |` block) and its instructions.
  */
-export function parsePersona(text: string): { name?: string; description?: string; icon?: string; summary?: string; body: string } {
+export function parseMode(text: string): { name?: string; description?: string; icon?: string; summary?: string; body: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (!m) return { body: text.trim() }
   const out: { name?: string; description?: string; icon?: string; summary?: string; body: string } = { body: text.slice(m[0].length).trim() }
@@ -90,7 +95,7 @@ export function parsePersona(text: string): { name?: string; description?: strin
 }
 
 /**
- * A mode's habits in a few lines, for the message that switches the Assistant to it: its summary, else (a persona the
+ * A mode's habits in a few lines, for the message that switches the Assistant to it: its summary, else (a mode the
  * user wrote without one) the first lines of its instructions, headings left out.
  */
 export function modeSummary(p: { summary?: string; body: string }): string {
@@ -116,14 +121,14 @@ export function modeMessage(name: string, summary: string): string {
 }
 
 /** A new mode's description until the user writes one (the window shows it in its language while the file has it, #889). */
-export const NEW_PERSONA_DESCRIPTION = 'What this mode is for, in one line.'
+export const NEW_MODE_DESCRIPTION = 'What this mode is for, in one line.'
 
 /** A new mode's file: a header and a starting point for its instructions. */
-export function newPersonaText(name: string): string {
-  return `---\nname: ${name}\ndescription: ${NEW_PERSONA_DESCRIPTION}\nicon: 🐝\nsummary: |\n  Its habits in a few lines: what Hive tells the Assistant when you switch to it.\n---\n\nYou are in **${name}** mode.\n\nDescribe how the Assistant works in it: what it puts first, its habits and the shape of what it hands back.\n`
+export function newModeText(name: string): string {
+  return `---\nname: ${name}\ndescription: ${NEW_MODE_DESCRIPTION}\nicon: 🐝\nsummary: |\n  Its habits in a few lines: what Hive tells the Assistant when you switch to it.\n---\n\nYou are in **${name}** mode.\n\nDescribe how the Assistant works in it: what it puts first, its habits and the shape of what it hands back.\n`
 }
 
-/** A persona id from a name: lower case, words joined by hyphens. */
-export function personaId(name: string): string {
+/** A mode id from a name: lower case, words joined by hyphens. */
+export function modeId(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
