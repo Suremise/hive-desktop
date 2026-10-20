@@ -33,6 +33,7 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 - Repeat the fixed test under the load that showed the flake, on a verified build (`--build --record`): the suite with its neighbours five times (`npm run e2e -- <suite> <neighbours> --build --record --repeat 5`), or the unit test's files five times under load (step 1). A repeat of one suite alone doesn't count as that load. A later pass doesn't make up for an earlier failure: start a new repeat. These focused repeats, with the cause shown and their run record, are the proof the card needs.
 - The full-set check is the next full run on the integration branch, when the lanes go quiet, or before the release (#1010: merges run focused checks only, tests/e2e/README.md). Don't run or repeat the full set for the card unless the user asks. A failure there in another lane's suite doesn't count against the card: add a card for it.
 - Where it is cheap, check that the old wait fails in the same conditions. A fix that passes either way proves nothing.
+- **Keep every proof run's output and cite it on the card**, or the reviewer can't inspect the proof and the round is lost (#981, #1149, #1150). An e2e repeat with `--record` keeps its logs and run record in its run folder (`logs\run-<date>-<time>`); anything else (a unit test's repeats, a spinner's or a script's output) is written to a new folder from `lib.probeDir('<card>-proof')`, never to the console alone. For each proof, the card says the command, the load (the suites beside it, `--jobs`, how many spinner workers), the number of runs and the passes, with the folder's full path: "5/5 passed with 3 neighbours, `--jobs 4` and 2 spinner workers: `C:\Users\…\hive-test\e2e\logs\run-…`". A path a card cites is kept from the runners' pruning while the card isn't Done ([tests/e2e/README.md](../../../tests/e2e/README.md), Housekeeping: evidence stays).
 
 ## 5. Closing
 
@@ -41,4 +42,4 @@ A flake is a test whose result depends on timing or on what else is running. Eac
 
 ## Report
 
-Cause, evidence (run folders and their paths, commits), fix (what changed and why it's a condition), and runs (commands, counts, load, environment). Follow [tests/e2e/README.md](../../../tests/e2e/README.md) for the runner, the record and `--repeat`, and AGENTS.md for test isolation: don't restate them here.
+Cause, evidence (run folders by their full paths, kept as step 4 says, and commits), fix (what changed and why it's a condition), and runs (commands, counts, load, environment). Follow [tests/e2e/README.md](../../../tests/e2e/README.md) for the runner, the record and `--repeat`, and AGENTS.md for test isolation: don't restate them here.
